@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  min-height: 100vh;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.dark body, .dark #root {
+  background-color: #0a0a0a;
+}
+
+body, #root {
+  background-color: #fafafa;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #404040 transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #404040;
+  border-radius: 3px;
+}
+
+/* Premium fashion typography */
+.font-display {
+  font-family: 'Playfair Display', Georgia, serif;
+}
+
+/* App loader (moved from index.html inline style) */
+#app-loader {
+  position: fixed; inset: 0; z-index: 99999;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #0a0a0a 0%, #171717 50%, #0a0a0a 100%);
+  font-family: 'Inter', system-ui, sans-serif;
+  transition: opacity 0.4s ease, visibility 0.4s ease;
+}
+#app-loader.loaded { opacity: 0; visibility: hidden; pointer-events: none; }
+#app-loader .loader-title {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 32px; font-weight: 700; letter-spacing: 8px;
+  color: #ffffff; margin-bottom: 8px;
+  text-transform: uppercase;
+}
+#app-loader .loader-line { width: 120px; height: 2px; background: #ffffff; margin-bottom: 16px; }
+#app-loader .loader-subtitle { font-size: 12px; color: #737373; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 40px; }
+#app-loader .loader-bar-track { width: 200px; height: 2px; background: #262626; border-radius: 4px; overflow: hidden; }
+#app-loader .loader-bar {
+  height: 100%; width: 30%;
+  background: linear-gradient(90deg, #404040, #ffffff, #404040);
+  border-radius: 4px; animation: loader-slide 1.4s ease-in-out infinite;
+}
+@keyframes loader-slide {
+  0% { transform: translateX(-100%); }
+  50% { transform: translateX(250%); }
+  100% { transform: translateX(-100%); }
+}
+
+/* 80mm POS Receipt Print */
+@media print {
+  body * { visibility: hidden; }
+  #printable-receipt, #printable-receipt * { visibility: visible; }
+  #printable-receipt { position: absolute; left: 0; top: 0; width: 80mm; margin: 0; padding: 0; border: none; box-shadow: none; }
+}
