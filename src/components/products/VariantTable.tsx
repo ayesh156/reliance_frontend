@@ -11,16 +11,21 @@ interface VariantTableProps {
 }
 
 export const VariantTable: React.FC<VariantTableProps> = ({ variants, onChange, productName }) => {
-  const addVariant = () => {
+ const addVariant = () => {
     const next = variants.length + 1;
-    const base = (productName || 'PROD').slice(0, 3).toUpperCase();
+    const cleanPrefix = (productName || 'PROD')
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .slice(0, 4)
+      .toUpperCase() || 'PROD';
+    const paddedIndex = String(next).padStart(4, '0');
+
     onChange([
       ...variants,
       {
         key: `var-${Date.now()}-${next}`,
-        size: 'M',
-        color: 'Black',
-        sku: `${base}-${Date.now().toString().slice(-4)}-${next}`,
+        size: '',
+        color: '',
+        sku: `${cleanPrefix}-${paddedIndex}`,
         barcode: '',
         costPrice: 0,
         retailPrice: 0,
@@ -38,6 +43,10 @@ export const VariantTable: React.FC<VariantTableProps> = ({ variants, onChange, 
 
   const updateField = (key: string, field: keyof VariantItem, value: any) => {
     onChange(variants.map(v => (v.key === key ? { ...v, [field]: value } : v)));
+  };
+
+  const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    e.target.select();
   };
 
   return (
@@ -71,15 +80,91 @@ export const VariantTable: React.FC<VariantTableProps> = ({ variants, onChange, 
           <tbody className="divide-y divide-slate-200 dark:divide-zinc-800/60">
             {variants.map(v => (
               <tr key={v.key}>
-                <td className="p-1"><Input value={v.size} onChange={e => updateField(v.key, 'size', e.target.value)} className="w-16 h-8 text-center" /></td>
-                <td className="p-1"><Input value={v.color} onChange={e => updateField(v.key, 'color', e.target.value)} className="w-20 h-8 text-center" /></td>
-                <td className="p-1"><Input value={v.sku} onChange={e => updateField(v.key, 'sku', e.target.value)} className="w-28 h-8 font-mono text-[11px]" /></td>
-                <td className="p-1"><Input value={v.barcode} onChange={e => updateField(v.key, 'barcode', e.target.value)} placeholder="Scan Barcode" className="w-28 h-8 font-mono text-[11px]" /></td>
-                <td className="p-1"><Input type="number" value={v.retailPrice} onChange={e => updateField(v.key, 'retailPrice', parseFloat(e.target.value) || 0)} className="w-20 h-8 text-emerald-600 font-semibold" /></td>
-                <td className="p-1"><Input type="number" value={v.wholesalePrice} onChange={e => updateField(v.key, 'wholesalePrice', parseFloat(e.target.value) || 0)} className="w-20 h-8 text-amber-600 font-semibold" /></td>
-                <td className="p-1"><Input type="number" value={v.comparePrice || ''} onChange={e => updateField(v.key, 'comparePrice', parseFloat(e.target.value) || 0)} placeholder="Old" className="w-18 h-8 opacity-75" /></td>
-                <td className="p-1"><Input type="number" value={v.costPrice} onChange={e => updateField(v.key, 'costPrice', parseFloat(e.target.value) || 0)} className="w-18 h-8 text-slate-500" /></td>
-                <td className="p-1"><Input type="number" value={v.stock} onChange={e => updateField(v.key, 'stock', parseInt(e.target.value, 10) || 0)} className="w-16 h-8 text-center font-bold" /></td>
+                <td className="p-1">
+                  <Input 
+                    value={v.size || ''} 
+                    placeholder="M"
+                    onFocus={handleFocus}
+                    onChange={e => updateField(v.key, 'size', e.target.value)} 
+                    className="w-16 h-8 text-center" 
+                  />
+                </td>
+                <td className="p-1">
+                  <Input 
+                    value={v.color || ''} 
+                    placeholder="Black"
+                    onFocus={handleFocus}
+                    onChange={e => updateField(v.key, 'color', e.target.value)} 
+                    className="w-20 h-8 text-center" 
+                  />
+                </td>
+                <td className="p-1">
+                  <Input 
+                    value={v.sku} 
+                    onFocus={handleFocus}
+                    onChange={e => updateField(v.key, 'sku', e.target.value)} 
+                    className="w-28 h-8 font-mono text-[11px]" 
+                  />
+                </td>
+                <td className="p-1">
+                  <Input 
+                    value={v.barcode || ''} 
+                    onFocus={handleFocus}
+                    onChange={e => updateField(v.key, 'barcode', e.target.value)} 
+                    placeholder="Scan Barcode" 
+                    className="w-28 h-8 font-mono text-[11px]" 
+                  />
+                </td>
+                <td className="p-1">
+                  <Input 
+                    type="number" 
+                    value={v.retailPrice === 0 ? '' : v.retailPrice} 
+                    placeholder="0"
+                    onFocus={handleFocus}
+                    onChange={e => updateField(v.key, 'retailPrice', parseFloat(e.target.value) || 0)} 
+                    className="w-20 h-8 text-emerald-600 font-semibold" 
+                  />
+                </td>
+                <td className="p-1">
+                  <Input 
+                    type="number" 
+                    value={v.wholesalePrice === 0 ? '' : v.wholesalePrice} 
+                    placeholder="0"
+                    onFocus={handleFocus}
+                    onChange={e => updateField(v.key, 'wholesalePrice', parseFloat(e.target.value) || 0)} 
+                    className="w-20 h-8 text-amber-600 font-semibold" 
+                  />
+                </td>
+                <td className="p-1">
+                  <Input 
+                    type="number" 
+                    value={!v.comparePrice ? '' : v.comparePrice} 
+                    placeholder="Old" 
+                    onFocus={handleFocus}
+                    onChange={e => updateField(v.key, 'comparePrice', parseFloat(e.target.value) || 0)} 
+                    className="w-18 h-8 opacity-75" 
+                  />
+                </td>
+                <td className="p-1">
+                  <Input 
+                    type="number" 
+                    value={v.costPrice === 0 ? '' : v.costPrice} 
+                    placeholder="0"
+                    onFocus={handleFocus}
+                    onChange={e => updateField(v.key, 'costPrice', parseFloat(e.target.value) || 0)} 
+                    className="w-18 h-8 text-slate-500" 
+                  />
+                </td>
+                <td className="p-1">
+                  <Input 
+                    type="number" 
+                    value={v.stock === 0 ? '' : v.stock} 
+                    placeholder="0"
+                    onFocus={handleFocus}
+                    onChange={e => updateField(v.key, 'stock', parseInt(e.target.value, 10) || 0)} 
+                    className="w-16 h-8 text-center font-bold" 
+                  />
+                </td>
                 <td className="p-1 text-center">
                   <button type="button" onClick={() => removeVariant(v.key)} className="p-1 text-rose-500 hover:bg-rose-500/10 rounded-lg">
                     <Trash2 className="size-3.5" />

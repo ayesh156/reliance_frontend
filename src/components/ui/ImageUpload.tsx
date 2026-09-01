@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "react"
-import { UploadCloud, Image as ImageIcon, X } from "lucide-react"
+import { UploadCloud, Image as ImageIcon, X, Loader2 } from "lucide-react"
+import imageCompression from "browser-image-compression"
 import { cn } from "../../lib/utils"
 
 export interface ImageUploadProps {
@@ -21,18 +22,48 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [compressing, setCompressing] = useState(false)
+  const [progress, setProgress] = useState(0)
 
-  const handleFile = (file: File) => {
+  const handleFile = async (file: File) => {
     if (!file.type.startsWith("image/")) {
       return
     }
 
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      const result = e.target?.result as string
-      onChange(result)
+    const options = {
+      maxSizeMB: 0.6, // Max ~600KB
+      maxWidthOrHeight: 1280, // Max 1280px resolution
+      useWebWorker: true,
+      onProgress: (p: number) => {
+        setProgress(p)
+      },
     }
-    reader.readAsDataURL(file)
+
+    try {
+      setCompressing(true)
+      setProgress(10)
+      const compressedFile = await imageCompression(file, options)
+
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const result = e.target?.result as string
+        onChange(result)
+        setCompressing(false)
+        setProgress(0)
+      }
+      reader.readAsDataURL(compressedFile)
+    } catch (err) {
+      console.error("Image compression error:", err)
+      // Fallback: raw file read
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const result = e.target?.result as string
+        onChange(result)
+        setCompressing(false)
+        setProgress(0)
+      }
+      reader.readAsDataURL(file)
+    }
   }
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
@@ -56,7 +87,7 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
   }
 
   const handleClick = () => {
-    if (!disabled && fileInputRef.current) {
+    if (!disabled && !compressing && fileInputRef.current) {
       fileInputRef.current.click()
     }
   }
@@ -113,21 +144,39 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
             disabled && "opacity-50 cursor-not-allowed"
           )}
         >
-          <div className="flex size-9 items-center justify-center rounded-xl bg-slate-100 text-slate-600 dark:bg-zinc-900 dark:text-zinc-400">
-            {isDragging ? (
-              <UploadCloud className="size-4.5 text-emerald-500 animate-bounce" />
-            ) : (
-              <ImageIcon className="size-4.5" />
-            )}
-          </div>
-          <div className="text-center">
-            <p className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
-              {isDragging ? "Drop image here" : "Click to upload or drag & drop"}
-            </p>
-            <p className="text-[10px] text-slate-400 dark:text-zinc-500 mt-0.5">
-              PNG, JPG or WEBP (Max 10MB)
-            </p>
-          </div>
+          {compressing ? (
+            <div className="flex flex-col items-center justify-center w-full px-4 text-center">
+              <Loader2 className="size-5 animate-spin text-emerald-500 mb-2" />
+              <div className="w-full bg-slate-200 dark:bg-zinc-800 h-1.5 rounded-full overflow-hidden mb-1">
+                <div
+                  className="bg-emerald-500 h-full transition-all duration-150"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <span className="text-[11px] font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                {progress}%
+              </span>
+              <span className="text-[9px] text-slate-400 dark:text-zinc-500">Compressing & Optimizing...</span>
+            </div>
+          ) : (
+            <>
+              <div className="flex size-9 items-center justify-center rounded-xl bg-slate-100 text-slate-600 dark:bg-zinc-900 dark:text-zinc-400">
+                {isDragging ? (
+                  <UploadCloud className="size-4.5 text-emerald-500 animate-bounce" />
+                ) : (
+                  <ImageIcon className="size-4.5" />
+                )}
+              </div>
+              <div className="text-center">
+                <p className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                  {isDragging ? "Drop image here" : "Click to upload or drag & drop"}
+                </p>
+                <p className="text-[10px] text-slate-400 dark:text-zinc-500 mt-0.5">
+                  PNG, JPG or WEBP (Auto-compressed)
+                </p>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

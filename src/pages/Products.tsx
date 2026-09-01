@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
-import { formatCurrency } from '../lib/utils';
+import { formatCurrency, getProductImageUrl } from '../lib/utils';
 import { get, post, put, del } from '../lib/api';
 import { toast } from 'react-toastify';
 
@@ -26,6 +26,8 @@ import {
   AlertDialogCancel,
 } from '../components/ui/alert-dialog';
 import type { ProductItem } from '../types/product';
+import { SearchableSelect } from '../components/ui/SearchableSelect';
+import type { SearchableSelectOption } from '../components/ui/SearchableSelect';
 
 import {
   Plus,
@@ -39,6 +41,8 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  X,
+  SlidersHorizontal,
 } from 'lucide-react';
 
 export const Products: React.FC = () => {
@@ -47,6 +51,9 @@ export const Products: React.FC = () => {
   const dark = theme === 'dark';
 
   const [products, setProducts] = useState<ProductItem[]>([]);
+  const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedStockStatus, setSelectedStockStatus] = useState<string>('all');
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -59,8 +66,12 @@ export const Products: React.FC = () => {
 const fetchAll = useCallback(async () => {
     try {
       setLoading(true);
-      const prods = await get<ProductItem[]>('/products');
+      const [prods, cats] = await Promise.all([
+        get<ProductItem[]>('/products'),
+        get<{ id: number; name: string }[]>('/categories'),
+      ]);
       setProducts(prods || []);
+      setCategories(cats || []);
     } catch (err: any) {
       toast.error('Failed to load products');
     } finally {
@@ -72,17 +83,44 @@ const fetchAll = useCallback(async () => {
     fetchAll();
   }, [fetchAll]);
 
+  const categoryOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: 'all', label: 'All Categories' },
+    ...categories.map(c => ({ value: String(c.id), label: c.name }))
+  ], [categories]);
+
+  const stockOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: 'all', label: 'All Stock Levels' },
+    { value: 'in_stock', label: 'In Stock (>0)' },
+    { value: 'low_stock', label: 'Low Stock (≤5)' },
+    { value: 'out_of_stock', label: 'Out of Stock (0)' },
+  ], []);
+
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
+      // 1. Search Query Filter
       const q = searchQuery.toLowerCase().trim();
-      if (!q) return true;
-      return (
+      const matchesSearch = !q || (
         p.name.toLowerCase().includes(q) ||
         p.searchKey?.toLowerCase().includes(q) ||
         p.variants?.some(v => v.sku.toLowerCase().includes(q) || v.barcode?.toLowerCase().includes(q))
       );
+
+      // 2. Category Filter
+      const matchesCategory =
+        selectedCategory === 'all' ||
+        String(p.categoryId || p.category?.id) === selectedCategory;
+
+      // 3. Stock Status Filter
+      const totalStock = (p.variants || []).reduce((acc, cur) => acc + (cur.stock || 0), 0);
+      const matchesStock =
+        selectedStockStatus === 'all' ||
+        (selectedStockStatus === 'in_stock' && totalStock > 0) ||
+        (selectedStockStatus === 'low_stock' && totalStock > 0 && totalStock <= 5) ||
+        (selectedStockStatus === 'out_of_stock' && totalStock === 0);
+
+      return matchesSearch && matchesCategory && matchesStock;
     });
-  }, [products, searchQuery]);
+  }, [products, searchQuery, selectedCategory, selectedStockStatus]);
 
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage) || 1;
   const paginated = filteredProducts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -127,15 +165,72 @@ const fetchAll = useCallback(async () => {
         </div>
       </div>
 
-      <div className="p-4 rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800">
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border bg-slate-50 dark:bg-zinc-950 border-slate-200 dark:border-zinc-800">
-          <Search className="size-4 text-zinc-400" />
-          <input
-            value={searchQuery}
-            onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-            placeholder="Search by name, tags, SKU, barcode..."
-            className="bg-transparent outline-none w-full text-xs"
-          />
+      <div className="p-4 rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 flex flex-col md:flex-row items-center gap-3">
+        {/* Search Input with Instant Clear (X) */}
+        <div className="relative flex-1 w-full flex items-center">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border bg-slate-50 dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 w-full focus-within:border-emerald-500 transition-colors">
+            <Search className="size-4 text-zinc-400 shrink-0" />
+            <input
+              value={searchQuery}
+              onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+              placeholder="Search by name, tags, SKU, barcode..."
+              className="bg-transparent outline-none w-full text-xs text-slate-900 dark:text-zinc-100 placeholder:text-zinc-500"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => { setSearchQuery(''); setCurrentPage(1); }}
+                className="p-1 rounded-full hover:bg-slate-200 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Category & Stock Filter Controls */}
+        <div className="flex items-center gap-2 w-full md:w-auto">
+          {/* Category Searchable Select */}
+          <div className="w-full md:w-48">
+            <SearchableSelect
+              options={categoryOptions}
+              value={selectedCategory}
+              onValueChange={val => { setSelectedCategory(val); setCurrentPage(1); }}
+              placeholder="Category..."
+              searchPlaceholder="Search category..."
+              dark={dark}
+            />
+          </div>
+
+          {/* Stock Searchable Select */}
+          <div className="w-full md:w-44">
+            <SearchableSelect
+              options={stockOptions}
+              value={selectedStockStatus}
+              onValueChange={val => { setSelectedStockStatus(val); setCurrentPage(1); }}
+              placeholder="Stock level..."
+              searchPlaceholder="Filter stock..."
+              dark={dark}
+            />
+          </div>
+
+          {/* Reset Filters Shortcut (Visible if any filter is active) */}
+          {(searchQuery || selectedCategory !== 'all' || selectedStockStatus !== 'all') && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setSearchQuery('');
+                setSelectedCategory('all');
+                setSelectedStockStatus('all');
+                setCurrentPage(1);
+              }}
+              className="h-9 px-2 text-xs text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 shrink-0"
+              title="Clear all filters"
+            >
+              <X className="size-3.5 mr-1" /> Reset
+            </Button>
+          )}
         </div>
       </div>
 
@@ -169,9 +264,33 @@ const fetchAll = useCallback(async () => {
                 {paginated.map(p => {
                   const v = p.variants?.[0];
                   const stock = (p.variants || []).reduce((acc, cur) => acc + (cur.stock || 0), 0);
+                  const primaryImage = p.images && p.images.length > 0 ? getProductImageUrl(p.images[0].imageUrl) : null;
+
                   return (
                     <TableRow key={p.id}>
-                      <TableCell className="font-semibold">{p.name}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <div className="relative size-10 rounded-lg overflow-hidden border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900 shrink-0 flex items-center justify-center">
+                            {primaryImage ? (
+                              <img
+                                src={primaryImage}
+                                alt={p.name}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <Package className="size-4 text-slate-400 dark:text-zinc-500" />
+                            )}
+                          </div>
+                          <div>
+                            <div className="font-semibold text-slate-900 dark:text-zinc-100">{p.name}</div>
+                            {p.searchKey && (
+                              <div className="text-[10px] text-slate-400 dark:text-zinc-500 font-mono">
+                                {p.searchKey}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </TableCell>
                       <TableCell><Badge variant="secondary">{p.category?.name || 'General'}</Badge></TableCell>
                       <TableCell>{p.variants?.length || 0} Variants</TableCell>
                       <TableCell className="font-semibold text-emerald-500">

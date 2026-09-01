@@ -26,3 +26,12 @@ export function formatNumber(num: number): string {
 export function generateId(): string {
   return Math.random().toString(36).substring(2, 11);
 }
+
+export function getProductImageUrl(path?: string | null): string {
+  if (!path) return '';
+  if (path.startsWith('http') || path.startsWith('data:') || path.startsWith('blob:')) {
+    return path;
+  }
+  const apiHost = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/api\/?$/, '') : 'http://localhost:5000';
+  return `${apiHost}${path.startsWith('/') ? '' : '/'}${path}`;
+}

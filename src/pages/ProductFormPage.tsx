@@ -80,10 +80,10 @@ export const ProductFormPage: React.FC = () => {
           }
           setVariants([
             {
-              key: `var-${Date.now()}`,
+              key: `var-${Date.now()}-1`,
               size: 'FREE',
               color: 'Default',
-              sku: `SKU-${Date.now().toString().slice(-4)}`,
+              sku: 'PROD-0001',
               barcode: '',
               costPrice: 0,
               retailPrice: 0,
@@ -112,6 +112,20 @@ export const ProductFormPage: React.FC = () => {
         e.preventDefault();
         if (!name.trim()) {
             toast.error('Product title is required');
+            return;
+        }
+
+        const skus = variants.map(v => v.sku.trim().toLowerCase()).filter(Boolean);
+        const duplicateSku = skus.find((item, index) => skus.indexOf(item) !== index);
+        if (duplicateSku) {
+            toast.error(`Duplicate SKU "${duplicateSku.toUpperCase()}" found. Each variant must have a unique SKU.`);
+            return;
+        }
+
+        const barcodes = variants.map(v => v.barcode?.trim()).filter(Boolean);
+        const duplicateBarcode = barcodes.find((item, index) => barcodes.indexOf(item) !== index);
+        if (duplicateBarcode) {
+            toast.error(`Duplicate Barcode "${duplicateBarcode}" found. Each variant must have a unique Barcode.`);
             return;
         }
 
@@ -267,18 +281,25 @@ export const ProductFormPage: React.FC = () => {
                         <h3 className="text-sm font-bold">Catalog Images &amp; Previews ({images.length})</h3>
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
-                        {images.map((img, idx) => (
-                            <div key={idx} className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 dark:border-zinc-800 group">
-                                <img src={img} alt="" className="w-full h-full object-cover" />
-                                <button
-                                    type="button"
-                                    onClick={() => setImages(images.filter((_, i) => i !== idx))}
-                                    className="absolute top-1 right-1 p-1 rounded-full bg-black/70 text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                                >
-                                    <X className="size-3" />
-                                </button>
-                            </div>
-                        ))}
+                        {images.map((img, idx) => {
+                const apiHost = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/api\/?$/, '') : 'http://localhost:5000';
+                const resolvedUrl = img.startsWith('http') || img.startsWith('data:') || img.startsWith('blob:')
+                  ? img
+                  : `${apiHost}${img.startsWith('/') ? '' : '/'}${img}`;
+
+                return (
+                  <div key={idx} className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 dark:border-zinc-800 group">
+                    <img src={resolvedUrl} alt="" className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => setImages(images.filter((_, i) => i !== idx))}
+                      className="absolute top-1 right-1 p-1 rounded-full bg-black/70 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                );
+              })}
                         <ImageUpload
                             value={undefined}
                             onChange={val => { if (val) setImages([...images, val]); }}
