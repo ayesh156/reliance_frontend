@@ -27,7 +27,7 @@ export const Login: React.FC = () => {
 
     try {
       await login(cleanEmail, cleanPassword);
-      navigate('/system/dashboard');
+      navigate('/system/products');
     } catch (err: any) {
       setError(err.message || 'Login failed. Please verify credentials.');
     } finally {

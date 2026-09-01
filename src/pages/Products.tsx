@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
 import { formatCurrency } from '../lib/utils';
 import { get, post, put, del } from '../lib/api';
-import { toast } from 'sonner';
+import { toast } from 'react-toastify';
 
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '../components/ui/table';
 import { Badge } from '../components/ui/badge';
@@ -24,8 +25,6 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from '../components/ui/alert-dialog';
-
-import { ProductDialog } from '../components/products/ProductDialog';
 import type { ProductItem } from '../types/product';
 
 import {
@@ -43,29 +42,25 @@ import {
 } from 'lucide-react';
 
 export const Products: React.FC = () => {
+  const navigate = useNavigate();
   const { theme } = useTheme();
   const dark = theme === 'dark';
 
   const [products, setProducts] = useState<ProductItem[]>([]);
-  const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 8;
 
-  const [dialogOpen, setDialogOpen] = useState(false);
+  // Dialog states සහ handleSave function එක සම්පූර්ණයෙන්ම ඉවත් කර Delete modal state පමණක් තබන්න:
   const [selectedProduct, setSelectedProduct] = useState<ProductItem | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
-  const fetchAll = useCallback(async () => {
+const fetchAll = useCallback(async () => {
     try {
       setLoading(true);
-      const [prods, cats] = await Promise.all([
-        get<ProductItem[]>('/products'),
-        get<any[]>('/categories'),
-      ]);
+      const prods = await get<ProductItem[]>('/products');
       setProducts(prods || []);
-      setCategories(cats || []);
     } catch (err: any) {
       toast.error('Failed to load products');
     } finally {
@@ -126,7 +121,7 @@ export const Products: React.FC = () => {
           <Button variant="outline" size="icon" onClick={fetchAll}>
             <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />
           </Button>
-          <Button onClick={() => { setSelectedProduct(null); setDialogOpen(true); }} className="gap-2">
+          <Button onClick={() => navigate('/system/products/new')} className="gap-2">
             <Plus className="size-4" /> Add Product
           </Button>
         </div>
@@ -198,7 +193,7 @@ export const Products: React.FC = () => {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => { setSelectedProduct(p); setDialogOpen(true); }}>
+                            <DropdownMenuItem onClick={() => navigate(`/system/products/${p.id}/edit`)}>
                               <Edit className="size-3.5 mr-1" /> Edit
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
@@ -229,16 +224,6 @@ export const Products: React.FC = () => {
           </>
         )}
       </div>
-
-      {/* Shadcn Product Dialog */}
-      <ProductDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        product={selectedProduct}
-        categories={categories}
-        onSave={handleSave}
-        dark={dark}
-      />
 
       {/* Shadcn Alert Dialog for Delete */}
       <AlertDialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>

@@ -12,6 +12,7 @@ import { TooltipProvider } from './components/ui/Tooltip';
 // Active Pages (Phase 1 & Phase 2)
 import { Login } from './pages/Login';
 import { Products } from './pages/Products';
+import { ProductFormPage } from './pages/ProductFormPage';
 import { Settings } from './pages/Settings';
 
 function ThemedToastContainer() {
@@ -73,6 +74,27 @@ export function App() {
                   <ProtectedRoute>
                     <AdminPage>
                       <Products />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/system/products/new"
+                element={
+                  <ProtectedRoute>
+                    <AdminPage>
+                      <ProductFormPage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/system/products/:id/edit"
+                element={
+                  <ProtectedRoute>
+                    <AdminPage>
+                      <ProductFormPage />
                     </AdminPage>
                   </ProtectedRoute>
                 }
