@@ -4,6 +4,7 @@ import {
   ShoppingBag,
   Settings,
   Tags,
+  Users,
 } from "lucide-react"
 
 import {
@@ -18,8 +19,9 @@ import {
 const navItems = [
   { label: "Products", path: "/system/products", icon: ShoppingBag },
   { label: "Attributes", path: "/system/attributes", icon: Tags },
+  { label: "Customers", path: "/system/customers", icon: Users }, // Customer Directory
   { label: "Settings", path: "/system/settings", icon: Settings },
-]
+];
 
 export function AppSidebar() {
   const location = useLocation()

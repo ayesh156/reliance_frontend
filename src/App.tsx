@@ -15,6 +15,7 @@ import { Login } from './pages/Login';
 import { Products } from './pages/Products';
 import { ProductFormPage } from './pages/ProductFormPage';
 import { Settings } from './pages/Settings';
+import { CustomersPage } from './pages/CustomersPage';
 
 function ThemedToastContainer() {
   const { theme } = useTheme();
@@ -107,6 +108,17 @@ export function App() {
                   <ProtectedRoute requiredRole="STAFF">
                     <AdminPage>
                       <AttributesPage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/system/customers"
+                element={
+                  <ProtectedRoute>
+                    <AdminPage>
+                      <CustomersPage />
                     </AdminPage>
                   </ProtectedRoute>
                 }

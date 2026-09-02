@@ -3,6 +3,16 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs'
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '../components/ui/table';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../components/ui/alert-dialog';
 import { get, post, del } from '../lib/api';
 import { toast } from 'react-toastify';
 import { FolderOpen, Ruler, Palette, Plus, Trash2, Loader2 } from 'lucide-react';
@@ -45,8 +55,9 @@ export const AttributesPage: React.FC = () => {
   const fetchAll = async () => {
     setLoading(true);
     try {
+      // Unified attribute taxonomy fetching
       const [c, s, clr] = await Promise.all([
-        get<any[]>('/categories'),
+        get<any[]>('/attributes/categories'),
         get<any[]>('/attributes/sizes'),
         get<any[]>('/attributes/colors'),
       ]);
@@ -68,7 +79,8 @@ export const AttributesPage: React.FC = () => {
     e.preventDefault();
     if (!catName.trim()) return;
     try {
-      await post('/categories', { name: catName.trim(), description: catDesc.trim() || undefined });
+      // Create category via unified attributes endpoint
+      await post('/attributes/categories', { name: catName.trim(), description: catDesc.trim() || undefined });
       toast.success('Category added successfully');
       setCatName('');
       setCatDesc('');
@@ -104,13 +116,26 @@ export const AttributesPage: React.FC = () => {
     }
   };
 
-  const handleDelete = async (endpoint: string, id: number) => {
+  // Active attribute target selected for deletion confirmation
+  const [deleteTarget, setDeleteTarget] = useState<{
+    endpoint: string;
+    id: number;
+    name: string;
+    type: 'Category' | 'Size' | 'Color';
+  } | null>(null);
+
+  /**
+   * Execute deletion of taxonomy attribute after modal confirmation
+   */
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
     try {
-      await del(`${endpoint}/${id}`);
-      toast.success('Item deleted');
+      await del(`${deleteTarget.endpoint}/${deleteTarget.id}`);
+      toast.success(`${deleteTarget.type} "${deleteTarget.name}" deleted successfully`);
+      setDeleteTarget(null);
       fetchAll();
     } catch (err: any) {
-      toast.error(err.message || 'Failed to delete');
+      toast.error(err.message || 'Failed to delete attribute');
     }
   };
 
@@ -187,7 +212,7 @@ export const AttributesPage: React.FC = () => {
                     <TableCell className="font-mono text-xs opacity-75">{c.slug}</TableCell>
                     <TableCell className="text-xs text-slate-500 dark:text-zinc-400">{c.description || '-'}</TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" onClick={() => handleDelete('/categories', c.id)} className="text-rose-500">
+                      <Button variant="ghost" size="icon" onClick={() => setDeleteTarget({ endpoint: '/attributes/categories', id: c.id, name: c.name, type: 'Category' })} className="text-rose-500">
                         <Trash2 className="size-4" />
                       </Button>
                     </TableCell>
@@ -222,7 +247,7 @@ export const AttributesPage: React.FC = () => {
                   <span className="font-bold text-sm font-mono text-slate-700 dark:text-zinc-200">{s.name}</span>
                   <button
                     type="button"
-                    onClick={() => handleDelete('/attributes/sizes', s.id)}
+                    onClick={() => setDeleteTarget({ endpoint: '/attributes/sizes', id: s.id, name: s.name, type: 'Size' })}
                     className="absolute -top-1.5 -right-1.5 p-1 bg-rose-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
                   >
                     <Trash2 className="size-2.5" />
@@ -281,7 +306,7 @@ export const AttributesPage: React.FC = () => {
                 <div key={clr.id} className="flex items-center gap-2.5 pl-2 pr-1.5 py-1 rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950">
                   <span className="size-3.5 rounded-full border border-black/10 shrink-0" style={{ backgroundColor: clr.hexCode || '#ccc' }} />
                   <span className="font-semibold text-xs">{clr.name}</span>
-                  <button type="button" onClick={() => handleDelete('/attributes/colors', clr.id)} className="p-1 hover:bg-rose-500/10 rounded-lg text-rose-500">
+                  <button type="button" onClick={() => setDeleteTarget({ endpoint: '/attributes/colors', id: clr.id, name: clr.name, type: 'Color' })} className="p-1 hover:bg-rose-500/10 rounded-lg text-rose-500">
                     <Trash2 className="size-3" />
                   </button>
                 </div>
@@ -290,6 +315,26 @@ export const AttributesPage: React.FC = () => {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Attribute Delete Confirmation Modal */}
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the {deleteTarget?.type.toLowerCase()}{' '}
+              <strong className="text-slate-900 dark:text-white">"{deleteTarget?.name}"</strong>.
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmDelete} className="bg-rose-600 hover:bg-rose-700 text-white">
+              Delete {deleteTarget?.type}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

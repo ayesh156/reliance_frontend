@@ -68,7 +68,7 @@ const fetchAll = useCallback(async () => {
       setLoading(true);
       const [prods, cats] = await Promise.all([
         get<ProductItem[]>('/products'),
-        get<{ id: number; name: string }[]>('/categories'),
+        get<{ id: number; name: string }[]>('/attributes/categories'),
       ]);
       setProducts(prods || []);
       setCategories(cats || []);

@@ -57,7 +57,7 @@ export const CategoryCombobox: React.FC<CategoryComboboxProps> = ({
 
     setCreating(true);
     try {
-      const created = await post<Category>('/categories', {
+      const created = await post<Category>('/attributes/categories', {
         name: catName.trim(),
         description: catDesc.trim() || undefined,
         status: 'active',

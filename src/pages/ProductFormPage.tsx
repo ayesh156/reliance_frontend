@@ -46,8 +46,9 @@ export const ProductFormPage: React.FC = () => {
 
     const bootstrap = async () => {
       try {
+        // Load taxonomy presets via unified attributes endpoint
         const [catRes, sizeRes, colorRes] = await Promise.all([
-          get<any[]>('/categories'),
+          get<any[]>('/attributes/categories'),
           get<any[]>('/attributes/sizes'),
           get<any[]>('/attributes/colors'),
         ]);
