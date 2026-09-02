@@ -2,15 +2,31 @@ import React from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { SizeCombobox } from './SizeCombobox';
+import { ColorCombobox } from './ColorCombobox';
 import type { VariantItem } from '../../types/product';
 
 interface VariantTableProps {
   variants: VariantItem[];
   onChange: (variants: VariantItem[]) => void;
   productName: string;
+  availableSizes?: { id: number; name: string }[];
+  availableColors?: { id: number; name: string; hexCode?: string | null }[];
+  onSizeCreated?: (newSize: { id: number; name: string }) => void;
+  onColorCreated?: (newColor: { id: number; name: string; hexCode?: string | null }) => void;
+  dark?: boolean;
 }
 
-export const VariantTable: React.FC<VariantTableProps> = ({ variants, onChange, productName }) => {
+export const VariantTable: React.FC<VariantTableProps> = ({
+  variants,
+  onChange,
+  productName,
+  availableSizes = [],
+  availableColors = [],
+  onSizeCreated = () => {},
+  onColorCreated = () => {},
+  dark = true,
+}) => {
  const addVariant = () => {
     const next = variants.length + 1;
     const cleanPrefix = (productName || 'PROD')
@@ -61,7 +77,7 @@ export const VariantTable: React.FC<VariantTableProps> = ({ variants, onChange, 
         </Button>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto overflow-y-visible pb-12">
         <table className="w-full text-xs">
           <thead>
             <tr className="text-[10px] uppercase font-semibold text-slate-500 dark:text-zinc-400 border-b border-slate-200 dark:border-zinc-800">
@@ -80,22 +96,22 @@ export const VariantTable: React.FC<VariantTableProps> = ({ variants, onChange, 
           <tbody className="divide-y divide-slate-200 dark:divide-zinc-800/60">
             {variants.map(v => (
               <tr key={v.key}>
-                <td className="p-1">
-                  <Input 
-                    value={v.size || ''} 
-                    placeholder="M"
-                    onFocus={handleFocus}
-                    onChange={e => updateField(v.key, 'size', e.target.value)} 
-                    className="w-16 h-8 text-center" 
+                <td className="p-1 min-w-[100px]">
+                  <SizeCombobox
+                    sizes={availableSizes}
+                    value={v.size || ''}
+                    onChange={(val) => updateField(v.key, 'size', val)}
+                    onSizeCreated={onSizeCreated}
+                    dark={dark}
                   />
                 </td>
-                <td className="p-1">
-                  <Input 
-                    value={v.color || ''} 
-                    placeholder="Black"
-                    onFocus={handleFocus}
-                    onChange={e => updateField(v.key, 'color', e.target.value)} 
-                    className="w-20 h-8 text-center" 
+                <td className="p-1 min-w-[120px]">
+                  <ColorCombobox
+                    colors={availableColors}
+                    value={v.color || ''}
+                    onChange={(val) => updateField(v.key, 'color', val)}
+                    onColorCreated={onColorCreated}
+                    dark={dark}
                   />
                 </td>
                 <td className="p-1">

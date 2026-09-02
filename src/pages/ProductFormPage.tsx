@@ -28,6 +28,8 @@ export const ProductFormPage: React.FC = () => {
     const dark = theme === 'dark';
 
     const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
+    const [sizes, setSizes] = useState<{ id: number; name: string }[]>([]);
+    const [colors, setColors] = useState<{ id: number; name: string; hexCode?: string | null }[]>([]);
     const [loading, setLoading] = useState(isEdit);
     const [saving, setSaving] = useState(false);
 
@@ -44,11 +46,17 @@ export const ProductFormPage: React.FC = () => {
 
     const bootstrap = async () => {
       try {
-        const catRes = await get<any[]>('/categories');
+        const [catRes, sizeRes, colorRes] = await Promise.all([
+          get<any[]>('/categories'),
+          get<any[]>('/attributes/sizes'),
+          get<any[]>('/attributes/colors'),
+        ]);
         if (!isMounted) return;
         
         const loadedCategories = Array.isArray(catRes) ? catRes : [];
         setCategories(loadedCategories);
+        setSizes(Array.isArray(sizeRes) ? sizeRes : []);
+        setColors(Array.isArray(colorRes) ? colorRes : []);
 
         if (isEdit && id) {
           const prodRes = await get<ProductItem>(`/products/${id}`);
@@ -271,7 +279,16 @@ export const ProductFormPage: React.FC = () => {
                         <Layers className="size-4 text-emerald-500" />
                         <h3 className="text-sm font-bold">Pricing, Inventory &amp; Barcode Matrix ({variants.length})</h3>
                     </div>
-                    <VariantTable variants={variants} onChange={setVariants} productName={name} />
+                    <VariantTable
+                      variants={variants}
+                      onChange={setVariants}
+                      productName={name}
+                      availableSizes={sizes}
+                      availableColors={colors}
+                      onSizeCreated={(newSize) => setSizes(prev => [...prev, newSize])}
+                      onColorCreated={(newColor) => setColors(prev => [...prev, newColor])}
+                      dark={dark}
+                    />
                 </div>
 
                 {/* Section 3: Media Gallery */}

@@ -1,17 +1,9 @@
 import React from "react"
 import { NavLink, useLocation } from "react-router-dom"
 import {
-  LayoutDashboard,
   ShoppingBag,
-  FolderOpen,
-  FileText,
-  Truck,
-  Users,
-  BarChart3,
   Settings,
-  Palette,
-  Mail,
-  Store,
+  Tags,
 } from "lucide-react"
 
 import {
@@ -24,15 +16,8 @@ import {
 } from "./ui/sidebar"
 
 const navItems = [
-  // { label: "Dashboard", path: "/system", icon: LayoutDashboard },
   { label: "Products", path: "/system/products", icon: ShoppingBag },
-  // { label: "Categories", path: "/system/categories", icon: FolderOpen },
-  // { label: "Invoices", path: "/system/invoices", icon: FileText },
-  // { label: "Customers", path: "/system/customers", icon: Users },
-  // { label: "Suppliers", path: "/system/suppliers", icon: Truck },
-  // { label: "Reports", path: "/system/reports", icon: BarChart3 },
-  // { label: "Storefront", path: "/system/storefront-settings", icon: Palette },
-  // { label: "Subscribers", path: "/system/subscribers", icon: Mail },
+  { label: "Attributes", path: "/system/attributes", icon: Tags },
   { label: "Settings", path: "/system/settings", icon: Settings },
 ]
 

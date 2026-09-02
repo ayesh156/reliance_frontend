@@ -8,6 +8,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { TooltipProvider } from './components/ui/Tooltip';
+import { AttributesPage } from './pages/AttributesPage';
 
 // Active Pages (Phase 1 & Phase 2)
 import { Login } from './pages/Login';
@@ -95,6 +96,17 @@ export function App() {
                   <ProtectedRoute>
                     <AdminPage>
                       <ProductFormPage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/system/attributes"
+                element={
+                  <ProtectedRoute requiredRole="STAFF">
+                    <AdminPage>
+                      <AttributesPage />
                     </AdminPage>
                   </ProtectedRoute>
                 }
