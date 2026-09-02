@@ -16,6 +16,7 @@ import { Products } from './pages/Products';
 import { ProductFormPage } from './pages/ProductFormPage';
 import { Settings } from './pages/Settings';
 import { CustomersPage } from './pages/CustomersPage';
+import { PosTerminalPage } from './pages/PosTerminalPage';
 
 function ThemedToastContainer() {
   const { theme } = useTheme();
@@ -123,6 +124,18 @@ export function App() {
                   </ProtectedRoute>
                 }
               />
+
+              {/* Quick Checkout Cashier Terminal Route */}
+        <Route
+          path="/system/quick-checkout"
+          element={
+            <ProtectedRoute>
+              <AdminPage>
+                <PosTerminalPage />
+              </AdminPage>
+            </ProtectedRoute>
+          }
+        />
 
               <Route
                 path="/system/settings"

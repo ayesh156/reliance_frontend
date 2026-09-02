@@ -5,6 +5,7 @@ import {
   Settings,
   Tags,
   Users,
+  MonitorSmartphone,
 } from "lucide-react"
 
 import {
@@ -17,9 +18,10 @@ import {
 } from "./ui/sidebar"
 
 const navItems = [
+  { label: "Quick Checkout", path: "/system/quick-checkout", icon: MonitorSmartphone }, // ⭐ Active Cashier Terminal
   { label: "Products", path: "/system/products", icon: ShoppingBag },
   { label: "Attributes", path: "/system/attributes", icon: Tags },
-  { label: "Customers", path: "/system/customers", icon: Users }, // Customer Directory
+  { label: "Customers", path: "/system/customers", icon: Users },
   { label: "Settings", path: "/system/settings", icon: Settings },
 ];
 
