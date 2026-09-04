@@ -39,10 +39,8 @@ export async function compressAndConvertToWebP(
           return;
         }
 
-        // Draw image cleanly on canvas
         ctx.drawImage(img, 0, 0, width, height);
 
-        // Export directly to lightweight Modern WebP
         canvas.toBlob(
           (blob) => {
             if (!blob) {
@@ -67,3 +65,5 @@ export async function compressAndConvertToWebP(
     reader.readAsDataURL(fileOrBlob);
   });
 }
+
+export default compressAndConvertToWebP;
