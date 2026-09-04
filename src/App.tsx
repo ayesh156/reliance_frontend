@@ -16,7 +16,8 @@ import { Products } from './pages/Products';
 import { ProductFormPage } from './pages/ProductFormPage';
 import { Settings } from './pages/Settings';
 import { CustomersPage } from './pages/CustomersPage';
-import { PosTerminalPage } from './pages/PosTerminalPage';
+import { QuickCheckoutPage } from './pages/QuickCheckoutPage';
+import { InvoicesPage } from './pages/InvoicesPage';
 
 function ThemedToastContainer() {
   const { theme } = useTheme();
@@ -126,16 +127,28 @@ export function App() {
               />
 
               {/* Quick Checkout Cashier Terminal Route */}
-        <Route
-          path="/system/quick-checkout"
-          element={
-            <ProtectedRoute>
-              <AdminPage>
-                <PosTerminalPage />
-              </AdminPage>
-            </ProtectedRoute>
-          }
-        />
+              <Route
+                path="/system/quick-checkout"
+                element={
+                  <ProtectedRoute>
+                    <AdminPage>
+                      <QuickCheckoutPage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Invoices & Sales Ledger Management Route */}
+              <Route
+                path="/system/invoices"
+                element={
+                  <ProtectedRoute>
+                    <AdminPage>
+                      <InvoicesPage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
 
               <Route
                 path="/system/settings"

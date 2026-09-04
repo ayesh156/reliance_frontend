@@ -6,6 +6,7 @@ import {
   Tags,
   Users,
   MonitorSmartphone,
+  FileText,
 } from "lucide-react"
 
 import {
@@ -19,6 +20,7 @@ import {
 
 const navItems = [
   { label: "Quick Checkout", path: "/system/quick-checkout", icon: MonitorSmartphone }, // ⭐ Active Cashier Terminal
+  { label: "Invoices", path: "/system/invoices", icon: FileText }, // ⭐ Active Cashier Terminal
   { label: "Products", path: "/system/products", icon: ShoppingBag },
   { label: "Attributes", path: "/system/attributes", icon: Tags },
   { label: "Customers", path: "/system/customers", icon: Users },

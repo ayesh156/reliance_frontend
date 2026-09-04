@@ -17,6 +17,8 @@ interface VariantTableProps {
   catalogImages?: string[];
   onSizeCreated?: (newSize: { id: number; name: string }) => void;
   onColorCreated?: (newColor: { id: number; name: string; hexCode?: string | null }) => void;
+  // Callback to handle direct Ctrl+V clipboard paste on this variant row
+  onVariantPaste?: (variantKey: string, e: React.ClipboardEvent) => void;
   dark?: boolean;
 }
 
@@ -29,6 +31,7 @@ export const VariantTable: React.FC<VariantTableProps> = ({
   catalogImages = [],
   onSizeCreated = () => {},
   onColorCreated = () => {},
+  onVariantPaste,
   dark = true,
 }) => {
   // Key of the variant row currently showing the image selection popover
@@ -131,10 +134,12 @@ export const VariantTable: React.FC<VariantTableProps> = ({
                   #{index + 1}
                 </td>
 
-                {/* Variant Image Selector Cell */}
+                {/* Variant Image Selector Cell (Supports Click popover & direct Ctrl+V clipboard paste) */}
                 <td className="p-1 text-center">
                   <button
                     type="button"
+                    tabIndex={0}
+                    onPaste={(e) => onVariantPaste && onVariantPaste(v.key, e)}
                     onClick={(e) => {
                       if (activeImagePickerKey === v.key) {
                         setActiveImagePickerKey(null);
@@ -149,8 +154,8 @@ export const VariantTable: React.FC<VariantTableProps> = ({
                         setActiveImagePickerKey(v.key);
                       }
                     }}
-                    title="Assign photo to this variant"
-                    className={`size-8 rounded-lg border overflow-hidden flex items-center justify-center transition-all ${
+                    title="Click to pick photo or press Ctrl+V to paste directly into this variant"
+                    className={`size-8 rounded-lg border overflow-hidden flex items-center justify-center transition-all outline-none focus:ring-2 focus:ring-emerald-500 ${
                       activeImagePickerKey === v.key
                         ? 'border-emerald-500 ring-2 ring-emerald-500/20'
                         : 'border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900 hover:border-emerald-500'

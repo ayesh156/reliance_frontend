@@ -18,7 +18,7 @@ import { Badge } from '../components/ui/badge';
 import {
   Users, UserPlus, Shield, ShieldCheck, CheckCircle2,
   XCircle, Loader2, RefreshCw, Briefcase, ShoppingBag, ShieldAlert, X,
-  MoreHorizontal, ChevronLeft, ChevronRight, KeyRound, Power
+  MoreVertical, ChevronLeft, ChevronRight, KeyRound, Power
 } from 'lucide-react';
 import { SearchableSelect, type SearchableSelectOption } from '../components/ui/SearchableSelect';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '../components/ui/table';
@@ -315,10 +315,11 @@ export const Settings: React.FC = () => {
                             {new Date(u.createdAt).toLocaleDateString()}
                           </TableCell>
                           <TableCell className="text-right">
-                            <DropdownMenu>
+                            {/* Vertical 3-dots action trigger aligned with Product & Customer pages */}
+                            <DropdownMenu modal={false}>
                               <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8">
-                                  <MoreHorizontal className="w-4 h-4" />
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-slate-900 dark:hover:text-white">
+                                  <MoreVertical className="w-4 h-4" />
                                   <span className="sr-only">Open actions menu</span>
                                 </Button>
                               </DropdownMenuTrigger>

@@ -34,7 +34,7 @@ import {
   Package,
   Trash2,
   Edit,
-  MoreHorizontal,
+  MoreVertical,
   ShoppingBag,
   Loader2,
   RefreshCw,
@@ -124,17 +124,6 @@ const fetchAll = useCallback(async () => {
 
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage) || 1;
   const paginated = filteredProducts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
-
-  const handleSave = async (formData: FormData, isEdit: boolean) => {
-    if (isEdit && selectedProduct) {
-      await put(`/products/${selectedProduct.id}`, formData);
-      toast.success('Product updated successfully!');
-    } else {
-      await post('/products', formData);
-      toast.success('Product created successfully!');
-    }
-    fetchAll();
-  };
 
   const handleDelete = async () => {
     if (!selectedProduct) return;
@@ -305,10 +294,10 @@ const fetchAll = useCallback(async () => {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <DropdownMenu>
+                        <DropdownMenu modal={false}>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon" className="size-8">
-                              <MoreHorizontal className="size-4" />
+                              <MoreVertical className="size-4 text-slate-500" />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">

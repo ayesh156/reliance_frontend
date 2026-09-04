@@ -10,7 +10,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '../components/ui/dialog';
-import { get, post } from '../lib/api';
+import { get, post, put } from '../lib/api';
 import { toast } from 'react-toastify';
 import { A4InvoiceModal } from '../components/pos/A4InvoiceModal';
 import { isValidSriLankanNIC, isValidSriLankanPhone } from '../lib/validators';
@@ -33,7 +33,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Printer,
+  Save,
 } from 'lucide-react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 
 interface CatalogVariant {
   id: number;
@@ -65,7 +67,7 @@ interface CartItem {
   maxStock: number;
 }
 
-export const PosTerminalPage: React.FC = () => {
+export const QuickCheckoutPage: React.FC = () => {
   const { theme } = useTheme();
   const dark = theme === 'dark';
 
@@ -88,10 +90,18 @@ export const PosTerminalPage: React.FC = () => {
   const [clientGivenCash, setClientGivenCash] = useState<string>('');
   // Payment methods: Cash, Cheque, and Credit
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CHEQUE' | 'CREDIT'>('CASH');
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const editInvoiceId = searchParams.get('editInvoiceId');
+
   // Dual-mode Discount: Default to Percentage (%), with Fixed Price (Rs) fallback
   const [discountType, setDiscountType] = useState<'FIXED' | 'PERCENT'>('PERCENT');
   const [discountInput, setDiscountInput] = useState<number>(0);
   const [submitting, setSubmitting] = useState(false);
+
+  // Edit Mode state tracking
+  const [isEditing, setIsEditing] = useState(false);
+  const [originalInvoice, setOriginalInvoice] = useState<any>(null);
 
   // Quick Customer Add Modal states
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
@@ -105,7 +115,14 @@ export const PosTerminalPage: React.FC = () => {
   const [completedOrder, setCompletedOrder] = useState<any>(null);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
 
+  // Adjust Cash Modal State for Edit Mode
+  const [adjustModalOpen, setAdjustModalOpen] = useState(false);
+  const [tempAdjustCash, setTempAdjustCash] = useState('');
+
   const barcodeInputRef = useRef<HTMLInputElement>(null);
+
+  // Track notified invoice ID to prevent duplicate toast triggers in React StrictMode
+  const lastNotifiedEditIdRef = useRef<string | null>(null);
 
   /**
    * Fetch catalog products and registered customer records
@@ -129,6 +146,72 @@ export const PosTerminalPage: React.FC = () => {
   useEffect(() => {
     bootstrapPos();
   }, []);
+
+  /**
+   * Auto-fill checkout fields if user clicked Edit Invoice
+   */
+  useEffect(() => {
+    const cleanId = editInvoiceId ? String(editInvoiceId).trim() : null;
+    if (!cleanId) return;
+
+    const loadEditInvoice = async () => {
+      setLoading(true);
+      try {
+        const inv = await get<any>(`/orders/invoices/${cleanId}`);
+        if (!inv || !inv.id) {
+          throw new Error(`Invoice #${cleanId} could not be retrieved`);
+        }
+        setIsEditing(true);
+        setOriginalInvoice(inv);
+
+        // Pre-fill Customer with phone fallback
+        setSelectedCustomerId(inv.customerId ? String(inv.customerId) : 'walk-in');
+        // Pre-fill Payment method
+        setPaymentMethod(inv.paymentMethod === 'CHEQUE' ? 'CHEQUE' : inv.paymentMethod === 'CREDIT' ? 'CREDIT' : 'CASH');
+        // Pre-fill Cash Tendered
+        setClientGivenCash(String(inv.paidAmount !== undefined ? inv.paidAmount : ''));
+
+        // Pre-fill Cart items
+        if (Array.isArray(inv.items)) {
+          setCart(
+            inv.items.map((i: any) => ({
+              variantId: i.variantId,
+              name: i.variant?.product?.name || 'Garment Item',
+              size: i.variant?.size || 'FREE',
+              color: i.variant?.color || 'Default',
+              sku: i.variant?.sku || '',
+              imageUrl: i.variant?.product?.images?.[0]?.imageUrl,
+              unitPrice: Number(i.unitPrice),
+              quantity: Number(i.quantity),
+              maxStock: Number((i.variant?.stock || 0) + i.quantity), // Add back currently allocated units so validation succeeds
+            }))
+          );
+        }
+
+        // Pre-fill Discount: Preserve default PERCENT (%) mode and calculate effective discount rate
+        if (inv.discount > 0 && inv.subtotal > 0) {
+          setDiscountType('PERCENT');
+          const effectivePercent = Math.round((Number(inv.discount) / Number(inv.subtotal)) * 100);
+          setDiscountInput(effectivePercent);
+        } else {
+          setDiscountType('PERCENT');
+          setDiscountInput(0);
+        }
+
+        // Trigger toast only once per invoice load session
+        if (lastNotifiedEditIdRef.current !== cleanId) {
+          toast.info(`Editing Invoice #INV${inv.id}`);
+          lastNotifiedEditIdRef.current = cleanId;
+        }
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to load invoice for editing');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadEditInvoice();
+  }, [editInvoiceId]);
 
   /**
    * Add variant item to current cashier cart
@@ -257,6 +340,31 @@ export const PosTerminalPage: React.FC = () => {
   const balanceDue = cashEntered < total && cashEntered > 0 ? total - cashEntered : cashEntered === 0 ? total : 0;
 
   /**
+   * Live Auto-Switch Payment Method:
+   * 1. If there's an underpaid balance (due amount > 0), switch automatically to CREDIT.
+   * 2. If fully paid or overpaid, switch back to CASH (unless CHEQUE was explicitly chosen).
+   */
+  useEffect(() => {
+    // Only evaluate when there are items in the cart
+    if (cart.length === 0) return;
+
+    const isUnderpaid = clientGivenCash === '' ? true : cashEntered < total;
+
+    if (isUnderpaid) {
+      // Partial payment or zero cash -> Auto select CREDIT
+      if (paymentMethod !== 'CREDIT') {
+        setPaymentMethod('CREDIT');
+      }
+    } else {
+      // Full payment (cashEntered >= total) -> Switch out of CREDIT
+      if (paymentMethod === 'CREDIT') {
+        setPaymentMethod('CASH');
+      }
+      // If user selected CHEQUE, it remains CHEQUE untouched
+    }
+  }, [clientGivenCash, cashEntered, total, cart.length]);
+
+  /**
    * Quick add customer modal submit handler
    */
   const handleQuickAddCustomer = async (e: React.FormEvent) => {
@@ -299,12 +407,9 @@ export const PosTerminalPage: React.FC = () => {
   };
 
   /**
-   * Checkout and submit order to backend database
+   * Submit transaction order or update existing invoice, sync credit balance, and conditionally trigger print
    */
-  /**
-   * Submit transaction order, register credit balance if underpaid, and launch print window
-   */
-  const handleCheckout = async () => {
+  const handleCheckout = async (triggerPrint = true) => {
     if (cart.length === 0) {
       toast.error('Cart is empty');
       return;
@@ -321,18 +426,23 @@ export const PosTerminalPage: React.FC = () => {
     setSubmitting(true);
     try {
       const selectedCust = customers.find((c) => String(c.id) === String(selectedCustomerId));
-      
-      // Resolve true tendered cash and paid amount (allows underpaid/credit or overpaid/change tracking)
+
+      // Accurately resolve tendered and paid cash without wiping part-payments on credit bills
       let resolvedTendered = total;
       let resolvedPaid = total;
 
-      if (paymentMethod === 'CREDIT') {
+      if (clientGivenCash !== '') {
+        // If cashier typed an amount (e.g. 150), honor it as the tendered & paid amount
+        resolvedTendered = cashEntered;
+        resolvedPaid = Math.min(total, cashEntered);
+      } else if (paymentMethod === 'CREDIT') {
+        // Pure zero-down credit sale when no client cash was entered
         resolvedTendered = 0;
         resolvedPaid = 0;
-      } else if (clientGivenCash !== '') {
-        resolvedTendered = cashEntered;
-        resolvedPaid = cashEntered;
       }
+
+      const creditDue = Math.max(0, total - resolvedPaid);
+      const isUnderpaid = creditDue > 0;
 
       const payload = {
         source: pricingMode === 'WHOLESALE' ? 'POS_WHOLESALE' : 'POS_RETAIL',
@@ -353,26 +463,41 @@ export const PosTerminalPage: React.FC = () => {
         paymentMethod: paymentMethod === 'CREDIT' || isUnderpaid ? 'CREDIT' : paymentMethod,
       };
 
-      // Explicitly type response to allow object spreading
-      const created = await post<any>('/orders/pos', payload);
-      toast.success('Invoice generated successfully!');
+      let resultOrder: any;
+
+      if (isEditing && originalInvoice?.id) {
+        // Update existing invoice using put API utility
+        resultOrder = await put<any>(`/orders/invoices/${originalInvoice.id}`, payload);
+        toast.success(`Invoice #INV${originalInvoice.id} updated successfully!`);
+      } else {
+        // Create brand new invoice order
+        resultOrder = await post<any>('/orders/pos', payload);
+        toast.success('Invoice generated successfully!');
+      }
+
       setCart([]);
       setDiscountInput(0);
       setClientGivenCash('');
 
-      // Pass true customer entered cash and discount type into completedOrder for accurate A4 printing
-      setCompletedOrder({
-        ...created,
-        tenderedAmount: resolvedTendered,
-        paidAmount: resolvedPaid,
-        discount: discountAmount,
-        discountType,
-        discountRate: discountType === 'PERCENT' ? discountInput : undefined,
-      });
-      setInvoiceOpen(true);
-      bootstrapPos(); // Refresh live stock counts
+      if (triggerPrint) {
+        setCompletedOrder({
+          ...resultOrder,
+          tenderedAmount: resolvedTendered,
+          paidAmount: resolvedPaid,
+          discount: discountAmount,
+          discountType,
+          discountRate: discountType === 'PERCENT' ? discountInput : undefined,
+        });
+        setInvoiceOpen(true);
+      }
+
+      if (isEditing) {
+        navigate('/system/invoices');
+      } else {
+        bootstrapPos();
+      }
     } catch (err: any) {
-      toast.error(err.message || 'Payment failed');
+      toast.error(err.message || 'Transaction failed');
     } finally {
       setSubmitting(false);
     }
@@ -549,12 +674,30 @@ export const PosTerminalPage: React.FC = () => {
       <div className="w-full lg:w-96 flex flex-col bg-white dark:bg-zinc-900/60 p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 shrink-0">
         <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
           <div className="flex items-center gap-2">
-            <ShoppingCart className="size-4 text-emerald-500" />
-            <h3 className="font-bold text-sm text-slate-900 dark:text-white">Active Order ({cart.length})</h3>
+            <ShoppingCart className={`size-4 ${isEditing ? 'text-blue-500' : 'text-emerald-500'}`} />
+            <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+              {isEditing ? `Editing #INV${originalInvoice?.id}` : `Active Order (${cart.length})`}
+            </h3>
+            {isEditing && (
+              <Badge variant="outline" className="text-[10px] border-blue-500 text-blue-600 bg-blue-50 dark:bg-blue-950/40">
+                EDIT MODE
+              </Badge>
+            )}
           </div>
           {cart.length > 0 && (
-            <button type="button" onClick={() => setCart([])} className="text-xs text-rose-500 hover:underline">
-              Clear All
+            <button 
+              type="button" 
+              onClick={() => {
+                setCart([]);
+                if (isEditing) {
+                  navigate('/system/quick-checkout');
+                  setIsEditing(false);
+                  setOriginalInvoice(null);
+                }
+              }} 
+              className="text-xs text-rose-500 hover:underline cursor-pointer"
+            >
+              {isEditing ? 'Cancel Edit' : 'Clear All'}
             </button>
           )}
         </div>
@@ -687,16 +830,40 @@ export const PosTerminalPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Client Cash Received Field */}
-          <div className="flex items-center justify-between gap-2 bg-slate-50 dark:bg-zinc-950 p-1.5 rounded-lg border border-slate-200 dark:border-zinc-800">
-            <span className="text-xs font-semibold text-slate-700 dark:text-zinc-300">Client Cash (Rs)</span>
-            <Input
-              type="number"
-              value={clientGivenCash}
-              onChange={(e) => setClientGivenCash(e.target.value)}
-              placeholder={String(total)}
-              className="w-28 h-7 text-xs text-right font-mono font-bold text-emerald-600 dark:text-emerald-400"
-            />
+          {/* Client Cash Received Field with Clear Text and Clean Adjust Button */}
+          <div className="flex items-center justify-between gap-2 bg-slate-50 dark:bg-zinc-950 p-2 rounded-xl border border-slate-200 dark:border-zinc-800">
+            <div>
+              <span className="text-sm font-bold text-slate-900 dark:text-white block">Client Cash (Rs)</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Input
+                type="number"
+                disabled={isEditing}
+                value={clientGivenCash}
+                onChange={(e) => setClientGivenCash(e.target.value)}
+                placeholder={String(total)}
+                className={`w-28 h-8 text-xs text-right font-mono font-bold ${
+                  isEditing
+                    ? 'bg-slate-100 dark:bg-zinc-900 cursor-not-allowed !text-black dark:!text-white opacity-100 font-extrabold'
+                    : 'text-emerald-600 dark:text-emerald-400'
+                }`}
+              />
+              {isEditing && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    // Open modal completely clean/empty for entering the newly received payment
+                    setTempAdjustCash('');
+                    setAdjustModalOpen(true);
+                  }}
+                  className="h-8 px-2.5 text-xs font-bold border-blue-500 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/50 rounded-lg shrink-0 cursor-pointer"
+                >
+                  Adjust
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* Payable Total */}
@@ -759,16 +926,40 @@ export const PosTerminalPage: React.FC = () => {
             </button>
           </div>
 
-          {/* Pay Now Button (Direct One-Click Checkout & Print) */}
-          <Button
-            type="button"
-            disabled={cart.length === 0 || submitting}
-            onClick={handleCheckout}
-            className="w-full mt-2 h-10 gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-md"
-          >
-            {submitting ? <Loader2 className="size-4 animate-spin" /> : <Printer className="size-4" />}
-            Pay Now
-          </Button>
+          {/* Action Row: Pay Now (Create Mode) OR Inline [Save Changes] + [Save & Print] (Edit Mode) */}
+          {!isEditing ? (
+            <Button
+              type="button"
+              disabled={cart.length === 0 || submitting}
+              onClick={() => handleCheckout(true)}
+              className="w-full mt-2 h-10 gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-md"
+            >
+              {submitting ? <Loader2 className="size-4 animate-spin" /> : <Printer className="size-4" />}
+              Pay Now
+            </Button>
+          ) : (
+            <div className="flex items-center gap-2 mt-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={cart.length === 0 || submitting}
+                onClick={() => handleCheckout(false)}
+                className="flex-1 h-10 gap-1.5 font-bold text-xs border-blue-600 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950"
+              >
+                {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+                Save Changes
+              </Button>
+              <Button
+                type="button"
+                disabled={cart.length === 0 || submitting}
+                onClick={() => handleCheckout(true)}
+                className="flex-1 h-10 gap-1.5 font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-md"
+              >
+                {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <Printer className="size-3.5" />}
+                Save & Print
+              </Button>
+            </div>
+          )}
 
           
         </div>
@@ -825,6 +1016,163 @@ export const PosTerminalPage: React.FC = () => {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modern Shadcn Modal: Receive Additional Payment / Settle Invoice Balance */}
+      <Dialog open={adjustModalOpen} onOpenChange={setAdjustModalOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Banknote className="size-5 text-emerald-600" /> Receive Additional Payment
+            </DialogTitle>
+          </DialogHeader>
+
+          {(() => {
+            const previouslyPaid = Number(originalInvoice?.paidAmount || 0);
+            const remainingDue = Math.max(0, total - previouslyPaid);
+            const newlyEntered = tempAdjustCash === '' ? 0 : Number(tempAdjustCash);
+            const cumulativeTotal = previouslyPaid + newlyEntered;
+            const projectedChange = cumulativeTotal > total ? cumulativeTotal - total : 0;
+            const projectedRemaining = Math.max(0, total - cumulativeTotal);
+
+            return (
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (newlyEntered <= 0) {
+                    toast.error('Please enter a valid payment amount');
+                    return;
+                  }
+
+                  const finalCalculatedCash = previouslyPaid + newlyEntered;
+                  const finalPaidAmount = Math.min(total, finalCalculatedCash);
+                  const remainingDebt = Math.max(0, total - finalPaidAmount);
+
+                  // Use defined submitting state
+                  setSubmitting(true);
+                  try {
+                    // Instantly persist payment to Backend Database & Atomic Customer Balance Ledger
+                    const updated = await put<any>(`/orders/invoices/${originalInvoice.id}`, {
+                      source: originalInvoice.source || 'POS_RETAIL',
+                      customerId: originalInvoice.customerId || undefined,
+                      customerName: originalInvoice.customerName || 'Walk-in Customer',
+                      customerPhone: originalInvoice.customerPhone || undefined,
+                      items: cart.map((i) => ({
+                        variantId: i.variantId,
+                        quantity: i.quantity,
+                        unitPrice: i.unitPrice,
+                        price: i.unitPrice * i.quantity,
+                      })),
+                      subtotal,
+                      discount: discountAmount,
+                      discountType,
+                      totalAmount: total,
+                      paidAmount: finalPaidAmount,
+                      paymentMethod: remainingDebt > 0 ? 'CREDIT' : 'CASH',
+                    });
+
+                    // Update live UI state and internal reference
+                    setClientGivenCash(String(finalCalculatedCash));
+                    setOriginalInvoice(updated);
+                    setAdjustModalOpen(false);
+
+                    toast.success(
+                      `Payment of Rs. ${newlyEntered.toLocaleString()} saved permanently! Invoice #INV${originalInvoice.id} updated.`
+                    );
+                  } catch (err: any) {
+                    toast.error(err.message || 'Failed to save payment to database');
+                  } finally {
+                    // Reset submitting state
+                    setSubmitting(false);
+                  }
+                }}
+                className="space-y-4 py-2 text-xs"
+              >
+                {/* Ledger Breakdown Card */}
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 space-y-1.5">
+                  <div className="flex justify-between items-center text-slate-500">
+                    <span>Invoice Total:</span>
+                    <span className="font-mono font-bold text-slate-900 dark:text-white">
+                      Rs. {total.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-slate-500">
+                    <span>Previously Paid:</span>
+                    <span className="font-mono font-bold text-emerald-600">
+                      Rs. {previouslyPaid.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center pt-1 border-t border-slate-200 dark:border-zinc-800">
+                    <span className="font-bold text-slate-700 dark:text-zinc-300">Current Due Balance:</span>
+                    <span className="font-mono font-bold text-rose-600 text-sm">
+                      Rs. {remainingDue.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Professional Input Field */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-900 dark:text-white block">
+                    Payment Received Now (Rs) *
+                  </label>
+                  <Input
+                    type="number"
+                    min="1"
+                    step="any"
+                    autoFocus
+                    required
+                    value={tempAdjustCash}
+                    onChange={(e) => setTempAdjustCash(e.target.value)}
+                    placeholder={`e.g. ${remainingDue > 0 ? remainingDue : total}`}
+                    className="font-mono font-bold text-base text-emerald-600 dark:text-emerald-400 h-10"
+                  />
+                </div>
+
+                {/* Live Outcome Preview */}
+                {newlyEntered > 0 && (
+                  <div className="p-2.5 rounded-lg bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 space-y-1">
+                    <div className="flex justify-between font-semibold text-emerald-800 dark:text-emerald-300">
+                      <span>Total Paid Will Become:</span>
+                      <span className="font-mono font-bold">Rs. {cumulativeTotal.toLocaleString()}</span>
+                    </div>
+                    {projectedChange > 0 && (
+                      <div className="flex justify-between font-bold text-emerald-700 dark:text-emerald-400">
+                        <span>Change to Return:</span>
+                        <span className="font-mono">Rs. {projectedChange.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {projectedRemaining > 0 && (
+                      <div className="flex justify-between font-bold text-rose-600">
+                        <span>Remaining Credit Due:</span>
+                        <span className="font-mono">Rs. {projectedRemaining.toLocaleString()}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <DialogFooter className="pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setAdjustModalOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                  type="submit"
+                  size="sm"
+                  disabled={submitting}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-9 px-4"
+                >
+                  {submitting && <Loader2 className="size-3.5 animate-spin mr-1.5" />}
+                  Apply Payment
+                </Button>
+                </DialogFooter>
+              </form>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 

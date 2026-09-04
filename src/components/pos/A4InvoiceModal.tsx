@@ -32,6 +32,9 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
       : Number(order.paidAmount || 0);
     const change = Math.max(0, tendered - total);
     const balanceDue = Math.max(0, total - tendered);
+    // Resolve customer outstanding balance (Exclude walk-in customers and zero balance accounts)
+    const prevBalance = Number(order.customer?.outstandingBalance || order.prevBalance || 0);
+    const hasOldBill = Boolean(order.customerId || order.customer?.id) && prevBalance > 0;
 
     // 1. Resolve active payment method label (CASH, CHEQUE, CARD, CREDIT)
     const paymentMethodLabel = order.paymentMethod 
@@ -341,8 +344,10 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
             <div>
               <div class="section-title">Billed To</div>
               <div class="customer-details">
-                <div class="customer-name">${order.customerName || 'Walk-in Customer'}</div>
-                <div>${order.customer?.address || order.shippingAddress || '-'}</div>
+                <div class="customer-name">${order.customerName || order.customer?.name || 'Walk-in Customer'}</div>
+                ${(order.customer?.address || order.shippingAddress) ? `
+                  <div>${order.customer?.address || order.shippingAddress}</div>
+                ` : ''}
                 <div style="margin-top: 2px;"><strong>Contact:</strong> ${order.customerPhone || order.customer?.phone || '-'}</div>
               </div>
             </div>
@@ -379,11 +384,13 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
                 </tr>
               `;
               }).join('')}
-              <!-- Old Bill Row -->
+              <!-- Dynamic Old Bill Row (Visible ONLY if registered customer has an active outstanding balance) -->
+              ${hasOldBill ? `
               <tr>
-                <td colspan="5" class="text-right nowrap" style="padding-top: 8px; font-weight: bold; text-transform: uppercase; font-size: 10px; padding-right: 18px;">Old Bill</td>
-                <td class="text-right nowrap font-bold" style="padding-top: 8px; font-size: 11px; padding-right: 4px;">Rs 0.00</td>
+                <td colspan="5" class="text-right nowrap" style="padding-top: 8px; font-weight: bold; text-transform: uppercase; font-size: 10px; padding-right: 18px; color: #b91c1c;">Old Bill (Previous Due)</td>
+                <td class="text-right nowrap font-bold" style="padding-top: 8px; font-size: 11px; padding-right: 4px; color: #b91c1c;">Rs ${prevBalance.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
               </tr>
+              ` : ''}
             </tbody>
           </table>
 
@@ -472,6 +479,23 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
     doc.write(printableDoc);
     doc.close();
 
+    // Capture the current title so it can be restored once the print dialog closes.
+    // Chrome's "Save as PDF" default filename is derived from the top-level
+    // document title at the moment print() fires, so both the iframe document
+    // and the parent window must reflect the desired invoice filename.
+    const originalTitle = document.title;
+    const suggestedFileName = `Invoice-${invoiceNo}`;
+    document.title = suggestedFileName;
+    if (doc) {
+      doc.title = suggestedFileName;
+    }
+
+    // Restore the original title once the print dialog has closed (or been cancelled)
+    const restoreTitle = () => {
+      document.title = originalTitle;
+    };
+    iframe.contentWindow?.addEventListener('afterprint', restoreTitle);
+
     // Trigger print safely once content is completely written (Single-Execution)
     iframe.contentWindow?.focus();
     const printTimer = setTimeout(() => {
@@ -479,6 +503,8 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
 
       // Remove temporary iframe after printing dialog is closed
       const cleanupTimer = setTimeout(() => {
+        restoreTitle();
+        iframe.contentWindow?.removeEventListener('afterprint', restoreTitle);
         if (document.body.contains(iframe)) {
           document.body.removeChild(iframe);
         }
@@ -491,6 +517,8 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
 
     return () => {
       clearTimeout(printTimer);
+      restoreTitle();
+      iframe.contentWindow?.removeEventListener('afterprint', restoreTitle);
       if (document.body.contains(iframe)) {
         document.body.removeChild(iframe);
       }

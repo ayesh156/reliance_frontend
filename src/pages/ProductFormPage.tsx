@@ -9,6 +9,7 @@ import { Input } from '../components/ui/input';
 import { ImageUpload } from '../components/ui/ImageUpload';
 import { VariantTable } from '../components/products/VariantTable';
 import type { ProductItem, VariantItem } from '../types/product';
+import { compressAndConvertToWebP } from '../lib/imageCompressor';
 
 import {
     ArrowLeft,
@@ -202,14 +203,18 @@ export const ProductFormPage: React.FC = () => {
             formData.append('categoryId', String(categoryId));
             formData.append('variants', JSON.stringify(variants));
 
+            // Process both existing cloud URLs and newly pasted WebP DataURLs
             const existingUrls: string[] = [];
             images.forEach((img, i) => {
                 if (img.startsWith('data:')) {
+                    const mimeType = img.substring(img.indexOf(':') + 1, img.indexOf(';')) || 'image/webp';
                     const byteString = atob(img.split(',')[1]);
                     const ab = new ArrayBuffer(byteString.length);
                     const ia = new Uint8Array(ab);
                     for (let j = 0; j < byteString.length; j++) ia[j] = byteString.charCodeAt(j);
-                    formData.append('imageFiles', new Blob([ab], { type: 'image/jpeg' }), `prod-${Date.now()}-${i}.jpg`);
+                    
+                    const extension = mimeType.includes('webp') ? 'webp' : 'jpg';
+                    formData.append('imageFiles', new Blob([ab], { type: mimeType }), `prod-pasted-${Date.now()}-${i}.${extension}`);
                 } else if (!img.startsWith('blob:')) {
                     existingUrls.push(img);
                 }
@@ -230,6 +235,99 @@ export const ProductFormPage: React.FC = () => {
             setSaving(false);
         }
     };
+    
+    /**
+   * Handle Smart Clipboard Paste Event (Ctrl + V from Facebook, Google, Web)
+   * Converts pasted image directly to ultra-lightweight WebP Data URL without server RAM lag
+   */
+  const handleClipboardPaste = async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+
+      // Detect if clipboard item is an image
+      if (item.type.indexOf('image') !== -1) {
+        e.preventDefault();
+        const blob = item.getAsFile();
+        if (!blob) continue;
+
+        toast.info('Optimizing pasted image to WebP...');
+
+        try {
+          // 1. Client-side lossless/near-lossless WebP conversion (max: 1200px, quality: 82%)
+          const optimizedFile = await compressAndConvertToWebP(blob, 1200, 0.82);
+
+          // 2. Convert optimized WebP file into DataURL for instant catalog state rendering
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const resultUrl = reader.result as string;
+            if (resultUrl) {
+              setImages(prev => [...prev, resultUrl]);
+              toast.success(`Pasted & compressed (${Math.round(optimizedFile.size / 1024)} KB WebP)!`);
+            }
+          };
+          reader.readAsDataURL(optimizedFile);
+        } catch (err: any) {
+          toast.error('Failed to process pasted image');
+        }
+      }
+    }
+  };
+
+  /**
+   * Handle Smart Variant-Specific Direct Clipboard Paste:
+   * Compresses pasted image, pushes into Catalog Images, and instantly auto-binds to the targeted variant.
+   */
+  const handleVariantDirectPaste = async (variantKey: string, e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.indexOf('image') !== -1) {
+        e.preventDefault();
+        e.stopPropagation(); // Avoid triggering parent container paste
+        const blob = item.getAsFile();
+        if (!blob) continue;
+
+        toast.info('Compressing and assigning variant image...');
+
+        try {
+          const optimizedFile = await compressAndConvertToWebP(blob, 1200, 0.82);
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const resultUrl = reader.result as string;
+            if (resultUrl) {
+              // 1. Add to main catalog gallery
+              setImages(prev => [...prev, resultUrl]);
+
+              // 2. Instantly assign to the targeted variant
+              setVariants(prev =>
+                prev.map(v => {
+                  if (v.key === variantKey) {
+                    const nextUrls = [...(v.imageUrls || []), resultUrl];
+                    return {
+                      ...v,
+                      imageUrl: nextUrls[0],
+                      imageUrls: nextUrls,
+                    };
+                  }
+                  return v;
+                })
+              );
+
+              toast.success(`Variant image pasted & optimized (${Math.round(optimizedFile.size / 1024)} KB WebP)!`);
+            }
+          };
+          reader.readAsDataURL(optimizedFile);
+        } catch (err: any) {
+          toast.error('Failed to paste variant image');
+        }
+      }
+    }
+  };
 
     if (loading) {
         return (
@@ -344,15 +442,25 @@ export const ProductFormPage: React.FC = () => {
                       catalogImages={images}
                       onSizeCreated={(newSize) => setSizes(prev => [...prev, newSize])}
                       onColorCreated={(newColor) => setColors(prev => [...prev, newColor])}
+                      onVariantPaste={handleVariantDirectPaste}
                       dark={dark}
                     />
                 </div>
 
-                {/* Section 3: Media Gallery with Left-Top Shadcn Dropdown Assignment */}
-                <div className="rounded-2xl border p-6 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 space-y-4 shadow-sm">
-                    <div className="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-zinc-800">
-                        <ImageIcon className="size-4 text-emerald-500" />
-                        <h3 className="text-sm font-bold">Catalog Images &amp; Previews ({images.length})</h3>
+                {/* Section 3: Media Gallery with Left-Top Shadcn Dropdown Assignment & Smart Ctrl+V Paste */}
+                <div 
+                  tabIndex={0}
+                  onPaste={handleClipboardPaste}
+                  className="rounded-2xl border p-6 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 space-y-4 shadow-sm focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/10 outline-none transition-all"
+                >
+                    <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-zinc-800">
+                        <div className="flex items-center gap-2">
+                          <ImageIcon className="size-4 text-emerald-500" />
+                          <h3 className="text-sm font-bold">Catalog Images &amp; Previews ({images.length})</h3>
+                        </div>
+                        <span className="text-[11px] text-slate-400 font-medium bg-slate-100 dark:bg-zinc-800 px-2 py-0.5 rounded-md">
+                          Tip: Click here &amp; press <kbd className="font-mono font-bold text-emerald-600 dark:text-emerald-400">Ctrl + V</kbd> to paste Web/FB images
+                        </span>
                     </div>
                     
                     <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
