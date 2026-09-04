@@ -33,8 +33,13 @@ export function AppSidebar() {
   {/* Brand Header */}
       <SidebarHeader className="border-b border-slate-100 dark:border-zinc-800/80 h-14 flex justify-center">
         <div className="flex items-center gap-2.5 px-1.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
-          <div className="flex aspect-square size-8 items-center justify-center rounded-lg overflow-hidden border border-slate-200 dark:border-zinc-800 bg-white shadow-sm shrink-0">
-            <img src="/images/logo.jpeg" alt="Reliance Logo" className="w-full h-full object-cover" />
+          {/* Stylized Modern Rounded Black Square Logo Badge */}
+          <div className="flex size-6 shrink-0 items-center justify-center overflow-hidden shadow-sm">
+            <img 
+              src="/images/logo.jpg" 
+              alt="Reliance Logo" 
+              className="w-full h-full object-contain pointer-events-none" 
+            />
           </div>
           <div className="grid flex-1 text-left leading-tight group-data-[collapsible=icon]:hidden">
             <span className="truncate font-display font-bold tracking-[0.16em] uppercase text-xs text-slate-900 dark:text-zinc-100">

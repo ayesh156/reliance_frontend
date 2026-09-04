@@ -6,6 +6,8 @@ import { cn } from "../../lib/utils"
 export interface ImageUploadProps {
   value?: string
   onChange: (base64Url?: string) => void
+  // Handler for multiple compressed image batches
+  onMultipleChange?: (base64Urls: string[]) => void
   onRemove?: () => void
   disabled?: boolean
   className?: string
@@ -15,6 +17,7 @@ export interface ImageUploadProps {
 export const ImageUpload: React.FC<ImageUploadProps> = ({
   value,
   onChange,
+  onMultipleChange,
   onRemove,
   disabled = false,
   className,
@@ -25,45 +28,57 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
   const [compressing, setCompressing] = useState(false)
   const [progress, setProgress] = useState(0)
 
-  const handleFile = async (file: File) => {
-    if (!file.type.startsWith("image/")) {
-      return
-    }
+  /**
+   * Process and compress multiple or single selected files sequentially
+   */
+  const handleFiles = async (fileList: FileList | File[]) => {
+    const validFiles = Array.from(fileList).filter(f => f.type.startsWith("image/"))
+    if (validFiles.length === 0) return
 
-    const options = {
-      maxSizeMB: 0.6, // Max ~600KB
-      maxWidthOrHeight: 1280, // Max 1280px resolution
-      useWebWorker: true,
-      onProgress: (p: number) => {
-        setProgress(p)
-      },
-    }
+    setCompressing(true)
+    setProgress(10)
 
-    try {
-      setCompressing(true)
-      setProgress(10)
-      const compressedFile = await imageCompression(file, options)
+    const compressedResults: string[] = []
 
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        const result = e.target?.result as string
-        onChange(result)
-        setCompressing(false)
-        setProgress(0)
+    for (let i = 0; i < validFiles.length; i++) {
+      const file = validFiles[i]
+      const options = {
+        maxSizeMB: 0.6,
+        maxWidthOrHeight: 1280,
+        useWebWorker: true,
+        onProgress: (p: number) => {
+          const stepWeight = 100 / validFiles.length
+          const overallProgress = Math.round((i * stepWeight) + (p * (stepWeight / 100)))
+          setProgress(overallProgress)
+        },
       }
-      reader.readAsDataURL(compressedFile)
-    } catch (err) {
-      console.error("Image compression error:", err)
-      // Fallback: raw file read
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        const result = e.target?.result as string
-        onChange(result)
-        setCompressing(false)
-        setProgress(0)
+
+      try {
+        const compressedBlob = await imageCompression(file, options)
+        const base64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader()
+          reader.onload = (e) => resolve(e.target?.result as string)
+          reader.readAsDataURL(compressedBlob)
+        })
+        compressedResults.push(base64)
+      } catch {
+        const base64Fallback = await new Promise<string>((resolve) => {
+          const reader = new FileReader()
+          reader.onload = (e) => resolve(e.target?.result as string)
+          reader.readAsDataURL(file)
+        })
+        compressedResults.push(base64Fallback)
       }
-      reader.readAsDataURL(file)
     }
+
+    if (onMultipleChange) {
+      onMultipleChange(compressedResults)
+    } else if (compressedResults[0]) {
+      onChange(compressedResults[0])
+    }
+
+    setCompressing(false)
+    setProgress(0)
   }
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
@@ -71,8 +86,8 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
     setIsDragging(false)
     if (disabled) return
 
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFile(e.dataTransfer.files[0])
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFiles(e.dataTransfer.files)
     }
   }
 
@@ -93,9 +108,9 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      handleFile(e.target.files[0])
-      e.target.value = "" // Reset input so same file can be re-selected
+    if (e.target.files && e.target.files.length > 0) {
+      handleFiles(e.target.files)
+      e.target.value = "" // Reset input so identical batch can be re-uploaded
     }
   }
 
@@ -105,6 +120,7 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
         ref={fileInputRef}
         type="file"
         accept="image/png, image/jpeg, image/webp"
+        multiple
         className="hidden"
         disabled={disabled}
         onChange={handleInputChange}

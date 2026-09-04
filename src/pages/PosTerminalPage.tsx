@@ -24,7 +24,7 @@ import {
   Barcode,
   Building,
   User,
-  CreditCard,
+  FileText,
   Banknote,
   CheckCircle,
   Loader2,
@@ -86,8 +86,11 @@ export const PosTerminalPage: React.FC = () => {
   // Checkout and Customer states
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('walk-in');
   const [clientGivenCash, setClientGivenCash] = useState<string>('');
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'CREDIT'>('CASH');
-  const [discountAmount, setDiscountAmount] = useState<number>(0);
+  // Payment methods: Cash, Cheque, and Credit
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CHEQUE' | 'CREDIT'>('CASH');
+  // Dual-mode Discount: Default to Percentage (%), with Fixed Price (Rs) fallback
+  const [discountType, setDiscountType] = useState<'FIXED' | 'PERCENT'>('PERCENT');
+  const [discountInput, setDiscountInput] = useState<number>(0);
   const [submitting, setSubmitting] = useState(false);
 
   // Quick Customer Add Modal states
@@ -235,7 +238,18 @@ export const PosTerminalPage: React.FC = () => {
 
   // Subtotal and Net Payable Total calculation
   const subtotal = useMemo(() => cart.reduce((acc, curr) => acc + curr.unitPrice * curr.quantity, 0), [cart]);
-  const total = Math.max(0, subtotal - (Number(discountAmount) || 0));
+
+  // Compute final discount value in Rs based on selected mode (FIXED or PERCENT)
+  const discountAmount = useMemo(() => {
+    if (!discountInput || discountInput <= 0) return 0;
+    if (discountType === 'PERCENT') {
+      const percentage = Math.min(100, Math.max(0, discountInput));
+      return Math.round((subtotal * percentage) / 100);
+    }
+    return Math.min(subtotal, Math.max(0, discountInput));
+  }, [subtotal, discountInput, discountType]);
+
+  const total = Math.max(0, subtotal - discountAmount);
 
   // Client Cash calculations for change and outstanding balance
   const cashEntered = clientGivenCash === '' ? 0 : Number(clientGivenCash);
@@ -308,12 +322,16 @@ export const PosTerminalPage: React.FC = () => {
     try {
       const selectedCust = customers.find((c) => String(c.id) === String(selectedCustomerId));
       
-      // Determine actual paid amount (Cash given or Total if card/full cash without explicit input)
+      // Resolve true tendered cash and paid amount (allows underpaid/credit or overpaid/change tracking)
+      let resolvedTendered = total;
       let resolvedPaid = total;
+
       if (paymentMethod === 'CREDIT') {
+        resolvedTendered = 0;
         resolvedPaid = 0;
       } else if (clientGivenCash !== '') {
-        resolvedPaid = Math.min(total, cashEntered);
+        resolvedTendered = cashEntered;
+        resolvedPaid = cashEntered;
       }
 
       const payload = {
@@ -329,18 +347,29 @@ export const PosTerminalPage: React.FC = () => {
         })),
         subtotal,
         discount: discountAmount,
+        discountType,
         totalAmount: total,
         paidAmount: resolvedPaid,
         paymentMethod: paymentMethod === 'CREDIT' || isUnderpaid ? 'CREDIT' : paymentMethod,
       };
 
-      const created = await post('/orders/pos', payload);
+      // Explicitly type response to allow object spreading
+      const created = await post<any>('/orders/pos', payload);
       toast.success('Invoice generated successfully!');
       setCart([]);
-      setDiscountAmount(0);
+      setDiscountInput(0);
       setClientGivenCash('');
-      setCompletedOrder(created);
-      setInvoiceOpen(true); // ⭐ Automatically triggers Print Dialog
+
+      // Pass true customer entered cash and discount type into completedOrder for accurate A4 printing
+      setCompletedOrder({
+        ...created,
+        tenderedAmount: resolvedTendered,
+        paidAmount: resolvedPaid,
+        discount: discountAmount,
+        discountType,
+        discountRate: discountType === 'PERCENT' ? discountInput : undefined,
+      });
+      setInvoiceOpen(true);
       bootstrapPos(); // Refresh live stock counts
     } catch (err: any) {
       toast.error(err.message || 'Payment failed');
@@ -423,11 +452,22 @@ export const PosTerminalPage: React.FC = () => {
                 const apiHost = import.meta.env.VITE_API_URL
                   ? import.meta.env.VITE_API_URL.replace(/\/api\/?$/, '')
                   : 'http://localhost:5000';
-                const img = v.product.images?.[0]?.imageUrl;
-                const resolvedUrl = img
-                  ? img.startsWith('http') || img.startsWith('data:')
-                    ? img
-                    : `${apiHost}${img.startsWith('/') ? '' : '/'}${img}`
+
+                // 1. Check if variant directly owns an image, 2. Match by color in product image pool, 3. Fallback to first image
+                const variantDirectImage = (v as any).images?.[0]?.imageUrl;
+                const productImages = v.product.images || [];
+                const colorKeyword = (v.color || '').toLowerCase().trim();
+                
+                const matchedColorImage = productImages.find((imgObj: any) => 
+                  colorKeyword && imgObj.imageUrl.toLowerCase().includes(colorKeyword)
+                )?.imageUrl;
+
+                const targetImg = variantDirectImage || matchedColorImage || productImages[0]?.imageUrl;
+
+                const resolvedUrl = targetImg
+                  ? targetImg.startsWith('http') || targetImg.startsWith('data:')
+                    ? targetImg
+                    : `${apiHost}${targetImg.startsWith('/') ? '' : '/'}${targetImg}`
                   : null;
 
                 const currentPrice = pricingMode === 'WHOLESALE' ? v.wholesalePrice : v.retailPrice;
@@ -598,16 +638,53 @@ export const PosTerminalPage: React.FC = () => {
             <span className="font-mono">Rs. {subtotal.toLocaleString()}</span>
           </div>
 
-          {/* Discount Field */}
+          {/* Discount Field: [%] [Rs] toggle with left-aligned calculated discount display */}
           <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-slate-500">Discount (Rs)</span>
-            <Input
-              type="number"
-              value={discountAmount || ''}
-              onChange={(e) => setDiscountAmount(Number(e.target.value) || 0)}
-              placeholder="0"
-              className="w-24 h-7 text-xs text-right font-mono"
-            />
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-xs text-slate-500 font-medium">Discount</span>
+              <div className="inline-flex rounded-lg border border-slate-200 dark:border-zinc-800 p-0.5 bg-slate-100 dark:bg-zinc-900">
+                <button
+                  type="button"
+                  onClick={() => setDiscountType('PERCENT')}
+                  className={`px-1.5 py-0.5 text-[10px] font-bold rounded ${
+                    discountType === 'PERCENT'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
+                  }`}
+                >
+                  %
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDiscountType('FIXED')}
+                  className={`px-1.5 py-0.5 text-[10px] font-bold rounded ${
+                    discountType === 'FIXED'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
+                  }`}
+                >
+                  Rs
+                </button>
+              </div>
+            </div>
+
+            {/* Calculated discount preview sits to the left of the static input box */}
+            <div className="flex items-center justify-end gap-1.5 flex-1 min-w-0">
+              {discountType === 'PERCENT' && discountAmount > 0 && (
+                <span className="text-[11px] font-mono text-emerald-600 font-bold whitespace-nowrap">
+                  (-Rs. {discountAmount.toLocaleString()})
+                </span>
+              )}
+              <Input
+                type="number"
+                min="0"
+                max={discountType === 'PERCENT' ? 100 : undefined}
+                value={discountInput || ''}
+                onChange={(e) => setDiscountInput(Number(e.target.value) || 0)}
+                placeholder="0"
+                className="w-20 h-7 text-xs text-right font-mono shrink-0"
+              />
+            </div>
           </div>
 
           {/* Client Cash Received Field */}
@@ -657,16 +734,17 @@ export const PosTerminalPage: React.FC = () => {
             >
               <Banknote className="size-3.5" /> Cash
             </button>
+            {/* Cheque Payment Option in place of Card */}
             <button
               type="button"
-              onClick={() => setPaymentMethod('CARD')}
+              onClick={() => setPaymentMethod('CHEQUE')}
               className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border text-xs font-semibold ${
-                paymentMethod === 'CARD'
-                  ? 'border-blue-500 bg-blue-500/10 text-blue-600'
+                paymentMethod === 'CHEQUE'
+                  ? 'border-amber-500 bg-amber-500/10 text-amber-600'
                   : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400'
               }`}
             >
-              <CreditCard className="size-3.5" /> Card
+              <FileText className="size-3.5" /> Cheque
             </button>
             <button
               type="button"
@@ -750,16 +828,18 @@ export const PosTerminalPage: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Headless Direct A4 Browser Print Window Trigger */}
-      <A4InvoiceModal
-        open={invoiceOpen}
-        onClose={() => {
-          setInvoiceOpen(false);
-          setCompletedOrder(null);
-        }}
-        order={completedOrder}
-        autoPrint={true}
-      />
+      {/* Headless Direct A4 Browser Print Window Trigger (Conditional Mount Prevents Duplicate Preview Loop) */}
+      {invoiceOpen && completedOrder && (
+        <A4InvoiceModal
+          open={invoiceOpen}
+          onClose={() => {
+            setInvoiceOpen(false);
+            setCompletedOrder(null);
+          }}
+          order={completedOrder}
+          autoPrint={true}
+        />
+      )}
     </div>
   );
 };

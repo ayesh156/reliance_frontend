@@ -10,6 +10,12 @@ export interface VariantItem {
   wholesalePrice: number;
   comparePrice?: number;
   stock: number;
+  // Direct primary catalog image assigned to this variant
+  imageUrl?: string;
+  // Multiple assigned gallery images
+  imageUrls?: string[];
+  // Zero-based indexes from catalog images gallery
+  imageIndexes?: number[];
 }
 
 export interface ReviewItem {
@@ -24,6 +30,8 @@ export interface ProductImageItem {
   id: number;
   imageUrl: string;
   order: number;
+  // Linked variant reference from database relation
+  variantId?: number | null;
 }
 
 export interface ProductItem {

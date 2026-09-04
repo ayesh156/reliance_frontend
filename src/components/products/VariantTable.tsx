@@ -1,5 +1,6 @@
-import React from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { Plus, Trash2, ImageIcon } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { SizeCombobox } from './SizeCombobox';
@@ -12,6 +13,8 @@ interface VariantTableProps {
   productName: string;
   availableSizes?: { id: number; name: string }[];
   availableColors?: { id: number; name: string; hexCode?: string | null }[];
+  // Catalog gallery photos available for direct variant assignment
+  catalogImages?: string[];
   onSizeCreated?: (newSize: { id: number; name: string }) => void;
   onColorCreated?: (newColor: { id: number; name: string; hexCode?: string | null }) => void;
   dark?: boolean;
@@ -23,11 +26,36 @@ export const VariantTable: React.FC<VariantTableProps> = ({
   productName,
   availableSizes = [],
   availableColors = [],
+  catalogImages = [],
   onSizeCreated = () => {},
   onColorCreated = () => {},
   dark = true,
 }) => {
- const addVariant = () => {
+  // Key of the variant row currently showing the image selection popover
+  const [activeImagePickerKey, setActiveImagePickerKey] = useState<string | null>(null);
+  // Viewport coordinates for Portal rendering above table overflows
+  const [pickerCoords, setPickerCoords] = useState<{ top: number; left: number } | null>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Close photo popover when clicking outside
+   */
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setActiveImagePickerKey(null);
+      }
+    };
+    if (activeImagePickerKey) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [activeImagePickerKey]);
+
+  /**
+   * Append new variant row with sequential SKU
+   */
+  const addVariant = () => {
     const next = variants.length + 1;
     const cleanPrefix = (productName || 'PROD')
       .replace(/[^a-zA-Z0-9]/g, '')
@@ -81,6 +109,8 @@ export const VariantTable: React.FC<VariantTableProps> = ({
         <table className="w-full text-xs">
           <thead>
             <tr className="text-[10px] uppercase font-semibold text-slate-500 dark:text-zinc-400 border-b border-slate-200 dark:border-zinc-800">
+              <th className="p-1.5 text-center w-8">#</th>
+              <th className="p-1.5 text-center w-12">Photo</th>
               <th className="p-1.5 text-left">Size</th>
               <th className="p-1.5 text-left">Color</th>
               <th className="p-1.5 text-left">SKU *</th>
@@ -94,8 +124,64 @@ export const VariantTable: React.FC<VariantTableProps> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 dark:divide-zinc-800/60">
-            {variants.map(v => (
+            {variants.map((v, index) => (
               <tr key={v.key}>
+                {/* Variant Sequence Number */}
+                <td className="p-1 text-center font-mono text-[11px] font-bold text-slate-400">
+                  #{index + 1}
+                </td>
+
+                {/* Variant Image Selector Cell */}
+                <td className="p-1 text-center">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      if (activeImagePickerKey === v.key) {
+                        setActiveImagePickerKey(null);
+                      } else {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        // Open above or below based on viewport space
+                        const openUpwards = window.innerHeight - rect.bottom < 200;
+                        setPickerCoords({
+                          top: openUpwards ? rect.top - 170 : rect.bottom + 6,
+                          left: rect.left,
+                        });
+                        setActiveImagePickerKey(v.key);
+                      }
+                    }}
+                    title="Assign photo to this variant"
+                    className={`size-8 rounded-lg border overflow-hidden flex items-center justify-center transition-all ${
+                      activeImagePickerKey === v.key
+                        ? 'border-emerald-500 ring-2 ring-emerald-500/20'
+                        : 'border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900 hover:border-emerald-500'
+                    }`}
+                  >
+                    {(() => {
+                      const displayImg = (v.imageUrls && v.imageUrls[0]) || v.imageUrl;
+                      const count = (v.imageUrls && v.imageUrls.length) || (v.imageUrl ? 1 : 0);
+
+                      if (!displayImg) return <ImageIcon className="size-3.5 text-slate-400" />;
+
+                      const src = displayImg.startsWith('http') || displayImg.startsWith('data:')
+                        ? displayImg
+                        : `${import.meta.env.VITE_API_URL?.replace(/\/api\/?$/, '') || 'http://localhost:5000'}${
+                            displayImg.startsWith('/') ? '' : '/'
+                          }${displayImg}`;
+
+                      return (
+                        <div className="relative w-full h-full">
+                          <img src={src} alt="" className="w-full h-full object-cover" />
+                          {count > 1 && (
+                            <span className="absolute bottom-0 right-0 bg-emerald-600 text-white font-mono text-[8px] font-bold px-1 rounded-tl">
+                              {count}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </button>
+                </td>
+
                 <td className="p-1 min-w-[100px]">
                   <SizeCombobox
                     sizes={availableSizes}
@@ -191,6 +277,111 @@ export const VariantTable: React.FC<VariantTableProps> = ({
           </tbody>
         </table>
       </div>
+
+      {/* Floating Photo Popover rendered via React Portal directly into body */}
+      {activeImagePickerKey && pickerCoords && createPortal(
+        <div
+          ref={popoverRef}
+          style={{
+            position: 'fixed',
+            top: pickerCoords.top,
+            left: pickerCoords.left,
+            zIndex: 99999,
+          }}
+          className="p-2.5 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-2xl w-60 space-y-2 animate-in fade-in-0 zoom-in-95 duration-150"
+        >
+          <div className="flex items-center justify-between text-[11px] font-bold text-slate-700 dark:text-zinc-300 border-b border-slate-100 dark:border-zinc-800 pb-1.5">
+            <span>Assign Variant Photo</span>
+            {(() => {
+              const activeVar = variants.find(v => v.key === activeImagePickerKey);
+              const hasAssignedImg = Boolean(activeVar?.imageUrl || (activeVar?.imageUrls && activeVar.imageUrls.length > 0));
+
+              return hasAssignedImg ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange(
+                      variants.map(v =>
+                        v.key === activeImagePickerKey
+                          ? { ...v, imageUrl: undefined, imageUrls: [], imageIndexes: [] }
+                          : v
+                      )
+                    );
+                    setActiveImagePickerKey(null);
+                  }}
+                  className="text-rose-500 hover:text-rose-600 text-[10px] hover:underline"
+                >
+                  Clear Photo
+                </button>
+              ) : null;
+            })()}
+          </div>
+
+          {catalogImages.length === 0 ? (
+            <p className="text-[10px] text-slate-400 py-3 text-center">
+              No photos uploaded in "Catalog Images" yet.
+            </p>
+          ) : (
+            <div className="grid grid-cols-4 gap-1.5 max-h-40 overflow-y-auto pr-1">
+              {catalogImages.map((imgUrl, i) => {
+                const apiHost =
+                  import.meta.env.VITE_API_URL?.replace(/\/api\/?$/, '') || 'http://localhost:5000';
+                const src =
+                  imgUrl.startsWith('http') || imgUrl.startsWith('data:')
+                    ? imgUrl
+                    : `${apiHost}${imgUrl.startsWith('/') ? '' : '/'}${imgUrl}`;
+
+                const currentVariant = variants.find(v => v.key === activeImagePickerKey);
+                const isSelected = Boolean(
+                  currentVariant?.imageUrl === imgUrl || 
+                  (currentVariant?.imageUrls && currentVariant.imageUrls.includes(imgUrl))
+                );
+
+                return (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => {
+                      onChange(
+                        variants.map(v => {
+                          if (v.key === activeImagePickerKey) {
+                            // Keep multi-image array intact, making clicked image the primary preview
+                            const existingUrls = v.imageUrls || (v.imageUrl ? [v.imageUrl] : []);
+                            const nextUrls = existingUrls.includes(imgUrl)
+                              ? existingUrls
+                              : [imgUrl, ...existingUrls];
+                            
+                            const nextIndexes = nextUrls
+                              .map(url => catalogImages.indexOf(url))
+                              .filter(idx => idx !== -1);
+
+                            return {
+                              ...v,
+                              imageUrl: imgUrl,
+                              imageUrls: nextUrls,
+                              imageIndexes: nextIndexes,
+                            };
+                          }
+                          return v;
+                        })
+                      );
+                      setActiveImagePickerKey(null);
+                    }}
+                    className={`aspect-square rounded-lg overflow-hidden border-2 transition-all group ${
+                      isSelected
+                        ? 'border-emerald-500 ring-2 ring-emerald-500/20 scale-105'
+                        : 'border-slate-200 dark:border-zinc-800 hover:border-slate-400 dark:hover:border-zinc-600'
+                    }`}
+                  >
+                    <img src={src} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

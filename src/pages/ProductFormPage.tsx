@@ -17,8 +17,17 @@ import {
     Package,
     Layers,
     ImageIcon,
-    X
+    X,
+    Tag,
+    Check
 } from 'lucide-react';
+import {
+    DropdownMenu,
+    DropdownMenuTrigger,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+} from '../components/ui/dropdown-menu';
 
 export const ProductFormPage: React.FC = () => {
     const { id } = useParams<{ id: string }>();
@@ -66,21 +75,36 @@ export const ProductFormPage: React.FC = () => {
             setDescription(prodRes.description || '');
             setSearchKey(prodRes.searchKey || '');
             setCategoryId(prodRes.categoryId || prodRes.category?.id || loadedCategories[0]?.id || 0);
-            setImages((prodRes.images || []).map(img => img.imageUrl));
+            const loadedImages = (prodRes.images || []).map(img => img.imageUrl);
+            setImages(loadedImages);
+
             setVariants(
-              (prodRes.variants || []).map(v => ({
-                id: v.id,
-                key: `var-${v.id || Date.now()}`,
-                size: v.size || 'FREE',
-                color: v.color || 'Default',
-                sku: v.sku || '',
-                barcode: v.barcode || '',
-                costPrice: Number(v.costPrice) || 0,
-                retailPrice: Number(v.retailPrice) || 0,
-                wholesalePrice: Number(v.wholesalePrice) || 0,
-                comparePrice: v.comparePrice ? Number(v.comparePrice) : undefined,
-                stock: Number(v.stock) || 0,
-              }))
+              (prodRes.variants || []).map(v => {
+                const variantImgs = (prodRes.images || [])
+                  .filter(img => img.variantId === v.id)
+                  .map(img => img.imageUrl);
+
+                const variantIndexes = variantImgs
+                  .map(url => loadedImages.indexOf(url))
+                  .filter(idx => idx !== -1);
+
+                return {
+                  id: v.id,
+                  key: `var-${v.id || Date.now()}`,
+                  size: v.size || 'FREE',
+                  color: v.color || 'Default',
+                  sku: v.sku || '',
+                  barcode: v.barcode || '',
+                  costPrice: Number(v.costPrice) || 0,
+                  retailPrice: Number(v.retailPrice) || 0,
+                  wholesalePrice: Number(v.wholesalePrice) || 0,
+                  comparePrice: v.comparePrice ? Number(v.comparePrice) : undefined,
+                  stock: Number(v.stock) || 0,
+                  imageUrl: variantImgs[0] || undefined,
+                  imageUrls: variantImgs,
+                  imageIndexes: variantIndexes,
+                };
+              })
             );
           }
         } else if (isMounted) {
@@ -116,6 +140,37 @@ export const ProductFormPage: React.FC = () => {
       isMounted = false;
     };
   }, [id, isEdit]);
+
+    /**
+     * Remove image from catalog gallery and automatically detach it
+     * from any assigned variant in the matrix above
+     */
+    /**
+     * Remove image from catalog gallery and cleanly detach from any variant's image list
+     */
+    const handleRemoveImage = (targetIndex: number) => {
+        const removedImageUrl = images[targetIndex];
+        const nextImages = images.filter((_, i) => i !== targetIndex);
+        setImages(nextImages);
+
+        if (removedImageUrl) {
+            setVariants(prevVariants =>
+                prevVariants.map(v => {
+                    const nextUrls = (v.imageUrls || []).filter(u => u !== removedImageUrl);
+                    const nextIndexes = nextUrls
+                        .map(u => nextImages.indexOf(u))
+                        .filter(idx => idx !== -1);
+
+                    return {
+                        ...v,
+                        imageUrl: nextUrls[0] || undefined,
+                        imageUrls: nextUrls,
+                        imageIndexes: nextIndexes,
+                    };
+                })
+            );
+        }
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -286,41 +341,184 @@ export const ProductFormPage: React.FC = () => {
                       productName={name}
                       availableSizes={sizes}
                       availableColors={colors}
+                      catalogImages={images}
                       onSizeCreated={(newSize) => setSizes(prev => [...prev, newSize])}
                       onColorCreated={(newColor) => setColors(prev => [...prev, newColor])}
                       dark={dark}
                     />
                 </div>
 
-                {/* Section 3: Media Gallery */}
+                {/* Section 3: Media Gallery with Left-Top Shadcn Dropdown Assignment */}
                 <div className="rounded-2xl border p-6 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 space-y-4 shadow-sm">
                     <div className="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-zinc-800">
                         <ImageIcon className="size-4 text-emerald-500" />
                         <h3 className="text-sm font-bold">Catalog Images &amp; Previews ({images.length})</h3>
                     </div>
+                    
                     <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
                         {images.map((img, idx) => {
-                const apiHost = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/api\/?$/, '') : 'http://localhost:5000';
-                const resolvedUrl = img.startsWith('http') || img.startsWith('data:') || img.startsWith('blob:')
-                  ? img
-                  : `${apiHost}${img.startsWith('/') ? '' : '/'}${img}`;
+                            const apiHost = import.meta.env.VITE_API_URL 
+                              ? import.meta.env.VITE_API_URL.replace(/\/api\/?$/, '') 
+                              : 'http://localhost:5000';
+                            const resolvedUrl = img.startsWith('http') || img.startsWith('data:') || img.startsWith('blob:')
+                              ? img
+                              : `${apiHost}${img.startsWith('/') ? '' : '/'}${img}`;
 
-                return (
-                  <div key={idx} className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 dark:border-zinc-800 group">
-                    <img src={resolvedUrl} alt="" className="w-full h-full object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => setImages(images.filter((_, i) => i !== idx))}
-                      className="absolute top-1 right-1 p-1 rounded-full bg-black/70 text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <X className="size-3" />
-                    </button>
-                  </div>
-                );
-              })}
+                            // Find all variants that currently include this image
+                            const assignedVariants = variants
+                              .map((v, i) => ({ variant: v, index: i }))
+                              .filter(({ variant }) => (variant.imageUrls || []).includes(img) || variant.imageUrl === img);
+
+                            const isAssigned = assignedVariants.length > 0;
+                            const firstAssigned = isAssigned ? assignedVariants[0] : null;
+
+                            return (
+                              <div 
+                                key={idx} 
+                                className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 dark:border-zinc-800 group bg-slate-50 dark:bg-zinc-900 shadow-sm"
+                              >
+                                {/* Background Preview Image */}
+                                <img src={resolvedUrl} alt="" className="w-full h-full object-cover absolute inset-0 z-0" />
+                                
+                                {/* Top Action Bar */}
+                                <div className="relative z-10 p-1.5 flex items-center justify-between">
+                                  {/* Left Top: Multi-Image Variant Assignment Dropdown Trigger (modal={false} prevents body scrollbar flickering) */}
+                                  <DropdownMenu modal={false}>
+                                    <DropdownMenuTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold shadow-md backdrop-blur-md transition-all ${
+                                          isAssigned
+                                            ? 'bg-emerald-600 text-white border border-emerald-400/30 ring-1 ring-emerald-500/50'
+                                            : 'bg-black/60 hover:bg-black/80 text-white/90 border border-white/10'
+                                        }`}
+                                        title="Assign image to variant"
+                                      >
+                                        <Tag className="size-2.5 shrink-0" />
+                                        <span>
+                                          {isAssigned 
+                                            ? assignedVariants.length === 1 
+                                              ? `#${firstAssigned!.index + 1}` 
+                                              : `${assignedVariants.length} Vars`
+                                            : 'Assign'}
+                                        </span>
+                                      </button>
+                                    </DropdownMenuTrigger>
+
+                                    {/* Multi-Image Toggle Dropdown Menu */}
+                                    <DropdownMenuContent align="start" className="w-52 text-xs p-1">
+                                      <div className="px-2 py-1 text-[10px] uppercase font-bold text-slate-400">
+                                        Assign Image To Variant
+                                      </div>
+                                      
+                                      {/* Unassign this specific image from all variants */}
+                                      <DropdownMenuItem
+                                        onClick={() => {
+                                          setVariants(prev =>
+                                            prev.map(v => {
+                                              const newUrls = (v.imageUrls || []).filter(u => u !== img);
+                                              return {
+                                                ...v,
+                                                imageUrl: newUrls[0] || (v.imageUrl === img ? undefined : v.imageUrl),
+                                                imageUrls: newUrls,
+                                                imageIndexes: newUrls.map(u => images.indexOf(u)).filter(i => i !== -1),
+                                              };
+                                            })
+                                          );
+                                        }}
+                                        className="text-xs cursor-pointer flex items-center justify-between"
+                                      >
+                                        <span>General Photo (Unassign)</span>
+                                        {!isAssigned && <Check className="size-3 text-emerald-500" />}
+                                      </DropdownMenuItem>
+
+                                      <DropdownMenuSeparator />
+
+                                      {/* Variants List (Enables Multiple Images Per Variant) */}
+                                      {variants.map((v, i) => {
+                                        const hasThisImg = (v.imageUrls || []).includes(img) || v.imageUrl === img;
+                                        return (
+                                          <DropdownMenuItem
+                                            key={v.key}
+                                            onClick={() => {
+                                              setVariants(prev =>
+                                                prev.map((item, itemIdx) => {
+                                                  if (itemIdx === i) {
+                                                    // Toggle assignment without clearing other images
+                                                    const existing = item.imageUrls || (item.imageUrl ? [item.imageUrl] : []);
+                                                    const nextUrls = existing.includes(img)
+                                                      ? existing.filter(u => u !== img)
+                                                      : [...existing, img];
+
+                                                    return {
+                                                      ...item,
+                                                      imageUrl: nextUrls[0] || undefined,
+                                                      imageUrls: nextUrls,
+                                                      imageIndexes: nextUrls.map(u => images.indexOf(u)).filter(idx => idx !== -1),
+                                                    };
+                                                  }
+                                                  return item;
+                                                })
+                                              );
+                                            }}
+                                            className={`text-xs cursor-pointer flex items-center justify-between ${
+                                              hasThisImg ? 'font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50/50 dark:bg-emerald-950/20' : ''
+                                            }`}
+                                          >
+                                            <div className="flex items-center gap-1.5 truncate">
+                                              <span className="font-mono text-[10px] px-1 py-0.2 rounded bg-slate-100 dark:bg-zinc-800">
+                                                #{i + 1}
+                                              </span>
+                                              <span className="truncate">
+                                                {v.size || 'FREE'} / {v.color || 'Def'}
+                                              </span>
+                                            </div>
+                                            {hasThisImg && <Check className="size-3 text-emerald-500 shrink-0" />}
+                                          </DropdownMenuItem>
+                                        );
+                                      })}
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+
+                                  {/* Right Top: Remove Image Button */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveImage(idx)}
+                                    className="p-1 rounded-full bg-black/60 hover:bg-rose-600 text-white shadow-md transition-colors"
+                                    title="Delete image"
+                                  >
+                                    <X className="size-3" />
+                                  </button>
+                                </div>
+
+                                {/* Bottom Label: Assigned Variant Indicator */}
+                                {firstAssigned && (
+                                  <div className="absolute bottom-0 inset-x-0 z-10 px-2 py-1 bg-gradient-to-t from-black/80 to-transparent text-[10px] text-white font-mono flex items-center justify-between">
+                                    <span className="truncate">
+                                      {assignedVariants.length === 1 
+                                        ? `Variant #${firstAssigned.index + 1}` 
+                                        : `${assignedVariants.length} Variants`}
+                                    </span>
+                                    <span className="opacity-80 text-[9px]">
+                                      {firstAssigned.variant.size}/{firstAssigned.variant.color}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                        })}
+
+                        {/* Multi-file batch compressor uploader */}
                         <ImageUpload
                             value={undefined}
-                            onChange={val => { if (val) setImages([...images, val]); }}
+                            onChange={(val?: string) => { 
+                              if (val) setImages(prev => [...prev, val]); 
+                            }}
+                            onMultipleChange={(newImgs: string[]) => {
+                              if (newImgs && newImgs.length > 0) {
+                                setImages(prev => [...prev, ...newImgs]);
+                              }
+                            }}
                             dark={dark}
                             className="aspect-square rounded-xl border-2 border-dashed flex items-center justify-center cursor-pointer"
                         />
