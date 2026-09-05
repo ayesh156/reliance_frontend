@@ -7,6 +7,7 @@ import {
   Users,
   MonitorSmartphone,
   FileText,
+  Building2,
 } from "lucide-react"
 
 import {
@@ -24,6 +25,7 @@ const navItems = [
   { label: "Products", path: "/system/products", icon: ShoppingBag },
   { label: "Attributes", path: "/system/attributes", icon: Tags },
   { label: "Customers", path: "/system/customers", icon: Users },
+  { label: "Suppliers (Shops)", path: "/system/raw-material-shops", icon: Building2 },
   { label: "Settings", path: "/system/settings", icon: Settings },
 ];
 

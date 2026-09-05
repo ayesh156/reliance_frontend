@@ -15,6 +15,7 @@ import { Login } from './pages/Login';
 import { Products } from './pages/Products';
 import { ProductFormPage } from './pages/ProductFormPage';
 import { Settings } from './pages/Settings';
+import { RawMaterialShopsPage } from './pages/RawMaterialShopsPage';
 import { CustomersPage } from './pages/CustomersPage';
 import { QuickCheckoutPage } from './pages/QuickCheckoutPage';
 import { InvoicesPage } from './pages/InvoicesPage';
@@ -145,6 +146,18 @@ export function App() {
                   <ProtectedRoute>
                     <AdminPage>
                       <InvoicesPage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Raw Material Suppliers Route with full /system path */}
+              <Route
+                path="/system/raw-material-shops"
+                element={
+                  <ProtectedRoute requiredRole="ADMIN">
+                    <AdminPage>
+                      <RawMaterialShopsPage />
                     </AdminPage>
                   </ProtectedRoute>
                 }
