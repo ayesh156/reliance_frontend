@@ -125,6 +125,16 @@ const fetchAll = useCallback(async () => {
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage) || 1;
   const paginated = filteredProducts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
+  // Global Product Metrics
+  const totalProducts = products.length;
+  const totalVariants = useMemo(() => products.reduce((acc, p) => acc + (p.variants?.length || 0), 0), [products]);
+  const totalLowStock = useMemo(() => {
+    return products.filter(p => {
+      const stock = (p.variants || []).reduce((acc, cur) => acc + (cur.stock || 0), 0);
+      return stock > 0 && stock <= 5;
+    }).length;
+  }, [products]);
+
   const handleDelete = async () => {
     if (!selectedProduct) return;
     try {
@@ -151,6 +161,41 @@ const fetchAll = useCallback(async () => {
           <Button onClick={() => navigate('/system/products/new')} className="gap-2">
             <Plus className="size-4" /> Add Product
           </Button>
+        </div>
+      </div>
+
+      {/* Metrics Row matching CustomersPage design */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
+        <div className="rounded-2xl border p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
+          <div>
+            <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Products</span>
+            <h3 className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{totalProducts}</h3>
+          </div>
+          <div className="p-3 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-xl">
+            <Package className="size-5" />
+          </div>
+        </div>
+
+        <div className="rounded-2xl border p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
+          <div>
+            <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Variants</span>
+            <h3 className="text-2xl font-bold text-emerald-600 mt-1">{totalVariants}</h3>
+          </div>
+          <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-xl">
+            <SlidersHorizontal className="size-5" />
+          </div>
+        </div>
+
+        <div className="rounded-2xl border p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
+          <div>
+            <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Low Stock Products</span>
+            <h3 className={`text-2xl font-bold mt-1 ${totalLowStock > 0 ? 'text-amber-600' : 'text-slate-900 dark:text-white'}`}>
+              {totalLowStock}
+            </h3>
+          </div>
+          <div className={`p-3 rounded-xl ${totalLowStock > 0 ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600' : 'bg-slate-100 dark:bg-zinc-800 text-slate-500'}`}>
+            <RefreshCw className="size-5" />
+          </div>
         </div>
       </div>
 

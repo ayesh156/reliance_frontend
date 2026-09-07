@@ -8,6 +8,8 @@ import {
   MonitorSmartphone,
   FileText,
   Building2,
+  Boxes,
+  ShoppingCart,
 } from "lucide-react"
 
 import {
@@ -20,12 +22,14 @@ import {
 } from "./ui/sidebar"
 
 const navItems = [
-  { label: "Quick Checkout", path: "/system/quick-checkout", icon: MonitorSmartphone }, // ⭐ Active Cashier Terminal
-  { label: "Invoices", path: "/system/invoices", icon: FileText }, // ⭐ Active Cashier Terminal
+  { label: "Quick Checkout", path: "/system/quick-checkout", icon: MonitorSmartphone }, 
+  { label: "Invoices", path: "/system/invoices", icon: FileText },
   { label: "Products", path: "/system/products", icon: ShoppingBag },
   { label: "Attributes", path: "/system/attributes", icon: Tags },
   { label: "Customers", path: "/system/customers", icon: Users },
+  { label: "Stock Purchases", path: "/system/buy-raw-materials", icon: ShoppingCart },
   { label: "Suppliers (Shops)", path: "/system/raw-material-shops", icon: Building2 },
+  { label: "Raw Materials", path: "/system/raw-material-items", icon: Boxes }, 
   { label: "Settings", path: "/system/settings", icon: Settings },
 ];
 

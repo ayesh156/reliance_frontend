@@ -138,6 +138,15 @@ export const InvoicesPage: React.FC = () => {
     return () => clearTimeout(timer);
   }, [page, selectedCustomerId, selectedMethod, searchQuery]);
 
+  // Comprehensive Invoice Metrics
+  const totalInvoicesGenerated = totalCount;
+  const totalInvoiceRevenue = useMemo(() => {
+    return invoices.reduce((sum, i) => sum + (Number(i.totalAmount) || 0), 0);
+  }, [invoices]);
+  const totalCustomerDebt = useMemo(() => {
+    return invoices.reduce((sum, i) => sum + Math.max(0, (Number(i.totalAmount) || 0) - (Number(i.paidAmount) || 0)), 0);
+  }, [invoices]);
+
   // Handle Invoice Deletion
   const confirmDelete = async () => {
     if (!deleteId) return;
@@ -215,6 +224,43 @@ export const InvoicesPage: React.FC = () => {
           >
             + New Sale
           </Button>
+        </div>
+      </div>
+
+      {/* Metrics Row matching CustomersPage design */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
+        <div className="rounded-2xl border p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
+          <div>
+            <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Invoices</span>
+            <h3 className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{totalInvoicesGenerated}</h3>
+          </div>
+          <div className="p-3 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-xl">
+            <FileText className="size-5" />
+          </div>
+        </div>
+
+        <div className="rounded-2xl border p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
+          <div>
+            <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Revenue Generated</span>
+            <h3 className="text-2xl font-bold text-emerald-600 mt-1 font-mono">
+              Rs. {totalInvoiceRevenue.toLocaleString()}
+            </h3>
+          </div>
+          <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-xl">
+            <Banknote className="size-5" />
+          </div>
+        </div>
+
+        <div className="rounded-2xl border p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
+          <div>
+            <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Outstanding Due (Customers)</span>
+            <h3 className={`text-2xl font-bold mt-1 font-mono ${totalCustomerDebt > 0 ? 'text-rose-600' : 'text-slate-900 dark:text-white'}`}>
+              Rs. {totalCustomerDebt.toLocaleString()}
+            </h3>
+          </div>
+          <div className={`p-3 rounded-xl ${totalCustomerDebt > 0 ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600' : 'bg-slate-100 dark:bg-zinc-800 text-slate-500'}`}>
+            <CreditCard className="size-5" />
+          </div>
         </div>
       </div>
 

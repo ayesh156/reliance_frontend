@@ -16,9 +16,12 @@ import { Products } from './pages/Products';
 import { ProductFormPage } from './pages/ProductFormPage';
 import { Settings } from './pages/Settings';
 import { RawMaterialShopsPage } from './pages/RawMaterialShopsPage';
+import { RawMaterialItemsPage } from './pages/RawMaterialItemsPage';
 import { CustomersPage } from './pages/CustomersPage';
 import { QuickCheckoutPage } from './pages/QuickCheckoutPage';
 import { InvoicesPage } from './pages/InvoicesPage';
+import { BuyRawMaterialsPage } from './pages/BuyRawMaterialsPage';
+import BuyRawMaterialFormPage from './pages/BuyRawMaterialFormPage';
 
 function ThemedToastContainer() {
   const { theme } = useTheme();
@@ -151,6 +154,30 @@ export function App() {
                 }
               />
 
+              {/* Raw Material Stock Purchases Route */}
+              <Route
+                path="/system/buy-raw-materials"
+                element={
+                  <ProtectedRoute requiredRole="ADMIN">
+                    <AdminPage>
+                      <BuyRawMaterialsPage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Dedicated New Stock Purchase Form Page */}
+              <Route
+                path="/system/buy-raw-materials/new"
+                element={
+                  <ProtectedRoute requiredRole="ADMIN">
+                    <AdminPage>
+                      <BuyRawMaterialFormPage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
+
               {/* Raw Material Suppliers Route with full /system path */}
               <Route
                 path="/system/raw-material-shops"
@@ -158,6 +185,18 @@ export function App() {
                   <ProtectedRoute requiredRole="ADMIN">
                     <AdminPage>
                       <RawMaterialShopsPage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Raw Material Inventory Items Directory Route */}
+              <Route
+                path="/system/raw-material-items"
+                element={
+                  <ProtectedRoute requiredRole="ADMIN">
+                    <AdminPage>
+                      <RawMaterialItemsPage />
                     </AdminPage>
                   </ProtectedRoute>
                 }

@@ -150,6 +150,39 @@ export const AttributesPage: React.FC = () => {
         </p>
       </div>
 
+      {/* Metrics Row matching CustomersPage design */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
+        <div className="rounded-2xl border p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
+          <div>
+            <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Categories</span>
+            <h3 className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{categories.length}</h3>
+          </div>
+          <div className="p-3 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded-xl">
+            <FolderOpen className="size-5" />
+          </div>
+        </div>
+
+        <div className="rounded-2xl border p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
+          <div>
+            <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Standard Sizes</span>
+            <h3 className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{sizes.length}</h3>
+          </div>
+          <div className="p-3 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 rounded-xl">
+            <Ruler className="size-5" />
+          </div>
+        </div>
+
+        <div className="rounded-2xl border p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
+          <div>
+            <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Color Swatches</span>
+            <h3 className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{colors.length}</h3>
+          </div>
+          <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-xl">
+            <Palette className="size-5" />
+          </div>
+        </div>
+      </div>
+
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
         <TabsList className="inline-flex h-11 items-center justify-start rounded-xl bg-slate-100 p-1 text-slate-500 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 gap-1">
           <TabsTrigger
