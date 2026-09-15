@@ -36,6 +36,7 @@ import {
   Save,
 } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
+import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../lib/whatsapp';
 
 interface CatalogVariant {
   id: number;
@@ -557,6 +558,18 @@ export const QuickCheckoutPage: React.FC = () => {
               Wholesale
             </button>
           </div>
+
+          {/* Quick Register Product Button - Passes returnUrl to route back seamlessly */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => navigate('/system/products/new?returnUrl=/system/quick-checkout')}
+            className="h-8 px-2.5 text-xs font-semibold gap-1.5 border-dashed border-emerald-500/60 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 shrink-0"
+            title="Register new product and return back to POS"
+          >
+            <Plus className="size-3.5" /> Product
+          </Button>
         </div>
 
         {/* Product Visual Grid (With Images) */}

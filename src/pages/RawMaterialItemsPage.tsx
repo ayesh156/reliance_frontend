@@ -380,15 +380,24 @@ export const RawMaterialItemsPage: React.FC = () => {
                 return (
                   <TableRow key={item.id}>
                     <TableCell>
-                      <div className="font-semibold text-xs text-slate-900 dark:text-white flex items-center gap-2">
-                        <Tag className="size-3.5 text-slate-400" />
-                        <span>{item.name}</span>
-                      </div>
-                      {item.description && (
-                        <div className="text-[11px] text-slate-400 truncate max-w-[250px]">
-                          {item.description}
+                      {/* Interactive Clickable Target: Opens Edit Material Modal */}
+                      <div 
+                        onClick={() => handleOpenEditModal(item)}
+                        className="cursor-pointer group/mat select-none inline-block"
+                        title="Click to edit material item"
+                      >
+                        <div className="font-semibold text-xs text-slate-900 dark:text-white flex items-center gap-2">
+                          <Tag className="size-3.5 text-slate-400 group-hover/mat:text-indigo-600 transition-colors" />
+                          <span className="group-hover/mat:text-indigo-600 dark:group-hover/mat:text-indigo-400 group-hover/mat:underline transition-colors">
+                            {item.name}
+                          </span>
                         </div>
-                      )}
+                        {item.description && (
+                          <div className="text-[11px] text-slate-400 truncate max-w-[250px]">
+                            {item.description}
+                          </div>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-xs font-mono text-slate-600 dark:text-zinc-300">
                       {item.code || <span className="italic text-slate-400 text-[11px]">N/A</span>}

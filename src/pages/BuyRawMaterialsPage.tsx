@@ -56,7 +56,9 @@ import {
   Sparkles,
   CreditCard,
   CircleAlert,
+  MessageSquare,
 } from 'lucide-react';
+import { openWhatsAppChat, generateSupplierStockInWhatsAppMessage } from '../lib/whatsapp';
 
 interface RawMaterialShop {
   id: number;
@@ -447,20 +449,31 @@ export const BuyRawMaterialsPage: React.FC = () => {
                 const due = purchase.totalAmount - purchase.paidAmount;
                 return (
                   <TableRow key={purchase.id}>
-                    <TableCell>
-                      <div className="font-semibold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
-                        <Receipt className="size-3.5 text-slate-400" />
-                        <span>{purchase.invoiceNumber || `PO-${purchase.id}`}</span>
+                    {/* Interactive Clickable Invoice / PO No: Opens Items Breakdown Modal */}
+                    <TableCell 
+                      onClick={() => setViewingPurchase(purchase)}
+                      className="cursor-pointer group/po select-none"
+                      title="Click to view purchase order breakdown"
+                    >
+                      <div className="font-semibold text-xs text-slate-900 dark:text-white flex items-center gap-1.5 group-hover/po:text-indigo-600 dark:group-hover/po:text-indigo-400 transition-colors">
+                        <Receipt className="size-3.5 text-slate-400 group-hover/po:text-indigo-600" />
+                        <span className="group-hover/po:underline">{purchase.invoiceNumber || `PO-${purchase.id}`}</span>
                       </div>
                       <div className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5 font-mono">
                         <Calendar className="size-3" />
                         {new Date(purchase.purchaseDate).toLocaleDateString()}
                       </div>
                     </TableCell>
-                    <TableCell>
-                      <div className="font-semibold text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
-                        <Building2 className="size-3.5 text-slate-400" />
-                        <span>{purchase.shop.name}</span>
+
+                    {/* Interactive Clickable Supplier Shop: Opens Items Breakdown Modal */}
+                    <TableCell 
+                      onClick={() => setViewingPurchase(purchase)}
+                      className="cursor-pointer group/po-shop select-none"
+                      title="Click to view purchase order breakdown"
+                    >
+                      <div className="font-semibold text-xs text-slate-900 dark:text-white flex items-center gap-1.5 group-hover/po-shop:text-indigo-600 dark:group-hover/po-shop:text-indigo-400 transition-colors">
+                        <Building2 className="size-3.5 text-slate-400 group-hover/po-shop:text-indigo-600" />
+                        <span className="group-hover/po-shop:underline">{purchase.shop.name}</span>
                       </div>
                       {purchase.shop.phone && (
                         <span className="text-[11px] text-slate-400 font-mono block">
@@ -507,7 +520,7 @@ export const BuyRawMaterialsPage: React.FC = () => {
                             <MoreVertical className="size-4" />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40 text-xs font-medium">
+                        <DropdownMenuContent align="end" className="w-44 text-xs font-medium">
                           <DropdownMenuItem
                             onClick={() => setViewingPurchase(purchase)}
                             className="gap-2 cursor-pointer text-slate-700 dark:text-zinc-300"
@@ -515,6 +528,23 @@ export const BuyRawMaterialsPage: React.FC = () => {
                             <Eye className="size-3.5 text-slate-500" />
                             View Items
                           </DropdownMenuItem>
+
+                          {/* Direct WhatsApp Purchase Slip Action */}
+                          <DropdownMenuItem
+                            onClick={() => {
+                              if (!purchase.shop?.phone) {
+                                toast.error('This supplier shop does not have a saved phone number');
+                                return;
+                              }
+                              const waMsg = generateSupplierStockInWhatsAppMessage(purchase);
+                              openWhatsAppChat(purchase.shop.phone, waMsg);
+                            }}
+                            className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-700"
+                          >
+                            <MessageSquare className="size-3.5 text-emerald-600" />
+                            WhatsApp Purchase Slip
+                          </DropdownMenuItem>
+
                           <DropdownMenuItem
                             onClick={() => setDeletingPurchase(purchase)}
                             className="gap-2 cursor-pointer text-rose-600 focus:text-rose-700 focus:bg-rose-50 dark:focus:bg-rose-950/30"

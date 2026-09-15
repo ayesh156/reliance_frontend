@@ -303,20 +303,27 @@ const fetchAll = useCallback(async () => {
                   return (
                     <TableRow key={p.id}>
                       <TableCell>
-                        <div className="flex items-center gap-3">
-                          <div className="relative size-10 rounded-lg overflow-hidden border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900 shrink-0 flex items-center justify-center">
+                        {/* Interactive Clickable Target: Navigates straight to Product Edit page */}
+                        <div 
+                          onClick={() => navigate(`/system/products/${p.id}/edit`)}
+                          className="flex items-center gap-3 cursor-pointer group/item select-none"
+                          title="Click to edit product"
+                        >
+                          <div className="relative size-10 rounded-lg overflow-hidden border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900 shrink-0 flex items-center justify-center group-hover/item:border-emerald-500 transition-colors">
                             {primaryImage ? (
                               <img
                                 src={primaryImage}
                                 alt={p.name}
-                                className="w-full h-full object-cover"
+                                className="w-full h-full object-cover group-hover/item:scale-105 transition-transform"
                               />
                             ) : (
-                              <Package className="size-4 text-slate-400 dark:text-zinc-500" />
+                              <Package className="size-4 text-slate-400 dark:text-zinc-500 group-hover/item:text-emerald-500" />
                             )}
                           </div>
                           <div>
-                            <div className="font-semibold text-slate-900 dark:text-zinc-100">{p.name}</div>
+                            <div className="font-semibold text-slate-900 dark:text-zinc-100 group-hover/item:text-emerald-600 dark:group-hover/item:text-emerald-400 group-hover/item:underline transition-colors">
+                              {p.name}
+                            </div>
                             {p.searchKey && (
                               <div className="text-[10px] text-slate-400 dark:text-zinc-500 font-mono">
                                 {p.searchKey}

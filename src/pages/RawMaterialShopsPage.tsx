@@ -51,7 +51,9 @@ import {
   Loader2,
   X,
   MoreVertical,
+  MessageSquare, // ⭐ WhatsApp Icon
 } from 'lucide-react';
+import { openWhatsAppChat, generateSupplierCreditSummaryWhatsAppMessage } from '../lib/whatsapp';
 
 // ============================================================================
 // TYPES & INTERFACES
@@ -309,9 +311,16 @@ export const RawMaterialShopsPage: React.FC = () => {
               shops.map((shop) => (
                 <TableRow key={shop.id}>
                   <TableCell>
-                    <div className="font-semibold text-xs text-slate-900 dark:text-white flex items-center gap-2">
-                      <Building2 className="size-4 text-slate-400" />
-                      <span>{shop.name}</span>
+                    {/* Interactive Clickable Target: Opens Edit Supplier Modal */}
+                    <div
+                      onClick={() => handleOpenEditModal(shop)}
+                      className="font-semibold text-xs text-slate-900 dark:text-white flex items-center gap-2 cursor-pointer group/shop select-none"
+                      title="Click to edit supplier shop"
+                    >
+                      <Building2 className="size-4 text-slate-400 group-hover/shop:text-indigo-600 transition-colors" />
+                      <span className="group-hover/shop:text-indigo-600 dark:group-hover/shop:text-indigo-400 group-hover/shop:underline transition-colors">
+                        {shop.name}
+                      </span>
                     </div>
                   </TableCell>
                   <TableCell className="text-xs space-y-0.5">
@@ -369,7 +378,28 @@ export const RawMaterialShopsPage: React.FC = () => {
                           <MoreVertical className="size-4" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-40 text-xs font-medium">
+                      <DropdownMenuContent align="end" className="w-48 text-xs font-medium">
+                        {/* WhatsApp Outstanding Credit Notice */}
+                        {shop.creditBalance > 0 && (
+                          <>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                if (!shop.phone) {
+                                  toast.error('This supplier does not have a saved phone number');
+                                  return;
+                                }
+                                const waMsg = generateSupplierCreditSummaryWhatsAppMessage(shop);
+                                openWhatsAppChat(shop.phone, waMsg);
+                              }}
+                              className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-700 font-medium"
+                            >
+                              <MessageSquare className="size-3.5 text-emerald-600" />
+                              WhatsApp Credit Notice
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                          </>
+                        )}
+
                         <DropdownMenuItem
                           onClick={() => handleOpenEditModal(shop)}
                           className="gap-2 cursor-pointer text-slate-700 dark:text-zinc-300"

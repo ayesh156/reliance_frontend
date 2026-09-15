@@ -29,6 +29,18 @@ import {
     DropdownMenuItem,
     DropdownMenuSeparator,
 } from '../components/ui/dropdown-menu';
+/**
+ * Test & Preload External Image Address (Google, Facebook, CDN)
+ * Verifies the image loads successfully before pushing to catalog preview
+ */
+const verifyAndPreloadImage = (url: string): Promise<boolean> => {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve(true);
+        img.onerror = () => resolve(false);
+        img.src = url;
+    });
+};
 
 export const ProductFormPage: React.FC = () => {
     const { id } = useParams<{ id: string }>();
@@ -203,10 +215,11 @@ export const ProductFormPage: React.FC = () => {
             formData.append('categoryId', String(categoryId));
             formData.append('variants', JSON.stringify(variants));
 
-            // Process both existing cloud URLs and newly pasted WebP DataURLs
+            // Process existing/direct web URLs, local paths, and newly captured WebP DataURLs
             const existingUrls: string[] = [];
             images.forEach((img, i) => {
                 if (img.startsWith('data:')) {
+                    // Convert only locally captured screenshots/binary data to WebP blobs
                     const mimeType = img.substring(img.indexOf(':') + 1, img.indexOf(';')) || 'image/webp';
                     const byteString = atob(img.split(',')[1]);
                     const ab = new ArrayBuffer(byteString.length);
@@ -215,8 +228,9 @@ export const ProductFormPage: React.FC = () => {
                     
                     const extension = mimeType.includes('webp') ? 'webp' : 'jpg';
                     formData.append('imageFiles', new Blob([ab], { type: mimeType }), `prod-pasted-${Date.now()}-${i}.${extension}`);
-                } else if (!img.startsWith('blob:')) {
-                    existingUrls.push(img);
+                } else if (img.startsWith('http://') || img.startsWith('https://') || (!img.startsWith('blob:') && img.trim())) {
+                    // Direct web image links (Google, Facebook, CDNs) are preserved as raw URLs (Zero server disk cost)
+                    existingUrls.push(img.trim());
                 }
             });
             formData.append('imageUrls', JSON.stringify(existingUrls));
@@ -228,7 +242,14 @@ export const ProductFormPage: React.FC = () => {
                 await post('/products', formData);
                 toast.success('Product created successfully!');
             }
-            navigate('/system/products');
+
+            // Quick Checkout හෝ වෙනත් තැනක සිට පැමිණියේ නම් නැවත එම පිටුවටම යවයි (Return-to-origin)
+            const returnUrl = new URLSearchParams(window.location.search).get('returnUrl');
+            if (returnUrl) {
+                navigate(returnUrl);
+            } else {
+                navigate('/system/products');
+            }
         } catch (err: any) {
             toast.error(err.message || 'Failed to save product');
         } finally {
@@ -237,50 +258,134 @@ export const ProductFormPage: React.FC = () => {
     };
     
     /**
-   * Handle Smart Clipboard Paste Event (Ctrl + V from Facebook, Google, Web)
-   * Converts pasted image directly to ultra-lightweight WebP Data URL without server RAM lag
+   * Handle Smart Clipboard Paste Event (Senari Pattern)
+   * Intelligently accepts BOTH direct web image URLs (Google/Facebook addresses) AND binary pasted images
    */
   const handleClipboardPaste = async (e: React.ClipboardEvent) => {
+    // 1. Direct Web Image URL Pasted (Google, Facebook, CDN link copied via "Copy Image Address")
+    const pastedText = e.clipboardData?.getData('text')?.trim();
+    if (pastedText && /^https?:\/\/.+/i.test(pastedText)) {
+      // Check if already in image list to avoid duplicate entries
+      if (images.includes(pastedText)) {
+        toast.warn('This image link is already added to the catalog');
+        return;
+      }
+
+      e.preventDefault();
+      const toastId = toast.loading('Verifying web image link...');
+
+      const isValid = await verifyAndPreloadImage(pastedText);
+      if (isValid) {
+        setImages(prev => [...prev, pastedText]);
+        toast.update(toastId, {
+          render: 'Web image link added successfully (Storage saved)!',
+          type: 'success',
+          isLoading: false,
+          autoClose: 2500,
+        });
+      } else {
+        toast.update(toastId, {
+          render: 'Could not load image from this URL. Please check the address.',
+          type: 'error',
+          isLoading: false,
+          autoClose: 3500,
+        });
+      }
+      return;
+    }
+
+    // 2. Binary Image / Screenshot / "Copy Image" in Clipboard
     const items = e.clipboardData?.items;
     if (!items) return;
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
-
-      // Detect if clipboard item is an image
       if (item.type.indexOf('image') !== -1) {
         e.preventDefault();
         const blob = item.getAsFile();
         if (!blob) continue;
 
-        toast.info('Optimizing pasted image to WebP...');
-
+        const toastId = toast.loading('Optimizing pasted image to WebP...');
         try {
-          // 1. Client-side lossless/near-lossless WebP conversion (max: 1200px, quality: 82%)
           const optimizedFile = await compressAndConvertToWebP(blob, 1200, 0.82);
-
-          // 2. Convert optimized WebP file into DataURL for instant catalog state rendering
           const reader = new FileReader();
           reader.onloadend = () => {
             const resultUrl = reader.result as string;
             if (resultUrl) {
               setImages(prev => [...prev, resultUrl]);
-              toast.success(`Pasted & compressed (${Math.round(optimizedFile.size / 1024)} KB WebP)!`);
+              toast.update(toastId, {
+                render: `Pasted & compressed (${Math.round(optimizedFile.size / 1024)} KB WebP)!`,
+                type: 'success',
+                isLoading: false,
+                autoClose: 2500,
+              });
             }
           };
           reader.readAsDataURL(optimizedFile);
         } catch (err: any) {
-          toast.error('Failed to process pasted image');
+          toast.update(toastId, {
+            render: 'Failed to process pasted image',
+            type: 'error',
+            isLoading: false,
+            autoClose: 3000,
+          });
         }
       }
     }
   };
 
   /**
-   * Handle Smart Variant-Specific Direct Clipboard Paste:
-   * Compresses pasted image, pushes into Catalog Images, and instantly auto-binds to the targeted variant.
+   * Handle Smart Variant-Specific Direct Clipboard Paste (Senari Pattern)
+   * Supports both copied web image links (zero storage overhead) and direct copied image graphics
    */
   const handleVariantDirectPaste = async (variantKey: string, e: React.ClipboardEvent) => {
+    // 1. Direct Web Image URL Pasted to specific variant
+    const pastedText = e.clipboardData?.getData('text')?.trim();
+    if (pastedText && /^https?:\/\/.+/i.test(pastedText)) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const toastId = toast.loading('Assigning web image address to variant...');
+      const isValid = await verifyAndPreloadImage(pastedText);
+
+      if (isValid) {
+        if (!images.includes(pastedText)) {
+          setImages(prev => [...prev, pastedText]);
+        }
+
+        setVariants(prev =>
+          prev.map(v => {
+            if (v.key === variantKey) {
+              const existing = v.imageUrls || (v.imageUrl ? [v.imageUrl] : []);
+              const nextUrls = existing.includes(pastedText) ? existing : [...existing, pastedText];
+              return {
+                ...v,
+                imageUrl: nextUrls[0],
+                imageUrls: nextUrls,
+              };
+            }
+            return v;
+          })
+        );
+
+        toast.update(toastId, {
+          render: 'Web image assigned to variant (Storage saved)!',
+          type: 'success',
+          isLoading: false,
+          autoClose: 2500,
+        });
+      } else {
+        toast.update(toastId, {
+          render: 'Could not load image from this URL address.',
+          type: 'error',
+          isLoading: false,
+          autoClose: 3500,
+        });
+      }
+      return;
+    }
+
+    // 2. Binary Image / Graphic in Clipboard
     const items = e.clipboardData?.items;
     if (!items) return;
 
@@ -288,22 +393,18 @@ export const ProductFormPage: React.FC = () => {
       const item = items[i];
       if (item.type.indexOf('image') !== -1) {
         e.preventDefault();
-        e.stopPropagation(); // Avoid triggering parent container paste
+        e.stopPropagation();
         const blob = item.getAsFile();
         if (!blob) continue;
 
-        toast.info('Compressing and assigning variant image...');
-
+        const toastId = toast.loading('Compressing and assigning variant image...');
         try {
           const optimizedFile = await compressAndConvertToWebP(blob, 1200, 0.82);
           const reader = new FileReader();
           reader.onloadend = () => {
             const resultUrl = reader.result as string;
             if (resultUrl) {
-              // 1. Add to main catalog gallery
               setImages(prev => [...prev, resultUrl]);
-
-              // 2. Instantly assign to the targeted variant
               setVariants(prev =>
                 prev.map(v => {
                   if (v.key === variantKey) {
@@ -318,12 +419,22 @@ export const ProductFormPage: React.FC = () => {
                 })
               );
 
-              toast.success(`Variant image pasted & optimized (${Math.round(optimizedFile.size / 1024)} KB WebP)!`);
+              toast.update(toastId, {
+                render: `Variant image pasted & optimized (${Math.round(optimizedFile.size / 1024)} KB WebP)!`,
+                type: 'success',
+                isLoading: false,
+                autoClose: 2500,
+              });
             }
           };
           reader.readAsDataURL(optimizedFile);
         } catch (err: any) {
-          toast.error('Failed to paste variant image');
+          toast.update(toastId, {
+            render: 'Failed to paste variant image',
+            type: 'error',
+            isLoading: false,
+            autoClose: 3000,
+          });
         }
       }
     }
@@ -347,7 +458,10 @@ export const ProductFormPage: React.FC = () => {
                         type="button"
                         variant="outline"
                         size="icon"
-                        onClick={() => navigate('/system/products')}
+                        onClick={() => {
+    const returnUrl = new URLSearchParams(window.location.search).get('returnUrl');
+    navigate(returnUrl || '/system/products');
+}}
                         className="h-9 w-9 rounded-xl"
                     >
                         <ArrowLeft className="size-4" />
@@ -366,7 +480,10 @@ export const ProductFormPage: React.FC = () => {
                     <Button
                         type="button"
                         variant="outline"
-                        onClick={() => navigate('/system/products')}
+                        onClick={() => {
+    const returnUrl = new URLSearchParams(window.location.search).get('returnUrl');
+    navigate(returnUrl || '/system/products');
+}}
                     >
                         Cancel
                     </Button>
@@ -485,8 +602,22 @@ export const ProductFormPage: React.FC = () => {
                                 key={idx} 
                                 className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 dark:border-zinc-800 group bg-slate-50 dark:bg-zinc-900 shadow-sm"
                               >
-                                {/* Background Preview Image */}
-                                <img src={resolvedUrl} alt="" className="w-full h-full object-cover absolute inset-0 z-0" />
+                                {/* Background Preview Image with Web Link Indicator */}
+                                <img
+                                  src={resolvedUrl}
+                                  alt=""
+                                  loading="lazy"
+                                  className="w-full h-full object-cover absolute inset-0 z-0 transition-transform duration-200 group-hover:scale-105"
+                                  onError={(e) => {
+                                    // Fallback for broken web links
+                                    e.currentTarget.style.display = 'none';
+                                  }}
+                                />
+                                {resolvedUrl.startsWith('http') && (
+                                  <span className="absolute bottom-1 right-1 z-10 px-1.5 py-0.5 rounded bg-black/70 text-white font-mono text-[8px] font-bold">
+                                    WEB
+                                  </span>
+                                )}
                                 
                                 {/* Top Action Bar */}
                                 <div className="relative z-10 p-1.5 flex items-center justify-between">

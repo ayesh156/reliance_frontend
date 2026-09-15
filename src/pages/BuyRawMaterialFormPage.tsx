@@ -5,6 +5,8 @@ import { Input } from '../components/ui/input';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { MaterialCombobox } from '../components/materials/MaterialCombobox';
 import { DatePicker } from '../components/ui/date-picker';
+import { QuickAddShopModal } from '../components/materials/QuickAddShopModal'; // ⭐ New Shop Modal
+import { QuickAddMaterialModal } from '../components/materials/QuickAddMaterialModal'; // ⭐ New Material Modal
 import { useTheme } from '../contexts/ThemeContext';
 import {
   Table,
@@ -27,7 +29,10 @@ import {
   Receipt,
   Calendar,
   Save,
+  Plus,
+  MessageSquare,
 } from 'lucide-react';
+import { openWhatsAppChat, generateSupplierStockInWhatsAppMessage } from '../lib/whatsapp';
 
 interface RawMaterialShop {
   id: number;
@@ -65,6 +70,11 @@ export const BuyRawMaterialFormPage: React.FC = () => {
   // Form states
   const [selectedShopId, setSelectedShopId] = useState<number | ''>('');
   const [invoiceNumber, setInvoiceNumber] = useState<string>('');
+  
+  // Quick Add Modal Trigger States
+  const [isShopModalOpen, setIsShopModalOpen] = useState<boolean>(false);
+  const [isMaterialModalOpen, setIsMaterialModalOpen] = useState<boolean>(false);
+  const [activeMaterialRowIndex, setActiveMaterialRowIndex] = useState<number | null>(null);
   const [purchaseDate, setPurchaseDate] = useState<Date | undefined>(new Date());
   const [paymentMethod, setPaymentMethod] = useState<string>('CASH');
   const [paidAmount, setPaidAmount] = useState<number | ''>('');
@@ -182,6 +192,31 @@ export const BuyRawMaterialFormPage: React.FC = () => {
       });
 
       toast.success('Raw materials received and stock updated successfully');
+
+      // ⭐ Launch WhatsApp message to Supplier Shop if phone number exists
+      const currentShop = shops.find((s) => s.id === Number(selectedShopId)) as any;
+      if (currentShop?.phone) {
+        const enrichedItems = lineItems.map((item) => {
+          const matMeta = materialItems.find((m) => m.id === Number(item.rawMaterialItemId));
+          return {
+            ...item,
+            rawMaterialItem: matMeta,
+          };
+        });
+
+        const waMessage = generateSupplierStockInWhatsAppMessage({
+          invoiceNumber: invoiceNumber.trim() || undefined,
+          purchaseDate,
+          paymentMethod,
+          totalAmount: calculatedTotalAmount,
+          paidAmount: paidAmount === '' ? calculatedTotalAmount : Number(paidAmount),
+          shop: currentShop,
+          items: enrichedItems,
+        });
+
+        openWhatsAppChat(currentShop.phone, waMessage);
+      }
+
       navigate('/system/buy-raw-materials');
     } catch (err: any) {
       toast.error(err.message || 'Failed to process purchase');
@@ -244,21 +279,35 @@ export const BuyRawMaterialFormPage: React.FC = () => {
             <Building2 className="size-4 text-indigo-600" /> Supplier &amp; Invoice Information
           </h3>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold">Supplier Shop *</label>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            {/* 1. Supplier Shop Selector */}
+            <div className="space-y-1.5 flex flex-col justify-end">
+              <div className="flex items-center justify-between h-5">
+                <label className="text-xs font-semibold">Supplier Shop *</label>
+                <button
+                  type="button"
+                  onClick={() => setIsShopModalOpen(true)}
+                  className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-0.5 cursor-pointer"
+                >
+                  <PlusCircle className="size-3" /> + Add Shop
+                </button>
+              </div>
               <SearchableSelect
                 value={String(selectedShopId)}
                 onValueChange={(val) => setSelectedShopId(Number(val))}
                 options={shops.map((s) => ({ value: String(s.id), label: s.name }))}
                 placeholder="Select Supplier Shop"
                 searchPlaceholder="Search shop..."
+                className="h-10" // ⭐ Explicitly pass h-10 only for this form row
                 dark={dark}
               />
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold">Supplier Invoice No</label>
+            {/* 2. Supplier Invoice Number */}
+            <div className="space-y-1.5 flex flex-col justify-end">
+              <div className="flex items-center h-5">
+                <label className="text-xs font-semibold">Supplier Invoice No</label>
+              </div>
               <div className="relative flex items-center">
                 <Input
                   value={invoiceNumber}
@@ -300,12 +349,16 @@ export const BuyRawMaterialFormPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold">Purchase Date</label>
+            {/* 3. Purchase Date Picker */}
+            <div className="space-y-1.5 flex flex-col justify-end">
+              <div className="flex items-center h-5">
+                <label className="text-xs font-semibold">Purchase Date</label>
+              </div>
               <DatePicker
                 date={purchaseDate}
                 onDateChange={setPurchaseDate}
                 placeholder="Select purchase date"
+                className="h-10"
               />
             </div>
           </div>
@@ -317,15 +370,29 @@ export const BuyRawMaterialFormPage: React.FC = () => {
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-zinc-300 flex items-center gap-2">
               <Receipt className="size-4 text-indigo-600" /> Materials Received (Line Items)
             </h3>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleAddLineItem}
-              className="gap-1.5 h-8 text-xs font-semibold"
-            >
-              <PlusCircle className="size-3.5 text-indigo-600" /> Add Material Row
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setActiveMaterialRowIndex(null);
+                  setIsMaterialModalOpen(true);
+                }}
+                className="gap-1.5 h-8 text-xs font-semibold border-indigo-200 dark:border-indigo-900/50 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+              >
+                <Plus className="size-3.5" /> Register New Item
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleAddLineItem}
+                className="gap-1.5 h-8 text-xs font-semibold"
+              >
+                <PlusCircle className="size-3.5 text-indigo-600" /> Add Row
+              </Button>
+            </div>
           </div>
 
           <div className="rounded-xl border border-slate-200 dark:border-zinc-800 overflow-visible">
@@ -489,6 +556,36 @@ export const BuyRawMaterialFormPage: React.FC = () => {
           </div>
         </div>
       </form>
+
+      {/* Quick Add Supplier Shop Modal Component */}
+      <QuickAddShopModal
+        open={isShopModalOpen}
+        onOpenChange={setIsShopModalOpen}
+        onShopCreated={(newShop) => {
+          setShops((prev) => [...prev, newShop]);
+          setSelectedShopId(newShop.id); // Auto-select created shop instantly
+        }}
+      />
+
+      {/* Quick Add Raw Material Item Modal Component */}
+      <QuickAddMaterialModal
+        open={isMaterialModalOpen}
+        onOpenChange={setIsMaterialModalOpen}
+        dark={dark}
+        onMaterialCreated={(newMat) => {
+          setMaterialItems((prev) => [...prev, newMat]);
+          // If a row was waiting for item creation, auto-populate it
+          if (activeMaterialRowIndex !== null && lineItems[activeMaterialRowIndex]) {
+            handleLineItemChange(activeMaterialRowIndex, 'rawMaterialItemId', newMat.id);
+          } else {
+            // Otherwise, if the first row is empty, assign it
+            const emptyIndex = lineItems.findIndex((r) => !r.rawMaterialItemId);
+            if (emptyIndex !== -1) {
+              handleLineItemChange(emptyIndex, 'rawMaterialItemId', newMat.id);
+            }
+          }
+        }}
+      />
     </div>
   );
 };

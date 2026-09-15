@@ -38,7 +38,9 @@ import {
   Banknote,
   Building,
   RefreshCw,
+  MessageSquare, // ⭐ WhatsApp Icon
 } from 'lucide-react';
+import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../lib/whatsapp';
 
 interface InvoiceRecord {
   id: number;
@@ -84,6 +86,43 @@ export const InvoicesPage: React.FC = () => {
   // Print Preview state
   const [printInvoice, setPrintInvoice] = useState<any>(null);
   const [printModalOpen, setPrintModalOpen] = useState(false);
+
+  // WhatsApp Dialog state for Walk-in Customers or custom phone dispatch
+  const [waModalOpen, setWaModalOpen] = useState(false);
+  const [waTargetInvoice, setWaTargetInvoice] = useState<any>(null);
+  const [waCustomPhone, setWaCustomPhone] = useState('');
+
+  /**
+   * Dispatches WhatsApp receipt:
+   * Directly opens chat if customer already has a phone number;
+   * Otherwise opens the prompt dialog to enter a number on the spot.
+   */
+  const handleInitiateWhatsApp = (inv: any) => {
+    const existingPhone = inv.customerPhone || inv.customer?.phone;
+    if (existingPhone) {
+      const waMsg = generateCustomerInvoiceWhatsAppMessage(inv);
+      openWhatsAppChat(existingPhone, waMsg);
+    } else {
+      setWaTargetInvoice(inv);
+      setWaCustomPhone('');
+      setWaModalOpen(true);
+    }
+  };
+
+  const handleSendCustomWhatsApp = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!waCustomPhone.trim()) {
+      toast.error('Please enter a valid WhatsApp mobile number');
+      return;
+    }
+    if (waTargetInvoice) {
+      const waMsg = generateCustomerInvoiceWhatsAppMessage(waTargetInvoice);
+      openWhatsAppChat(waCustomPhone.trim(), waMsg);
+      setWaModalOpen(false);
+      setWaTargetInvoice(null);
+      setWaCustomPhone('');
+    }
+  };
 
   // Fetch Customers for filter dropdown
   useEffect(() => {
@@ -361,14 +400,26 @@ export const InvoicesPage: React.FC = () => {
 
                   return (
                     <tr key={inv.id} className="hover:bg-slate-50/70 dark:hover:bg-zinc-800/30 transition-colors">
-                      <td className="py-3 px-4 font-mono font-bold text-slate-900 dark:text-white">
+                      {/* Interactive Clickable Invoice ID: Direct jump to Quick Checkout in Edit Mode */}
+                      <td 
+                        onClick={() => navigate(`/system/quick-checkout?editInvoiceId=${inv.id}`)}
+                        className="py-3 px-4 font-mono font-bold text-slate-900 dark:text-white cursor-pointer hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline select-none"
+                        title="Click to edit invoice in POS"
+                      >
                         INV{inv.id}
                       </td>
                       <td className="py-3 px-4 text-slate-500">
                         {new Date(inv.createdAt).toISOString().split('T')[0]}
                       </td>
-                      <td className="py-3 px-4">
-                        <div className="font-semibold text-slate-900 dark:text-white">{inv.customerName}</div>
+                      {/* Interactive Clickable Customer Name: Direct jump to Quick Checkout in Edit Mode */}
+                      <td 
+                        onClick={() => navigate(`/system/quick-checkout?editInvoiceId=${inv.id}`)}
+                        className="py-3 px-4 cursor-pointer group/inv-cust select-none"
+                        title="Click to edit invoice in POS"
+                      >
+                        <div className="font-semibold text-slate-900 dark:text-white group-hover/inv-cust:text-emerald-600 dark:group-hover/inv-cust:text-emerald-400 group-hover/inv-cust:underline transition-colors">
+                          {inv.customerName}
+                        </div>
                         {inv.customerPhone && <span className="text-[10px] text-slate-400 font-mono">{inv.customerPhone}</span>}
                       </td>
                       <td className="py-3 px-4 text-center">
@@ -416,6 +467,15 @@ export const InvoicesPage: React.FC = () => {
                             >
                               <Printer className="size-3.5 text-slate-500" />
                               Print Preview
+                            </DropdownMenuItem>
+
+                            {/* Smart WhatsApp Share Action (Direct or with Phone Prompt) */}
+                            <DropdownMenuItem
+                              onClick={() => handleInitiateWhatsApp(inv)}
+                              className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-700"
+                            >
+                              <MessageSquare className="size-3.5 text-emerald-600" />
+                              WhatsApp Bill
                             </DropdownMenuItem>
 
                             <DropdownMenuItem
@@ -524,6 +584,62 @@ export const InvoicesPage: React.FC = () => {
           autoPrint={true}
         />
       )}
+
+      {/* On-The-Spot WhatsApp Phone Entry Dialog (For Walk-in Customers) */}
+      <Dialog open={waModalOpen} onOpenChange={setWaModalOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm text-slate-900 dark:text-white">
+              <MessageSquare className="size-4 text-emerald-600" />
+              Send Bill via WhatsApp — INV{waTargetInvoice?.id}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500">
+              This walk-in customer has no saved contact number. Enter their WhatsApp number to send the digital receipt.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSendCustomWhatsApp} className="space-y-4 py-2">
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 flex justify-between items-center text-xs">
+              <div>
+                <span className="text-slate-400 text-[10px] block">Customer:</span>
+                <span className="font-bold text-slate-900 dark:text-white">
+                  {waTargetInvoice?.customerName || 'Walk-in Customer'}
+                </span>
+              </div>
+              <div className="text-right">
+                <span className="text-slate-400 text-[10px] block">Total Amount:</span>
+                <span className="font-mono font-bold text-emerald-600">
+                  Rs. {Number(waTargetInvoice?.totalAmount || 0).toLocaleString()}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                WhatsApp Phone Number *
+              </label>
+              <Input
+                type="tel"
+                autoFocus
+                required
+                value={waCustomPhone}
+                onChange={(e) => setWaCustomPhone(e.target.value)}
+                placeholder="e.g. 0771234567 or 071XXXXXXX"
+                className="font-mono text-xs h-10"
+              />
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setWaModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold gap-1.5">
+                <MessageSquare className="size-3.5" /> Open WhatsApp
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

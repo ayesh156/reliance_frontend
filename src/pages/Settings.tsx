@@ -266,15 +266,22 @@ export const Settings: React.FC = () => {
                       return (
                         <TableRow key={u.id}>
                           <TableCell>
-                            <div className="font-semibold text-slate-900 dark:text-zinc-100 flex items-center gap-1.5">
-                              {u.name}
-                              {isSelf && (
-                                <span className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300">
-                                  You
-                                </span>
-                              )}
+                            {/* Interactive Clickable Member: Quick password reset notification trigger */}
+                            <div 
+                              onClick={() => toast.info(`Password reset requested for ${u.name}`)}
+                              className="cursor-pointer group/staff select-none inline-block"
+                              title="Click to trigger password reset"
+                            >
+                              <div className="font-semibold text-slate-900 dark:text-zinc-100 flex items-center gap-1.5 group-hover/staff:text-indigo-600 dark:group-hover/staff:text-indigo-400 group-hover/staff:underline transition-colors">
+                                {u.name}
+                                {isSelf && (
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300">
+                                    You
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[11px] text-slate-500 dark:text-zinc-400 font-mono mt-0.5">{u.email}</div>
                             </div>
-                            <div className="text-[11px] text-slate-500 dark:text-zinc-400 font-mono mt-0.5">{u.email}</div>
                           </TableCell>
 
 

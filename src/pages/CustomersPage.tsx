@@ -57,7 +57,9 @@ import {
   DollarSign,
   Receipt,
   Check,
+  MessageSquare, // ⭐ WhatsApp Action Icon
 } from 'lucide-react';
+import { openWhatsAppChat, generateCustomerDebtSummaryWhatsAppMessage } from '../lib/whatsapp';
 
 interface CustomerItem {
   id: number;
@@ -109,6 +111,30 @@ export const CustomersPage: React.FC = () => {
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<number[]>([]);
   const [settleMethod, setSettleMethod] = useState<'CASH' | 'CHEQUE' | 'CARD'>('CASH');
   const [settling, setSettling] = useState(false);
+
+  /**
+   * Fetch customer's pending invoices and open WhatsApp account statement
+   */
+  const handleSendCustomerDebtWhatsApp = async (cust: CustomerItem) => {
+    if (!cust.phone) {
+      toast.error('This customer does not have a saved phone number');
+      return;
+    }
+
+    const toastId = toast.loading(`Preparing debt statement for ${cust.name}...`);
+    try {
+      // Fetch active unpaid invoices for itemized ledger breakdown
+      const invoices = await get<any[]>(`/orders/customers/${cust.id}/pending-invoices`);
+      const waMsg = generateCustomerDebtSummaryWhatsAppMessage(cust, Array.isArray(invoices) ? invoices : []);
+      toast.dismiss(toastId);
+      openWhatsAppChat(cust.phone, waMsg);
+    } catch {
+      toast.dismiss(toastId);
+      // Fallback statement if invoices endpoint fails
+      const waMsg = generateCustomerDebtSummaryWhatsAppMessage(cust, []);
+      openWhatsAppChat(cust.phone, waMsg);
+    }
+  };
 
   // Open Settle Balance dialog and fetch customer pending debt invoices
   const handleOpenSettleModal = async (cust: CustomerItem) => {
@@ -445,12 +471,19 @@ export const CustomersPage: React.FC = () => {
               filteredCustomers.map(cust => (
                 <TableRow key={cust.id}>
                   <TableCell>
-                    <div className="font-semibold text-xs text-slate-900 dark:text-white">
-                      {cust.name}
+                    {/* Interactive Clickable Target: Opens Edit Customer Modal */}
+                    <div 
+                      onClick={() => openModal(cust)}
+                      className="cursor-pointer group/cust select-none inline-block"
+                      title="Click to edit customer profile"
+                    >
+                      <div className="font-semibold text-xs text-slate-900 dark:text-white group-hover/cust:text-emerald-600 dark:group-hover/cust:text-emerald-400 group-hover/cust:underline transition-colors">
+                        {cust.name}
+                      </div>
+                      {cust.nic && (
+                        <div className="text-[10px] text-slate-400 font-mono">NIC: {cust.nic}</div>
+                      )}
                     </div>
-                    {cust.nic && (
-                      <div className="text-[10px] text-slate-400 font-mono">NIC: {cust.nic}</div>
-                    )}
                   </TableCell>
                   <TableCell className="text-xs font-mono text-slate-600 dark:text-zinc-300">
                     {cust.phone}
@@ -490,7 +523,7 @@ export const CustomersPage: React.FC = () => {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-44 text-xs font-medium">
-                        {/* Settle Balance Option - highlighted if customer has active debt */}
+                        {/* Settle Balance Option & WhatsApp Debt Notice - highlighted if customer has active debt */}
                         {Number(cust.outstandingBalance || 0) > 0 && (
                           <>
                             <DropdownMenuItem
@@ -499,6 +532,15 @@ export const CustomersPage: React.FC = () => {
                             >
                               <DollarSign className="size-3.5 text-emerald-600" />
                               Pay Due Balance
+                            </DropdownMenuItem>
+
+                            {/* Direct WhatsApp Debt Notice Action */}
+                            <DropdownMenuItem
+                              onClick={() => handleSendCustomerDebtWhatsApp(cust)}
+                              className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-700 font-medium"
+                            >
+                              <MessageSquare className="size-3.5 text-emerald-600" />
+                              WhatsApp Due Statement
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                           </>

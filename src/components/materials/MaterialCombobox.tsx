@@ -62,12 +62,13 @@ export const MaterialCombobox: React.FC<MaterialComboboxProps> = ({
 
   return (
     <div className="relative w-full">
+      {/* Standardized to h-9 to align perfectly with row quantity/price inputs */}
       <button
         ref={buttonRef}
         type="button"
         disabled={disabled}
         onClick={handleOpen}
-        className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs text-left shadow-xs hover:border-slate-300 dark:hover:border-zinc-700 transition-all cursor-pointer"
+        className="w-full h-9 flex items-center justify-between px-2.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs text-left shadow-xs hover:border-slate-300 dark:hover:border-zinc-700 transition-all cursor-pointer"
       >
         <div className="truncate">
           {selectedMaterial ? (

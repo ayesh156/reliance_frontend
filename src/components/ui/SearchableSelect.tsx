@@ -18,6 +18,7 @@ interface SearchableSelectProps {
   emptyMessage?: string;
   disabled?: boolean;
   dark?: boolean;
+  className?: string; // ⭐ Optional custom height/style prop
 }
 
 export const SearchableSelect: React.FC<SearchableSelectProps> = ({
@@ -29,6 +30,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   emptyMessage = "No matching options.",
   disabled = false,
   dark = true,
+  className = "", // ⭐ Default empty, preserves natural component height
 }) => {
   const [open, setOpen] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
@@ -55,7 +57,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
 
   return (
     <div className="relative w-full" ref={dropdownRef}>
-      {/* Trigger Button */}
+      {/* Trigger Button - Defaults to original py-2, but allows custom override via className */}
       <button
         type="button"
         disabled={disabled}
@@ -64,7 +66,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           dark
             ? "bg-zinc-950 border-zinc-800 text-zinc-100 focus:border-emerald-500/60"
             : "bg-white border-gray-200 text-gray-900 focus:border-emerald-500"
-        } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+        } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"} ${className}`}
       >
         <span className="flex items-center gap-2 truncate">
           {selectedOption?.icon}
