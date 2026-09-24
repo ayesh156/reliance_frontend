@@ -32,7 +32,7 @@ import {
   Plus,
   MessageSquare,
 } from 'lucide-react';
-import { openWhatsAppChat, generateSupplierStockInWhatsAppMessage } from '../lib/whatsapp';
+import { openWhatsAppChat, generateSupplierStockInWhatsAppMessage } from '../utils/whatsapp';
 
 interface RawMaterialShop {
   id: number;

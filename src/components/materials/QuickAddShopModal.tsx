@@ -10,7 +10,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { post } from '../../lib/api';
 import { toast } from 'react-toastify';
-import { isValidSriLankanPhone } from '../../lib/validators';
+import { isValidSriLankanPhone } from '../../utils/validators';
 import { Building2, Loader2 } from 'lucide-react';
 
 interface QuickAddShopModalProps {

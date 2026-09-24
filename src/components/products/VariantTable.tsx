@@ -1,10 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Trash2, ImageIcon } from 'lucide-react';
+import { Plus, Trash2, ImageIcon, MoreVertical, Edit2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu';
 import { SizeCombobox } from './SizeCombobox';
 import { ColorCombobox } from './ColorCombobox';
+import { VariantModal } from './VariantModal';
 import type { VariantItem } from '../../types/product';
 
 interface VariantTableProps {
@@ -34,31 +41,16 @@ export const VariantTable: React.FC<VariantTableProps> = ({
   onVariantPaste,
   dark = true,
 }) => {
-  // Key of the variant row currently showing the image selection popover
-  const [activeImagePickerKey, setActiveImagePickerKey] = useState<string | null>(null);
-  // Viewport coordinates for Portal rendering above table overflows
-  const [pickerCoords, setPickerCoords] = useState<{ top: number; left: number } | null>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
+  // Cleaned up: Floating popover states removed as image selection is handled inside VariantModal
+
+  // Dedicated Modal State for adding/editing variant records
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [activeModalVariant, setActiveModalVariant] = useState<VariantItem | null>(null);
 
   /**
-   * Close photo popover when clicking outside
+   * Open modal to create a fresh variant with auto-generated sequential SKU
    */
-  useEffect(() => {
-    const handleOutsideClick = (e: MouseEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
-        setActiveImagePickerKey(null);
-      }
-    };
-    if (activeImagePickerKey) {
-      document.addEventListener('mousedown', handleOutsideClick);
-    }
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [activeImagePickerKey]);
-
-  /**
-   * Append new variant row with sequential SKU
-   */
-  const addVariant = () => {
+  const handleOpenAddModal = () => {
     const next = variants.length + 1;
     const cleanPrefix = (productName || 'PROD')
       .replace(/[^a-zA-Z0-9]/g, '')
@@ -66,21 +58,67 @@ export const VariantTable: React.FC<VariantTableProps> = ({
       .toUpperCase() || 'PROD';
     const paddedIndex = String(next).padStart(4, '0');
 
-    onChange([
-      ...variants,
-      {
-        key: `var-${Date.now()}-${next}`,
-        size: '',
-        color: '',
-        sku: `${cleanPrefix}-${paddedIndex}`,
-        barcode: '',
-        costPrice: 0,
-        retailPrice: 0,
-        wholesalePrice: 0,
-        comparePrice: 0,
-        stock: 0,
-      },
-    ]);
+    setActiveModalVariant({
+      key: `var-${Date.now()}-${next}`,
+      size: '',
+      color: '',
+      sku: `${cleanPrefix}-${paddedIndex}`,
+      barcode: '',
+      costPrice: 0,
+      retailPrice: 0,
+      wholesalePrice: 0,
+      comparePrice: 0,
+      stock: 0,
+      imageUrl: '',
+      imageUrls: [],
+      imageIndexes: [],
+    });
+    setIsModalOpen(true);
+  };
+
+  /**
+   * Open modal to edit existing variant details
+   */
+  const handleOpenEditModal = (variant: VariantItem) => {
+    setActiveModalVariant({ ...variant });
+    setIsModalOpen(true);
+  };
+
+  /**
+   * Save modal changes back to the main variants list (Checks both database ID and client Key)
+   */
+  /**
+   * Preserves database primary keys and triggers parent form dirty state for database persistence
+   */
+  /**
+   * Synchronizes edited/created variant records with exact database ID bindings
+   */
+  const handleSaveModalVariant = (savedVariant: VariantItem) => {
+    const existsIndex = variants.findIndex(v => 
+      (savedVariant.id && v.id && Number(v.id) === Number(savedVariant.id)) || 
+      (savedVariant.key && v.key && String(v.key) === String(savedVariant.key))
+    );
+
+    let nextVariants: VariantItem[];
+
+    if (existsIndex > -1) {
+      nextVariants = variants.map((item, idx) => {
+        if (idx === existsIndex) {
+          return {
+            ...item,
+            ...savedVariant,
+            id: savedVariant.id ? Number(savedVariant.id) : item.id,
+          };
+        }
+        return item;
+      });
+    } else {
+      nextVariants = [...variants, savedVariant];
+    }
+
+    // Trigger parent form update with fresh immutable array
+    onChange(nextVariants);
+    setIsModalOpen(false);
   };
 
   const removeVariant = (key: string) => {
@@ -103,290 +141,181 @@ export const VariantTable: React.FC<VariantTableProps> = ({
           <h4 className="text-xs font-bold">Variant &amp; Multi-Price Matrix</h4>
           <p className="text-[10px] text-slate-500 dark:text-zinc-400">Configure Barcodes, Retail (POS) and Wholesale pricing</p>
         </div>
-        <Button size="sm" type="button" onClick={addVariant} className="h-7 text-xs gap-1">
+        {/* Opens VariantModal to input new variant details cleanly */}
+        <Button 
+          size="sm" 
+          type="button" 
+          onClick={handleOpenAddModal} 
+          className="h-7 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+        >
           <Plus className="size-3.5" /> Add Variant
         </Button>
       </div>
 
-      <div className="overflow-x-auto overflow-y-visible pb-12">
+    {/* Clean 1-Row Summary Table (100% Fit across Square & Widescreen Monitors) */}
+      <div className="w-full overflow-hidden rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
         <table className="w-full text-xs">
           <thead>
-            <tr className="text-[10px] uppercase font-semibold text-slate-500 dark:text-zinc-400 border-b border-slate-200 dark:border-zinc-800">
-              <th className="p-1.5 text-center w-8">#</th>
-              <th className="p-1.5 text-center w-12">Photo</th>
-              <th className="p-1.5 text-left">Size</th>
-              <th className="p-1.5 text-left">Color</th>
-              <th className="p-1.5 text-left">SKU *</th>
-              <th className="p-1.5 text-left">Barcode (EAN)</th>
-              <th className="p-1.5 text-left">Retail (Rs) *</th>
-              <th className="p-1.5 text-left">Wholesale (Rs)</th>
-              <th className="p-1.5 text-left">Compare (Rs)</th>
-              <th className="p-1.5 text-left">Cost (Rs)</th>
-              <th className="p-1.5 text-left">Stock</th>
-              <th className="p-1.5 text-center">Action</th>
+            <tr className="text-[10px] uppercase font-semibold text-slate-500 dark:text-zinc-400 border-b border-slate-100 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-900/50">
+              <th className="p-2 text-center w-8">#</th>
+              <th className="p-2 text-center w-12">Photo</th>
+              <th className="p-2 text-left">Variant (Click to Edit)</th>
+              <th className="p-2 text-left">SKU</th>
+              <th className="p-2 text-left">Barcode</th>
+              <th className="p-2 text-right">Cost (Rs)</th>
+              <th className="p-2 text-right">Wholesale (Rs)</th>
+              <th className="p-2 text-right">Retail (Rs)</th>
+              <th className="p-2 text-center">Stock</th>
+              <th className="p-2 text-center w-14">Action</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200 dark:divide-zinc-800/60">
-            {variants.map((v, index) => (
-              <tr key={v.key}>
-                {/* Variant Sequence Number */}
-                <td className="p-1 text-center font-mono text-[11px] font-bold text-slate-400">
-                  #{index + 1}
-                </td>
-
-                {/* Variant Image Selector Cell (Supports Click popover & direct Ctrl+V clipboard paste) */}
-                <td className="p-1 text-center">
-                  <button
-                    type="button"
-                    tabIndex={0}
-                    onPaste={(e) => onVariantPaste && onVariantPaste(v.key, e)}
-                    onClick={(e) => {
-                      if (activeImagePickerKey === v.key) {
-                        setActiveImagePickerKey(null);
-                      } else {
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        // Open above or below based on viewport space
-                        const openUpwards = window.innerHeight - rect.bottom < 200;
-                        setPickerCoords({
-                          top: openUpwards ? rect.top - 170 : rect.bottom + 6,
-                          left: rect.left,
-                        });
-                        setActiveImagePickerKey(v.key);
-                      }
-                    }}
-                    title="Click to pick photo or press Ctrl+V to paste directly into this variant"
-                    className={`size-8 rounded-lg border overflow-hidden flex items-center justify-center transition-all outline-none focus:ring-2 focus:ring-emerald-500 ${
-                      activeImagePickerKey === v.key
-                        ? 'border-emerald-500 ring-2 ring-emerald-500/20'
-                        : 'border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900 hover:border-emerald-500'
-                    }`}
-                  >
-                    {(() => {
-                      const displayImg = (v.imageUrls && v.imageUrls[0]) || v.imageUrl;
-                      const count = (v.imageUrls && v.imageUrls.length) || (v.imageUrl ? 1 : 0);
-
-                      if (!displayImg) return <ImageIcon className="size-3.5 text-slate-400" />;
-
-                      const src = displayImg.startsWith('http') || displayImg.startsWith('data:')
-                        ? displayImg
-                        : `${import.meta.env.VITE_API_URL?.replace(/\/api\/?$/, '') || 'http://localhost:5000'}${
-                            displayImg.startsWith('/') ? '' : '/'
-                          }${displayImg}`;
-
-                      return (
-                        <div className="relative w-full h-full">
-                          <img src={src} alt="" className="w-full h-full object-cover" />
-                          {count > 1 && (
-                            <span className="absolute bottom-0 right-0 bg-emerald-600 text-white font-mono text-[8px] font-bold px-1 rounded-tl">
-                              {count}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })()}
-                  </button>
-                </td>
-
-                <td className="p-1 min-w-[100px]">
-                  <SizeCombobox
-                    sizes={availableSizes}
-                    value={v.size || ''}
-                    onChange={(val) => updateField(v.key, 'size', val)}
-                    onSizeCreated={onSizeCreated}
-                    dark={dark}
-                  />
-                </td>
-                <td className="p-1 min-w-[120px]">
-                  <ColorCombobox
-                    colors={availableColors}
-                    value={v.color || ''}
-                    onChange={(val) => updateField(v.key, 'color', val)}
-                    onColorCreated={onColorCreated}
-                    dark={dark}
-                  />
-                </td>
-                <td className="p-1">
-                  <Input 
-                    value={v.sku} 
-                    onFocus={handleFocus}
-                    onChange={e => updateField(v.key, 'sku', e.target.value)} 
-                    className="w-28 h-8 font-mono text-[11px]" 
-                  />
-                </td>
-                <td className="p-1">
-                  <Input 
-                    value={v.barcode || ''} 
-                    onFocus={handleFocus}
-                    onChange={e => updateField(v.key, 'barcode', e.target.value)} 
-                    placeholder="Scan Barcode" 
-                    className="w-28 h-8 font-mono text-[11px]" 
-                  />
-                </td>
-                <td className="p-1">
-                  <Input 
-                    type="number" 
-                    value={v.retailPrice === 0 ? '' : v.retailPrice} 
-                    placeholder="0"
-                    onFocus={handleFocus}
-                    onChange={e => updateField(v.key, 'retailPrice', parseFloat(e.target.value) || 0)} 
-                    className="w-20 h-8 text-emerald-600 font-semibold" 
-                  />
-                </td>
-                <td className="p-1">
-                  <Input 
-                    type="number" 
-                    value={v.wholesalePrice === 0 ? '' : v.wholesalePrice} 
-                    placeholder="0"
-                    onFocus={handleFocus}
-                    onChange={e => updateField(v.key, 'wholesalePrice', parseFloat(e.target.value) || 0)} 
-                    className="w-20 h-8 text-amber-600 font-semibold" 
-                  />
-                </td>
-                <td className="p-1">
-                  <Input 
-                    type="number" 
-                    value={!v.comparePrice ? '' : v.comparePrice} 
-                    placeholder="Old" 
-                    onFocus={handleFocus}
-                    onChange={e => updateField(v.key, 'comparePrice', parseFloat(e.target.value) || 0)} 
-                    className="w-18 h-8 opacity-75" 
-                  />
-                </td>
-                <td className="p-1">
-                  <Input 
-                    type="number" 
-                    value={v.costPrice === 0 ? '' : v.costPrice} 
-                    placeholder="0"
-                    onFocus={handleFocus}
-                    onChange={e => updateField(v.key, 'costPrice', parseFloat(e.target.value) || 0)} 
-                    className="w-18 h-8 text-slate-500" 
-                  />
-                </td>
-                <td className="p-1">
-                  <Input 
-                    type="number" 
-                    value={v.stock === 0 ? '' : v.stock} 
-                    placeholder="0"
-                    onFocus={handleFocus}
-                    onChange={e => updateField(v.key, 'stock', parseInt(e.target.value, 10) || 0)} 
-                    className="w-16 h-8 text-center font-bold" 
-                  />
-                </td>
-                <td className="p-1 text-center">
-                  <button type="button" onClick={() => removeVariant(v.key)} className="p-1 text-rose-500 hover:bg-rose-500/10 rounded-lg">
-                    <Trash2 className="size-3.5" />
-                  </button>
+          <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60">
+            {variants.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="p-5 text-center text-slate-400 text-xs">
+                  No variants added yet. Click <span className="font-semibold text-emerald-600">+ Add Variant</span> to configure options.
                 </td>
               </tr>
-            ))}
+            ) : (
+              variants.map((v, index) => {
+                const displayImg = (v.imageUrls && v.imageUrls[0]) || v.imageUrl;
+                const apiHost = import.meta.env.VITE_API_URL?.replace(/\/api\/?$/, '') || 'http://localhost:5000';
+                const resolvedPhoto = displayImg
+                  ? displayImg.startsWith('http') || displayImg.startsWith('data:')
+                    ? displayImg
+                    : `${apiHost}${displayImg.startsWith('/') ? '' : '/'}${displayImg}`
+                  : null;
+
+                return (
+                  <tr key={v.key} className="hover:bg-slate-50/80 dark:hover:bg-zinc-900/40 transition-colors">
+                    {/* Index */}
+                    <td className="p-2 text-center font-mono text-[11px] font-bold text-slate-400">
+                      #{index + 1}
+                    </td>
+
+                    {/* Photo Preview */}
+                    <td className="p-2 text-center">
+                      <div 
+                        onClick={() => handleOpenEditModal(v)}
+                        className="size-8 rounded-lg border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900 overflow-hidden flex items-center justify-center mx-auto cursor-pointer hover:border-emerald-500 transition-colors"
+                      >
+                        {resolvedPhoto ? (
+                          <img src={resolvedPhoto} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <ImageIcon className="size-3.5 text-slate-400" />
+                        )}
+                      </div>
+                    </td>
+
+                    {/* Variant Name Badges (Clicking triggers Edit Modal) */}
+                    <td className="p-2">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditModal(v)}
+                        className="font-bold text-slate-800 dark:text-zinc-200 hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center gap-1.5 transition-colors group cursor-pointer text-left"
+                      >
+                        <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-[11px] font-medium border border-slate-200/60 dark:border-zinc-700/60">
+                          {v.size || 'No Size'}
+                        </span>
+                        <span className="text-slate-400">/</span>
+                        <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-[11px] font-medium border border-slate-200/60 dark:border-zinc-700/60">
+                          {v.color || 'No Color'}
+                        </span>
+                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity ml-1">
+                          (Edit)
+                        </span>
+                      </button>
+                    </td>
+
+                    {/* SKU */}
+                    <td className="p-2 font-mono text-[11px] text-slate-600 dark:text-zinc-300">
+                      {v.sku || '-'}
+                    </td>
+
+                    {/* Barcode */}
+                    <td className="p-2 font-mono text-[11px] text-slate-500">
+                      {v.barcode || '-'}
+                    </td>
+
+                    {/* Cost Price */}
+                    <td className="p-2 text-right text-slate-500 dark:text-zinc-400 font-mono">
+                      Rs. {Number(v.costPrice || 0).toLocaleString()}
+                    </td>
+
+                    {/* Wholesale Price */}
+                    <td className="p-2 text-right font-semibold text-amber-600 dark:text-amber-400 font-mono">
+                      Rs. {Number(v.wholesalePrice || 0).toLocaleString()}
+                    </td>
+
+                    {/* Retail Price */}
+                    <td className="p-2 text-right font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                      Rs. {Number(v.retailPrice || 0).toLocaleString()}
+                    </td>
+
+                    {/* Stock */}
+                    <td className="p-2 text-center">
+                      <span className={`px-2 py-0.5 rounded-full font-mono text-[10px] font-bold ${
+                        (v.stock || 0) > 0 
+                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400' 
+                          : 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-400'
+                      }`}>
+                        {v.stock || 0}
+                      </span>
+                    </td>
+
+                    {/* Action Column with Shadcn 3-Dots Dropdown Menu (modal={false} prevents layout shift / scroll lock) */}
+                    <td className="p-2 text-center">
+                      <DropdownMenu modal={false}>
+                        <DropdownMenuTrigger asChild>
+                          <Button 
+                            type="button"
+                            variant="ghost" 
+                            size="sm" 
+                            className="size-7 p-0 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-500 cursor-pointer"
+                          >
+                            <MoreVertical className="size-4" />
+                            <span className="sr-only">Actions</span>
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-32 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 shadow-xl rounded-xl p-1 z-50">
+                          <DropdownMenuItem
+                            onClick={() => handleOpenEditModal(v)}
+                            className="flex items-center gap-2 px-2.5 py-1.5 text-xs font-medium cursor-pointer rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+                          >
+                            <Edit2 className="size-3.5 text-slate-500" />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => removeVariant(v.key)}
+                            className="flex items-center gap-2 px-2.5 py-1.5 text-xs font-medium cursor-pointer rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400"
+                          >
+                            <Trash2 className="size-3.5" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
           </tbody>
         </table>
       </div>
 
-      {/* Floating Photo Popover rendered via React Portal directly into body */}
-      {activeImagePickerKey && pickerCoords && createPortal(
-        <div
-          ref={popoverRef}
-          style={{
-            position: 'fixed',
-            top: pickerCoords.top,
-            left: pickerCoords.left,
-            zIndex: 99999,
-          }}
-          className="p-2.5 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-2xl w-60 space-y-2 animate-in fade-in-0 zoom-in-95 duration-150"
-        >
-          <div className="flex items-center justify-between text-[11px] font-bold text-slate-700 dark:text-zinc-300 border-b border-slate-100 dark:border-zinc-800 pb-1.5">
-            <span>Assign Variant Photo</span>
-            {(() => {
-              const activeVar = variants.find(v => v.key === activeImagePickerKey);
-              const hasAssignedImg = Boolean(activeVar?.imageUrl || (activeVar?.imageUrls && activeVar.imageUrls.length > 0));
-
-              return hasAssignedImg ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onChange(
-                      variants.map(v =>
-                        v.key === activeImagePickerKey
-                          ? { ...v, imageUrl: undefined, imageUrls: [], imageIndexes: [] }
-                          : v
-                      )
-                    );
-                    setActiveImagePickerKey(null);
-                  }}
-                  className="text-rose-500 hover:text-rose-600 text-[10px] hover:underline"
-                >
-                  Clear Photo
-                </button>
-              ) : null;
-            })()}
-          </div>
-
-          {catalogImages.length === 0 ? (
-            <p className="text-[10px] text-slate-400 py-3 text-center">
-              No photos uploaded in "Catalog Images" yet.
-            </p>
-          ) : (
-            <div className="grid grid-cols-4 gap-1.5 max-h-40 overflow-y-auto pr-1">
-              {catalogImages.map((imgUrl, i) => {
-                const apiHost =
-                  import.meta.env.VITE_API_URL?.replace(/\/api\/?$/, '') || 'http://localhost:5000';
-                const src =
-                  imgUrl.startsWith('http') || imgUrl.startsWith('data:')
-                    ? imgUrl
-                    : `${apiHost}${imgUrl.startsWith('/') ? '' : '/'}${imgUrl}`;
-
-                const currentVariant = variants.find(v => v.key === activeImagePickerKey);
-                const isSelected = Boolean(
-                  currentVariant?.imageUrl === imgUrl || 
-                  (currentVariant?.imageUrls && currentVariant.imageUrls.includes(imgUrl))
-                );
-
-                return (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => {
-                      onChange(
-                        variants.map(v => {
-                          if (v.key === activeImagePickerKey) {
-                            // Keep multi-image array intact, making clicked image the primary preview
-                            const existingUrls = v.imageUrls || (v.imageUrl ? [v.imageUrl] : []);
-                            const nextUrls = existingUrls.includes(imgUrl)
-                              ? existingUrls
-                              : [imgUrl, ...existingUrls];
-                            
-                            const nextIndexes = nextUrls
-                              .map(url => catalogImages.indexOf(url))
-                              .filter(idx => idx !== -1);
-
-                            return {
-                              ...v,
-                              imageUrl: imgUrl,
-                              imageUrls: nextUrls,
-                              imageIndexes: nextIndexes,
-                            };
-                          }
-                          return v;
-                        })
-                      );
-                      setActiveImagePickerKey(null);
-                    }}
-                    className={`aspect-square rounded-lg overflow-hidden border-2 transition-all group ${
-                      isSelected
-                        ? 'border-emerald-500 ring-2 ring-emerald-500/20 scale-105'
-                        : 'border-slate-200 dark:border-zinc-800 hover:border-slate-400 dark:hover:border-zinc-600'
-                    }`}
-                  >
-                    <img src={src} alt="" className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>,
-        document.body
-      )}
+      {/* Render the Dedicated Variant Modal Dialog */}
+      <VariantModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSave={handleSaveModalVariant}
+        variant={activeModalVariant}
+        availableSizes={availableSizes}
+        availableColors={availableColors}
+        catalogImages={catalogImages}
+        onSizeCreated={onSizeCreated}
+        onColorCreated={onColorCreated}
+        dark={dark}
+      />
     </div>
   );
 };

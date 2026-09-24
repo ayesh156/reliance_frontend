@@ -30,7 +30,7 @@ import {
 } from '../components/ui/alert-dialog';
 import { get, post, put, del } from '../lib/api';
 import { toast } from 'react-toastify';
-import { isValidSriLankanNIC, isValidSriLankanPhone } from '../lib/validators';
+import { isValidSriLankanNIC, isValidSriLankanPhone } from '../utils/validators';
 import { useTheme } from '../contexts/ThemeContext';
 import {
   DropdownMenu,
@@ -40,26 +40,21 @@ import {
   DropdownMenuSeparator,
 } from '../components/ui/dropdown-menu';
 import {
-  Users,
   Search,
   Plus,
   Trash2,
   Edit2,
-  Phone,
-  CreditCard,
   Building,
   UserCheck,
   Loader2,
   X,
-  Filter,
-  ArrowUpDown,
   MoreVertical,
-  DollarSign,
   Receipt,
-  Check,
   MessageSquare, // ⭐ WhatsApp Action Icon
 } from 'lucide-react';
-import { openWhatsAppChat, generateCustomerDebtSummaryWhatsAppMessage } from '../lib/whatsapp';
+import { openWhatsAppChat, generateCustomerDebtSummaryWhatsAppMessage } from '../utils/whatsapp';
+// Enterprise Customer Itemized Due Settlement Modal
+import { CustomerDueSettlementModal } from '../components/customers/CustomerDueSettlementModal';
 
 interface CustomerItem {
   id: number;
@@ -101,16 +96,9 @@ export const CustomersPage: React.FC = () => {
   const [address, setAddress] = useState('');
   const [notes, setNotes] = useState('');
   
-  // Debt Settlement Modal States
-  const [settleModalOpen, setSettleModalOpen] = useState(false);
-  const [settleCustomer, setSettleCustomer] = useState<CustomerItem | null>(null);
-  const [pendingInvoices, setPendingInvoices] = useState<any[]>([]);
-  const [loadingInvoices, setLoadingInvoices] = useState(false);
-  const [settleAmount, setSettleAmount] = useState<number | ''>('');
-  const [settleStrategy, setSettleStrategy] = useState<'FULL' | 'FIFO' | 'LIFO' | 'CUSTOM'>('FULL');
-  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<number[]>([]);
-  const [settleMethod, setSettleMethod] = useState<'CASH' | 'CHEQUE' | 'CARD'>('CASH');
-  const [settling, setSettling] = useState(false);
+  // Enterprise Itemized Bill Settlement Modal States
+  const [isDueSettlementOpen, setIsDueSettlementOpen] = useState(false);
+  const [selectedSettlementCustomer, setSelectedSettlementCustomer] = useState<CustomerItem | null>(null);
 
   /**
    * Fetch customer's pending invoices and open WhatsApp account statement
@@ -133,62 +121,6 @@ export const CustomersPage: React.FC = () => {
       // Fallback statement if invoices endpoint fails
       const waMsg = generateCustomerDebtSummaryWhatsAppMessage(cust, []);
       openWhatsAppChat(cust.phone, waMsg);
-    }
-  };
-
-  // Open Settle Balance dialog and fetch customer pending debt invoices
-  const handleOpenSettleModal = async (cust: CustomerItem) => {
-    setSettleCustomer(cust);
-    setSettleAmount(cust.outstandingBalance || 0);
-    setSettleStrategy('FULL');
-    setSelectedInvoiceIds([]);
-    setSettleMethod('CASH');
-    setSettleModalOpen(true);
-
-    // Fetch this customer's active debt invoices
-    setLoadingInvoices(true);
-    try {
-      const res = await get<any[]>(`/orders/customers/${cust.id}/pending-invoices`);
-      setPendingInvoices(Array.isArray(res) ? res : []);
-    } catch (err: any) {
-      toast.error('Failed to load pending invoices for this customer');
-    } finally {
-      setLoadingInvoices(false);
-    }
-  };
-
-  // Submit Debt Settlement Transaction
-  const handleConfirmSettlement = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!settleCustomer) return;
-
-    const amountNum = settleStrategy === 'FULL' ? Number(settleCustomer.outstandingBalance) : Number(settleAmount);
-    if (isNaN(amountNum) || amountNum <= 0) {
-      toast.error('Please enter a valid payment amount');
-      return;
-    }
-
-    if (settleStrategy === 'CUSTOM' && selectedInvoiceIds.length === 0) {
-      toast.error('Please select at least one invoice tag to settle');
-      return;
-    }
-
-    setSettling(true);
-    try {
-      await post(`/orders/customers/${settleCustomer.id}/settle-debt`, {
-        amount: amountNum,
-        strategy: settleStrategy,
-        selectedInvoiceIds,
-        paymentMethod: settleMethod,
-      });
-
-      toast.success(`Debt payment of Rs. ${amountNum.toLocaleString()} processed successfully!`);
-      setSettleModalOpen(false);
-      fetchCustomers();
-    } catch (err: any) {
-      toast.error(err.message || 'Settlement failed');
-    } finally {
-      setSettling(false);
     }
   };
 
@@ -523,15 +455,18 @@ export const CustomersPage: React.FC = () => {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-44 text-xs font-medium">
-                        {/* Settle Balance Option & WhatsApp Debt Notice - highlighted if customer has active debt */}
+                        {/* Itemized Due Bills Settlement Modal Action */}
                         {Number(cust.outstandingBalance || 0) > 0 && (
                           <>
                             <DropdownMenuItem
-                              onClick={() => handleOpenSettleModal(cust)}
+                              onClick={() => {
+                                setSelectedSettlementCustomer(cust);
+                                setIsDueSettlementOpen(true);
+                              }}
                               className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-700 font-semibold"
                             >
-                              <DollarSign className="size-3.5 text-emerald-600" />
-                              Pay Due Balance
+                              <Receipt className="size-3.5 text-emerald-600" />
+                              Settle Due Bills
                             </DropdownMenuItem>
 
                             {/* Direct WhatsApp Debt Notice Action */}
@@ -704,147 +639,19 @@ export const CustomersPage: React.FC = () => {
       </AlertDialog>
 
 {/* Debt Settlement Modal (Full vs Partial Allocation with FIFO/LIFO/Tags) */}
-      <Dialog open={settleModalOpen} onOpenChange={setSettleModalOpen}>
-        <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold flex items-center gap-2">
-              <DollarSign className="size-5 text-emerald-600" /> Settle Due Balance
-            </DialogTitle>
-          </DialogHeader>
-
-          {settleCustomer && (
-            <form onSubmit={handleConfirmSettlement} className="space-y-3.5 py-1 text-xs">
-              {/* Customer Debt Card */}
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 flex justify-between items-center">
-                <div>
-                  <div className="font-bold text-sm text-slate-900 dark:text-white">{settleCustomer.name}</div>
-                  <div className="text-[11px] text-slate-500 font-mono">{settleCustomer.phone}</div>
-                </div>
-                <div className="text-right">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase block">Total Due</span>
-                  <span className="font-mono font-bold text-base text-rose-600">
-                    Rs. {Number(settleCustomer.outstandingBalance).toLocaleString()}
-                  </span>
-                </div>
-              </div>
-
-              {/* Strategy Selector (Full vs FIFO vs LIFO vs Specific Invoices) */}
-              <div className="space-y-1.5">
-                <label className="font-bold text-slate-700 dark:text-zinc-300">Settlement Strategy</label>
-                <div className="grid grid-cols-4 gap-1 p-1 bg-slate-100 dark:bg-zinc-900 rounded-xl border border-slate-200 dark:border-zinc-800">
-                  {(['FULL', 'FIFO', 'LIFO', 'CUSTOM'] as const).map((strat) => (
-                    <button
-                      key={strat}
-                      type="button"
-                      onClick={() => {
-                        setSettleStrategy(strat);
-                        if (strat === 'FULL') {
-                          setSettleAmount(settleCustomer.outstandingBalance);
-                        }
-                      }}
-                      className={`py-1 text-[10px] font-bold rounded-lg transition-all ${
-                        settleStrategy === strat
-                          ? 'bg-emerald-600 text-white shadow-xs'
-                          : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
-                      }`}
-                    >
-                      {strat === 'FULL' ? 'Full Pay' : strat === 'FIFO' ? 'Oldest 1st' : strat === 'LIFO' ? 'Newest 1st' : 'Select Bills'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Payment Amount Input (Disabled in FULL mode) */}
-              <div className="space-y-1">
-                <label className="font-bold text-slate-700 dark:text-zinc-300">Payment Amount (Rs) *</label>
-                <Input
-                  type="number"
-                  required
-                  min="1"
-                  max={settleCustomer.outstandingBalance}
-                  disabled={settleStrategy === 'FULL'}
-                  value={settleAmount}
-                  onChange={(e) => setSettleAmount(e.target.value ? Number(e.target.value) : '')}
-                  className="font-mono font-bold text-sm text-emerald-600 dark:text-emerald-400 h-9"
-                  placeholder="Enter amount to pay..."
-                />
-              </div>
-
-              {/* Custom Multi-Select Invoice Tags (Rendered ONLY in CUSTOM mode) */}
-              {settleStrategy === 'CUSTOM' && (
-                <div className="space-y-1.5 pt-1">
-                  <label className="font-bold text-slate-700 dark:text-zinc-300 block">
-                    Select Invoices to Deduct From ({selectedInvoiceIds.length} chosen)
-                  </label>
-                  {loadingInvoices ? (
-                    <div className="py-4 text-center text-slate-400">
-                      <Loader2 className="size-4 animate-spin mx-auto mb-1" /> Loading pending invoices...
-                    </div>
-                  ) : pendingInvoices.length === 0 ? (
-                    <div className="text-[11px] text-slate-400 p-2 border rounded-lg">No pending credit invoices found.</div>
-                  ) : (
-                    <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1.5 border border-slate-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-950">
-                      {pendingInvoices.map((inv) => {
-                        const isSelected = selectedInvoiceIds.includes(inv.id);
-                        return (
-                          <button
-                            key={inv.id}
-                            type="button"
-                            onClick={() => {
-                              setSelectedInvoiceIds((prev) =>
-                                isSelected ? prev.filter((id) => id !== inv.id) : [...prev, inv.id]
-                              );
-                            }}
-                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-mono transition-all ${
-                              isSelected
-                                ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold'
-                                : 'border-slate-200 dark:border-zinc-800 hover:border-slate-400 text-slate-600 dark:text-zinc-400'
-                            }`}
-                          >
-                            <Receipt className="size-3" />
-                            <span>{inv.invoiceNo} (Due: Rs. {inv.due})</span>
-                            {isSelected && <Check className="size-3 text-emerald-600" />}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Payment Method Pills */}
-              <div className="space-y-1 pt-1">
-                <label className="font-bold text-slate-700 dark:text-zinc-300">Payment Channel</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['CASH', 'CHEQUE', 'CARD'] as const).map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => setSettleMethod(m)}
-                      className={`py-1.5 rounded-lg border font-semibold text-center transition-all ${
-                        settleMethod === m
-                          ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600'
-                          : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400'
-                      }`}
-                    >
-                      {m}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <DialogFooter className="pt-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => setSettleModalOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" size="sm" disabled={settling} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold">
-                  {settling && <Loader2 className="size-3.5 animate-spin mr-1" />} Confirm Payment
-                </Button>
-              </DialogFooter>
-            </form>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Enterprise-Grade Itemized Customer Due Settlement Modal */}
+      <CustomerDueSettlementModal
+        isOpen={isDueSettlementOpen}
+        onClose={() => {
+          setIsDueSettlementOpen(false);
+          setSelectedSettlementCustomer(null);
+        }}
+        customerId={selectedSettlementCustomer?.id || null}
+        customerName={selectedSettlementCustomer?.name}
+        onPaymentSuccess={() => {
+          fetchCustomers(); // ගෙවීම් වාර්තා වූ සැණින් Customers table එක auto-sync වේ
+        }}
+      />
       
     </div>
   );

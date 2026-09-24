@@ -36,7 +36,7 @@ import {
 } from '../components/ui/dropdown-menu';
 import { get, post, put, del } from '../lib/api';
 import { toast } from 'react-toastify';
-import { isValidSriLankanPhone } from '../lib/validators';
+import { isValidSriLankanPhone } from '../utils/validators';
 import {
   Building2,
   Plus,
@@ -53,7 +53,7 @@ import {
   MoreVertical,
   MessageSquare, // ⭐ WhatsApp Icon
 } from 'lucide-react';
-import { openWhatsAppChat, generateSupplierCreditSummaryWhatsAppMessage } from '../lib/whatsapp';
+import { openWhatsAppChat, generateSupplierCreditSummaryWhatsAppMessage } from '../utils/whatsapp';
 
 // ============================================================================
 // TYPES & INTERFACES

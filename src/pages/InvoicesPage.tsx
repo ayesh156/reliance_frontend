@@ -40,7 +40,7 @@ import {
   RefreshCw,
   MessageSquare, // ⭐ WhatsApp Icon
 } from 'lucide-react';
-import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../lib/whatsapp';
+import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../utils/whatsapp';
 
 interface InvoiceRecord {
   id: number;

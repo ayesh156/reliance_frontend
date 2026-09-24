@@ -46,8 +46,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({
     : "AD";
 
   return (
-    <SidebarProvider defaultOpen={true}>
-      {/* Official Shadcn Collapsible App Sidebar */}
+   <SidebarProvider 
+      defaultOpen={false}
+      style={{
+        "--sidebar-width": "11rem",
+      } as React.CSSProperties}
+    >
+      {/* Official Shadcn Collapsible App Sidebar - Default closed for maximized POS workspace */}
       <AppSidebar />
 
       {/* Main Fluid Inset */}

@@ -13,7 +13,7 @@ import {
 import { get, post, put } from '../lib/api';
 import { toast } from 'react-toastify';
 import { A4InvoiceModal } from '../components/pos/A4InvoiceModal';
-import { isValidSriLankanNIC, isValidSriLankanPhone } from '../lib/validators';
+import { isValidSriLankanNIC, isValidSriLankanPhone } from '../utils/validators';
 import { useTheme } from '../contexts/ThemeContext';
 import {
   Search,
@@ -34,9 +34,11 @@ import {
   ChevronRight,
   Printer,
   Save,
+  CreditCard,
+  Landmark,
 } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../lib/whatsapp';
+import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../utils/whatsapp';
 
 interface CatalogVariant {
   id: number;
@@ -116,9 +118,10 @@ export const QuickCheckoutPage: React.FC = () => {
   const [completedOrder, setCompletedOrder] = useState<any>(null);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
 
-  // Adjust Cash Modal State for Edit Mode
+  // Adjust Cash Modal State for Edit Mode with Payment Method tracking
   const [adjustModalOpen, setAdjustModalOpen] = useState(false);
   const [tempAdjustCash, setTempAdjustCash] = useState('');
+  const [tempAdjustMethod, setTempAdjustMethod] = useState<string>('CASH');
 
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
@@ -869,6 +872,7 @@ export const QuickCheckoutPage: React.FC = () => {
                   onClick={() => {
                     // Open modal completely clean/empty for entering the newly received payment
                     setTempAdjustCash('');
+                    setTempAdjustMethod('CASH');
                     setAdjustModalOpen(true);
                   }}
                   className="h-8 px-2.5 text-xs font-bold border-blue-500 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/50 rounded-lg shrink-0 cursor-pointer"
@@ -1034,7 +1038,7 @@ export const QuickCheckoutPage: React.FC = () => {
 
       {/* Modern Shadcn Modal: Receive Additional Payment / Settle Invoice Balance */}
       <Dialog open={adjustModalOpen} onOpenChange={setAdjustModalOpen}>
-        <DialogContent className="sm:max-w-[400px]">
+        <DialogContent className="sm:max-w-[460px]">
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <Banknote className="size-5 text-emerald-600" /> Receive Additional Payment
@@ -1058,45 +1062,46 @@ export const QuickCheckoutPage: React.FC = () => {
                     return;
                   }
 
-                  const finalCalculatedCash = previouslyPaid + newlyEntered;
-                  const finalPaidAmount = Math.min(total, finalCalculatedCash);
-                  const remainingDebt = Math.max(0, total - finalPaidAmount);
+                  if (newlyEntered > remainingDue) {
+                    toast.error(`Maximum payable due is Rs. ${remainingDue.toLocaleString()}`);
+                    return;
+                  }
 
-                  // Use defined submitting state
+                  const finalCalculatedCash = previouslyPaid + newlyEntered;
+
                   setSubmitting(true);
                   try {
-                    // Instantly persist payment to Backend Database & Atomic Customer Balance Ledger
-                    const updated = await put<any>(`/orders/invoices/${originalInvoice.id}`, {
-                      source: originalInvoice.source || 'POS_RETAIL',
-                      customerId: originalInvoice.customerId || undefined,
-                      customerName: originalInvoice.customerName || 'Walk-in Customer',
-                      customerPhone: originalInvoice.customerPhone || undefined,
-                      items: cart.map((i) => ({
-                        variantId: i.variantId,
-                        quantity: i.quantity,
-                        unitPrice: i.unitPrice,
-                        price: i.unitPrice * i.quantity,
-                      })),
-                      subtotal,
-                      discount: discountAmount,
-                      discountType,
-                      totalAmount: total,
-                      paidAmount: finalPaidAmount,
-                      paymentMethod: remainingDebt > 0 ? 'CREDIT' : 'CASH',
+                    // Atomically creates an individual payment record in OrderPayment table and updates order paidAmount
+                    const res = await post<any>('/credit/settle-bill', {
+                      orderId: originalInvoice.id,
+                      amount: newlyEntered,
+                      paymentMethod: tempAdjustMethod,
+                      reference: `POS Invoice Edit (Inv #${originalInvoice.id})`,
                     });
 
-                    // Update live UI state and internal reference
+                    // Update live UI state and sync original invoice from response
                     setClientGivenCash(String(finalCalculatedCash));
-                    setOriginalInvoice(updated);
+                    if (res?.data?.updatedOrder) {
+                      setOriginalInvoice((prev: any) => ({
+                        ...prev,
+                        paidAmount: finalCalculatedCash,
+                        status: res.data.updatedOrder.status,
+                      }));
+                    } else {
+                      setOriginalInvoice((prev: any) => ({
+                        ...prev,
+                        paidAmount: finalCalculatedCash,
+                      }));
+                    }
+                    
                     setAdjustModalOpen(false);
 
                     toast.success(
-                      `Payment of Rs. ${newlyEntered.toLocaleString()} saved permanently! Invoice #INV${originalInvoice.id} updated.`
+                      `Payment of Rs. ${newlyEntered.toLocaleString()} recorded as a new ledger entry! Invoice #INV${originalInvoice.id} updated.`
                     );
                   } catch (err: any) {
                     toast.error(err.message || 'Failed to save payment to database');
                   } finally {
-                    // Reset submitting state
                     setSubmitting(false);
                   }
                 }}
@@ -1124,22 +1129,61 @@ export const QuickCheckoutPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Professional Input Field */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-900 dark:text-white block">
-                    Payment Received Now (Rs) *
-                  </label>
-                  <Input
-                    type="number"
-                    min="1"
-                    step="any"
-                    autoFocus
-                    required
-                    value={tempAdjustCash}
-                    onChange={(e) => setTempAdjustCash(e.target.value)}
-                    placeholder={`e.g. ${remainingDue > 0 ? remainingDue : total}`}
-                    className="font-mono font-bold text-base text-emerald-600 dark:text-emerald-400 h-10"
-                  />
+                {/* Payment Inputs: Perfectly balanced 2-Column Inline Grid */}
+                <div className="grid grid-cols-2 gap-3 items-end">
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-slate-900 dark:text-white truncate block">
+                      Paying Amount (Rs) *
+                    </label>
+                    <Input
+                      type="number"
+                      min="1"
+                      step="any"
+                      autoFocus
+                      required
+                      value={tempAdjustCash}
+                      onChange={(e) => setTempAdjustCash(e.target.value)}
+                      placeholder={`e.g. ${remainingDue > 0 ? remainingDue : total}`}
+                      className="font-mono font-bold text-xs text-emerald-600 dark:text-emerald-400 h-9 rounded-xl"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-slate-900 dark:text-white truncate block">
+                      Payment Method *
+                    </label>
+                    {/* Modern SearchableSelect aligned identically to Input */}
+                    <SearchableSelect
+                      value={tempAdjustMethod}
+                      onValueChange={(val) => setTempAdjustMethod(val)}
+                      options={[
+                        {
+                          value: 'CASH',
+                          label: 'Cash',
+                          icon: <Banknote className="size-3.5 text-emerald-500" />,
+                        },
+                        {
+                          value: 'CARD',
+                          label: 'Card',
+                          icon: <CreditCard className="size-3.5 text-blue-500" />,
+                        },
+                        {
+                          value: 'BANK_TRANSFER',
+                          label: 'Bank Transfer',
+                          icon: <Landmark className="size-3.5 text-indigo-500" />,
+                        },
+                        {
+                          value: 'CHEQUE',
+                          label: 'Cheque',
+                          icon: <FileText className="size-3.5 text-amber-500" />,
+                        },
+                      ]}
+                      placeholder="Select Method"
+                      searchPlaceholder="Search method..."
+                      dark={dark}
+                      className="h-9 py-0 rounded-xl"
+                    />
+                  </div>
                 </div>
 
                 {/* Live Outcome Preview */}
