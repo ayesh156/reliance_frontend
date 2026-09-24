@@ -347,7 +347,7 @@ export const VariantModal: React.FC<VariantModalProps> = ({
                 </label>
                 <Input
                   type="text"
-                  placeholder="+10 හෝ -5"
+                  placeholder="+10 OR -5"
                   value={stockAdjustment}
                   onChange={(e) => {
                     const val = e.target.value;
