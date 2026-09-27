@@ -20,13 +20,24 @@ export const openWhatsAppChat = (phone: string, message: string) => {
 };
 
 /**
- * 1. Build Customer POS Invoice Receipt
+ * 1. Build Customer POS Invoice Receipt (Supports Wholesale/Retail modes & exact yyyy-mm-dd timestamps)
  */
 export const generateCustomerInvoiceWhatsAppMessage = (order: any): string => {
+  const isWholesale = order.source === 'POS_WHOLESALE' || order.orderType === 'WHOLESALE';
   const invoiceNo = order.id ? `INV${order.id}` : 'NEW';
-  const dateStr = order.createdAt
-    ? new Date(order.createdAt).toISOString().split('T')[0]
-    : new Date().toISOString().split('T')[0];
+
+  // Format yyyy-mm-dd with exact current/order time
+  const createdDate = order.createdAt ? new Date(order.createdAt) : new Date();
+  const yyyy = createdDate.getFullYear();
+  const mm = String(createdDate.getMonth() + 1).padStart(2, '0');
+  const dd = String(createdDate.getDate()).padStart(2, '0');
+  const formattedDate = `${yyyy}-${mm}-${dd}`;
+  const formattedTime = createdDate.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+
   const custName = order.customerName || order.customer?.name || 'Valued Customer';
   const total = Number(order.totalAmount || 0);
   const paid = Number(order.paidAmount || 0);
@@ -44,22 +55,30 @@ export const generateCustomerInvoiceWhatsAppMessage = (order: any): string => {
         const size = item.variant?.size || item.size || '';
         const color = item.variant?.color || item.color || '';
         const meta = size || color ? ` (${size}/${color})` : '';
-        return `${i + 1}. *${name}*${meta} x ${item.quantity} = Rs. ${Number(item.price || item.unitPrice * item.quantity).toLocaleString()}`;
+        const unitPrice = Number(item.unitPrice || (item.quantity ? item.price / item.quantity : 0)).toLocaleString();
+        const lineTotal = Number(item.price || item.unitPrice * item.quantity).toLocaleString();
+        return `${i + 1}. *${name}*${meta}\n   ${item.quantity} pcs x Rs. ${unitPrice} = *Rs. ${lineTotal}*`;
       })
       .join('\n');
   }
 
-  let text = `*RELIANCE CLOTHING - INVOICE RECEIPT*\n`;
+  // Dynamic header based on retail vs wholesale mode
+  const titleHeader = isWholesale
+    ? `*RELIANCE CLOTHING - WHOLESALE INVOICE*`
+    : `*RELIANCE CLOTHING - INVOICE RECEIPT*`;
+
+  let text = `${titleHeader}\n`;
   text += `-------------------------------------------\n`;
   text += `*Invoice No:* #${invoiceNo}\n`;
-  text += `*Date:* ${dateStr}\n`;
+  text += `*Date:* ${formattedDate} (${formattedTime})\n`;
+  text += `*Billing Type:* ${isWholesale ? 'WHOLESALE' : 'RETAIL'}\n`;
   text += `*Customer:* ${custName}\n`;
-  text += `*Payment Method:* ${paymentMethod}\n`; // ⭐ Added Payment Method field
+  text += `*Payment Method:* ${paymentMethod}\n`;
   text += `-------------------------------------------\n\n`;
   text += `*PURCHASED ITEMS:*\n${itemsList || '- No items recorded -'}\n\n`;
   text += `-------------------------------------------\n`;
   text += `*Total Bill:* Rs. ${total.toLocaleString()}\n`;
-  text += `*Paid Amount (${paymentMethod}):* Rs. ${paid.toLocaleString()}\n`; // ⭐ Tagged alongside paid amount
+  text += `*Paid Amount (${paymentMethod}):* Rs. ${paid.toLocaleString()}\n`;
 
   if (due > 0) {
     text += `*This Bill Due (Credit):* Rs. ${due.toLocaleString()}\n`;
@@ -71,7 +90,7 @@ export const generateCustomerInvoiceWhatsAppMessage = (order: any): string => {
   text += `-------------------------------------------\n`;
   text += `*Store:* Makandura, Matara\n`;
   text += `*Tel:* 041-2268739 / 071-1350123\n`;
-  text += `_Thank you for shopping with us!_`;
+  text += `_Thank you for your business with Reliance Clothing!_`;
 
   return text;
 };
@@ -137,7 +156,7 @@ export const generateSupplierStockInWhatsAppMessage = (purchase: any): string =>
   text += `*Supplier:* ${shopName}\n`;
   text += `*Invoice / PO Ref:* ${invNo}\n`;
   text += `*Date:* ${dateStr}\n`;
-  text += `*Payment Method:* ${paymentMethod}\n`; // ⭐ Added Payment Method
+  text += `*Payment Method:* ${paymentMethod}\n`;
   text += `-------------------------------------------\n\n`;
   text += `*MATERIALS RECEIVED:*\n${itemsList || '- No items list -'}\n\n`;
   text += `-------------------------------------------\n`;

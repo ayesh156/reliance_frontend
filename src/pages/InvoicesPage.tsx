@@ -400,13 +400,24 @@ export const InvoicesPage: React.FC = () => {
 
                   return (
                     <tr key={inv.id} className="hover:bg-slate-50/70 dark:hover:bg-zinc-800/30 transition-colors">
-                      {/* Interactive Clickable Invoice ID: Direct jump to Quick Checkout in Edit Mode */}
+                      {/* Interactive Clickable Invoice ID with Wholesale / Retail Badge */}
                       <td 
                         onClick={() => navigate(`/system/quick-checkout?editInvoiceId=${inv.id}`)}
                         className="py-3 px-4 font-mono font-bold text-slate-900 dark:text-white cursor-pointer hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline select-none"
                         title="Click to edit invoice in POS"
                       >
-                        INV{inv.id}
+                        <div className="flex items-center gap-1.5">
+                          <span>INV{inv.id}</span>
+                          {inv.source === 'POS_WHOLESALE' ? (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                              WS
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
+                              RET
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3 px-4 text-slate-500">
                         {new Date(inv.createdAt).toISOString().split('T')[0]}

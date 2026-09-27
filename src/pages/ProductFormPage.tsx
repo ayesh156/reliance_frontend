@@ -102,7 +102,10 @@ export const ProductFormPage: React.FC = () => {
             setDescription(prodRes.description || '');
             setSearchKey(prodRes.searchKey || '');
             setCategoryId(prodRes.categoryId || prodRes.category?.id || loadedCategories[0]?.id || 0);
-            const loadedImages = (prodRes.images || []).map(img => img.imageUrl);
+            // Deduplicate catalog images pool to ensure each physical photo appears only once in gallery
+            const loadedImages = Array.from(
+              new Set((prodRes.images || []).map(img => img.imageUrl?.trim()).filter(Boolean))
+            );
             setImages(loadedImages);
 
             setVariants(
@@ -234,7 +237,9 @@ export const ProductFormPage: React.FC = () => {
 
       // Process existing/direct web URLs, local paths, and newly captured WebP DataURLs
       const existingUrls: string[] = [];
-      images.forEach((img, i) => {
+      const deduplicatedImages = Array.from(new Set(images.map(img => img.trim())));
+
+      deduplicatedImages.forEach((img, i) => {
         if (img.startsWith('data:')) {
           // Convert only locally captured screenshots/binary data to WebP blobs
           const mimeType = img.substring(img.indexOf(':') + 1, img.indexOf(';')) || 'image/webp';
@@ -250,7 +255,8 @@ export const ProductFormPage: React.FC = () => {
           existingUrls.push(img.trim());
         }
       });
-      formData.append('imageUrls', JSON.stringify(existingUrls));
+      // Guarantees only unique URLs are sent to backend
+      formData.append('imageUrls', JSON.stringify(Array.from(new Set(existingUrls))));
 
       if (isEdit) {
         await put(`/products/${id}`, formData);
@@ -688,13 +694,21 @@ export const ProductFormPage: React.FC = () => {
                                                   <DropdownMenuItem
                                                     key={v.key}
                                                     onClick={() => {
+                                                      // If tagging to the primary variant (#1), bring this image to index 0 so it saves as primary catalog order
+                                                      if (i === 0 && !hasThisImg) {
+                                                        setImages(prev => [img, ...prev.filter(u => u !== img)]);
+                                                      }
+
                                                       setVariants(prev =>
                                                         prev.map((item, itemIdx) => {
                                                           if (itemIdx === i) {
                                                             const existing = item.imageUrls || (item.imageUrl ? [item.imageUrl] : []);
-                                                            const nextUrls = existing.includes(img)
+                                                            const isCurrentlyAssigned = existing.includes(img) || item.imageUrl === img;
+                                                            
+                                                            // Toggle assignment cleanly
+                                                            const nextUrls = isCurrentlyAssigned
                                                               ? existing.filter(u => u !== img)
-                                                              : [...existing, img];
+                                                              : [img, ...existing.filter(u => u !== img)];
 
                                                             return {
                                                               ...item,

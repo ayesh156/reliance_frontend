@@ -37,9 +37,14 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
     const hasOldBill = Boolean(order.customerId || order.customer?.id) && prevBalance > 0;
 
     // 1. Resolve active payment method label (CASH, CHEQUE, CARD, CREDIT)
+    // Detect wholesale transactions cleanly
+    const isWholesale = order.source === 'POS_WHOLESALE' || order.orderType === 'WHOLESALE';
+
     const paymentMethodLabel = order.paymentMethod 
       ? order.paymentMethod.toUpperCase() 
-      : (order.source === 'POS_WHOLESALE' ? 'WHOLESALE CREDIT' : 'CASH');
+      : (isWholesale ? 'WHOLESALE CREDIT' : 'CASH');
+
+    const invoiceHeading = isWholesale ? 'WHOLESALE INVOICE' : 'INVOICE';
 
     // 2. Resolve discount label strictly based on chosen discountType
     const discountVal = Number(order.discount || 0);
@@ -321,9 +326,11 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
               </div>
             </div>
             
-            <!-- Header Invoice Details -->
+            <!-- Header Invoice Details with Dynamic Wholesale Mode Flag -->
             <div class="invoice-title-area">
-              <div class="invoice-title">Invoice</div>
+              <div class="invoice-title" style="${isWholesale ? 'font-size: 22px; font-weight: 800;' : ''}">
+                ${invoiceHeading}
+              </div>
               <table class="meta-table">
                 <tr>
                   <td>Invoice No:</td>
@@ -333,6 +340,12 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
                   <td>Date:</td>
                   <td>${dateStr}</td>
                 </tr>
+                ${isWholesale ? `
+                <tr>
+                  <td>Billing Type:</td>
+                  <td style="font-weight: bold; text-transform: uppercase;">Wholesale</td>
+                </tr>
+                ` : ''}
               </table>
             </div>
           </div>

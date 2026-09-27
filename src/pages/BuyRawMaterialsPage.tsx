@@ -461,7 +461,10 @@ export const BuyRawMaterialsPage: React.FC = () => {
                       </div>
                       <div className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5 font-mono">
                         <Calendar className="size-3" />
-                        {new Date(purchase.purchaseDate).toLocaleDateString()}
+                        {(() => {
+                          const d = new Date(purchase.purchaseDate);
+                          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                        })()}
                       </div>
                     </TableCell>
 
@@ -830,7 +833,12 @@ export const BuyRawMaterialsPage: React.FC = () => {
                 </div>
                 <div>
                   <span className="text-slate-400 block text-[10px]">Date:</span>
-                  <span className="font-mono">{new Date(viewingPurchase.purchaseDate).toLocaleDateString()}</span>
+                  <span className="font-mono">
+                    {(() => {
+                      const d = new Date(viewingPurchase.purchaseDate);
+                      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                    })()}
+                  </span>
                 </div>
               </div>
 

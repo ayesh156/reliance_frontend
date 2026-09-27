@@ -3,6 +3,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
 import { SearchableSelect } from '../components/ui/SearchableSelect';
+import { DatePicker } from '../components/ui/date-picker';
 import {
   Dialog,
   DialogContent,
@@ -118,10 +119,11 @@ export const QuickCheckoutPage: React.FC = () => {
   const [completedOrder, setCompletedOrder] = useState<any>(null);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
 
-  // Adjust Cash Modal State for Edit Mode with Payment Method tracking
+  // Adjust Cash Modal State for Edit Mode with Payment Method & Date tracking
   const [adjustModalOpen, setAdjustModalOpen] = useState(false);
   const [tempAdjustCash, setTempAdjustCash] = useState('');
   const [tempAdjustMethod, setTempAdjustMethod] = useState<string>('CASH');
+  const [tempAdjustDate, setTempAdjustDate] = useState<Date | undefined>(new Date());
 
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
@@ -167,6 +169,13 @@ export const QuickCheckoutPage: React.FC = () => {
         }
         setIsEditing(true);
         setOriginalInvoice(inv);
+
+        // Pre-fill Pricing Mode based on order source (Wholesale vs Retail)
+        if (inv.source === 'POS_WHOLESALE' || inv.orderType === 'WHOLESALE') {
+          setPricingMode('WHOLESALE');
+        } else {
+          setPricingMode('RETAIL');
+        }
 
         // Pre-fill Customer with phone fallback
         setSelectedCustomerId(inv.customerId ? String(inv.customerId) : 'walk-in');
@@ -540,7 +549,15 @@ export const QuickCheckoutPage: React.FC = () => {
           <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 shrink-0">
             <button
               type="button"
-              onClick={() => setPricingMode('RETAIL')}
+              onClick={() => {
+                setPricingMode('RETAIL');
+                // Dynamically reprice cart items to Retail prices
+                setCart(prev => prev.map(item => {
+                  const matched = catalog.find(c => c.id === item.variantId);
+                  const newPrice = matched ? matched.retailPrice : item.unitPrice;
+                  return { ...item, unitPrice: newPrice };
+                }));
+              }}
               className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors ${
                 pricingMode === 'RETAIL'
                   ? 'bg-emerald-600 text-white shadow-sm'
@@ -551,7 +568,15 @@ export const QuickCheckoutPage: React.FC = () => {
             </button>
             <button
               type="button"
-              onClick={() => setPricingMode('WHOLESALE')}
+              onClick={() => {
+                setPricingMode('WHOLESALE');
+                // Dynamically reprice cart items to Wholesale prices
+                setCart(prev => prev.map(item => {
+                  const matched = catalog.find(c => c.id === item.variantId);
+                  const newPrice = matched ? matched.wholesalePrice : item.unitPrice;
+                  return { ...item, unitPrice: newPrice };
+                }));
+              }}
               className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors ${
                 pricingMode === 'WHOLESALE'
                   ? 'bg-blue-600 text-white shadow-sm'
@@ -590,25 +615,33 @@ export const QuickCheckoutPage: React.FC = () => {
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
               {paginatedCatalog.map((v) => {
+                // Production-safe dynamic API URL resolution
                 const apiHost = import.meta.env.VITE_API_URL
                   ? import.meta.env.VITE_API_URL.replace(/\/api\/?$/, '')
-                  : 'http://localhost:5000';
+                  : window.location.origin;
 
-                // 1. Check if variant directly owns an image, 2. Match by color in product image pool, 3. Fallback to first image
-                const variantDirectImage = (v as any).images?.[0]?.imageUrl;
-                const productImages = v.product.images || [];
-                const colorKeyword = (v.color || '').toLowerCase().trim();
+                // Priority 1: Variant directly bound imageUrl or images array
+                const variantDirectImage = (v as any).imageUrl || (v as any).images?.[0]?.imageUrl;
                 
-                const matchedColorImage = productImages.find((imgObj: any) => 
-                  colorKeyword && imgObj.imageUrl.toLowerCase().includes(colorKeyword)
+                // Priority 2: Match product images pool by variant ID linkage
+                const productImages = v.product?.images || [];
+                const matchedVariantImage = productImages.find((imgObj: any) => 
+                  imgObj.variantId && Number(imgObj.variantId) === Number(v.id)
                 )?.imageUrl;
 
-                const targetImg = variantDirectImage || matchedColorImage || productImages[0]?.imageUrl;
+                // Priority 3: Match by color keyword fallback
+                const colorKeyword = (v.color || '').toLowerCase().trim();
+                const matchedColorImage = productImages.find((imgObj: any) => 
+                  colorKeyword && colorKeyword !== 'default' && imgObj.imageUrl.toLowerCase().includes(colorKeyword)
+                )?.imageUrl;
+
+                // Priority 4: Fallback to primary product catalog photo
+                const targetImg = variantDirectImage || matchedVariantImage || matchedColorImage || productImages[0]?.imageUrl;
 
                 const resolvedUrl = targetImg
-                  ? targetImg.startsWith('http') || targetImg.startsWith('data:')
+                  ? targetImg.startsWith('http') || targetImg.startsWith('data:') || targetImg.startsWith('blob:')
                     ? targetImg
-                    : `${apiHost}${targetImg.startsWith('/') ? '' : '/'}${targetImg}`
+                    : `${apiHost}${targetImg.startsWith('/') ? '' : '/'}${targetImg.replace(/^\/?api\/?/, '')}`
                   : null;
 
                 const currentPrice = pricingMode === 'WHOLESALE' ? v.wholesalePrice : v.retailPrice;
@@ -873,6 +906,7 @@ export const QuickCheckoutPage: React.FC = () => {
                     // Open modal completely clean/empty for entering the newly received payment
                     setTempAdjustCash('');
                     setTempAdjustMethod('CASH');
+                    setTempAdjustDate(new Date());
                     setAdjustModalOpen(true);
                   }}
                   className="h-8 px-2.5 text-xs font-bold border-blue-500 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/50 rounded-lg shrink-0 cursor-pointer"
@@ -1071,12 +1105,21 @@ export const QuickCheckoutPage: React.FC = () => {
 
                   setSubmitting(true);
                   try {
-                    // Atomically creates an individual payment record in OrderPayment table and updates order paidAmount
+                    // Attach active current time with user-selected payment date
+                    let resolvedDateWithTime = new Date();
+                    if (tempAdjustDate) {
+                      resolvedDateWithTime = new Date(tempAdjustDate);
+                      const now = new Date();
+                      resolvedDateWithTime.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+                    }
+
+                    // Atomically creates an individual payment record with custom payment date and current time
                     const res = await post<any>('/credit/settle-bill', {
                       orderId: originalInvoice.id,
                       amount: newlyEntered,
                       paymentMethod: tempAdjustMethod,
                       reference: `POS Invoice Edit (Inv #${originalInvoice.id})`,
+                      paymentDate: resolvedDateWithTime.toISOString(),
                     });
 
                     // Update live UI state and sync original invoice from response
@@ -1129,8 +1172,8 @@ export const QuickCheckoutPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Payment Inputs: Perfectly balanced 2-Column Inline Grid */}
-                <div className="grid grid-cols-2 gap-3 items-end">
+                {/* Payment Inputs: Perfectly balanced 3-Column Inline Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-end">
                   <div className="space-y-1.5">
                     <label className="text-[11px] font-bold text-slate-900 dark:text-white truncate block">
                       Paying Amount (Rs) *
@@ -1145,6 +1188,18 @@ export const QuickCheckoutPage: React.FC = () => {
                       onChange={(e) => setTempAdjustCash(e.target.value)}
                       placeholder={`e.g. ${remainingDue > 0 ? remainingDue : total}`}
                       className="font-mono font-bold text-xs text-emerald-600 dark:text-emerald-400 h-9 rounded-xl"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-slate-900 dark:text-white truncate block">
+                      Payment Date *
+                    </label>
+                    <DatePicker
+                      date={tempAdjustDate}
+                      onDateChange={setTempAdjustDate}
+                      placeholder="Select Date"
+                      className="h-9 text-xs rounded-xl"
                     />
                   </div>
 

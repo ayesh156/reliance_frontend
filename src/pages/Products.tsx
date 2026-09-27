@@ -298,7 +298,14 @@ const fetchAll = useCallback(async () => {
                 {paginated.map(p => {
                   const v = p.variants?.[0];
                   const stock = (p.variants || []).reduce((acc, cur) => acc + (cur.stock || 0), 0);
-                  const primaryImage = p.images && p.images.length > 0 ? getProductImageUrl(p.images[0].imageUrl) : null;
+                  
+                  // World-Class Resolution: Prioritize variant-tagged image over unassigned catalog photo
+                  const taggedImage = p.images?.find((img: any) => img.variantId !== null && img.variantId !== undefined)?.imageUrl;
+                  const firstVariantImg = p.variants?.find((item: any) => item.imageUrl)?.imageUrl;
+                  const defaultFirstImg = p.images && p.images.length > 0 ? p.images[0].imageUrl : null;
+                  
+                  const rawImage = taggedImage || firstVariantImg || defaultFirstImg;
+                  const primaryImage = rawImage ? getProductImageUrl(rawImage) : null;
 
                   return (
                     <TableRow key={p.id}>

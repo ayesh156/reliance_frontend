@@ -28,6 +28,8 @@ import {
 // Enterprise Shadcn SearchableSelect Component
 import { SearchableSelect } from '../ui/SearchableSelect';
 import { useTheme } from '../../contexts/ThemeContext';
+// Enterprise Shadcn DatePicker Integration
+import { DatePicker } from '../ui/date-picker';
 
 interface BillItem {
   name: string;
@@ -82,11 +84,12 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
   const [totalOutstanding, setTotalOutstanding] = useState(0);
   const [expandedBillId, setExpandedBillId] = useState<number | null>(null);
 
-  // ගෙවීම් ආකෘතියේ State (Payment Processing State)
+  // ගෙවීම් ආකෘතියේ State (Payment Processing State) with Custom Payment Date
   const [payingOrderId, setPayingOrderId] = useState<number | null>(null);
   const [payAmount, setPayAmount] = useState<string>('');
   const [payMethod, setPayMethod] = useState<string>('CASH');
   const [payReference, setPayReference] = useState<string>('');
+  const [payDate, setPayDate] = useState<Date | undefined>(new Date());
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // බිල්පත් දත්ත backend එකෙන් ලබා ගැනීම
@@ -119,12 +122,13 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
     }
   }, [isOpen, customerId]);
 
-  // ගෙවීම් Form එක විවෘත කිරීම
+  // ගෙවීම් Form එක විවෘත කිරීම (Resets Payment Date to current day by default)
   const handleInitiatePay = (bill: DueBill) => {
     setPayingOrderId(bill.orderId);
     setPayAmount(bill.dueAmount.toFixed(2)); // Default ලෙස සම්පූර්ණ හිඟ මුදල සටහන් වේ
     setPayMethod('CASH');
     setPayReference('');
+    setPayDate(new Date());
   };
 
   // බිලකට මුදල් ගෙවීම Submit කිරීම
@@ -143,16 +147,26 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
 
     setIsSubmitting(true);
     try {
+      // Merge selected calendar date with exact current time (Hours, Minutes, Seconds)
+      let resolvedPaymentDateTime = new Date();
+      if (payDate) {
+        resolvedPaymentDateTime = new Date(payDate);
+        const now = new Date();
+        resolvedPaymentDateTime.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+      }
+
       await post('/credit/settle-bill', {
         orderId: bill.orderId,
         amount: numericAmount,
         paymentMethod: payMethod,
         reference: payReference,
+        paymentDate: resolvedPaymentDateTime.toISOString(),
       });
 
       toast.success(`Payment of Rs. ${numericAmount.toFixed(2)} settled successfully!`);
       setPayingOrderId(null);
       setPayAmount('');
+      setPayDate(new Date());
       
       await fetchDueBills();
       if (onPaymentSuccess) {
@@ -213,11 +227,8 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
           ) : (
             bills.map((bill) => {
               const billDate = new Date(bill.createdAt);
-              const formattedDate = billDate.toLocaleDateString('en-GB', {
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric',
-              });
+              // Standard yyyy-mm-dd date format
+              const formattedDate = `${billDate.getFullYear()}-${String(billDate.getMonth() + 1).padStart(2, '0')}-${String(billDate.getDate()).padStart(2, '0')}`;
               const formattedTime = billDate.toLocaleTimeString('en-US', {
                 hour: '2-digit',
                 minute: '2-digit',
@@ -239,8 +250,15 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                         <span className="font-mono text-xs sm:text-sm font-bold text-emerald-600 dark:text-emerald-400">
                           {bill.invoiceNumber}
                         </span>
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300">
-                          {bill.source}
+                        {/* Compact Badge: Displays Short Wholesale (WS) or Retail (RET) tag */}
+                        <span
+                          className={`text-[9px] font-bold px-2 py-0.5 rounded-md ${
+                            bill.source === 'POS_WHOLESALE'
+                              ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300 dark:border-blue-800'
+                              : 'bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700'
+                          }`}
+                        >
+                          {bill.source === 'POS_WHOLESALE' ? 'WHOLESALE' : 'RETAIL'}
                         </span>
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
                           {bill.status}
@@ -292,17 +310,17 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                     </div>
                   </div>
 
-                  {/* Inline Payment Form (If initiated) */}
+                  {/* Inline Payment Form with Overflow Visible for Floating DatePicker */}
                   {isPayingThis && (
-                    <div className="mt-3.5 pt-3 border-t border-emerald-500/20 bg-emerald-50/50 dark:bg-emerald-950/20 p-3 rounded-xl space-y-3">
+                    <div className="mt-3.5 pt-3 border-t border-emerald-500/20 bg-emerald-50/50 dark:bg-emerald-950/20 p-3 rounded-xl space-y-3 overflow-visible relative">
                       <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-800 dark:text-emerald-300">
                         <DollarSign className="size-4" />
                         Settle Payment for Invoice #{bill.invoiceNumber}
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 items-end">
                         <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300">
+                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
                             Paying Amount (Rs.) *
                           </label>
                           <Input
@@ -312,12 +330,25 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                             value={payAmount}
                             onChange={(e) => setPayAmount(e.target.value)}
                             placeholder="0.00"
-                            className="h-8 text-xs font-mono font-bold bg-white dark:bg-zinc-900"
+                            className="h-8 text-xs font-mono font-bold bg-white dark:bg-zinc-900 rounded-xl"
                           />
                         </div>
 
                         <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300">
+                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
+                            Payment Date *
+                          </label>
+                          {/* Shadcn Calendar DatePicker with Popover */}
+                          <DatePicker
+                            date={payDate}
+                            onDateChange={setPayDate}
+                            placeholder="Select date"
+                            className="h-8 text-xs rounded-xl"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
                             Payment Method *
                           </label>
                           {/* Modern Shadcn SearchableSelect integration with icons */}
@@ -346,15 +377,15 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                                 icon: <FileText className="size-3.5 text-amber-500" />,
                               },
                             ]}
-                            placeholder="Select Payment Method"
+                            placeholder="Select Method"
                             searchPlaceholder="Search method..."
                             dark={dark}
-                            className="h-8 py-0 rounded-md"
+                            className="h-8 py-0 rounded-xl"
                           />
                         </div>
 
                         <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300">
+                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
                             Reference / Note
                           </label>
                           <Input
@@ -362,7 +393,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                             value={payReference}
                             onChange={(e) => setPayReference(e.target.value)}
                             placeholder="Cheque No / Slip No"
-                            className="h-8 text-xs bg-white dark:bg-zinc-900"
+                            className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl"
                           />
                         </div>
                       </div>
@@ -456,9 +487,20 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                                     <span className="text-slate-400 text-[10px]">({ph.reference})</span>
                                   )}
                                 </div>
-                                <span className="text-slate-400 text-[10px] font-mono">
-                                  {new Date(ph.createdAt).toLocaleDateString('en-GB')} {new Date(ph.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                                </span>
+                                <div className="flex items-center gap-2 text-slate-500 dark:text-zinc-400 text-[11px] font-mono font-medium">
+                                  <span>
+                                    {(() => {
+                                      const d = new Date(ph.createdAt);
+                                      const yyyy = d.getFullYear();
+                                      const mm = String(d.getMonth() + 1).padStart(2, '0');
+                                      const dd = String(d.getDate()).padStart(2, '0');
+                                      return `${yyyy}-${mm}-${dd}`;
+                                    })()}
+                                  </span>
+                                  <span className="text-slate-400 text-[10px]">
+                                    {new Date(ph.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                                  </span>
+                                </div>
                               </div>
                             ))}
                           </div>
