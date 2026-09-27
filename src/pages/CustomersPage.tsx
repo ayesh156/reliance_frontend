@@ -50,7 +50,8 @@ import {
   X,
   MoreVertical,
   Receipt,
-  MessageSquare, // ⭐ WhatsApp Action Icon
+  MessageSquare,
+  FileText, // ⭐ WhatsApp Action Icon
 } from 'lucide-react';
 import { openWhatsAppChat, generateCustomerDebtSummaryWhatsAppMessage } from '../utils/whatsapp';
 // Enterprise Customer Itemized Due Settlement Modal
@@ -476,6 +477,44 @@ export const CustomersPage: React.FC = () => {
                             >
                               <MessageSquare className="size-3.5 text-emerald-600" />
                               WhatsApp Due Statement
+                            </DropdownMenuItem>
+
+                            {/* Download Statement PDF Action */}
+                            <DropdownMenuItem
+                              onClick={async () => {
+                                try {
+                                  toast.info(`Generating Statement PDF for ${cust.name}...`);
+                                  const apiHost = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+                                  const token = localStorage.getItem('token') || localStorage.getItem('auth_token') || sessionStorage.getItem('token');
+
+                                  const response = await fetch(`${apiHost}/credit/customers/${cust.id}/statement-pdf`, {
+                                    method: 'GET',
+                                    credentials: 'include',
+                                    headers: {
+                                      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                                    },
+                                  });
+
+                                  if (!response.ok) throw new Error('Failed to download PDF');
+
+                                  const blob = await response.blob();
+                                  const url = window.URL.createObjectURL(blob);
+                                  const a = document.createElement('a');
+                                  a.href = url;
+                                  a.download = `Statement-${cust.name.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+                                  document.body.appendChild(a);
+                                  a.click();
+                                  a.remove();
+                                  window.URL.revokeObjectURL(url);
+                                  toast.success(`Statement PDF for ${cust.name} downloaded!`);
+                                } catch (err: any) {
+                                  toast.error(err.message || 'Download failed');
+                                }
+                              }}
+                              className="gap-2 cursor-pointer text-slate-700 dark:text-zinc-300 font-medium"
+                            >
+                              <FileText className="size-3.5 text-slate-500" />
+                              Download Statement PDF
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                           </>

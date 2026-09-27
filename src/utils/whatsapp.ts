@@ -23,7 +23,11 @@ export const openWhatsAppChat = (phone: string, message: string) => {
  * 1. Build Customer POS Invoice Receipt (Supports Wholesale/Retail modes & exact yyyy-mm-dd timestamps)
  */
 export const generateCustomerInvoiceWhatsAppMessage = (order: any): string => {
-  const isWholesale = order.source === 'POS_WHOLESALE' || order.orderType === 'WHOLESALE';
+  // Case-insensitive check to guarantee wholesale detection across all payloads
+  const isWholesale =
+    order.source === 'POS_WHOLESALE' ||
+    String(order.source || '').toUpperCase().includes('WHOLESALE') ||
+    order.orderType === 'WHOLESALE';
   const invoiceNo = order.id ? `INV${order.id}` : 'NEW';
 
   // Format yyyy-mm-dd with exact current/order time
@@ -96,31 +100,51 @@ export const generateCustomerInvoiceWhatsAppMessage = (order: any): string => {
 };
 
 /**
- * 2. Build Customer Outstanding Account Statement
+ * 2. Build Comprehensive Customer Outstanding Account Statement with Detailed Invoice Breakdown
  */
 export const generateCustomerDebtSummaryWhatsAppMessage = (
   cust: { name: string; outstandingBalance: number; phone?: string },
   invoices: any[] = []
 ): string => {
-  let text = `*RELIANCE CLOTHING - ACCOUNT STATEMENT*\n`;
+  const currentDate = new Date().toISOString().split('T')[0];
+  const currentTime = new Date().toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+
+  let text = `*RELIANCE CLOTHING - OUTSTANDING DUE STATEMENT*\n`;
   text += `-------------------------------------------\n`;
   text += `*Customer:* ${cust.name}\n`;
-  text += `*Date:* ${new Date().toISOString().split('T')[0]}\n`;
-  text += `*TOTAL DUE BALANCE:* Rs. ${Number(cust.outstandingBalance).toLocaleString()}\n`;
+  if (cust.phone) text += `*Contact:* ${cust.phone}\n`;
+  text += `*Statement Date:* ${currentDate} (${currentTime})\n`;
+  text += `*TOTAL OUTSTANDING BALANCE:* *Rs. ${Number(cust.outstandingBalance || 0).toLocaleString('en-LK', { minimumFractionDigits: 2 })}*\n`;
   text += `-------------------------------------------\n\n`;
 
-  if (invoices.length > 0) {
-    text += `*PENDING UNPAID INVOICES:*\n`;
+  if (Array.isArray(invoices) && invoices.length > 0) {
+    text += `*PENDING UNPAID INVOICES (${invoices.length}):*\n`;
     invoices.forEach((inv, i) => {
-      const billDue = (Number(inv.totalAmount) || 0) - (Number(inv.paidAmount) || 0);
-      text += `${i + 1}. *${inv.invoiceNo || `INV${inv.id}`}* (${new Date(inv.createdAt).toISOString().split('T')[0]}) - Due: *Rs. ${billDue.toLocaleString()}*\n`;
+      const invNo = inv.invoiceNo || inv.invoiceNumber || `INV${inv.id || inv.orderId}`;
+      const rawDate = inv.createdAt || inv.date;
+      const invDate = rawDate ? new Date(rawDate).toISOString().split('T')[0] : currentDate;
+      const total = Number(inv.totalAmount || inv.total || 0).toLocaleString('en-LK');
+      const paid = Number(inv.paidAmount || inv.paid || 0).toLocaleString('en-LK');
+      const due = Number(inv.dueAmount || inv.due || (inv.totalAmount - inv.paidAmount) || 0).toLocaleString('en-LK', { minimumFractionDigits: 2 });
+      const billingType = inv.source === 'POS_WHOLESALE' ? '[WHOLESALE]' : '[RETAIL]';
+
+      text += `${i + 1}. *#${invNo}* ${billingType}\n`;
+      text += `   Date: ${invDate} | Bill: Rs. ${total} | Paid: Rs. ${paid}\n`;
+      text += `   *Remaining Due: Rs. ${due}*\n\n`;
     });
-    text += `\n`;
+  } else {
+    text += `_All prior invoices are fully settled._\n\n`;
   }
 
+  text += `-------------------------------------------\n`;
   text += `Please arrange settlement at your earliest convenience.\n`;
-  text += `*Accounts Contact:* 071-1350123 / 041-2268739\n`;
-  text += `_Thank you!_`;
+  text += `*Bank Transfer / Inquiries:* 041-2268739 / 071-1350123\n`;
+  text += `*Store:* Mawarala Road, Makandura, Matara.\n`;
+  text += `_Thank you for your valued partnership!_`;
 
   return text;
 };

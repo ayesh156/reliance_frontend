@@ -23,7 +23,8 @@ import {
   CreditCard,
   Banknote,
   FileText,
-  Landmark, // Bank Transfer icon
+  Landmark,
+  Download, // Added Download icon
 } from 'lucide-react';
 // Enterprise Shadcn SearchableSelect Component
 import { SearchableSelect } from '../ui/SearchableSelect';
@@ -196,13 +197,56 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                 Review bill dates, item breakdown, and settle dues individually.
               </DialogDescription>
             </div>
-            <div className="text-right bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 px-3 py-1.5 rounded-xl">
-              <span className="text-[10px] uppercase font-bold text-rose-600 dark:text-rose-400 block leading-tight">
-                Total Due
-              </span>
-              <span className="text-sm sm:text-base font-extrabold font-mono text-rose-700 dark:text-rose-300">
-                Rs. {totalOutstanding.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
-              </span>
+            <div className="flex items-center gap-2">
+              {/* Direct Backend Statement PDF Downloader */}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    toast.info('Generating Account Statement PDF...');
+                    const apiHost = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+                    const token = localStorage.getItem('token') || localStorage.getItem('auth_token') || sessionStorage.getItem('token');
+
+                    const response = await fetch(`${apiHost}/credit/customers/${customerId}/statement-pdf`, {
+                      method: 'GET',
+                      credentials: 'include',
+                      headers: {
+                        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                      },
+                    });
+
+                    if (!response.ok) throw new Error('Failed to generate statement PDF');
+
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `Statement-${(customerName || 'Customer').replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    window.URL.revokeObjectURL(url);
+                    toast.success('Statement PDF downloaded successfully!');
+                  } catch (err: any) {
+                    toast.error(err.message || 'Download failed');
+                  }
+                }}
+                className="h-8 gap-1.5 text-xs font-semibold border-slate-300 dark:border-zinc-700"
+              >
+                <Download className="size-3.5 text-emerald-600" />
+                <span className="hidden sm:inline">Download</span> Statement
+              </Button>
+
+              <div className="text-right bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 px-3 py-1.5 rounded-xl">
+                <span className="text-[10px] uppercase font-bold text-rose-600 dark:text-rose-400 block leading-tight">
+                  Total Due
+                </span>
+                <span className="text-sm sm:text-base font-extrabold font-mono text-rose-700 dark:text-rose-300">
+                  Rs. {totalOutstanding.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
             </div>
           </div>
         </DialogHeader>
