@@ -53,7 +53,14 @@ import {
   CheckCircle2,
   Tag,
   Sparkles,
+  Scissors,       // ⭐ Added for Production Deduction
+  CornerDownLeft, // ⭐ Added for Scrap Return
+  History,        // ⭐ Added for Stock Movement Ledger
 } from 'lucide-react';
+
+// ⭐ Import Material Modals
+import { MaterialStockActionModal } from '../components/materials/MaterialStockActionModal';
+import { MaterialMovementHistoryModal } from '../components/materials/MaterialMovementHistoryModal';
 
 export type RawMaterialUnit = 'METERS' | 'YARDS' | 'KILOGRAMS' | 'PCS' | 'ROLLS' | 'CONES' | 'PACKS';
 
@@ -123,6 +130,26 @@ export const RawMaterialItemsPage: React.FC = () => {
   // Deletion alert states
   const [deletingItem, setDeletingItem] = useState<RawMaterialItem | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
+  // ⭐ Material Stock Action Modals state (Deduct / Scrap Return)
+  const [stockActionModal, setStockActionModal] = useState<{
+    isOpen: boolean;
+    material: RawMaterialItem | null;
+    mode: 'DEDUCT' | 'SCRAP_RETURN';
+  }>({
+    isOpen: false,
+    material: null,
+    mode: 'DEDUCT',
+  });
+
+  // ⭐ Material Movement History Log state
+  const [historyModal, setHistoryModal] = useState<{
+    isOpen: boolean;
+    material: RawMaterialItem | null;
+  }>({
+    isOpen: false,
+    material: null,
+  });
 
   /**
    * Load raw material items from backend API with debounced filters
@@ -440,7 +467,53 @@ export const RawMaterialItemsPage: React.FC = () => {
                             <MoreVertical className="size-4" />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40 text-xs font-medium">
+                        <DropdownMenuContent align="end" className="w-48 text-xs font-medium">
+                          {/* ⭐ Deduct stock for production cutting */}
+                          <DropdownMenuItem
+                            onClick={() =>
+                              setStockActionModal({
+                                isOpen: true,
+                                material: item,
+                                mode: 'DEDUCT',
+                              })
+                            }
+                            className="gap-2 cursor-pointer text-amber-600 focus:text-amber-700 focus:bg-amber-50 dark:focus:bg-amber-950/30"
+                          >
+                            <Scissors className="size-3.5 text-amber-600" />
+                            Deduct for Production
+                          </DropdownMenuItem>
+
+                          {/* ⭐ Return leftover scrap pieces back to stock */}
+                          <DropdownMenuItem
+                            onClick={() =>
+                              setStockActionModal({
+                                isOpen: true,
+                                material: item,
+                                mode: 'SCRAP_RETURN',
+                              })
+                            }
+                            className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-700 focus:bg-emerald-50 dark:focus:bg-emerald-950/30"
+                          >
+                            <CornerDownLeft className="size-3.5 text-emerald-600" />
+                            Return Scrap Pieces
+                          </DropdownMenuItem>
+
+                          {/* ⭐ View stock movement history log */}
+                          <DropdownMenuItem
+                            onClick={() =>
+                              setHistoryModal({
+                                isOpen: true,
+                                material: item,
+                              })
+                            }
+                            className="gap-2 cursor-pointer text-indigo-600 focus:text-indigo-700 focus:bg-indigo-50 dark:focus:bg-indigo-950/30"
+                          >
+                            <History className="size-3.5 text-indigo-600" />
+                            Stock Movement Log
+                          </DropdownMenuItem>
+
+                          <DropdownMenuSeparator />
+
                           <DropdownMenuItem
                             onClick={() => handleOpenEditModal(item)}
                             className="gap-2 cursor-pointer text-slate-700 dark:text-zinc-300"
@@ -609,6 +682,40 @@ export const RawMaterialItemsPage: React.FC = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+   {/* ⭐ Production Material Deduction & Scrap Return Modal */}
+      <MaterialStockActionModal
+        isOpen={stockActionModal.isOpen}
+        onClose={() => setStockActionModal((prev) => ({ ...prev, isOpen: false }))}
+        material={stockActionModal.material}
+        mode={stockActionModal.mode}
+        onSuccess={() => fetchItems(searchQuery, selectedUnit, lowStockFilter)}
+      />
+
+      {/* ⭐ Stock Movement & Audit History Ledger Modal with Instant Live Sync */}
+      <MaterialMovementHistoryModal
+        isOpen={historyModal.isOpen}
+        onClose={() => setHistoryModal((prev) => ({ ...prev, isOpen: false }))}
+        material={historyModal.material}
+        onSuccess={async () => {
+          // 1. Fetch and update full materials catalog in real-time
+          await fetchItems(searchQuery, selectedUnit, lowStockFilter);
+
+          // 2. Also keep the active modal's material state synchronized
+          if (historyModal.material) {
+            try {
+              const freshItem = await get<RawMaterialItem>(`/raw-material-items/${historyModal.material.id}`);
+              if (freshItem) {
+                setHistoryModal((prev) => ({
+                  ...prev,
+                  material: freshItem,
+                }));
+              }
+            } catch {
+              // Ignore background sync errors
+            }
+          }
+        }}
+      />
     </div>
   );
 };

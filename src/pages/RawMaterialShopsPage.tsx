@@ -52,8 +52,12 @@ import {
   X,
   MoreVertical,
   MessageSquare, // ⭐ WhatsApp Icon
+  CreditCard,    // ⭐ Added for Pay Due action
 } from 'lucide-react';
 import { openWhatsAppChat, generateSupplierCreditSummaryWhatsAppMessage } from '../utils/whatsapp';
+
+// ⭐ Import Supplier Due Settlement Modal
+import { SupplierDueSettlementModal } from '../components/materials/SupplierDueSettlementModal';
 
 // ============================================================================
 // TYPES & INTERFACES
@@ -105,6 +109,9 @@ export const RawMaterialShopsPage: React.FC = () => {
   // Deletion dialog states
   const [deletingShop, setDeletingShop] = useState<RawMaterialShop | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
+  // ⭐ Supplier Due Settlement Modal state
+  const [settlementShop, setSettlementShop] = useState<RawMaterialShop | null>(null);
 
   // ============================================================================
   // DATA FETCHING & FILTERING
@@ -357,9 +364,8 @@ export const RawMaterialShopsPage: React.FC = () => {
                   </TableCell>
                   <TableCell>
                     <span
-                      className={`text-xs font-bold ${
-                        shop.creditBalance > 0 ? 'text-rose-600' : 'text-emerald-600'
-                      }`}
+                      className={`text-xs font-bold ${shop.creditBalance > 0 ? 'text-rose-600' : 'text-emerald-600'
+                        }`}
                     >
                       {shop.creditBalance > 0
                         ? `Rs. ${Number(shop.creditBalance).toLocaleString()}`
@@ -379,6 +385,17 @@ export const RawMaterialShopsPage: React.FC = () => {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-48 text-xs font-medium">
+                        {/* ⭐ Settle Supplier Outstanding Due */}
+                        {shop.creditBalance > 0 && (
+                          <DropdownMenuItem
+                            onClick={() => setSettlementShop(shop)}
+                            className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-700 focus:bg-emerald-50 dark:focus:bg-emerald-950/30 font-semibold"
+                          >
+                            <CreditCard className="size-3.5 text-emerald-600" />
+                            Pay Due / Settle
+                          </DropdownMenuItem>
+                        )}
+
                         {/* WhatsApp Outstanding Credit Notice */}
                         {shop.creditBalance > 0 && (
                           <>
@@ -511,6 +528,14 @@ export const RawMaterialShopsPage: React.FC = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      
+      {/* ⭐ Supplier Due Settlement Modal */}
+      <SupplierDueSettlementModal
+        isOpen={Boolean(settlementShop)}
+        onClose={() => setSettlementShop(null)}
+        shop={settlementShop}
+        onSuccess={() => fetchShops(searchQuery)}
+      />
     </div>
   );
 };
