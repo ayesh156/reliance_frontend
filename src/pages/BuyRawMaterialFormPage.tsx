@@ -83,6 +83,8 @@ export const BuyRawMaterialFormPage: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<string>('CASH');
   const [paidAmount, setPaidAmount] = useState<number | ''>('');
   const [notes, setNotes] = useState<string>('');
+// ⭐ Preserve existing payment history ledger when updating notes in Edit Mode
+  const [existingPaymentsLedger, setExistingPaymentsLedger] = useState<any[]>([]);
   const [generatingInvoice, setGeneratingInvoice] = useState<boolean>(false);
 
   const [lineItems, setLineItems] = useState<PurchaseLineItem[]>([
@@ -111,7 +113,25 @@ export const BuyRawMaterialFormPage: React.FC = () => {
             setPurchaseDate(orderData.purchaseDate ? new Date(orderData.purchaseDate) : new Date());
             setPaymentMethod(orderData.paymentMethod || 'CASH');
             setPaidAmount(orderData.paidAmount ?? '');
-            setNotes(orderData.notes || '');
+
+            // ⭐ Safely parse user note text and extract background payments ledger
+            let displayNote = '';
+            let parsedLedger: any[] = [];
+            if (orderData.notes) {
+              try {
+                if (orderData.notes.startsWith('{') && orderData.notes.includes('"payments"')) {
+                  const parsed = JSON.parse(orderData.notes);
+                  displayNote = parsed.userNotes || '';
+                  parsedLedger = Array.isArray(parsed.payments) ? parsed.payments : [];
+                } else {
+                  displayNote = orderData.notes;
+                }
+              } catch {
+                displayNote = orderData.notes;
+              }
+            }
+            setNotes(displayNote);
+            setExistingPaymentsLedger(parsedLedger);
 
             if (Array.isArray(orderData.items) && orderData.items.length > 0) {
               setLineItems(
@@ -178,6 +198,26 @@ export const BuyRawMaterialFormPage: React.FC = () => {
     return Math.max(0, calculatedTotalAmount - paid);
   }, [calculatedTotalAmount, paidAmount]);
 
+  // ⭐ Auto-Switch Payment Method:
+  // 1. Paid amount is empty or less than total bill -> Automatically switch to CREDIT
+  // 2. Paid amount meets or exceeds total bill -> If previously CREDIT, auto-switch to CASH (preserves CHEQUE/BANK_TRANSFER)
+  useEffect(() => {
+    if (calculatedTotalAmount <= 0) return;
+
+    // Empty input box denotes Rs. 0 payment (Pure Credit Purchase)
+    const numericPaid = paidAmount === '' ? 0 : Number(paidAmount);
+
+    if (numericPaid < calculatedTotalAmount) {
+      if (paymentMethod !== 'CREDIT') {
+        setPaymentMethod('CREDIT');
+      }
+    } else {
+      if (paymentMethod === 'CREDIT') {
+        setPaymentMethod('CASH');
+      }
+    }
+  }, [paidAmount, calculatedTotalAmount, paymentMethod]);
+
   const fetchNextInvoiceFromBackend = async (): Promise<string> => {
     try {
       setGeneratingInvoice(true);
@@ -208,13 +248,29 @@ export const BuyRawMaterialFormPage: React.FC = () => {
 
     try {
       setIsSubmitting(true);
+      // ⭐ Pack notes: If existing payments ledger exists, retain it alongside updated note
+      let finalNotesPayload: string | undefined = undefined;
+      const cleanUserNote = notes.trim();
+
+      if (existingPaymentsLedger.length > 0) {
+        finalNotesPayload = JSON.stringify({
+          userNotes: cleanUserNote,
+          payments: existingPaymentsLedger,
+        });
+      } else if (cleanUserNote) {
+        finalNotesPayload = cleanUserNote;
+      }
+
+      // Resolve paid amount accurately: empty input represents 0.00 credit sale
+      const resolvedPaidAmount = paidAmount === '' ? 0 : Number(paidAmount);
+
       const payload = {
         rawMaterialShopId: Number(selectedShopId),
         invoiceNumber: invoiceNumber.trim() || undefined,
         purchaseDate: purchaseDate ? purchaseDate.toISOString() : new Date().toISOString(),
         paymentMethod,
-        paidAmount: paidAmount === '' ? calculatedTotalAmount : Number(paidAmount),
-        notes: notes.trim() || undefined,
+        paidAmount: resolvedPaidAmount,
+        notes: finalNotesPayload,
         items: lineItems.map((item) => ({
           rawMaterialItemId: Number(item.rawMaterialItemId),
           quantity: Number(item.quantity),
@@ -307,10 +363,10 @@ export const BuyRawMaterialFormPage: React.FC = () => {
             type="submit"
             size="sm"
             disabled={isSubmitting || loadingPrereqs}
-            className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white"
+            className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold cursor-pointer shadow-xs"
           >
             {isSubmitting ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-            Confirm Stock-In
+            {isEditMode ? 'Update Purchase Order' : 'Confirm Stock-In'}
           </Button>
         </div>
       </div>
@@ -584,17 +640,6 @@ export const BuyRawMaterialFormPage: React.FC = () => {
                   Rs. {dueDebtAmount.toLocaleString()}
                 </span>
               </div>
-            </div>
-
-            <div className="pt-2">
-              <Button
-                type="submit"
-                disabled={isSubmitting || loadingPrereqs}
-                className="w-full gap-2 bg-indigo-600 hover:bg-indigo-700 text-white h-10"
-              >
-                {isSubmitting ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-                Confirm and Process Stock-In
-              </Button>
             </div>
           </div>
         </div>
