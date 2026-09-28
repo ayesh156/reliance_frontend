@@ -6,7 +6,7 @@ import { toast } from 'react-toastify';
 import { CategoryCombobox } from '../components/products/CategoryCombobox';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { ImageUpload } from '../components/ui/ImageUpload';
+import { ImageUpload } from '../components/ui/image-upload';
 import { VariantTable } from '../components/products/VariantTable';
 import type { ProductItem, VariantItem } from '../types/product';
 import { compressAndConvertToWebP } from '../utils/imageCompressor';

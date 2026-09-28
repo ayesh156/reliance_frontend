@@ -197,9 +197,9 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
   };
 
   return (
-    <div className={cn('flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full', className)}>
-      {/* Date Picker */}
-      <div className="flex-1">
+    <div className={cn('flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full relative z-30 overflow-visible', className)}>
+      {/* Date Picker with elevated z-index so popover calendar renders cleanly in front */}
+      <div className="flex-1 relative z-50 overflow-visible">
         <DatePicker
           date={selectedDate}
           onDateChange={handleDateChange}

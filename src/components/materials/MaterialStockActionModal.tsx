@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { DateTimePicker } from '../ui/DateTimePicker'; // ⭐ Import new DateTimePicker
+import { DateTimePicker } from '../ui/date-time-picker';
 import { post, put } from '../../lib/api';
 import { toast } from 'react-toastify';
 import { Loader2, Scissors, CornerDownLeft, AlertTriangle } from 'lucide-react';

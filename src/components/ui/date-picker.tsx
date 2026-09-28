@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -25,27 +26,74 @@ export const DatePicker: React.FC<DatePickerProps> = ({
   disabled = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [placement, setPlacement] = useState<'bottom' | 'top'>('bottom');
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [viewDate, setViewDate] = useState<Date>(date || new Date());
 
   useEffect(() => {
     if (date) setViewDate(date);
   }, [date]);
 
-  // Handle outside click safely without blocking modal dialog overlay events
+  // Screen Coordinates ගණනය කර Modal එකේ Overflow එකෙන් පිටත නිරවද්‍යව පිහිටුවීම
+  const updatePosition = useCallback(() => {
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const calendarHeight = 320;
+      const calendarWidth = 280;
+      const spaceBelow = window.innerHeight - rect.bottom;
+
+      let top = rect.bottom + 6;
+      // පහළ ඉඩ මදි නම් ඉහළින් විවෘත කිරීම
+      if (spaceBelow < calendarHeight && rect.top > calendarHeight) {
+        top = rect.top - calendarHeight - 6;
+      }
+
+      // තිරයේ දකුණු සීමාව ඉක්මවා නොයන සේ සකස් කිරීම
+      let left = rect.left;
+      if (left + calendarWidth > window.innerWidth - 12) {
+        left = window.innerWidth - calendarWidth - 12;
+      }
+      left = Math.max(12, left);
+
+      setCoords({ top, left });
+    }
+  }, []);
+
+  // Modal එක scroll වන විට හෝ window resize වන විට calendar එක trigger button එක සමඟම රැඳී සිටීම
   useEffect(() => {
-    const handleOutsideClick = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+    if (isOpen) {
+      updatePosition();
+      const handleScrollResize = () => updatePosition();
+      window.addEventListener('scroll', handleScrollResize, true);
+      window.addEventListener('resize', handleScrollResize);
+      return () => {
+        window.removeEventListener('scroll', handleScrollResize, true);
+        window.removeEventListener('resize', handleScrollResize);
+      };
+    }
+  }, [isOpen, updatePosition]);
+
+  // Handle outside click safely without swallowing day selection clicks
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node;
+      if (
+        popoverRef.current &&
+        !popoverRef.current.contains(target) &&
+        triggerRef.current &&
+        !triggerRef.current.contains(target)
+      ) {
         setIsOpen(false);
       }
     };
 
     if (isOpen) {
-      document.addEventListener('mousedown', handleOutsideClick);
+      // capture: true යෙදීමෙන් Radix Dialog trap එකට පෙර outside click නිවැරදිව හඳුනා ගනී
+      document.addEventListener('pointerdown', handleOutsideClick, true);
     }
     return () => {
-      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('pointerdown', handleOutsideClick, true);
     };
   }, [isOpen]);
 
@@ -53,21 +101,9 @@ export const DatePicker: React.FC<DatePickerProps> = ({
     e.preventDefault();
     e.stopPropagation();
     if (disabled) return;
-
-    // Calculate available space to flip upwards if bottom space is restricted
-    if (!isOpen && containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const calendarHeight = 310;
-      const spaceBelow = window.innerHeight - rect.bottom;
-      const spaceAbove = rect.top;
-
-      if (spaceBelow < calendarHeight && spaceAbove > calendarHeight) {
-        setPlacement('top');
-      } else {
-        setPlacement('bottom');
-      }
+    if (!isOpen) {
+      updatePosition();
     }
-
     setIsOpen(!isOpen);
   };
 
@@ -130,8 +166,9 @@ export const DatePicker: React.FC<DatePickerProps> = ({
   const today = new Date();
 
   return (
-    <div ref={containerRef} className="relative w-full">
+    <div className="relative w-full">
       <button
+        ref={triggerRef}
         type="button"
         disabled={disabled}
         onClick={toggleOpen}
@@ -149,15 +186,22 @@ export const DatePicker: React.FC<DatePickerProps> = ({
         <CalendarIcon className="size-4 text-slate-400 shrink-0 ml-2" />
       </button>
 
-      {/* Popover Calendar Container with Dynamic Placement */}
-      {isOpen && (
-        <div
-          onMouseDown={(e) => e.stopPropagation()}
-          className={cn(
-            "absolute z-[100] w-[280px] rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xl p-3 animate-in fade-in-0 zoom-in-95 duration-100 left-0 sm:left-auto sm:right-0",
-            placement === 'top' ? "bottom-full mb-1.5" : "top-full mt-1.5"
-          )}
-        >
+      {/* ⭐ Document Body එක මත Render වන Portal Popover (Click Selection 100% ක්‍රියාත්මක වේ) */}
+      {isOpen &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            // Radix modal event interception වැළැක්වීම
+            onPointerDown={(e) => e.stopPropagation()}
+            style={{
+              position: 'fixed',
+              top: `${coords.top}px`,
+              left: `${coords.left}px`,
+              zIndex: 99999,
+              pointerEvents: 'auto',
+            }}
+            className="w-[280px] rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xl p-3 animate-in fade-in-0 zoom-in-95 duration-100 ring-1 ring-black/5 dark:ring-white/10"
+          >
           <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100 dark:border-zinc-800/80">
             <span className="text-xs font-bold text-slate-900 dark:text-white">
               {MONTH_NAMES[currentMonth]} {currentYear}
@@ -211,14 +255,12 @@ export const DatePicker: React.FC<DatePickerProps> = ({
                 <button
                   key={index}
                   type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
+                  onClick={() => {
                     onDateChange(item.dateObj);
                     setIsOpen(false);
                   }}
                   className={cn(
-                    "size-8 rounded-lg text-xs flex items-center justify-center transition-all cursor-pointer font-medium",
+                    "size-8 rounded-lg text-xs flex items-center justify-center transition-all cursor-pointer font-medium select-none",
                     !item.isCurrentMonth && "text-slate-300 dark:text-zinc-600",
                     item.isCurrentMonth && !selected && "text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800",
                     isToday && !selected && "border border-emerald-500 text-emerald-600 font-bold",
@@ -234,9 +276,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
           <div className="flex items-center justify-between pt-2.5 mt-2 border-t border-slate-100 dark:border-zinc-800/80 text-[11px]">
             <button
               type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
+              onClick={() => {
                 onDateChange(new Date());
                 setIsOpen(false);
               }}
@@ -247,9 +287,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
             {date && (
               <button
                 type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
+                onClick={() => {
                   onDateChange(undefined);
                   setIsOpen(false);
                 }}
@@ -259,7 +297,8 @@ export const DatePicker: React.FC<DatePickerProps> = ({
               </button>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

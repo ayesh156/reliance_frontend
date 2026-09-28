@@ -20,7 +20,7 @@ import {
   XCircle, Loader2, RefreshCw, Briefcase, ShoppingBag, ShieldAlert, X,
   MoreVertical, ChevronLeft, ChevronRight, KeyRound, Power
 } from 'lucide-react';
-import { SearchableSelect, type SearchableSelectOption } from '../components/ui/SearchableSelect';
+import { SearchableSelect, type SearchableSelectOption } from '../components/ui/searchable-select';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '../components/ui/table';
 import {
   DropdownMenu,

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { SearchableSelect } from '../components/ui/SearchableSelect';
+import { SearchableSelect } from '../components/ui/searchable-select';
 import { MaterialCombobox } from '../components/materials/MaterialCombobox';
 import { useTheme } from '../contexts/ThemeContext';
 import {
@@ -39,6 +39,7 @@ import {
 } from '../components/ui/dropdown-menu';
 import { get, post, del } from '../lib/api';
 import { toast } from 'react-toastify';
+import { DateTimePicker } from '../components/ui/date-time-picker';
 import {
   ShoppingCart,
   Plus,
@@ -57,8 +58,12 @@ import {
   CreditCard,
   CircleAlert,
   MessageSquare,
+  Download,
+  Wallet,
+  Edit2, // ⭐ Edit icon එක එකතු කිරීම
 } from 'lucide-react';
 import { openWhatsAppChat, generateSupplierStockInWhatsAppMessage } from '../utils/whatsapp';
+
 
 interface RawMaterialShop {
   id: number;
@@ -141,6 +146,26 @@ export const BuyRawMaterialsPage: React.FC = () => {
   const [viewingPurchase, setViewingPurchase] = useState<PurchaseRecord | null>(null);
   const [deletingPurchase, setDeletingPurchase] = useState<PurchaseRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
+  // Helper for current local ISO string
+  const getCurrentLocalISOString = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  };
+
+  // ⭐ Part Payment Settlement State
+  const [settlingPurchase, setSettlingPurchase] = useState<PurchaseRecord | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState<string>('');
+  const [settleMethod, setSettleMethod] = useState<string>('CASH');
+  const [settleDateTime, setSettleDateTime] = useState<string>(getCurrentLocalISOString());
+  const [settleReference, setSettleReference] = useState<string>('');
+  const [isSettling, setIsSettling] = useState<boolean>(false);
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
 
   /**
    * Fetch purchase history
@@ -338,6 +363,110 @@ export const BuyRawMaterialsPage: React.FC = () => {
     }
   };
 
+  /**
+   * Download Goods Received Note (GRN) A4 PDF
+   */
+  const handleDownloadGrnPdf = async (purchase: PurchaseRecord) => {
+    try {
+      setDownloadingId(purchase.id);
+      
+      // LocalStorage හි ඇති සියලුම auth keys පරීක්ෂා කිරීම
+      const token =
+        localStorage.getItem('token') ||
+        localStorage.getItem('authToken') ||
+        localStorage.getItem('access_token') ||
+        localStorage.getItem('auth_token');
+
+      // Base URL එක නිවැරදිව ලබා ගැනීම (Vite env හෝ current origin)
+      const baseUrl = import.meta.env.VITE_API_URL || '/api';
+      const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+      const downloadUrl = `${cleanBase}/buy-raw-materials/${purchase.id}/pdf`;
+
+      const response = await fetch(downloadUrl, {
+        method: 'GET',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+
+      const contentType = response.headers.get('content-type') || '';
+
+      // යම් හෙයකින් server එකෙන් Error එකක් ආවොත් එය PDF ලෙස save වීම වළක්වා alert එකක් පෙන්වීම
+      if (!response.ok || !contentType.includes('application/pdf')) {
+        let errorText = 'Failed to generate PDF';
+        try {
+          const errJson = await response.json();
+          errorText = errJson.message || errJson.error || errorText;
+        } catch {
+          errorText = await response.text();
+        }
+        throw new Error(`Server returned error: ${errorText.slice(0, 120)}`);
+      }
+
+      const blob = await response.blob();
+
+      if (blob.size < 2000) {
+        throw new Error('Downloaded file is too small, likely an error response');
+      }
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `GRN-${purchase.invoiceNumber || purchase.id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('GRN Note (A4 PDF) downloaded successfully');
+    } catch (err: any) {
+      toast.error(err.message || 'Error downloading GRN PDF');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  /**
+   * Submit Part / Full Payment Settlement
+   */
+  const handleSettlePaymentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!settlingPurchase) return;
+
+    const payNum = parseFloat(paymentAmount);
+    const dueAmount = settlingPurchase.totalAmount - settlingPurchase.paidAmount;
+
+    if (isNaN(payNum) || payNum <= 0) {
+      toast.error('Please enter a valid positive payment amount');
+      return;
+    }
+
+    if (payNum > dueAmount) {
+      toast.error(`Amount cannot exceed the remaining due of Rs. ${dueAmount.toLocaleString()}`);
+      return;
+    }
+
+    try {
+      setIsSettling(true);
+      await post('/buy-raw-materials/settle-payment', {
+        purchaseId: settlingPurchase.id,
+        amount: payNum,
+        paymentMethod: settleMethod,
+        paymentDate: settleDateTime ? new Date(settleDateTime).toISOString() : new Date().toISOString(),
+        reference: settleReference.trim() || undefined,
+      });
+
+      toast.success(`Payment of Rs. ${payNum.toLocaleString()} recorded successfully`);
+      setSettlingPurchase(null);
+      setPaymentAmount('');
+      setSettleReference('');
+      fetchPurchases(searchQuery);
+    } catch (err: any) {
+      toast.error(err.message || 'Payment settlement failed');
+    } finally {
+      setIsSettling(false);
+    }
+  };
+
   return (
     <div className="space-y-6 w-full pb-16">
       {/* Header */}
@@ -523,7 +652,7 @@ export const BuyRawMaterialsPage: React.FC = () => {
                             <MoreVertical className="size-4" />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-44 text-xs font-medium">
+                        <DropdownMenuContent align="end" className="w-48 text-xs font-medium">
                           <DropdownMenuItem
                             onClick={() => setViewingPurchase(purchase)}
                             className="gap-2 cursor-pointer text-slate-700 dark:text-zinc-300"
@@ -531,6 +660,46 @@ export const BuyRawMaterialsPage: React.FC = () => {
                             <Eye className="size-3.5 text-slate-500" />
                             View Items
                           </DropdownMenuItem>
+
+                          {/* ⭐ Edit Purchase Order Action */}
+                          <DropdownMenuItem
+                            onClick={() => navigate(`/system/buy-raw-materials/edit/${purchase.id}`)}
+                            className="gap-2 cursor-pointer text-slate-700 dark:text-zinc-300"
+                          >
+                            <Edit2 className="size-3.5 text-slate-500" />
+                            Edit Purchase Order
+                          </DropdownMenuItem>
+
+                          {/* ⭐ Download A4 GRN PDF Note */}
+                          <DropdownMenuItem
+                            onClick={() => handleDownloadGrnPdf(purchase)}
+                            disabled={downloadingId === purchase.id}
+                            className="gap-2 cursor-pointer text-indigo-600 focus:text-indigo-700 focus:bg-indigo-50 dark:focus:bg-indigo-950/30"
+                          >
+                            {downloadingId === purchase.id ? (
+                              <Loader2 className="size-3.5 animate-spin text-indigo-600" />
+                            ) : (
+                              <Download className="size-3.5 text-indigo-600" />
+                            )}
+                            Download GRN (PDF)
+                          </DropdownMenuItem>
+
+                          {/* ⭐ Pay Due Balance (if unpaid) */}
+                          {due > 0 && (
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setSettlingPurchase(purchase);
+                                setPaymentAmount(String(due));
+                                setSettleDateTime(getCurrentLocalISOString());
+                                setSettleMethod('CASH');
+                                setSettleReference('');
+                              }}
+                              className="gap-2 cursor-pointer text-amber-600 focus:text-amber-700 focus:bg-amber-50 dark:focus:bg-amber-950/30"
+                            >
+                              <Wallet className="size-3.5 text-amber-600" />
+                              Pay Due Balance
+                            </DropdownMenuItem>
+                          )}
 
                           {/* Direct WhatsApp Purchase Slip Action */}
                           <DropdownMenuItem
@@ -553,7 +722,7 @@ export const BuyRawMaterialsPage: React.FC = () => {
                             className="gap-2 cursor-pointer text-rose-600 focus:text-rose-700 focus:bg-rose-50 dark:focus:bg-rose-950/30"
                           >
                             <Trash2 className="size-3.5 text-rose-600" />
-                            Cancel Order
+                            Cancel &amp; Rollback
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -877,6 +1046,24 @@ export const BuyRawMaterialsPage: React.FC = () => {
                 <span>Total Amount: Rs. {viewingPurchase.totalAmount.toLocaleString()}</span>
                 <span className="text-emerald-600">Paid: Rs. {viewingPurchase.paidAmount.toLocaleString()}</span>
               </div>
+
+              <div className="pt-2 flex justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDownloadGrnPdf(viewingPurchase)}
+                  disabled={downloadingId === viewingPurchase.id}
+                  className="gap-2 text-xs border-indigo-200 text-indigo-600 hover:bg-indigo-50"
+                >
+                  {downloadingId === viewingPurchase.id ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Download className="size-3.5" />
+                  )}
+                  Download GRN Note (A4 PDF)
+                </Button>
+              </div>
             </div>
           )}
         </DialogContent>
@@ -903,6 +1090,109 @@ export const BuyRawMaterialsPage: React.FC = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ⭐ Partial Payment Settlement Modal with POS Date & Time */}
+      <Dialog open={Boolean(settlingPurchase)} onOpenChange={(open) => !open && setSettlingPurchase(null)}>
+        <DialogContent className="sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Wallet className="size-5 text-emerald-600" />
+              Settle Due for {settlingPurchase?.invoiceNumber || `PO-${settlingPurchase?.id}`}
+            </DialogTitle>
+          </DialogHeader>
+
+          {settlingPurchase && (
+            <form onSubmit={handleSettlePaymentSubmit} className="space-y-3.5 py-1">
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-950 border text-xs space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Supplier:</span>
+                  <span className="font-bold text-slate-800 dark:text-zinc-200">{settlingPurchase.shop.name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Remaining Due Balance:</span>
+                  <span className="font-mono font-bold text-rose-600">
+                    Rs. {(settlingPurchase.totalAmount - settlingPurchase.paidAmount).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                    Pay Amount (Rs.) *
+                  </label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    required
+                    max={settlingPurchase.totalAmount - settlingPurchase.paidAmount}
+                    value={paymentAmount}
+                    onChange={(e) => setPaymentAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="h-9 font-mono font-bold text-sm"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                    Payment Method *
+                  </label>
+                  <SearchableSelect
+                    value={settleMethod}
+                    onValueChange={setSettleMethod}
+                    options={[
+                      { value: 'CASH', label: 'CASH' },
+                      { value: 'BANK_TRANSFER', label: 'BANK TRANSFER' },
+                      { value: 'CHEQUE', label: 'CHEQUE' },
+                    ]}
+                    placeholder="Select Method"
+                    dark={dark}
+                    className="h-9"
+                  />
+                </div>
+              </div>
+
+              {/* POS DateTimePicker */}
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                  Payment Date &amp; Timestamp *
+                </label>
+                <DateTimePicker
+                  value={settleDateTime}
+                  onChange={setSettleDateTime}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                  Payment Reference / Cheque No
+                </label>
+                <Input
+                  value={settleReference}
+                  onChange={(e) => setSettleReference(e.target.value)}
+                  placeholder="e.g. Part payment cash / Cheque #8812"
+                  className="h-9 text-xs"
+                />
+              </div>
+
+              <DialogFooter className="pt-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => setSettlingPurchase(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={isSettling}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                >
+                  {isSettling && <Loader2 className="size-3.5 animate-spin mr-1" />}
+                  Confirm Payment
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

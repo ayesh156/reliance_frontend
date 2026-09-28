@@ -27,10 +27,11 @@ import {
   Download, // Added Download icon
 } from 'lucide-react';
 // Enterprise Shadcn SearchableSelect Component
-import { SearchableSelect } from '../ui/SearchableSelect';
+
 import { useTheme } from '../../contexts/ThemeContext';
 // Enterprise Shadcn DatePicker Integration
 import { DatePicker } from '../ui/date-picker';
+import { SearchableSelect } from '../ui/searchable-select';
 
 interface BillItem {
   name: string;
@@ -354,15 +355,15 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                     </div>
                   </div>
 
-                  {/* Inline Payment Form with Overflow Visible for Floating DatePicker */}
+                  {/* Inline Payment Form elevated to float cleanly over card items */}
                   {isPayingThis && (
-                    <div className="mt-3.5 pt-3 border-t border-emerald-500/20 bg-emerald-50/50 dark:bg-emerald-950/20 p-3 rounded-xl space-y-3 overflow-visible relative">
+                    <div className="mt-3.5 pt-3 border-t border-emerald-500/20 bg-emerald-50/50 dark:bg-emerald-950/20 p-3 rounded-xl space-y-3 overflow-visible relative z-30">
                       <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-800 dark:text-emerald-300">
                         <DollarSign className="size-4" />
                         Settle Payment for Invoice #{bill.invoiceNumber}
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 items-end">
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 items-end overflow-visible relative z-40">
                         <div className="space-y-1">
                           <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
                             Paying Amount (Rs.) *
@@ -378,17 +379,18 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                           />
                         </div>
 
-                        <div className="space-y-1">
+                        <div className="space-y-1 relative z-50">
                           <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
                             Payment Date *
                           </label>
-                          {/* Shadcn Calendar DatePicker with Popover */}
-                          <DatePicker
-                            date={payDate}
-                            onDateChange={setPayDate}
-                            placeholder="Select date"
-                            className="h-8 text-xs rounded-xl"
-                          />
+                          <div className="relative z-50">
+                            <DatePicker
+                              date={payDate}
+                              onDateChange={setPayDate}
+                              placeholder="Select date"
+                              className="h-8 text-xs rounded-xl"
+                            />
+                          </div>
                         </div>
 
                         <div className="space-y-1">

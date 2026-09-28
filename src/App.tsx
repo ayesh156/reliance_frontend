@@ -202,6 +202,18 @@ export function App() {
                 }
               />
 
+              {/* Raw Material Purchase Order Edit Route */}
+              <Route
+                path="/system/buy-raw-materials/edit/:id"
+                element={
+                  <ProtectedRoute requiredRole="ADMIN">
+                    <AdminPage>
+                      <BuyRawMaterialFormPage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
+
               <Route
                 path="/system/settings"
                 element={

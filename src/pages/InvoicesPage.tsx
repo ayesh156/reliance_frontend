@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { get, del } from '../lib/api';
+import { get, del, post } from '../lib/api';
+import { DateTimePicker } from '../components/ui/date-time-picker';
 import { toast } from 'react-toastify';
 import { useTheme } from '../contexts/ThemeContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { SearchableSelect } from '../components/ui/SearchableSelect';
+import { SearchableSelect } from '../components/ui/searchable-select';
 import { A4InvoiceModal } from '../components/pos/A4InvoiceModal';
 import {
   Dialog,
@@ -38,7 +39,8 @@ import {
   Banknote,
   Building,
   RefreshCw,
-  MessageSquare, // ⭐ WhatsApp Icon
+  MessageSquare,
+  Wallet, // ⭐ Added for Pay Due Action
 } from 'lucide-react';
 import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../utils/whatsapp';
 
@@ -91,6 +93,67 @@ export const InvoicesPage: React.FC = () => {
   const [waModalOpen, setWaModalOpen] = useState(false);
   const [waTargetInvoice, setWaTargetInvoice] = useState<any>(null);
   const [waCustomPhone, setWaCustomPhone] = useState('');
+
+  // Helper for current local ISO string
+  const getCurrentLocalISOString = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  };
+
+  // ⭐ Material Payment ආකාරයේ DateTimePicker State එක (Date & Timestamp සමඟ)
+  const [settlingInvoice, setSettlingInvoice] = useState<InvoiceRecord | null>(null);
+  const [settleAmount, setSettleAmount] = useState<string>('');
+  const [settleMethod, setSettleMethod] = useState<string>('CASH');
+  const [settleDateTime, setSettleDateTime] = useState<string>(getCurrentLocalISOString());
+  const [settleReference, setSettleReference] = useState<string>('');
+  const [isSettling, setIsSettling] = useState<boolean>(false);
+
+  /**
+   * Submit Customer Invoice Due Settlement
+   */
+  const handleSettleInvoiceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!settlingInvoice) return;
+
+    const payNum = parseFloat(settleAmount);
+    const dueAmount = settlingInvoice.totalAmount - settlingInvoice.paidAmount;
+
+    if (isNaN(payNum) || payNum <= 0) {
+      toast.error('Please enter a valid positive payment amount');
+      return;
+    }
+
+    if (payNum > dueAmount) {
+      toast.error(`Amount cannot exceed the remaining due of Rs. ${dueAmount.toLocaleString()}`);
+      return;
+    }
+
+    setIsSettling(true);
+    try {
+      await post('/credit/settle-bill', {
+        orderId: settlingInvoice.id,
+        amount: payNum,
+        paymentMethod: settleMethod,
+        reference: settleReference.trim() || `Invoice #INV${settlingInvoice.id} Settlement`,
+        paymentDate: settleDateTime ? new Date(settleDateTime).toISOString() : new Date().toISOString(),
+      });
+
+      toast.success(`Payment of Rs. ${payNum.toLocaleString()} settled successfully!`);
+      setSettlingInvoice(null);
+      setSettleAmount('');
+      setSettleReference('');
+      fetchInvoices(page);
+    } catch (err: any) {
+      toast.error(err.message || 'Payment settlement failed');
+    } finally {
+      setIsSettling(false);
+    }
+  };
 
   /**
    * Dispatches WhatsApp receipt:
@@ -480,6 +543,23 @@ export const InvoicesPage: React.FC = () => {
                               Print Preview
                             </DropdownMenuItem>
 
+                            {/* ⭐ GRN-style Pay Due Balance Action (only shown if creditDue > 0) */}
+                            {creditDue > 0 && (
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setSettlingInvoice(inv);
+                                  setSettleAmount(String(creditDue));
+                                  setSettleMethod('CASH');
+                                  setSettleDateTime(getCurrentLocalISOString());
+                                  setSettleReference('');
+                                }}
+                                className="gap-2 cursor-pointer text-amber-600 focus:text-amber-700 focus:bg-amber-50 dark:focus:bg-amber-950/30 font-semibold"
+                              >
+                                <Wallet className="size-3.5 text-amber-600" />
+                                Pay Due Balance
+                              </DropdownMenuItem>
+                            )}
+
                             {/* Smart WhatsApp Share Action (Direct or with Phone Prompt) */}
                             <DropdownMenuItem
                               onClick={() => handleInitiateWhatsApp(inv)}
@@ -649,6 +729,117 @@ export const InvoicesPage: React.FC = () => {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+
+      {/* ⭐ GRN-style Settle Due Modal for Invoices */}
+      <Dialog open={Boolean(settlingInvoice)} onOpenChange={(open) => !open && setSettlingInvoice(null)}>
+        <DialogContent className="sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base text-slate-900 dark:text-white">
+              <Wallet className="size-5 text-emerald-600" />
+              Settle Due for Invoice #INV{settlingInvoice?.id}
+            </DialogTitle>
+          </DialogHeader>
+
+          {settlingInvoice && (
+            <form onSubmit={handleSettleInvoiceSubmit} className="space-y-3.5 py-1">
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-xs space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Customer:</span>
+                  <span className="font-bold text-slate-800 dark:text-zinc-200">{settlingInvoice.customerName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Invoice Total:</span>
+                  <span className="font-mono font-bold text-slate-800 dark:text-zinc-200">
+                    Rs. {Number(settlingInvoice.totalAmount).toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex justify-between border-t border-slate-200 dark:border-zinc-800 pt-1">
+                  <span className="text-slate-500">Remaining Due Balance:</span>
+                  <span className="font-mono font-bold text-rose-600 text-sm">
+                    Rs. {(settlingInvoice.totalAmount - settlingInvoice.paidAmount).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                    Pay Amount (Rs.) *
+                  </label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    required
+                    max={settlingInvoice.totalAmount - settlingInvoice.paidAmount}
+                    value={settleAmount}
+                    onChange={(e) => setSettleAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="h-9 font-mono font-bold text-sm"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                    Payment Method *
+                  </label>
+                  <SearchableSelect
+                    value={settleMethod}
+                    onValueChange={setSettleMethod}
+                    options={[
+                      { value: 'CASH', label: 'CASH' },
+                      { value: 'CARD', label: 'CARD' },
+                      { value: 'BANK_TRANSFER', label: 'BANK TRANSFER' },
+                      { value: 'CHEQUE', label: 'CHEQUE' },
+                    ]}
+                    placeholder="Select Method"
+                    dark={dark}
+                    className="h-9"
+                  />
+                </div>
+              </div>
+
+              {/* Payment Date & Timestamp (Material Payment Modal එකේ ආකාරයටම) */}
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                  Payment Date &amp; Timestamp *
+                </label>
+                <DateTimePicker
+                  value={settleDateTime}
+                  onChange={setSettleDateTime}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                  Payment Reference / Cheque No
+                </label>
+                <Input
+                  value={settleReference}
+                  onChange={(e) => setSettleReference(e.target.value)}
+                  placeholder="e.g. Part payment cash / Cheque #8812"
+                  className="h-9 text-xs"
+                />
+              </div>
+
+              <DialogFooter className="pt-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => setSettlingInvoice(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={isSettling}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                >
+                  {isSettling && <Loader2 className="size-3.5 animate-spin mr-1" />}
+                  Confirm Payment
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
     </div>

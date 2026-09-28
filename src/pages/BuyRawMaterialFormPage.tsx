@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate,useParams } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { SearchableSelect } from '../components/ui/SearchableSelect';
+import { SearchableSelect } from '../components/ui/searchable-select';
 import { MaterialCombobox } from '../components/materials/MaterialCombobox';
 import { DatePicker } from '../components/ui/date-picker';
 import { QuickAddShopModal } from '../components/materials/QuickAddShopModal'; // ⭐ New Shop Modal
@@ -16,7 +16,7 @@ import {
   TableRow,
   TableCell,
 } from '../components/ui/table';
-import { get, post } from '../lib/api';
+import { get, post, put } from '../lib/api';
 import { toast } from 'react-toastify';
 import {
   ArrowLeft,
@@ -59,6 +59,9 @@ const PAYMENT_METHODS = ['CASH', 'CREDIT', 'CHEQUE', 'BANK_TRANSFER'];
 
 export const BuyRawMaterialFormPage: React.FC = () => {
   const navigate = useNavigate();
+  const { id } = useParams<{ id?: string }>(); // ⭐ URL parameter eක ලබා ගැනීම
+  const isEditMode = Boolean(id); // ⭐ Edit Mode එකක්දැයි හඳුනාගැනීම
+
   const { theme } = useTheme();
   const dark = theme === 'dark';
 
@@ -66,6 +69,7 @@ export const BuyRawMaterialFormPage: React.FC = () => {
   const [materialItems, setMaterialItems] = useState<RawMaterialItem[]>([]);
   const [loadingPrereqs, setLoadingPrereqs] = useState<boolean>(true);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [isLoadingEditData, setIsLoadingEditData] = useState<boolean>(false);
 
   // Form states
   const [selectedShopId, setSelectedShopId] = useState<number | ''>('');
@@ -85,8 +89,9 @@ export const BuyRawMaterialFormPage: React.FC = () => {
     { rawMaterialItemId: '', quantity: '', pricePerUnit: '', batchNumber: '' },
   ]);
 
+  // 🟢 Comment Update: Edit Mode හිදී පවතින Order දත්ත ලබා ගැනීම සහ Prerequisites load කිරීම
   useEffect(() => {
-    const loadPrerequisites = async () => {
+    const loadPrerequisitesAndData = async () => {
       try {
         setLoadingPrereqs(true);
         const [shopsData, itemsData] = await Promise.all([
@@ -95,14 +100,40 @@ export const BuyRawMaterialFormPage: React.FC = () => {
         ]);
         setShops(shopsData || []);
         setMaterialItems(itemsData || []);
+
+        // ⭐ Edit Mode එකක් නම් පවතින Purchase Order එක fetch කර form එක පිරීම
+        if (id) {
+          setIsLoadingEditData(true);
+          const orderData = await get<any>(`/buy-raw-materials/${id}`);
+          if (orderData) {
+            setSelectedShopId(orderData.shop?.id || orderData.rawMaterialShopId || '');
+            setInvoiceNumber(orderData.invoiceNumber || '');
+            setPurchaseDate(orderData.purchaseDate ? new Date(orderData.purchaseDate) : new Date());
+            setPaymentMethod(orderData.paymentMethod || 'CASH');
+            setPaidAmount(orderData.paidAmount ?? '');
+            setNotes(orderData.notes || '');
+
+            if (Array.isArray(orderData.items) && orderData.items.length > 0) {
+              setLineItems(
+                orderData.items.map((item: any) => ({
+                  rawMaterialItemId: item.rawMaterialItem?.id || item.rawMaterialItemId,
+                  quantity: item.quantity,
+                  pricePerUnit: item.pricePerUnit,
+                  batchNumber: item.batchNumber || '',
+                }))
+              );
+            }
+          }
+        }
       } catch (err: any) {
-        toast.error('Failed to load suppliers or materials catalogue');
+        toast.error(err.message || 'Failed to load purchase details or catalogue');
       } finally {
         setLoadingPrereqs(false);
+        setIsLoadingEditData(false);
       }
     };
-    loadPrerequisites();
-  }, []);
+    loadPrerequisitesAndData();
+  }, [id]);
 
   const handleAddLineItem = () => {
     setLineItems((prev) => [
@@ -159,6 +190,7 @@ export const BuyRawMaterialFormPage: React.FC = () => {
     }
   };
 
+  // 🟢 Comment Update: Create (POST) සහ Edit (PUT) දෙකම සපෝට් වන ලෙස Submit handler එක වෙනස් කිරීම
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedShopId) {
@@ -176,7 +208,7 @@ export const BuyRawMaterialFormPage: React.FC = () => {
 
     try {
       setIsSubmitting(true);
-      await post('/buy-raw-materials', {
+      const payload = {
         rawMaterialShopId: Number(selectedShopId),
         invoiceNumber: invoiceNumber.trim() || undefined,
         purchaseDate: purchaseDate ? purchaseDate.toISOString() : new Date().toISOString(),
@@ -189,13 +221,21 @@ export const BuyRawMaterialFormPage: React.FC = () => {
           pricePerUnit: Number(item.pricePerUnit),
           batchNumber: item.batchNumber?.trim() || undefined,
         })),
-      });
+      };
 
-      toast.success('Raw materials received and stock updated successfully');
+      if (isEditMode && id) {
+        // Edit Mode එකේදී PUT request එක යැවීම
+        await put(`/buy-raw-materials/${id}`, payload);
+        toast.success('Purchase order updated successfully');
+      } else {
+        // New Purchase එකක් සෑදීමේදී POST request එක යැවීම
+        await post('/buy-raw-materials', payload);
+        toast.success('Raw materials received and stock updated successfully');
+      }
 
-      // ⭐ Launch WhatsApp message to Supplier Shop if phone number exists
+      // WhatsApp Notification (නව Stock Purchase එකකදී පමණක් යැවීම හෝ සංශෝධනයේදී යැවීම)
       const currentShop = shops.find((s) => s.id === Number(selectedShopId)) as any;
-      if (currentShop?.phone) {
+      if (currentShop?.phone && !isEditMode) {
         const enrichedItems = lineItems.map((item) => {
           const matMeta = materialItems.find((m) => m.id === Number(item.rawMaterialItemId));
           return {
@@ -239,13 +279,16 @@ export const BuyRawMaterialFormPage: React.FC = () => {
           >
             <ArrowLeft className="size-4" />
           </Button>
+          {/* 🟢 Comment Update: Dynamic title based on isEditMode */}
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
               <ShoppingCart className="size-6 text-indigo-600 dark:text-indigo-400" />
-              New Material Purchase (Stock-In)
+              {isEditMode ? `Edit Purchase Order #${id}` : 'New Material Purchase (Stock-In)'}
             </h1>
             <p className="text-xs text-slate-500 dark:text-zinc-400">
-              Receive raw materials from suppliers, update stock inventory, and record payments.
+              {isEditMode
+                ? 'Update supplier purchase order details and update stock accordingly.'
+                : 'Receive raw materials from suppliers, update stock inventory, and record payments.'}
             </p>
           </div>
         </div>

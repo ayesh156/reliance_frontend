@@ -7,7 +7,6 @@ import { Input } from '../ui/input';
 import { get, del } from '../../lib/api';
 import { toast } from 'react-toastify';
 import { DatePicker } from '../ui/date-picker';
-import { SearchableSelect } from '../ui/SearchableSelect';
 import { useTheme } from '../../contexts/ThemeContext';
 import {
   DropdownMenu,
@@ -41,6 +40,7 @@ import {
 } from 'lucide-react';
 import type { RawMaterialItem } from '../../pages/RawMaterialItemsPage';
 import { MaterialStockActionModal } from './MaterialStockActionModal';
+import { SearchableSelect } from '../ui/searchable-select';
 
 interface MovementRecord {
   id: number;

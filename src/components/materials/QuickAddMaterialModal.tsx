@@ -8,10 +8,10 @@ import {
 } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { SearchableSelect } from '../ui/SearchableSelect';
 import { post, get } from '../../lib/api';
 import { toast } from 'react-toastify';
 import { Boxes, Sparkles, X, Loader2 } from 'lucide-react';
+import { SearchableSelect } from '../ui/searchable-select';
 
 interface QuickAddMaterialModalProps {
   open: boolean;

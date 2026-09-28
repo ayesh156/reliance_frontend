@@ -26,8 +26,8 @@ import {
   AlertDialogCancel,
 } from '../components/ui/alert-dialog';
 import type { ProductItem } from '../types/product';
-import { SearchableSelect } from '../components/ui/SearchableSelect';
-import type { SearchableSelectOption } from '../components/ui/SearchableSelect';
+import { SearchableSelect } from '../components/ui/searchable-select';
+import type { SearchableSelectOption } from '../components/ui/searchable-select';
 
 import {
   Plus,

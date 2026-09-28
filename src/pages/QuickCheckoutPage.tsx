@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { SearchableSelect } from '../components/ui/SearchableSelect';
+import { SearchableSelect } from '../components/ui/searchable-select';
 import { DatePicker } from '../components/ui/date-picker';
 import {
   Dialog,
@@ -118,12 +118,6 @@ export const QuickCheckoutPage: React.FC = () => {
   // A4 Invoice preview state
   const [completedOrder, setCompletedOrder] = useState<any>(null);
   const [invoiceOpen, setInvoiceOpen] = useState(false);
-
-  // Adjust Cash Modal State for Edit Mode with Payment Method & Date tracking
-  const [adjustModalOpen, setAdjustModalOpen] = useState(false);
-  const [tempAdjustCash, setTempAdjustCash] = useState('');
-  const [tempAdjustMethod, setTempAdjustMethod] = useState<string>('CASH');
-  const [tempAdjustDate, setTempAdjustDate] = useState<Date | undefined>(new Date());
 
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
@@ -879,7 +873,7 @@ export const QuickCheckoutPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Client Cash Received Field with Clear Text and Clean Adjust Button */}
+          {/* Client Cash Received Field */}
           <div className="flex items-center justify-between gap-2 bg-slate-50 dark:bg-zinc-950 p-2 rounded-xl border border-slate-200 dark:border-zinc-800">
             <div>
               <span className="text-sm font-bold text-slate-900 dark:text-white block">Client Cash (Rs)</span>
@@ -897,23 +891,6 @@ export const QuickCheckoutPage: React.FC = () => {
                     : 'text-emerald-600 dark:text-emerald-400'
                 }`}
               />
-              {isEditing && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    // Open modal completely clean/empty for entering the newly received payment
-                    setTempAdjustCash('');
-                    setTempAdjustMethod('CASH');
-                    setTempAdjustDate(new Date());
-                    setAdjustModalOpen(true);
-                  }}
-                  className="h-8 px-2.5 text-xs font-bold border-blue-500 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/50 rounded-lg shrink-0 cursor-pointer"
-                >
-                  Adjust
-                </Button>
-              )}
             </div>
           </div>
 
@@ -1067,224 +1044,6 @@ export const QuickCheckoutPage: React.FC = () => {
               </Button>
             </DialogFooter>
           </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Modern Shadcn Modal: Receive Additional Payment / Settle Invoice Balance */}
-      <Dialog open={adjustModalOpen} onOpenChange={setAdjustModalOpen}>
-        <DialogContent className="sm:max-w-[460px]">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <Banknote className="size-5 text-emerald-600" /> Receive Additional Payment
-            </DialogTitle>
-          </DialogHeader>
-
-          {(() => {
-            const previouslyPaid = Number(originalInvoice?.paidAmount || 0);
-            const remainingDue = Math.max(0, total - previouslyPaid);
-            const newlyEntered = tempAdjustCash === '' ? 0 : Number(tempAdjustCash);
-            const cumulativeTotal = previouslyPaid + newlyEntered;
-            const projectedChange = cumulativeTotal > total ? cumulativeTotal - total : 0;
-            const projectedRemaining = Math.max(0, total - cumulativeTotal);
-
-            return (
-              <form
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  if (newlyEntered <= 0) {
-                    toast.error('Please enter a valid payment amount');
-                    return;
-                  }
-
-                  if (newlyEntered > remainingDue) {
-                    toast.error(`Maximum payable due is Rs. ${remainingDue.toLocaleString()}`);
-                    return;
-                  }
-
-                  const finalCalculatedCash = previouslyPaid + newlyEntered;
-
-                  setSubmitting(true);
-                  try {
-                    // Attach active current time with user-selected payment date
-                    let resolvedDateWithTime = new Date();
-                    if (tempAdjustDate) {
-                      resolvedDateWithTime = new Date(tempAdjustDate);
-                      const now = new Date();
-                      resolvedDateWithTime.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
-                    }
-
-                    // Atomically creates an individual payment record with custom payment date and current time
-                    const res = await post<any>('/credit/settle-bill', {
-                      orderId: originalInvoice.id,
-                      amount: newlyEntered,
-                      paymentMethod: tempAdjustMethod,
-                      reference: `POS Invoice Edit (Inv #${originalInvoice.id})`,
-                      paymentDate: resolvedDateWithTime.toISOString(),
-                    });
-
-                    // Update live UI state and sync original invoice from response
-                    setClientGivenCash(String(finalCalculatedCash));
-                    if (res?.data?.updatedOrder) {
-                      setOriginalInvoice((prev: any) => ({
-                        ...prev,
-                        paidAmount: finalCalculatedCash,
-                        status: res.data.updatedOrder.status,
-                      }));
-                    } else {
-                      setOriginalInvoice((prev: any) => ({
-                        ...prev,
-                        paidAmount: finalCalculatedCash,
-                      }));
-                    }
-                    
-                    setAdjustModalOpen(false);
-
-                    toast.success(
-                      `Payment of Rs. ${newlyEntered.toLocaleString()} recorded as a new ledger entry! Invoice #INV${originalInvoice.id} updated.`
-                    );
-                  } catch (err: any) {
-                    toast.error(err.message || 'Failed to save payment to database');
-                  } finally {
-                    setSubmitting(false);
-                  }
-                }}
-                className="space-y-4 py-2 text-xs"
-              >
-                {/* Ledger Breakdown Card */}
-                <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 space-y-1.5">
-                  <div className="flex justify-between items-center text-slate-500">
-                    <span>Invoice Total:</span>
-                    <span className="font-mono font-bold text-slate-900 dark:text-white">
-                      Rs. {total.toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center text-slate-500">
-                    <span>Previously Paid:</span>
-                    <span className="font-mono font-bold text-emerald-600">
-                      Rs. {previouslyPaid.toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center pt-1 border-t border-slate-200 dark:border-zinc-800">
-                    <span className="font-bold text-slate-700 dark:text-zinc-300">Current Due Balance:</span>
-                    <span className="font-mono font-bold text-rose-600 text-sm">
-                      Rs. {remainingDue.toLocaleString()}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Payment Inputs: Perfectly balanced 3-Column Inline Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-end">
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-slate-900 dark:text-white truncate block">
-                      Paying Amount (Rs) *
-                    </label>
-                    <Input
-                      type="number"
-                      min="1"
-                      step="any"
-                      autoFocus
-                      required
-                      value={tempAdjustCash}
-                      onChange={(e) => setTempAdjustCash(e.target.value)}
-                      placeholder={`e.g. ${remainingDue > 0 ? remainingDue : total}`}
-                      className="font-mono font-bold text-xs text-emerald-600 dark:text-emerald-400 h-9 rounded-xl"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-slate-900 dark:text-white truncate block">
-                      Payment Date *
-                    </label>
-                    <DatePicker
-                      date={tempAdjustDate}
-                      onDateChange={setTempAdjustDate}
-                      placeholder="Select Date"
-                      className="h-9 text-xs rounded-xl"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-bold text-slate-900 dark:text-white truncate block">
-                      Payment Method *
-                    </label>
-                    {/* Modern SearchableSelect aligned identically to Input */}
-                    <SearchableSelect
-                      value={tempAdjustMethod}
-                      onValueChange={(val) => setTempAdjustMethod(val)}
-                      options={[
-                        {
-                          value: 'CASH',
-                          label: 'Cash',
-                          icon: <Banknote className="size-3.5 text-emerald-500" />,
-                        },
-                        {
-                          value: 'CARD',
-                          label: 'Card',
-                          icon: <CreditCard className="size-3.5 text-blue-500" />,
-                        },
-                        {
-                          value: 'BANK_TRANSFER',
-                          label: 'Bank Transfer',
-                          icon: <Landmark className="size-3.5 text-indigo-500" />,
-                        },
-                        {
-                          value: 'CHEQUE',
-                          label: 'Cheque',
-                          icon: <FileText className="size-3.5 text-amber-500" />,
-                        },
-                      ]}
-                      placeholder="Select Method"
-                      searchPlaceholder="Search method..."
-                      dark={dark}
-                      className="h-9 py-0 rounded-xl"
-                    />
-                  </div>
-                </div>
-
-                {/* Live Outcome Preview */}
-                {newlyEntered > 0 && (
-                  <div className="p-2.5 rounded-lg bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/60 space-y-1">
-                    <div className="flex justify-between font-semibold text-emerald-800 dark:text-emerald-300">
-                      <span>Total Paid Will Become:</span>
-                      <span className="font-mono font-bold">Rs. {cumulativeTotal.toLocaleString()}</span>
-                    </div>
-                    {projectedChange > 0 && (
-                      <div className="flex justify-between font-bold text-emerald-700 dark:text-emerald-400">
-                        <span>Change to Return:</span>
-                        <span className="font-mono">Rs. {projectedChange.toLocaleString()}</span>
-                      </div>
-                    )}
-                    {projectedRemaining > 0 && (
-                      <div className="flex justify-between font-bold text-rose-600">
-                        <span>Remaining Credit Due:</span>
-                        <span className="font-mono">Rs. {projectedRemaining.toLocaleString()}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <DialogFooter className="pt-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setAdjustModalOpen(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                  type="submit"
-                  size="sm"
-                  disabled={submitting}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-9 px-4"
-                >
-                  {submitting && <Loader2 className="size-3.5 animate-spin mr-1.5" />}
-                  Apply Payment
-                </Button>
-                </DialogFooter>
-              </form>
-            );
-          })()}
         </DialogContent>
       </Dialog>
 
