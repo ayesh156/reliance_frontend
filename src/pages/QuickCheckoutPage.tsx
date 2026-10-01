@@ -84,6 +84,9 @@ export const QuickCheckoutPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [barcodeInput, setBarcodeInput] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
+  // ⭐ Inline quantity edit state with decimal support
+  const [editingQtyVariantId, setEditingQtyVariantId] = useState<number | null>(null);
+  const [tempQtyInput, setTempQtyInput] = useState<string>('');
 
   // Pagination state for product grid
   const [currentPage, setCurrentPage] = useState(1);
@@ -295,6 +298,39 @@ export const QuickCheckoutPage: React.FC = () => {
         })
         .filter(Boolean) as CartItem[]
     );
+  };
+
+  /**
+   * ⭐ Directly update item quantity with full decimal support (e.g. 1.5, 2.25)
+   * Validates against maximum stock and non-negative numbers
+   */
+  const handleApplyDirectQty = (variantId: number) => {
+    const rawVal = parseFloat(tempQtyInput.trim());
+    const targetItem = cart.find((i) => i.variantId === variantId);
+
+    if (!targetItem) {
+      setEditingQtyVariantId(null);
+      return;
+    }
+
+    if (isNaN(rawVal) || rawVal <= 0) {
+      setCart((prev) => prev.filter((i) => i.variantId !== variantId));
+      toast.info(`Removed "${targetItem.name}" from order`);
+    } else if (rawVal > targetItem.maxStock) {
+      toast.error(`Only ${targetItem.maxStock} available in stock`);
+      setCart((prev) =>
+        prev.map((i) => (i.variantId === variantId ? { ...i, quantity: targetItem.maxStock } : i))
+      );
+    } else {
+      // Round to maximum 2 decimal places to avoid floating point issues
+      const roundedQty = Math.round(rawVal * 100) / 100;
+      setCart((prev) =>
+        prev.map((i) => (i.variantId === variantId ? { ...i, quantity: roundedQty } : i))
+      );
+    }
+
+    setEditingQtyVariantId(null);
+    setTempQtyInput('');
   };
 
   /**
@@ -552,11 +588,10 @@ export const QuickCheckoutPage: React.FC = () => {
                   return { ...item, unitPrice: newPrice };
                 }));
               }}
-              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors ${
-                pricingMode === 'RETAIL'
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors ${pricingMode === 'RETAIL'
                   ? 'bg-emerald-600 text-white shadow-sm'
                   : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
-              }`}
+                }`}
             >
               Retail
             </button>
@@ -571,11 +606,10 @@ export const QuickCheckoutPage: React.FC = () => {
                   return { ...item, unitPrice: newPrice };
                 }));
               }}
-              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors ${
-                pricingMode === 'WHOLESALE'
+              className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors ${pricingMode === 'WHOLESALE'
                   ? 'bg-blue-600 text-white shadow-sm'
                   : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
-              }`}
+                }`}
             >
               Wholesale
             </button>
@@ -616,16 +650,16 @@ export const QuickCheckoutPage: React.FC = () => {
 
                 // Priority 1: Variant directly bound imageUrl or images array
                 const variantDirectImage = (v as any).imageUrl || (v as any).images?.[0]?.imageUrl;
-                
+
                 // Priority 2: Match product images pool by variant ID linkage
                 const productImages = v.product?.images || [];
-                const matchedVariantImage = productImages.find((imgObj: any) => 
+                const matchedVariantImage = productImages.find((imgObj: any) =>
                   imgObj.variantId && Number(imgObj.variantId) === Number(v.id)
                 )?.imageUrl;
 
                 // Priority 3: Match by color keyword fallback
                 const colorKeyword = (v.color || '').toLowerCase().trim();
-                const matchedColorImage = productImages.find((imgObj: any) => 
+                const matchedColorImage = productImages.find((imgObj: any) =>
                   colorKeyword && colorKeyword !== 'default' && imgObj.imageUrl.toLowerCase().includes(colorKeyword)
                 )?.imageUrl;
 
@@ -646,11 +680,10 @@ export const QuickCheckoutPage: React.FC = () => {
                     type="button"
                     disabled={v.stock <= 0}
                     onClick={() => addToCart(v)}
-                    className={`flex flex-col text-left rounded-xl border p-2.5 transition-all group relative overflow-hidden ${
-                      v.stock <= 0
+                    className={`flex flex-col text-left rounded-xl border p-2.5 transition-all group relative overflow-hidden ${v.stock <= 0
                         ? 'opacity-40 cursor-not-allowed border-slate-200 dark:border-zinc-800'
                         : 'border-slate-200 dark:border-zinc-800 hover:border-emerald-500 hover:shadow-md bg-white dark:bg-zinc-950'
-                    }`}
+                      }`}
                   >
                     {/* Thumbnail Image */}
                     <div className="w-full aspect-square rounded-lg bg-slate-100 dark:bg-zinc-900 mb-2 overflow-hidden flex items-center justify-center">
@@ -728,8 +761,8 @@ export const QuickCheckoutPage: React.FC = () => {
             )}
           </div>
           {cart.length > 0 && (
-            <button 
-              type="button" 
+            <button
+              type="button"
               onClick={() => {
                 setCart([]);
                 if (isEditing) {
@@ -737,7 +770,7 @@ export const QuickCheckoutPage: React.FC = () => {
                   setIsEditing(false);
                   setOriginalInvoice(null);
                 }
-              }} 
+              }}
               className="text-xs text-rose-500 hover:underline cursor-pointer"
             >
               {isEditing ? 'Cancel Edit' : 'Clear All'}
@@ -790,20 +823,62 @@ export const QuickCheckoutPage: React.FC = () => {
                   </p>
                 </div>
 
-                {/* Qty Stepper */}
+                {/* Qty Stepper with Decimal Click-to-Edit Input */}
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     type="button"
                     onClick={() => updateQty(item.variantId, -1)}
-                    className="size-6 rounded-md bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200"
+                    className="size-6 rounded-md bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors cursor-pointer"
+                    title="Decrease quantity"
                   >
                     <Minus className="size-3" />
                   </button>
-                  <span className="font-mono text-xs font-bold w-5 text-center">{item.quantity}</span>
+
+                  {/* ⭐ Click-to-Edit Decimal Quantity Input Box */}
+                  {editingQtyVariantId === item.variantId ? (
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      autoFocus
+                      value={tempQtyInput}
+                      onChange={(e) => {
+                        // Allow only numbers and a single decimal point (e.g. 1.5, 2.25)
+                        const val = e.target.value.replace(/[^0-9.]/g, '');
+                        const parts = val.split('.');
+                        const cleanVal = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join('')}` : val;
+                        setTempQtyInput(cleanVal);
+                      }}
+                      onFocus={(e) => e.target.select()}
+                      onBlur={() => handleApplyDirectQty(item.variantId)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleApplyDirectQty(item.variantId);
+                        } else if (e.key === 'Escape') {
+                          setEditingQtyVariantId(null);
+                        }
+                      }}
+                      className="w-12 h-6 text-center font-mono text-xs font-bold bg-white dark:bg-zinc-900 border border-emerald-500 rounded text-emerald-600 dark:text-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-500 shadow-xs"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingQtyVariantId(item.variantId);
+                        setTempQtyInput(String(item.quantity));
+                      }}
+                      className="min-w-6 h-6 px-1.5 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/60 font-mono text-xs font-bold text-slate-800 dark:text-zinc-200 text-center cursor-pointer transition-colors border border-transparent hover:border-emerald-300 dark:hover:border-emerald-700 select-none"
+                      title="Click to type decimal or whole quantity directly"
+                    >
+                      {item.quantity}
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={() => updateQty(item.variantId, 1)}
-                    className="size-6 rounded-md bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200"
+                    className="size-6 rounded-md bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors cursor-pointer"
+                    title="Increase quantity"
                   >
                     <Plus className="size-3" />
                   </button>
@@ -832,22 +907,20 @@ export const QuickCheckoutPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setDiscountType('PERCENT')}
-                  className={`px-1.5 py-0.5 text-[10px] font-bold rounded ${
-                    discountType === 'PERCENT'
+                  className={`px-1.5 py-0.5 text-[10px] font-bold rounded ${discountType === 'PERCENT'
                       ? 'bg-emerald-600 text-white shadow-xs'
                       : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
-                  }`}
+                    }`}
                 >
                   %
                 </button>
                 <button
                   type="button"
                   onClick={() => setDiscountType('FIXED')}
-                  className={`px-1.5 py-0.5 text-[10px] font-bold rounded ${
-                    discountType === 'FIXED'
+                  className={`px-1.5 py-0.5 text-[10px] font-bold rounded ${discountType === 'FIXED'
                       ? 'bg-emerald-600 text-white shadow-xs'
                       : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
-                  }`}
+                    }`}
                 >
                   Rs
                 </button>
@@ -885,11 +958,10 @@ export const QuickCheckoutPage: React.FC = () => {
                 value={clientGivenCash}
                 onChange={(e) => setClientGivenCash(e.target.value)}
                 placeholder={String(total)}
-                className={`w-28 h-8 text-xs text-right font-mono font-bold ${
-                  isEditing
+                className={`w-28 h-8 text-xs text-right font-mono font-bold ${isEditing
                     ? 'bg-slate-100 dark:bg-zinc-900 cursor-not-allowed !text-black dark:!text-white opacity-100 font-extrabold'
                     : 'text-emerald-600 dark:text-emerald-400'
-                }`}
+                  }`}
               />
             </div>
           </div>
@@ -921,11 +993,10 @@ export const QuickCheckoutPage: React.FC = () => {
             <button
               type="button"
               onClick={() => setPaymentMethod('CASH')}
-              className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border text-xs font-semibold ${
-                paymentMethod === 'CASH'
+              className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border text-xs font-semibold ${paymentMethod === 'CASH'
                   ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600'
                   : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400'
-              }`}
+                }`}
             >
               <Banknote className="size-3.5" /> Cash
             </button>
@@ -933,22 +1004,20 @@ export const QuickCheckoutPage: React.FC = () => {
             <button
               type="button"
               onClick={() => setPaymentMethod('CHEQUE')}
-              className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border text-xs font-semibold ${
-                paymentMethod === 'CHEQUE'
+              className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border text-xs font-semibold ${paymentMethod === 'CHEQUE'
                   ? 'border-amber-500 bg-amber-500/10 text-amber-600'
                   : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400'
-              }`}
+                }`}
             >
               <FileText className="size-3.5" /> Cheque
             </button>
             <button
               type="button"
               onClick={() => setPaymentMethod('CREDIT')}
-              className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border text-xs font-semibold ${
-                paymentMethod === 'CREDIT'
+              className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border text-xs font-semibold ${paymentMethod === 'CREDIT'
                   ? 'border-rose-500 bg-rose-500/10 text-rose-600'
                   : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400'
-              }`}
+                }`}
             >
               <Building className="size-3.5" /> Credit
             </button>
@@ -989,7 +1058,7 @@ export const QuickCheckoutPage: React.FC = () => {
             </div>
           )}
 
-          
+
         </div>
       </div>
 
