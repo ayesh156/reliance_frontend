@@ -532,12 +532,15 @@ export const QuickCheckoutPage: React.FC = () => {
           discountRate: discountType === 'PERCENT' ? discountInput : undefined,
         });
         setInvoiceOpen(true);
-      }
-
-      if (isEditing) {
-        navigate('/system/invoices');
+        // ⭐ මුද්‍රණය කිරීමට නියමිත විට මෙතැනින් navigate නොකරන්න.
+        // A4InvoiceModal එකෙන් print window එක ක්‍රියාත්මක වී අවසන් වූ පසු onClose callback එක හරහා navigate කරවනු ලැබේ.
       } else {
-        bootstrapPos();
+        // "Save Changes" (මුද්‍රණය නොකර Save කිරීමේදී) පමණක් ක්ෂණිකව invoices පිටුවට යවන්න
+        if (isEditing) {
+          navigate('/system/invoices');
+        } else {
+          bootstrapPos();
+        }
       }
     } catch (err: any) {
       toast.error(err.message || 'Transaction failed');
@@ -1123,6 +1126,12 @@ export const QuickCheckoutPage: React.FC = () => {
           onClose={() => {
             setInvoiceOpen(false);
             setCompletedOrder(null);
+            // ⭐ මුද්‍රණ සංවාද කවුළුව වැසුණු විගස ආරක්ෂිතව Invoices ලැයිස්තුවට යවයි
+            if (isEditing) {
+              navigate('/system/invoices');
+            } else {
+              bootstrapPos();
+            }
           }}
           order={completedOrder}
           autoPrint={true}

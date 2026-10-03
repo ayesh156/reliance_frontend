@@ -43,23 +43,31 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
 
     const invoiceHeading = isWholesale ? 'WHOLESALE INVOICE' : 'INVOICE';
 
-    // ⭐ 2. Resolve customer outstanding balance and calculate combined total credit due safely
-    const prevBalance = Number(order.customer?.outstandingBalance || order.prevBalance || 0);
-    const hasOldBill = Boolean(order.customerId || order.customer?.id) && prevBalance > 0;
-    // Current bill unpaid credit + previous old bills credit combined
+    // ⭐ 2. World-Class Credit Ledger Synchronization: Prevents Double-Counting on Re-print
     const isCreditOrder = paymentMethodLabel.includes('CREDIT') || balanceDue > 0;
     const currentBillCredit = isCreditOrder ? (balanceDue > 0 ? balanceDue : total) : 0;
-    const grandTotalCreditDue = currentBillCredit + prevBalance;
+    
+    // Total live balance recorded in database for this customer
+    const liveCustomerBalance = Number(order.customer?.outstandingBalance ?? order.prevBalance ?? 0);
+    
+    // When re-printing a saved order, the order's credit is ALREADY included in liveCustomerBalance.
+    // Therefore, true prior debt is: live balance MINUS this invoice's credit.
+    // If order was passed from instant POS creation where live balance is still pre-order, respect that accurately.
+    const truePreviousDue = Math.max(0, Math.round((liveCustomerBalance - currentBillCredit) * 100) / 100);
+    const hasOldBill = Boolean(order.customerId || order.customer?.id) && truePreviousDue > 0.01;
+    
+    // Cumulative total outstanding (Current Bill Credit + True Previous Due)
+    const grandTotalCreditDue = Math.round((currentBillCredit + truePreviousDue) * 100) / 100;
 
     // HTML Snippets to prevent nested template literal syntax breaks
     const oldBillSummaryHtml = hasOldBill ? (
       '<tr>' +
         '<td class="label" style="padding-top: 4px; font-weight: bold;">Previous Due (Old Bills)</td>' +
-        '<td class="value" style="padding-top: 4px; font-weight: bold;">Rs ' + prevBalance.toLocaleString('en-LK', { minimumFractionDigits: 2 }) + '</td>' +
+        '<td class="value" style="padding-top: 4px; font-weight: bold;">Rs ' + truePreviousDue.toLocaleString('en-LK', { minimumFractionDigits: 2 }) + '</td>' +
       '</tr>' +
       '<tr style="border-top: 1.5px solid #000; border-bottom: 2.5px solid #000;">' +
-        '<td class="label" style="font-size: 13.5px; font-weight: 900; padding: 6px 0;">Total Accumulated Credit Due</td>' +
-        '<td class="value" style="font-size: 14.5px; font-weight: 900; padding: 6px 0;">Rs ' + grandTotalCreditDue.toLocaleString('en-LK', { minimumFractionDigits: 2 }) + '</td>' +
+        '<td class="label" style="font-size: 13px; font-weight: 900; padding: 6px 0;">Total Accumulated Credit Due</td>' +
+        '<td class="value" style="font-size: 14px; font-weight: 900; padding: 6px 0;">Rs ' + grandTotalCreditDue.toLocaleString('en-LK', { minimumFractionDigits: 2 }) + '</td>' +
       '</tr>'
     ) : '';
 
@@ -245,8 +253,12 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
             text-transform: uppercase;
             letter-spacing: 0.5px;
           }
+          .items-table tr {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
           .items-table td {
-            padding: 7px 4px;
+            padding: 6px 4px;
             border-bottom: 1px dashed #bbb;
             font-size: 11.5px;
             vertical-align: top;
@@ -301,14 +313,24 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
             font-size: 12.5px;
           }
 
-          /* ⭐ Signatures: Expanded by an additional ~1 inch (110px) to give ample room for stamps and physical signatures */
+          /* Summary Box */
+          .summary-container {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 12px;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+
+          /* ⭐ Signatures: අත්සන් පේළි 4 සහ අඟලක (~65px) ආරක්ෂිත පරතරය සහිත Multi-page break guard */
           .signatures {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
-            gap: 20px;
-            margin-top: 110px; /* Increased to 110px (+50px extra gap) */
-            margin-bottom: 16px;
-            page-break-inside: avoid;
+            gap: 18px;
+            margin-top: 65px;
+            margin-bottom: 12px;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
           }
           .sig-line {
             border-top: 1.2px solid #000;
