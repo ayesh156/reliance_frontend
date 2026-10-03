@@ -32,9 +32,12 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
       : Number(order.paidAmount || 0);
     const change = Math.max(0, tendered - total);
     const balanceDue = Math.max(0, total - tendered);
-    // Resolve customer outstanding balance (Exclude walk-in customers and zero balance accounts)
+    // ⭐ Resolve customer outstanding balance and compute cumulative total due
     const prevBalance = Number(order.customer?.outstandingBalance || order.prevBalance || 0);
     const hasOldBill = Boolean(order.customerId || order.customer?.id) && prevBalance > 0;
+    // Calculates grand cumulative outstanding debt including current bill balance
+    const totalWithOldBill = total + prevBalance;
+    const finalNetDue = balanceDue > 0 ? (balanceDue + prevBalance) : prevBalance;
 
     // 1. Resolve active payment method label (CASH, CHEQUE, CARD, CREDIT)
     // Detect wholesale transactions cleanly
@@ -70,30 +73,36 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
         <meta charset="UTF-8">
         <title>${invoiceNo}</title>
         <style>
+          /* ⭐ Continuous Roll / Tractor Feed: Auto-Height dynamically fitted to bill contents */
           @page {
-            size: A4 portrait;
-            margin: 18mm 15mm; /* Standard printer-safe hardware margins */
+            size: auto; /* Strips fixed page height so continuous paper feeds only to the end of bill */
+            margin: 0mm 8mm 0mm 8mm; /* Zero top/bottom margins kill browser URL/footer and prevent trailing roll feed */
           }
           * {
             box-sizing: border-box;
             color: #000000 !important;
             background: transparent !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
             font-family: Arial, Helvetica, sans-serif !important;
           }
-          body {
+          html, body {
             margin: 0;
             padding: 0;
             background: #ffffff !important;
-            font-size: 12px;
-            line-height: 1.35;
+            font-size: 11.5px;
+            line-height: 1.3;
+            height: auto !important; /* Prevents stretching to full A4 page */
           }
           .invoice-container {
             width: 100%;
-            max-width: 175mm; /* Calibrated to fit standard A4 printable area without edge clipping */
+            max-width: 185mm; /* Safe printable width within 257mm platen limit */
             margin: 0 auto;
+            padding: 8mm 0 6mm 0; /* Padding inside bill instead of page margins */
             page-break-after: avoid;
             page-break-inside: avoid;
             break-inside: avoid;
+            height: auto !important;
           }
           
           /* Modern Header Layout */
@@ -240,60 +249,70 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
           .summary-container {
             display: flex;
             justify-content: flex-end;
-            margin-bottom: 18px;
+            margin-bottom: 12px;
           }
           .summary-table {
-            width: 270px;
+            width: 320px; /* Slightly wider to accommodate dual old bill & net due rows cleanly */
             border-collapse: collapse;
           }
           .summary-table td {
             padding: 3px 0;
-            font-size: 12px;
+            font-size: 11.5px;
           }
           .summary-table .label {
             font-weight: bold;
-            color: #222;
+            color: #000;
           }
           .summary-table .value {
             text-align: right;
-            font-size: 12.5px;
+            font-size: 12px;
             font-weight: bold;
           }
           .summary-table .total-row td {
             border-top: 1.5px solid #000;
             border-bottom: 2px solid #000;
-            font-size: 15px;
+            font-size: 14.5px;
             font-weight: 900;
-            padding: 6px 0;
+            padding: 5px 0;
           }
           .summary-table .total-row .value {
-            font-size: 16px;
+            font-size: 15.5px;
             font-weight: 900;
           }
+          .summary-table .cumulative-row td {
+            border-top: 1px dashed #000;
+            border-bottom: 1.5px solid #000;
+            font-weight: 900;
+            padding: 5px 0;
+            font-size: 12.5px;
+          }
 
-          /* Signatures */
+          /* ⭐ Signatures: Significantly increased top margin to create a spacious gap below Total and room for stamps/signatures */
           .signatures {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
-            gap: 16px;
-            margin-top: 24px;
+            gap: 20px;
+            margin-top: 60px; /* Increased from 24px to 60px for ample physical signing room */
+            margin-bottom: 16px;
+            page-break-inside: avoid;
           }
           .sig-line {
-            border-top: 1px solid #000;
+            border-top: 1.2px solid #000;
             text-align: center;
-            padding-top: 4px;
+            padding-top: 5px;
             font-size: 9.5px;
             font-weight: bold;
             text-transform: uppercase;
             letter-spacing: 0.5px;
           }
 
-          /* Footer */
+          /* Footer - Compact for Roll Paper */
           .footer {
             text-align: center;
-            margin-top: 16px;
-            border-top: 1px solid #000;
-            padding-top: 8px;
+            margin-top: 14px;
+            border-top: 1.2px solid #000;
+            padding-top: 6px;
+            padding-bottom: 2mm; /* Clean stop point for paper tear-off */
           }
           .footer-thanks {
             font-size: 12px;
@@ -397,17 +416,10 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
                 </tr>
               `;
               }).join('')}
-              <!-- Dynamic Old Bill Row (Visible ONLY if registered customer has an active outstanding balance) -->
-              ${hasOldBill ? `
-              <tr>
-                <td colspan="5" class="text-right nowrap" style="padding-top: 8px; font-weight: bold; text-transform: uppercase; font-size: 10px; padding-right: 18px; color: #b91c1c;">Old Bill (Previous Due)</td>
-                <td class="text-right nowrap font-bold" style="padding-top: 8px; font-size: 11px; padding-right: 4px; color: #b91c1c;">Rs ${prevBalance.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
-              </tr>
-              ` : ''}
-            </tbody>
+              </tbody>
           </table>
 
-          <!-- Financial Summary Section -->
+          <!-- Financial Summary Section with Cumulative Previous Outstanding -->
           <div class="summary-container">
             <table class="summary-table">
               <tr>
@@ -420,19 +432,19 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
                 <td class="value">- Rs ${discountVal.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
               </tr>
               ` : ''}
-              <!-- Total Due -->
+              <!-- Current Invoice Total -->
               <tr class="total-row">
-                <td class="label">Total Due</td>
+                <td class="label">Total Due (Current Bill)</td>
                 <td class="value">Rs ${total.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
               </tr>
 
-              <!-- Customer Given Amount (දුන් ගණන) -->
+              <!-- Customer Tendered Amount -->
               <tr>
                 <td class="label" style="padding-top: 6px;">Customer Tendered (${paymentMethodLabel})</td>
                 <td class="value" style="padding-top: 6px;">Rs ${tendered.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
               </tr>
 
-              <!-- Change Returned if customer overpaid (ඉතිරි මුදල) -->
+              <!-- Change Returned if customer overpaid -->
               ${change > 0 ? `
               <tr>
                 <td class="label">Change</td>
@@ -440,11 +452,23 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
               </tr>
               ` : ''}
 
-              <!-- Balance Due / Credit if underpaid with minus sign (හිඟ හෝ Credit මුදල - ලකුණ සමඟ) -->
+              <!-- Current Bill Balance Due -->
               ${balanceDue > 0 ? `
               <tr>
-                <td class="label" style="font-weight: bold;">Credit / Balance Due</td>
-                <td class="value" style="font-weight: bold;">- Rs ${balanceDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                <td class="label">Bill Balance Due</td>
+                <td class="value">Rs ${balanceDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+              </tr>
+              ` : ''}
+
+              <!-- ⭐ Previous Outstanding & Total Cumulative Debt (Visible only when old bills exist) -->
+              ${hasOldBill ? `
+              <tr>
+                <td class="label" style="padding-top: 4px; color: #000;">Previous Due (Old Bills)</td>
+                <td class="value" style="padding-top: 4px; color: #000;">Rs ${prevBalance.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+              </tr>
+              <tr class="cumulative-row">
+                <td class="label">Total Outstanding Due</td>
+                <td class="value">Rs ${finalNetDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
               </tr>
               ` : ''}
             </table>
