@@ -523,8 +523,17 @@ export const QuickCheckoutPage: React.FC = () => {
       setClientGivenCash('');
 
       if (triggerPrint) {
+        // ⭐ Invoices Page හි Print Preview එකෙහි ආකාරයටම customer සහ outstandingBalance ලබා දී අත්සන් පේළිය කැපී යාම වළක්වයි
+        const targetCustomer = customers.find((c) => String(c.id) === String(selectedCustomerId));
         setCompletedOrder({
           ...resultOrder,
+          customer: resultOrder.customer || (targetCustomer ? {
+            id: targetCustomer.id,
+            name: targetCustomer.name,
+            phone: targetCustomer.phone,
+            address: targetCustomer.address,
+            outstandingBalance: (targetCustomer as any).outstandingBalance || 0,
+          } : undefined),
           tenderedAmount: resolvedTendered,
           paidAmount: resolvedPaid,
           discount: discountAmount,

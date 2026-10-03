@@ -118,12 +118,10 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
           }
           .invoice-container {
             width: 100%;
-            max-width: 185mm; /* Safe printable width within 257mm platen limit */
+            max-width: 185mm;
             margin: 0 auto;
-            padding: 8mm 0 6mm 0; /* Padding inside bill instead of page margins */
-            page-break-after: avoid;
-            page-break-inside: avoid;
-            break-inside: avoid;
+            padding: 8mm 0 6mm 0;
+            /* Container එකට page-break avoid දැමීමෙන් දිග බිල් වල අත්සන් කැපී යයි; එම නිසා එය ඉවත් කරනු ලැබේ */
             height: auto !important;
           }
           
@@ -313,24 +311,16 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
             font-size: 12.5px;
           }
 
-          /* Summary Box */
-          .summary-container {
-            display: flex;
-            justify-content: flex-end;
-            margin-bottom: 12px;
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-          }
-
-          /* ⭐ Signatures: අත්සන් පේළි 4 සහ අඟලක (~65px) ආරක්ෂිත පරතරය සහිත Multi-page break guard */
+          /* ⭐ Signatures: Always prints cleanly on the same page or wraps gracefully to the next page */
           .signatures {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
             gap: 18px;
-            margin-top: 65px;
+            margin-top: 50px;
             margin-bottom: 12px;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
+            page-break-before: auto !important;
           }
           .sig-line {
             border-top: 1.2px solid #000;
@@ -342,13 +332,15 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
             letter-spacing: 0.5px;
           }
 
-          /* Footer - Compact for Roll Paper */
+          /* Footer - Compact for Roll Paper & Multi-Page Safety */
           .footer {
             text-align: center;
             margin-top: 14px;
             border-top: 1.2px solid #000;
             padding-top: 6px;
-            padding-bottom: 2mm; /* Clean stop point for paper tear-off */
+            padding-bottom: 4mm;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
           }
           .footer-thanks {
             font-size: 12px;
