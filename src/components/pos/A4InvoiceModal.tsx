@@ -269,14 +269,23 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
           .item-desc { font-weight: bold; font-size: 12px; display: block; }
           .item-meta { font-size: 10.5px; color: #444; display: block; margin-top: 2px; }
 
+          /* ⭐ Unified Closing Block: Keeps Financial Summary & Signatures together on the same sheet */
+          .invoice-closing-block {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            page-break-before: auto;
+            margin-top: 10px;
+            padding-top: 8px;
+          }
+
           /* Summary Box */
           .summary-container {
             display: flex;
             justify-content: flex-end;
-            margin-bottom: 12px;
+            margin-bottom: 8px;
           }
           .summary-table {
-            width: 320px; /* Slightly wider to accommodate dual old bill & net due rows cleanly */
+            width: 320px;
             border-collapse: collapse;
           }
           .summary-table td {
@@ -311,16 +320,15 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
             font-size: 12.5px;
           }
 
-          /* ⭐ Signatures: Always prints cleanly on the same page or wraps gracefully to the next page */
+          /* ⭐ Signatures: Generous 60px gap from totals, protected from sheet tears */
           .signatures {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
             gap: 18px;
-            margin-top: 50px;
-            margin-bottom: 12px;
+            margin-top: 55px; /* Ample physical signing room */
+            margin-bottom: 14px;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
-            page-break-before: auto !important;
           }
           .sig-line {
             border-top: 1.2px solid #000;
@@ -332,13 +340,13 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
             letter-spacing: 0.5px;
           }
 
-          /* Footer - Compact for Roll Paper & Multi-Page Safety */
+          /* Footer - Safe margin from bottom tear line */
           .footer {
             text-align: center;
-            margin-top: 14px;
+            margin-top: 12px;
             border-top: 1.2px solid #000;
             padding-top: 6px;
-            padding-bottom: 4mm;
+            padding-bottom: 8mm; /* Safe clearance for dot matrix roll tear-off */
             page-break-inside: avoid !important;
             break-inside: avoid !important;
           }
@@ -447,66 +455,71 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
             </tbody>
           </table>
 
-          <!-- Financial Summary Section with Cumulative Previous Outstanding -->
-          <div class="summary-container">
-            <table class="summary-table">
-              <tr>
-                <td class="label">Sub Total</td>
-                <td class="value">Rs ${Number(order.subtotal).toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
-              </tr>
-              ${discountVal > 0 ? `
-              <tr>
-                <td class="label">${discountDisplay}</td>
-                <td class="value">- Rs ${discountVal.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
-              </tr>
-              ` : ''}
-              <!-- Current Invoice Total -->
-              <tr class="total-row">
-                <td class="label">Total Due (Current Bill)</td>
-                <td class="value">Rs ${total.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
-              </tr>
+         <!-- ⭐ Unified Closing Block: Prevents orphan totals or orphan signatures on continuous paper -->
+          <div class="invoice-closing-block">
+            
+            <!-- Financial Summary Section with Cumulative Previous Outstanding -->
+            <div class="summary-container">
+              <table class="summary-table">
+                <tr>
+                  <td class="label">Sub Total</td>
+                  <td class="value">Rs ${Number(order.subtotal).toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                ${discountVal > 0 ? `
+                <tr>
+                  <td class="label">${discountDisplay}</td>
+                  <td class="value">- Rs ${discountVal.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                ` : ''}
+                <!-- Current Invoice Total -->
+                <tr class="total-row">
+                  <td class="label">Total Due (Current Bill)</td>
+                  <td class="value">Rs ${total.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                </tr>
 
-              <!-- පාරිභෝගිකයා අත්පිට මුදලක් ගෙවූ විට පමණක් Customer Tendered පෙන්වීම (Credit බිල් වලදී Rs 0.00 නොපෙන්වයි) -->
-              ${tendered > 0 ? (
-                '<tr>' +
-                  '<td class="label" style="padding-top: 6px;">Customer Tendered (' + paymentMethodLabel + ')</td>' +
-                  '<td class="value" style="padding-top: 6px;">Rs ' + tendered.toLocaleString('en-LK', { minimumFractionDigits: 2 }) + '</td>' +
-                '</tr>'
-              ) : ''}
+                <!-- පාරිභෝගිකයා අත්පිට මුදලක් ගෙවූ විට පමණක් Customer Tendered පෙන්වීම -->
+                ${tendered > 0 ? (
+                  '<tr>' +
+                    '<td class="label" style="padding-top: 6px;">Customer Tendered (' + paymentMethodLabel + ')</td>' +
+                    '<td class="value" style="padding-top: 6px;">Rs ' + tendered.toLocaleString('en-LK', { minimumFractionDigits: 2 }) + '</td>' +
+                  '</tr>'
+                ) : ''}
 
-              <!-- Change Returned if customer overpaid -->
-              ${change > 0 ? (
-                '<tr>' +
-                  '<td class="label">Change</td>' +
-                  '<td class="value">Rs ' + change.toLocaleString('en-LK', { minimumFractionDigits: 2 }) + '</td>' +
-                '</tr>'
-              ) : ''}
+                <!-- Change Returned if customer overpaid -->
+                ${change > 0 ? (
+                  '<tr>' +
+                    '<td class="label">Change</td>' +
+                    '<td class="value">Rs ' + change.toLocaleString('en-LK', { minimumFractionDigits: 2 }) + '</td>' +
+                  '</tr>'
+                ) : ''}
 
-              <!-- අත්පිට මුදලක් කොටසක් ගෙවා ඉතිරිය Credit වූ විට පමණක් Bill Balance Due පෙන්වීම -->
-              ${balanceDue > 0 && tendered > 0 ? (
-                '<tr>' +
-                  '<td class="label">Bill Balance Due</td>' +
-                  '<td class="value">Rs ' + balanceDue.toLocaleString('en-LK', { minimumFractionDigits: 2 }) + '</td>' +
-                '</tr>'
-              ) : ''}
+                <!-- අත්පිට මුදලක් කොටසක් ගෙවා ඉතිරිය Credit වූ විට පමණක් Bill Balance Due පෙන්වීම -->
+                ${balanceDue > 0 && tendered > 0 ? (
+                  '<tr>' +
+                    '<td class="label">Bill Balance Due</td>' +
+                    '<td class="value">Rs ' + balanceDue.toLocaleString('en-LK', { minimumFractionDigits: 2 }) + '</td>' +
+                  '</tr>'
+                ) : ''}
 
-              <!-- ⭐ Previous Due & Total Accumulated Credit (Current Bill Credit + Old Bills) -->
-              ${oldBillSummaryHtml}
-            </table>
-          </div>
+                <!-- ⭐ Previous Due & Total Accumulated Credit (Current Bill Credit + Old Bills) -->
+                ${oldBillSummaryHtml}
+              </table>
+            </div>
 
-          <!-- Minimalist Signatures Block -->
-          <div class="signatures">
-            <div class="sig-line">Customer</div>
-            <div class="sig-line">Marketing Officer</div>
-            <div class="sig-line">Delivery</div>
-            <div class="sig-line">Authorized</div>
-          </div>
+            <!-- Minimalist Signatures Block -->
+            <div class="signatures">
+              <div class="sig-line">Customer</div>
+              <div class="sig-line">Marketing Officer</div>
+              <div class="sig-line">Delivery</div>
+              <div class="sig-line">Authorized</div>
+            </div>
 
-          <!-- Footer Area -->
-          <div class="footer">
-            <div class="footer-thanks">Thank you for your business</div>
-            <div class="footer-policy">Returns and exchanges are valid only for 7 days with original invoice.</div>
+            <!-- Footer Area -->
+            <div class="footer">
+              <div class="footer-thanks">Thank you for your business</div>
+              <div class="footer-policy">Returns and exchanges are valid only for 7 days with original invoice.</div>
+            </div>
+
           </div>
           
         </div>
