@@ -28,7 +28,14 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(data?.error || `API Error ${response.status}: ${response.statusText}`);
+    // ⭐ Backend එකෙන් එන message, error හෝ errors array එකෙන් පැහැදිලි පණිවිඩය කියවා ගැනීම
+    const resolvedErrorMessage =
+      data?.message ||
+      data?.error ||
+      (Array.isArray(data?.errors) ? data.errors[0] : null) ||
+      `API Error ${response.status}: ${response.statusText}`;
+
+    throw new Error(resolvedErrorMessage);
   }
 
   return data as T;
