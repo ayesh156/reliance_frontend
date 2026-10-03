@@ -452,22 +452,24 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
                 <td class="value">Rs ${total.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
               </tr>
 
-              <!-- Customer Tendered Amount -->
-              <tr>
-                <td class="label" style="padding-top: 6px;">Customer Tendered (${paymentMethodLabel})</td>
-                <td class="value" style="padding-top: 6px;">Rs ${tendered.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
-              </tr>
+              <!-- පාරිභෝගිකයා අත්පිට මුදලක් ගෙවූ විට පමණක් Customer Tendered පෙන්වීම (Credit බිල් වලදී Rs 0.00 නොපෙන්වයි) -->
+              ${tendered > 0 ? (
+                '<tr>' +
+                  '<td class="label" style="padding-top: 6px;">Customer Tendered (' + paymentMethodLabel + ')</td>' +
+                  '<td class="value" style="padding-top: 6px;">Rs ' + tendered.toLocaleString('en-LK', { minimumFractionDigits: 2 }) + '</td>' +
+                '</tr>'
+              ) : ''}
 
               <!-- Change Returned if customer overpaid -->
-              ${change > 0 ? `
-              <tr>
-                <td class="label">Change</td>
-                <td class="value">Rs ${change.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
-              </tr>
-              ` : ''}
+              ${change > 0 ? (
+                '<tr>' +
+                  '<td class="label">Change</td>' +
+                  '<td class="value">Rs ' + change.toLocaleString('en-LK', { minimumFractionDigits: 2 }) + '</td>' +
+                '</tr>'
+              ) : ''}
 
-              <!-- Current Bill Balance Due -->
-              ${balanceDue > 0 ? (
+              <!-- අත්පිට මුදලක් කොටසක් ගෙවා ඉතිරිය Credit වූ විට පමණක් Bill Balance Due පෙන්වීම -->
+              ${balanceDue > 0 && tendered > 0 ? (
                 '<tr>' +
                   '<td class="label">Bill Balance Due</td>' +
                   '<td class="value">Rs ' + balanceDue.toLocaleString('en-LK', { minimumFractionDigits: 2 }) + '</td>' +
