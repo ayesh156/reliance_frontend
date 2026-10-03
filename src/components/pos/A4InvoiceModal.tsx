@@ -32,12 +32,6 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
       : Number(order.paidAmount || 0);
     const change = Math.max(0, tendered - total);
     const balanceDue = Math.max(0, total - tendered);
-    // ⭐ Resolve customer outstanding balance and compute cumulative total due
-    const prevBalance = Number(order.customer?.outstandingBalance || order.prevBalance || 0);
-    const hasOldBill = Boolean(order.customerId || order.customer?.id) && prevBalance > 0;
-    // Calculates grand cumulative outstanding debt including current bill balance
-    const totalWithOldBill = total + prevBalance;
-    const finalNetDue = balanceDue > 0 ? (balanceDue + prevBalance) : prevBalance;
 
     // 1. Resolve active payment method label (CASH, CHEQUE, CARD, CREDIT)
     // Detect wholesale transactions cleanly
@@ -48,6 +42,26 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
       : (isWholesale ? 'WHOLESALE CREDIT' : 'CASH');
 
     const invoiceHeading = isWholesale ? 'WHOLESALE INVOICE' : 'INVOICE';
+
+    // ⭐ 2. Resolve customer outstanding balance and calculate combined total credit due safely
+    const prevBalance = Number(order.customer?.outstandingBalance || order.prevBalance || 0);
+    const hasOldBill = Boolean(order.customerId || order.customer?.id) && prevBalance > 0;
+    // Current bill unpaid credit + previous old bills credit combined
+    const isCreditOrder = paymentMethodLabel.includes('CREDIT') || balanceDue > 0;
+    const currentBillCredit = isCreditOrder ? (balanceDue > 0 ? balanceDue : total) : 0;
+    const grandTotalCreditDue = currentBillCredit + prevBalance;
+
+    // HTML Snippets to prevent nested template literal syntax breaks
+    const oldBillSummaryHtml = hasOldBill ? (
+      '<tr>' +
+        '<td class="label" style="padding-top: 4px; font-weight: bold;">Previous Due (Old Bills)</td>' +
+        '<td class="value" style="padding-top: 4px; font-weight: bold;">Rs ' + prevBalance.toLocaleString('en-LK', { minimumFractionDigits: 2 }) + '</td>' +
+      '</tr>' +
+      '<tr style="border-top: 1.5px solid #000; border-bottom: 2.5px solid #000;">' +
+        '<td class="label" style="font-size: 13.5px; font-weight: 900; padding: 6px 0;">Total Accumulated Credit Due</td>' +
+        '<td class="value" style="font-size: 14.5px; font-weight: 900; padding: 6px 0;">Rs ' + grandTotalCreditDue.toLocaleString('en-LK', { minimumFractionDigits: 2 }) + '</td>' +
+      '</tr>'
+    ) : '';
 
     // 2. Resolve discount label strictly based on chosen discountType
     const discountVal = Number(order.discount || 0);
@@ -287,12 +301,12 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
             font-size: 12.5px;
           }
 
-          /* ⭐ Signatures: Significantly increased top margin to create a spacious gap below Total and room for stamps/signatures */
+          /* ⭐ Signatures: Expanded by an additional ~1 inch (110px) to give ample room for stamps and physical signatures */
           .signatures {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
             gap: 20px;
-            margin-top: 60px; /* Increased from 24px to 60px for ample physical signing room */
+            margin-top: 110px; /* Increased to 110px (+50px extra gap) */
             margin-bottom: 16px;
             page-break-inside: avoid;
           }
@@ -416,7 +430,7 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
                 </tr>
               `;
               }).join('')}
-              </tbody>
+            </tbody>
           </table>
 
           <!-- Financial Summary Section with Cumulative Previous Outstanding -->
@@ -453,24 +467,15 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
               ` : ''}
 
               <!-- Current Bill Balance Due -->
-              ${balanceDue > 0 ? `
-              <tr>
-                <td class="label">Bill Balance Due</td>
-                <td class="value">Rs ${balanceDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
-              </tr>
-              ` : ''}
+              ${balanceDue > 0 ? (
+                '<tr>' +
+                  '<td class="label">Bill Balance Due</td>' +
+                  '<td class="value">Rs ' + balanceDue.toLocaleString('en-LK', { minimumFractionDigits: 2 }) + '</td>' +
+                '</tr>'
+              ) : ''}
 
-              <!-- ⭐ Previous Outstanding & Total Cumulative Debt (Visible only when old bills exist) -->
-              ${hasOldBill ? `
-              <tr>
-                <td class="label" style="padding-top: 4px; color: #000;">Previous Due (Old Bills)</td>
-                <td class="value" style="padding-top: 4px; color: #000;">Rs ${prevBalance.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
-              </tr>
-              <tr class="cumulative-row">
-                <td class="label">Total Outstanding Due</td>
-                <td class="value">Rs ${finalNetDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
-              </tr>
-              ` : ''}
+              <!-- ⭐ Previous Due & Total Accumulated Credit (Current Bill Credit + Old Bills) -->
+              ${oldBillSummaryHtml}
             </table>
           </div>
 
