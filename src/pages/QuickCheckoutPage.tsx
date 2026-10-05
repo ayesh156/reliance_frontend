@@ -227,6 +227,36 @@ export const QuickCheckoutPage: React.FC = () => {
   }, [selectedCustomerId]);
 
   /**
+   * Universal helper to accurately compute customer previous due across Dropdown, Badges, and Financial Summary
+   */
+  const computeCustomerPreviousDue = (
+    cust: PosCustomer | null | undefined,
+    isEditMode: boolean,
+    origInv: any
+  ): number => {
+    if (!cust) return 0;
+    const custTotal = Number(cust.outstandingBalance ?? (cust as any).due ?? 0);
+    if (custTotal <= 0) return 0;
+
+    if (isEditMode && origInv && String(origInv.customerId) === String(cust.id)) {
+      const origUnpaid = Math.max(0, Number(origInv.totalAmount || 0) - Number(origInv.paidAmount || 0));
+      const origSettled = Number(origInv.settledDueAmount || 0);
+
+      // Account for historical settled due amount recorded on this invoice
+      const rawDiff = custTotal - origUnpaid + origSettled;
+      const calcDue = Math.max(0, Math.round(rawDiff * 100) / 100);
+
+      // If the difference evaluates to 0 but customer has existing outstanding balance > 0, preserve customer balance correctly
+      if (calcDue === 0 && custTotal > 0) {
+        return origSettled > 0 ? origSettled : custTotal;
+      }
+      return calcDue;
+    }
+
+    return custTotal;
+  };
+
+  /**
    * Synchronize customer previous due credit balance accurately
    */
   useEffect(() => {
@@ -234,14 +264,8 @@ export const QuickCheckoutPage: React.FC = () => {
       setPreviousDue(0);
       return;
     }
-    const customerTotalDue = Number(selectedCustomer.outstandingBalance ?? (selectedCustomer as any).due ?? 0);
-    if (isEditing && originalInvoice && String(originalInvoice.customerId) === String(selectedCustomerId)) {
-      const originalInvoiceUnpaid = Math.max(0, Number(originalInvoice.totalAmount || 0) - Number(originalInvoice.paidAmount || 0));
-      const truePreviousDue = Math.max(0, customerTotalDue - originalInvoiceUnpaid);
-      setPreviousDue(truePreviousDue);
-    } else {
-      setPreviousDue(customerTotalDue);
-    }
+    const truePreviousDue = computeCustomerPreviousDue(selectedCustomer, isEditing, originalInvoice);
+    setPreviousDue(truePreviousDue);
   }, [selectedCustomerId, selectedCustomer, isEditing, originalInvoice]);
 
   /**
@@ -319,11 +343,12 @@ export const QuickCheckoutPage: React.FC = () => {
 
         if (inv.customerId) {
           let customerTotalDue = 0;
+          let loadedCustomerRecord: PosCustomer | null = null;
           try {
             const freshCust = await get<any>(`/customers/${inv.customerId}`);
             if (freshCust && freshCust.id) {
               customerTotalDue = Number(freshCust.outstandingBalance ?? freshCust.due ?? 0);
-              const custRecord: PosCustomer = {
+              loadedCustomerRecord = {
                 id: freshCust.id,
                 name: freshCust.name,
                 phone: freshCust.phone || '',
@@ -333,18 +358,18 @@ export const QuickCheckoutPage: React.FC = () => {
                 outstandingBalance: customerTotalDue,
               };
               setCustomers((prev) => {
-                const exists = prev.some((c) => c.id === custRecord.id);
+                const exists = prev.some((c) => c.id === loadedCustomerRecord!.id);
                 if (exists) {
-                  return prev.map((c) => (c.id === custRecord.id ? { ...c, ...custRecord } : c));
+                  return prev.map((c) => (c.id === loadedCustomerRecord!.id ? { ...c, ...loadedCustomerRecord } : c));
                 }
-                return [custRecord, ...prev];
+                return [loadedCustomerRecord!, ...prev];
               });
             }
           } catch (custErr) {
             console.warn('Could not fetch fresh customer in loadEditInvoice:', custErr);
             if (inv.customer && inv.customer.id) {
               customerTotalDue = Number(inv.customer.outstandingBalance ?? inv.customer.due ?? 0);
-              const custRecord: PosCustomer = {
+              loadedCustomerRecord = {
                 id: inv.customer.id,
                 name: inv.customer.name,
                 phone: inv.customer.phone || '',
@@ -354,19 +379,19 @@ export const QuickCheckoutPage: React.FC = () => {
                 outstandingBalance: customerTotalDue,
               };
               setCustomers((prev) => {
-                const exists = prev.some((c) => c.id === custRecord.id);
+                const exists = prev.some((c) => c.id === loadedCustomerRecord!.id);
                 if (exists) {
-                  return prev.map((c) => (c.id === custRecord.id ? { ...c, ...custRecord } : c));
+                  return prev.map((c) => (c.id === loadedCustomerRecord!.id ? { ...c, ...loadedCustomerRecord } : c));
                 }
-                return [custRecord, ...prev];
+                return [loadedCustomerRecord!, ...prev];
               });
             }
           }
 
-          const originalInvoiceUnpaid = Math.max(0, Number(inv.totalAmount || 0) - Number(inv.paidAmount || 0));
-          const effectiveCustTotal = customerTotalDue > 0 ? customerTotalDue : Number(inv.customer?.outstandingBalance ?? inv.customer?.due ?? 0);
-          const truePreviousDue = Math.max(0, effectiveCustTotal - originalInvoiceUnpaid);
-          setPreviousDue(truePreviousDue);
+          if (loadedCustomerRecord) {
+            const truePreviousDue = computeCustomerPreviousDue(loadedCustomerRecord, true, inv);
+            setPreviousDue(truePreviousDue);
+          }
         }
 
         // Pre-fill Payment method
@@ -953,6 +978,7 @@ export const QuickCheckoutPage: React.FC = () => {
       setCustomers((prev) =>
         prev.map((c) => (c.id === selectedCustomer.id ? { ...c, outstandingBalance: targetOutstanding } : c))
       );
+      setPreviousDue(newBal);
       toast.success(`Previous due for ${selectedCustomer.name} updated to Rs. ${newBal.toLocaleString()}`);
       setEditingPrevDue(false);
     } catch (err: any) {
@@ -1483,12 +1509,7 @@ export const QuickCheckoutPage: React.FC = () => {
             options={[
               { value: 'walk-in', label: 'Walk-in Customer (General)' },
               ...customers.map((c) => {
-                const custUnpaid = isEditing && originalInvoice && String(originalInvoice.customerId) === String(c.id)
-                  ? Math.max(0, Number(originalInvoice.totalAmount || 0) - Number(originalInvoice.paidAmount || 0))
-                  : 0;
-                const custTotal = Number(c.outstandingBalance ?? (c as any).due ?? 0);
-                const calcDue = Math.max(0, custTotal - custUnpaid);
-                const effectiveDue = isEditing && custUnpaid > 0 && calcDue === 0 && custTotal > 0 ? custTotal : (calcDue > 0 ? calcDue : custTotal);
+                const effectiveDue = computeCustomerPreviousDue(c, isEditing, originalInvoice);
                 return {
                   value: String(c.id),
                   label: `${c.name} (${c.phone})${effectiveDue > 0 ? ` · Due: Rs. ${Number(effectiveDue).toLocaleString()}` : ''}`,
