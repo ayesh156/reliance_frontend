@@ -30,8 +30,6 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
     const tendered = order.tenderedAmount !== undefined 
       ? Number(order.tenderedAmount) 
       : Number(order.paidAmount || 0);
-    const change = Math.max(0, tendered - total);
-    const balanceDue = Math.max(0, total - tendered);
 
     // 1. Resolve active payment method label (CASH, CHEQUE, CARD, CREDIT)
     // Detect wholesale transactions cleanly
@@ -44,32 +42,26 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
     const invoiceHeading = isWholesale ? 'WHOLESALE INVOICE' : 'INVOICE';
 
     // ⭐ 2. World-Class Credit Ledger Synchronization: Prevents Double-Counting on Re-print
+    const paidAmount = order.paidAmount !== undefined
+      ? Number(order.paidAmount)
+      : Math.min(total, tendered);
+    const settledDue = Number(order.settledDueAmount || 0);
+    const remainingChange = Math.max(0, Math.round((tendered - paidAmount - settledDue) * 100) / 100);
+    const balanceDue = Math.max(0, Math.round((total - paidAmount) * 100) / 100);
+
     const isCreditOrder = paymentMethodLabel.includes('CREDIT') || balanceDue > 0;
-    const currentBillCredit = isCreditOrder ? (balanceDue > 0 ? balanceDue : total) : 0;
+    const currentBillCredit = isCreditOrder ? balanceDue : 0;
     
     // Total live balance recorded in database for this customer
     const liveCustomerBalance = Number(order.customer?.outstandingBalance ?? order.prevBalance ?? 0);
     
     // When re-printing a saved order, the order's credit is ALREADY included in liveCustomerBalance.
-    // Therefore, true prior debt is: live balance MINUS this invoice's credit.
-    // If order was passed from instant POS creation where live balance is still pre-order, respect that accurately.
-    const truePreviousDue = Math.max(0, Math.round((liveCustomerBalance - currentBillCredit) * 100) / 100);
-    const hasOldBill = Boolean(order.customerId || order.customer?.id) && truePreviousDue > 0.01;
+    // Therefore, true prior debt is: live balance MINUS this invoice's credit PLUS any settled due amount.
+    const truePreviousDue = Math.max(0, Math.round((liveCustomerBalance - currentBillCredit + settledDue) * 100) / 100);
+    const hasCreditLedger = Boolean(order.customerId || order.customer?.id) && (truePreviousDue > 0.01 || settledDue > 0.01 || liveCustomerBalance > 0.01);
     
-    // Cumulative total outstanding (Current Bill Credit + True Previous Due)
-    const grandTotalCreditDue = Math.round((currentBillCredit + truePreviousDue) * 100) / 100;
-
-    // HTML Snippets to prevent nested template literal syntax breaks
-    const oldBillSummaryHtml = hasOldBill ? (
-      '<tr>' +
-        '<td class="label" style="padding-top: 4px; font-weight: bold;">Previous Due (Old Bills)</td>' +
-        '<td class="value" style="padding-top: 4px; font-weight: bold;">Rs ' + truePreviousDue.toLocaleString('en-LK', { minimumFractionDigits: 2 }) + '</td>' +
-      '</tr>' +
-      '<tr style="border-top: 1.5px solid #000; border-bottom: 2.5px solid #000;">' +
-        '<td class="label" style="font-size: 13px; font-weight: 900; padding: 6px 0;">Total Accumulated Credit Due</td>' +
-        '<td class="value" style="font-size: 14px; font-weight: 900; padding: 6px 0;">Rs ' + grandTotalCreditDue.toLocaleString('en-LK', { minimumFractionDigits: 2 }) + '</td>' +
-      '</tr>'
-    ) : '';
+    // Cumulative total outstanding (Current Bill Credit + True Previous Due - Settled Due)
+    const grandTotalCreditDue = Math.max(0, Math.round((currentBillCredit + truePreviousDue - settledDue) * 100) / 100);
 
     // 2. Resolve discount label strictly based on chosen discountType
     const discountVal = Number(order.discount || 0);
@@ -286,6 +278,7 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
           }
           .summary-table {
             width: 320px;
+            table-layout: fixed;
             border-collapse: collapse;
           }
           .summary-table td {
@@ -295,11 +288,17 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
           .summary-table .label {
             font-weight: bold;
             color: #000;
+            width: 58%;
+            text-align: left;
+            vertical-align: top;
           }
           .summary-table .value {
             text-align: right;
             font-size: 12px;
             font-weight: bold;
+            width: 42%;
+            white-space: nowrap;
+            vertical-align: top;
           }
           .summary-table .total-row td {
             border-top: 1.5px solid #000;
@@ -313,11 +312,15 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
             font-weight: 900;
           }
           .summary-table .cumulative-row td {
-            border-top: 1px dashed #000;
-            border-bottom: 1.5px solid #000;
+            border-top: 1.5px solid #000;
+            border-bottom: 2.5px solid #000;
             font-weight: 900;
             padding: 5px 0;
             font-size: 12.5px;
+          }
+          .summary-table .cumulative-row .value {
+            font-size: 13.5px;
+            font-weight: 900;
           }
 
           /* ⭐ Signatures: Generous 60px gap from totals, protected from sheet tears */
@@ -419,6 +422,14 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
                 <div style="margin-top: 2px;"><strong>Contact:</strong> ${order.customerPhone || order.customer?.phone || '-'}</div>
               </div>
             </div>
+            ${order.notes ? `
+            <div style="max-width: 250px; text-align: right;">
+              <div class="section-title">Payment / Note Details</div>
+              <div style="font-size: 11px; font-weight: 600; color: #111; word-break: break-word; line-height: 1.35; margin-top: 2px;">
+                ${order.notes}
+              </div>
+            </div>
+            ` : ''}
           </div>
 
           <!-- Items Table: 100% Balanced Column Proportions -->
@@ -461,9 +472,10 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
             <!-- Financial Summary Section with Cumulative Previous Outstanding -->
             <div class="summary-container">
               <table class="summary-table">
+                <!-- 1. Bill Calculation -->
                 <tr>
                   <td class="label">Sub Total</td>
-                  <td class="value">Rs ${Number(order.subtotal).toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                  <td class="value">Rs ${subtotalVal.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
                 </tr>
                 ${discountVal > 0 ? `
                 <tr>
@@ -477,32 +489,41 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
                   <td class="value">Rs ${total.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
                 </tr>
 
-                <!-- පාරිභෝගිකයා අත්පිට මුදලක් ගෙවූ විට පමණක් Customer Tendered පෙන්වීම -->
-                ${tendered > 0 ? (
-                  '<tr>' +
-                    '<td class="label" style="padding-top: 6px;">Customer Tendered (' + paymentMethodLabel + ')</td>' +
-                    '<td class="value" style="padding-top: 6px;">Rs ' + tendered.toLocaleString('en-LK', { minimumFractionDigits: 2 }) + '</td>' +
-                  '</tr>'
-                ) : ''}
+                <!-- 2. Tendered & Payment Breakdown (shown when customer tendered/paid cash or payment) -->
+                ${(tendered > 0 || paidAmount > 0) ? `
+                <tr style="border-top: 1px dashed #888;">
+                  <td class="label" style="padding-top: 5px;">Customer Tendered (${paymentMethodLabel})</td>
+                  <td class="value" style="padding-top: 5px;">Rs ${tendered.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                <tr>
+                  <td class="label">Paid for Current Bill</td>
+                  <td class="value">Rs ${paidAmount.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                ${settledDue > 0 ? `
+                <tr>
+                  <td class="label">Due Settled from Tendered</td>
+                  <td class="value">- Rs ${settledDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                ` : ''}
+                ${remainingChange > 0 ? `
+                <tr>
+                  <td class="label">Change Returned</td>
+                  <td class="value">Rs ${remainingChange.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                ` : ''}
+                ` : ''}
 
-                <!-- Change Returned if customer overpaid -->
-                ${change > 0 ? (
-                  '<tr>' +
-                    '<td class="label">Change</td>' +
-                    '<td class="value">Rs ' + change.toLocaleString('en-LK', { minimumFractionDigits: 2 }) + '</td>' +
-                  '</tr>'
-                ) : ''}
-
-                <!-- අත්පිට මුදලක් කොටසක් ගෙවා ඉතිරිය Credit වූ විට පමණක් Bill Balance Due පෙන්වීම -->
-                ${balanceDue > 0 && tendered > 0 ? (
-                  '<tr>' +
-                    '<td class="label">Bill Balance Due</td>' +
-                    '<td class="value">Rs ' + balanceDue.toLocaleString('en-LK', { minimumFractionDigits: 2 }) + '</td>' +
-                  '</tr>'
-                ) : ''}
-
-                <!-- ⭐ Previous Due & Total Accumulated Credit (Current Bill Credit + Old Bills) -->
-                ${oldBillSummaryHtml}
+                <!-- 3. Previous Due & Total Accumulated Credit -->
+                ${hasCreditLedger ? `
+                <tr style="border-top: 1px dashed #888;">
+                  <td class="label" style="padding-top: 5px;">Previous Due (Old Bills)</td>
+                  <td class="value" style="padding-top: 5px;">Rs ${truePreviousDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                <tr class="cumulative-row">
+                  <td class="label">Total Accumulated Credit Due</td>
+                  <td class="value">Rs ${grandTotalCreditDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                ` : ''}
               </table>
             </div>
 

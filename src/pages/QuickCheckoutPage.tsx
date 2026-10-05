@@ -37,6 +37,8 @@ import {
   Save,
   CreditCard,
   Landmark,
+  Pencil,
+  RotateCcw,
 } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../utils/whatsapp';
@@ -71,13 +73,24 @@ interface CartItem {
   maxStock: number;
 }
 
+interface PosCustomer {
+  id: number;
+  name: string;
+  phone: string;
+  address?: string;
+  city?: string;
+  creditLimit?: number;
+  outstandingBalance?: number;
+}
+
 export const QuickCheckoutPage: React.FC = () => {
   const { theme } = useTheme();
   const dark = theme === 'dark';
 
   const [catalog, setCatalog] = useState<CatalogVariant[]>([]);
-  const [customers, setCustomers] = useState<{ id: number; name: string; phone: string; address?: string }[]>([]);
+  const [customers, setCustomers] = useState<PosCustomer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingCustomerBalance, setLoadingCustomerBalance] = useState(false);
 
   // Mode: Retail vs Wholesale (Shops)
   const [pricingMode, setPricingMode] = useState<'RETAIL' | 'WHOLESALE'>('RETAIL');
@@ -95,8 +108,11 @@ export const QuickCheckoutPage: React.FC = () => {
   // Checkout and Customer states
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('walk-in');
   const [clientGivenCash, setClientGivenCash] = useState<string>('');
-  // Payment methods: Cash, Cheque, and Credit
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CHEQUE' | 'CREDIT'>('CASH');
+  const [excessMode, setExcessMode] = useState<'CHANGE' | 'SETTLE_DUE'>('CHANGE');
+  // Payment methods: Cash, Cheque, and Credit (default to CREDIT when no cash is tendered)
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CHEQUE' | 'CREDIT'>('CREDIT');
+  const [paymentNote, setPaymentNote] = useState<string>('');
+  const [showNoteInput, setShowNoteInput] = useState<boolean>(false);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const editInvoiceId = searchParams.get('editInvoiceId');
@@ -126,6 +142,58 @@ export const QuickCheckoutPage: React.FC = () => {
 
   // Track notified invoice ID to prevent duplicate toast triggers in React StrictMode
   const lastNotifiedEditIdRef = useRef<string | null>(null);
+
+  // Derive active selected customer
+  const selectedCustomer = useMemo(() => {
+    if (selectedCustomerId === 'walk-in' || !selectedCustomerId) return null;
+    return customers.find((c) => String(c.id) === String(selectedCustomerId)) || null;
+  }, [customers, selectedCustomerId]);
+
+  /**
+   * Real-time live customer record and balance fetch when attached to cart
+   */
+  useEffect(() => {
+    if (selectedCustomerId === 'walk-in' || !selectedCustomerId) {
+      setLoadingCustomerBalance(false);
+      return;
+    }
+    const custId = parseInt(selectedCustomerId, 10);
+    if (isNaN(custId) || custId <= 0) return;
+
+    let isMounted = true;
+    setLoadingCustomerBalance(true);
+
+    get<any>(`/customers/${custId}`)
+      .then((freshCustomer) => {
+        if (!isMounted || !freshCustomer) return;
+        setCustomers((prev) => {
+          const exists = prev.some((c) => c.id === freshCustomer.id);
+          const updatedRecord: PosCustomer = {
+            id: freshCustomer.id,
+            name: freshCustomer.name,
+            phone: freshCustomer.phone,
+            address: freshCustomer.address,
+            city: freshCustomer.city,
+            creditLimit: Number(freshCustomer.creditLimit) || 0,
+            outstandingBalance: Number(freshCustomer.outstandingBalance) || 0,
+          };
+          if (exists) {
+            return prev.map((c) => (c.id === freshCustomer.id ? { ...c, ...updatedRecord } : c));
+          }
+          return [updatedRecord, ...prev];
+        });
+      })
+      .catch((err) => {
+        console.warn('Real-time balance synchronization notice:', err);
+      })
+      .finally(() => {
+        if (isMounted) setLoadingCustomerBalance(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedCustomerId]);
 
   /**
    * Fetch catalog products and registered customer records
@@ -177,7 +245,16 @@ export const QuickCheckoutPage: React.FC = () => {
         // Pre-fill Customer with phone fallback
         setSelectedCustomerId(inv.customerId ? String(inv.customerId) : 'walk-in');
         // Pre-fill Payment method
-        setPaymentMethod(inv.paymentMethod === 'CHEQUE' ? 'CHEQUE' : inv.paymentMethod === 'CREDIT' ? 'CREDIT' : 'CASH');
+        const loadedMethod = inv.paymentMethod === 'CHEQUE' ? 'CHEQUE' : inv.paymentMethod === 'CREDIT' ? 'CREDIT' : 'CASH';
+        setPaymentMethod(loadedMethod);
+        // Pre-fill Payment Note
+        if (inv.notes) {
+          setPaymentNote(inv.notes);
+          setShowNoteInput(true);
+        } else {
+          setPaymentNote('');
+          setShowNoteInput(loadedMethod === 'CHEQUE');
+        }
         // Pre-fill Cash Tendered
         setClientGivenCash(String(inv.paidAmount !== undefined ? inv.paidAmount : ''));
 
@@ -301,6 +378,13 @@ export const QuickCheckoutPage: React.FC = () => {
   };
 
   /**
+   * Remove variant item directly from cart
+   */
+  const removeFromCart = (variantId: number) => {
+    setCart((prev) => prev.filter((i) => i.variantId !== variantId));
+  };
+
+  /**
    * ⭐ Directly update item quantity with full decimal support (e.g. 1.5, 2.25)
    * Validates against maximum stock and non-negative numbers
    */
@@ -377,35 +461,82 @@ export const QuickCheckoutPage: React.FC = () => {
 
   const total = Math.max(0, subtotal - discountAmount);
 
-  // Client Cash calculations for change and outstanding balance
-  const cashEntered = clientGivenCash === '' ? 0 : Number(clientGivenCash);
-  const cashChange = cashEntered > total ? cashEntered - total : 0;
-  const balanceDue = cashEntered < total && cashEntered > 0 ? total - cashEntered : cashEntered === 0 ? total : 0;
+  // Client Cash parsing (dynamically treat empty, negative, or invalid input as 0)
+  const parsedClientCash = Math.max(0, Number(clientGivenCash) || 0);
+
+  // Dynamic real-time balance calculations
+  const tenderedAmount = clientGivenCash !== ''
+    ? parsedClientCash
+    : (paymentMethod === 'CREDIT' ? 0 : total);
+
+  const paidAmount = clientGivenCash !== ''
+    ? Math.min(total, parsedClientCash)
+    : (paymentMethod === 'CREDIT' ? 0 : total);
+
+  const excessAmount = Math.max(0, tenderedAmount - total);
+  const currentBillDue = Math.max(0, total - paidAmount);
+
+  // Outstanding Balance calculations (Previous Due & Accumulated Credit)
+  const rawCustomerOutstanding = selectedCustomer ? Number(selectedCustomer.outstandingBalance || 0) : 0;
+  
+  // In edit mode, subtract original invoice's credit due from live database balance to prevent double counting
+  const originalCredit = isEditing && originalInvoice
+    ? Math.max(0, Number(originalInvoice.totalAmount || 0) - Number(originalInvoice.paidAmount || 0))
+    : 0;
+
+  const previousDue = selectedCustomer 
+    ? Math.max(0, Math.round((rawCustomerOutstanding - originalCredit) * 100) / 100) 
+    : 0;
+
+  // Excess Cash Settlement Mode logic
+  const canSettleDue = excessAmount > 0 && previousDue > 0;
+  const isSettlingDue = excessMode === 'SETTLE_DUE' && canSettleDue;
+  const settledDueAmount = isSettlingDue ? Math.min(previousDue, excessAmount) : 0;
+  const remainingChange = isSettlingDue ? Math.max(0, excessAmount - settledDueAmount) : excessAmount;
+
+  // Grand cumulative total credit due (TOTAL ACCUMULATED BALANCE DUE = previousDue - settledDueAmount + currentBillDue)
+  const totalAccumulatedDue = Math.max(0, Math.round((previousDue - settledDueAmount + currentBillDue) * 100) / 100);
 
   /**
-   * Live Auto-Switch Payment Method:
-   * 1. If there's an underpaid balance (due amount > 0), switch automatically to CREDIT.
-   * 2. If fully paid or overpaid, switch back to CASH (unless CHEQUE was explicitly chosen).
+   * Cashier payment method selection:
+   * - If Cash is clicked and client cash is empty or 0, auto-fill with exact PAYABLE TOTAL.
+   * - If Cheque is clicked, automatically open note/cheque input field.
+   * - Cashier can switch to any payment method at any point.
    */
-  useEffect(() => {
-    // Only evaluate when there are items in the cart
-    if (cart.length === 0) return;
+  const handleSelectPaymentMethod = (method: 'CASH' | 'CHEQUE' | 'CREDIT') => {
+    setPaymentMethod(method);
+    if (method === 'CASH') {
+      if (!clientGivenCash || Number(clientGivenCash) === 0) {
+        if (total > 0) {
+          setClientGivenCash(String(total));
+        }
+      }
+    } else if (method === 'CHEQUE') {
+      setShowNoteInput(true);
+    }
+  };
 
-    const isUnderpaid = clientGivenCash === '' ? true : cashEntered < total;
-
-    if (isUnderpaid) {
-      // Partial payment or zero cash -> Auto select CREDIT
-      if (paymentMethod !== 'CREDIT') {
+  /**
+   * Cash Tendered Input Change Handler:
+   * - If cash >= total and mode was CREDIT, auto-switch to CASH.
+   * - If partial cash (< total) and mode was CASH, auto-switch to CREDIT.
+   * - If cash is cleared and mode was CASH, return to CREDIT.
+   */
+  const handleClientCashChange = (val: string) => {
+    setClientGivenCash(val);
+    const num = Number(val);
+    if (val !== '' && !isNaN(num) && num > 0) {
+      if (num >= total && paymentMethod === 'CREDIT') {
+        setPaymentMethod('CASH');
+      } else if (num < total && paymentMethod === 'CASH') {
         setPaymentMethod('CREDIT');
       }
-    } else {
-      // Full payment (cashEntered >= total) -> Switch out of CREDIT
-      if (paymentMethod === 'CREDIT') {
-        setPaymentMethod('CASH');
+    } else if (val === '' || num === 0) {
+      if (paymentMethod === 'CASH') {
+        setPaymentMethod('CREDIT');
       }
-      // If user selected CHEQUE, it remains CHEQUE untouched
     }
-  }, [clientGivenCash, cashEntered, total, cart.length]);
+  };
 
   /**
    * Quick add customer modal submit handler
@@ -459,7 +590,7 @@ export const QuickCheckoutPage: React.FC = () => {
     }
 
     const isWalkIn = selectedCustomerId === 'walk-in' || !selectedCustomerId;
-    const isUnderpaid = cashEntered < total;
+    const isUnderpaid = clientGivenCash !== '' ? parsedClientCash < total : paymentMethod === 'CREDIT';
 
     if (isWalkIn && (paymentMethod === 'CREDIT' || isUnderpaid)) {
       toast.error('Credit or partial payment is only allowed for registered customers. Please select or add a customer.');
@@ -476,16 +607,20 @@ export const QuickCheckoutPage: React.FC = () => {
 
       if (clientGivenCash !== '') {
         // If cashier typed an amount (e.g. 150), honor it as the tendered & paid amount
-        resolvedTendered = cashEntered;
-        resolvedPaid = Math.min(total, cashEntered);
+        resolvedTendered = parsedClientCash;
+        resolvedPaid = Math.min(total, parsedClientCash);
       } else if (paymentMethod === 'CREDIT') {
         // Pure zero-down credit sale when no client cash was entered
         resolvedTendered = 0;
         resolvedPaid = 0;
+      } else if (paymentMethod === 'CHEQUE') {
+        resolvedTendered = total;
+        resolvedPaid = total;
       }
 
       const creditDue = Math.max(0, total - resolvedPaid);
-      const isUnderpaid = creditDue > 0;
+      const isUnderpaidDue = creditDue > 0;
+      const finalSettledDue = isSettlingDue ? settledDueAmount : (excessMode === 'SETTLE_DUE' ? Math.min(previousDue, excessAmount) : 0);
 
       const payload = {
         source: pricingMode === 'WHOLESALE' ? 'POS_WHOLESALE' : 'POS_RETAIL',
@@ -503,8 +638,13 @@ export const QuickCheckoutPage: React.FC = () => {
         discountType,
         totalAmount: total,
         paidAmount: resolvedPaid,
-        paymentMethod: paymentMethod === 'CREDIT' || isUnderpaid ? 'CREDIT' : paymentMethod,
+        settledDueAmount: finalSettledDue,
+        excessMode: finalSettledDue > 0 ? 'SETTLE_DUE' : excessMode,
+        paymentMethod: paymentMethod === 'CREDIT' || isUnderpaidDue ? 'CREDIT' : paymentMethod,
+        notes: paymentNote.trim() || undefined,
       };
+
+      console.log('[POS CHECKOUT PAYLOAD]:', payload);
 
       let resultOrder: any;
 
@@ -521,10 +661,41 @@ export const QuickCheckoutPage: React.FC = () => {
       setCart([]);
       setDiscountInput(0);
       setClientGivenCash('');
+      setExcessMode('CHANGE');
+      setPaymentNote('');
+      setShowNoteInput(false);
+      setPaymentMethod('CREDIT');
+
+      // Synchronize local customer cache with fresh outstanding balance
+      if (selectedCust) {
+        const freshOutstanding = resultOrder?.customer?.outstandingBalance !== undefined
+          ? Number(resultOrder.customer.outstandingBalance)
+          : Math.max(0, (selectedCust.outstandingBalance || 0) + (isEditing ? (creditDue - originalCredit) : creditDue) - finalSettledDue);
+
+        setCustomers((prev) =>
+          prev.map((c) => (c.id === selectedCust.id ? { ...c, outstandingBalance: freshOutstanding } : c))
+        );
+      }
+
+      // Immediately re-fetch customers and catalog from server so all views have zero-drift real-time data
+      try {
+        const [freshCustData, freshCatData] = await Promise.all([
+          get<any[]>('/customers'),
+          get<CatalogVariant[]>('/orders/catalog'),
+        ]);
+        if (Array.isArray(freshCustData)) setCustomers(freshCustData);
+        if (Array.isArray(freshCatData)) setCatalog(freshCatData);
+      } catch (refreshErr) {
+        console.warn('Background data refresh notice:', refreshErr);
+      }
 
       if (triggerPrint) {
-        // ⭐ Invoices Page හි Print Preview එකෙහි ආකාරයටම customer සහ outstandingBalance ලබා දී අත්සන් පේළිය කැපී යාම වළක්වයි
+        // ⭐ Accurately pass resolved customer with updated outstandingBalance to A4InvoiceModal
         const targetCustomer = customers.find((c) => String(c.id) === String(selectedCustomerId));
+        const updatedCustomerBal = resultOrder?.customer?.outstandingBalance !== undefined
+          ? Number(resultOrder.customer.outstandingBalance)
+          : Math.max(0, (targetCustomer?.outstandingBalance || 0) + (isEditing ? 0 : creditDue) - finalSettledDue);
+
         setCompletedOrder({
           ...resultOrder,
           customer: resultOrder.customer || (targetCustomer ? {
@@ -532,23 +703,21 @@ export const QuickCheckoutPage: React.FC = () => {
             name: targetCustomer.name,
             phone: targetCustomer.phone,
             address: targetCustomer.address,
-            outstandingBalance: (targetCustomer as any).outstandingBalance || 0,
+            outstandingBalance: updatedCustomerBal,
           } : undefined),
+          notes: payload.notes || resultOrder.notes,
           tenderedAmount: resolvedTendered,
           paidAmount: resolvedPaid,
+          settledDueAmount: finalSettledDue,
           discount: discountAmount,
           discountType,
           discountRate: discountType === 'PERCENT' ? discountInput : undefined,
         });
         setInvoiceOpen(true);
-        // ⭐ මුද්‍රණය කිරීමට නියමිත විට මෙතැනින් navigate නොකරන්න.
-        // A4InvoiceModal එකෙන් print window එක ක්‍රියාත්මක වී අවසන් වූ පසු onClose callback එක හරහා navigate කරවනු ලැබේ.
       } else {
-        // "Save Changes" (මුද්‍රණය නොකර Save කිරීමේදී) පමණක් ක්ෂණිකව invoices පිටුවට යවන්න
+        // "Save Changes" (without printing)
         if (isEditing) {
           navigate('/system/invoices');
-        } else {
-          bootstrapPos();
         }
       }
     } catch (err: any) {
@@ -759,16 +928,24 @@ export const QuickCheckoutPage: React.FC = () => {
       </div>
 
       {/* Right Column: Checkout Cart & A4 Billing */}
-      <div className="w-full lg:w-96 flex flex-col bg-white dark:bg-zinc-900/60 p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 shrink-0">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-zinc-800">
-          <div className="flex items-center gap-2">
-            <ShoppingCart className={`size-4 ${isEditing ? 'text-blue-500' : 'text-emerald-500'}`} />
-            <h3 className="font-bold text-sm text-slate-900 dark:text-white">
-              {isEditing ? `Editing #INV${originalInvoice?.id}` : `Active Order (${cart.length})`}
-            </h3>
+      <div className="w-full lg:w-[380px] xl:w-[410px] h-full flex flex-col justify-between overflow-hidden bg-white dark:bg-zinc-900/70 p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 shrink-0 shadow-sm">
+        {/* Top Header */}
+        <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 dark:border-zinc-800/80 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className={`p-1.5 rounded-lg ${isEditing ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'}`}>
+              <ShoppingCart className="size-4" />
+            </div>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <h3 className="font-bold text-sm text-slate-900 dark:text-white truncate">
+                {isEditing ? `Edit #INV${originalInvoice?.id}` : 'Active Order'}
+              </h3>
+              <Badge variant="secondary" className="text-[10px] font-mono px-1.5 py-0 h-4 bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300">
+                {cart.length} {cart.length === 1 ? 'item' : 'items'}
+              </Badge>
+            </div>
             {isEditing && (
-              <Badge variant="outline" className="text-[10px] border-blue-500 text-blue-600 bg-blue-50 dark:bg-blue-950/40">
-                EDIT MODE
+              <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-blue-500 text-blue-600 bg-blue-50 dark:bg-blue-950/40">
+                EDIT
               </Badge>
             )}
           </div>
@@ -783,21 +960,21 @@ export const QuickCheckoutPage: React.FC = () => {
                   setOriginalInvoice(null);
                 }
               }}
-              className="text-xs text-rose-500 hover:underline cursor-pointer"
+              className="text-xs font-semibold text-rose-500 hover:text-rose-600 dark:text-rose-400 hover:underline cursor-pointer transition-colors"
             >
-              {isEditing ? 'Cancel Edit' : 'Clear All'}
+              {isEditing ? 'Cancel' : 'Clear All'}
             </button>
           )}
         </div>
 
-        {/* Customer Selection Row with Searchable Combobox & Quick Add Button */}
-        <div className="py-2 border-b border-slate-100 dark:border-zinc-800">
+        {/* Customer Selection Row with Searchable Combobox & Streamlined Live Status */}
+        <div className="py-2 border-b border-slate-100 dark:border-zinc-800/80 shrink-0">
           <div className="flex items-center justify-between mb-1">
-            <label className="text-[10px] font-bold uppercase text-slate-400">Customer / Account</label>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Customer / Account</label>
             <button
               type="button"
               onClick={() => setCustomerModalOpen(true)}
-              className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-0.5 cursor-pointer"
+              className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
             >
               <UserPlus className="size-3" /> + Add Customer
             </button>
@@ -809,44 +986,102 @@ export const QuickCheckoutPage: React.FC = () => {
               { value: 'walk-in', label: 'Walk-in Customer (General)' },
               ...customers.map((c) => ({
                 value: String(c.id),
-                label: `${c.name} (${c.phone})`,
+                label: `${c.name} (${c.phone})${c.outstandingBalance && c.outstandingBalance > 0 ? ` · Due: Rs. ${Number(c.outstandingBalance).toLocaleString()}` : ''}`,
               })),
             ]}
             placeholder="Select customer..."
             searchPlaceholder="Search by name or phone..."
             dark={dark}
           />
+
+          {/* Consolidated Customer Live Status Banner (Single Compact Pill) */}
+          {selectedCustomer && (
+            <div className={`mt-1.5 px-2.5 py-1.5 rounded-xl border flex items-center justify-between gap-2 text-xs transition-all ${
+              previousDue > 0
+                ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/50 text-amber-900 dark:text-amber-200'
+                : 'bg-slate-50 dark:bg-zinc-950/60 border-slate-200 dark:border-zinc-800 text-slate-800 dark:text-zinc-200'
+            }`}>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <div className={`size-5 rounded-full flex items-center justify-center shrink-0 ${
+                  previousDue > 0 ? 'bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300' : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400'
+                }`}>
+                  <User className="size-3" />
+                </div>
+                <div className="min-w-0">
+                  <span className={`font-semibold text-xs truncate block ${
+                    previousDue > 0 ? 'text-amber-950 dark:text-amber-100' : 'text-slate-900 dark:text-white'
+                  }`}>
+                    {selectedCustomer.name}
+                  </span>
+                  <span className={`text-[10px] font-mono block leading-none truncate ${
+                    previousDue > 0 ? 'text-amber-700/80 dark:text-amber-300/70' : 'text-slate-500 dark:text-zinc-400'
+                  }`}>
+                    {selectedCustomer.phone} {selectedCustomer.city ? `· ${selectedCustomer.city}` : ''}
+                  </span>
+                </div>
+              </div>
+
+              <div className="text-right shrink-0">
+                <div className="flex items-center justify-end gap-1">
+                  <span className={`text-[9px] font-bold uppercase tracking-wider ${
+                    previousDue > 0 ? 'text-amber-800 dark:text-amber-400' : 'text-slate-400 dark:text-zinc-500'
+                  }`}>
+                    Previous Due
+                  </span>
+                  {loadingCustomerBalance && <Loader2 className="size-2.5 animate-spin text-amber-500" />}
+                </div>
+                <span className={`font-mono text-xs font-bold block ${
+                  previousDue > 0
+                    ? 'text-amber-700 dark:text-amber-300'
+                    : 'text-emerald-600 dark:text-emerald-400'
+                }`}>
+                  {previousDue > 0 ? `Rs. ${previousDue.toLocaleString()}` : 'Cleared (Rs. 0)'}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Cart Item Rows */}
-        <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-zinc-800/60 my-2 pr-1">
+        {/* Central Order Cart Items - Flexible Scrollable Container */}
+        <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-100 dark:divide-zinc-800/50 my-1.5 pr-1 space-y-0.5">
           {cart.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center gap-1 text-slate-400 text-xs">
-              <ShoppingCart className="size-8 opacity-20" />
-              <span>Order cart is empty</span>
+            <div className="h-full flex flex-col items-center justify-center gap-1 text-slate-400 dark:text-zinc-500 text-xs py-4">
+              <ShoppingCart className="size-8 opacity-25" />
+              <span className="font-medium">Order cart is empty</span>
+              <span className="text-[10px] opacity-75">Click products or scan barcode to add</span>
             </div>
           ) : (
             cart.map((item) => (
-              <div key={item.variantId} className="py-2 flex items-center justify-between gap-2">
+              <div
+                key={item.variantId}
+                className="py-1.5 flex items-center justify-between gap-2 group hover:bg-slate-50/60 dark:hover:bg-zinc-800/30 px-1 rounded-lg transition-colors"
+              >
                 <div className="min-w-0 flex-1">
-                  <h5 className="font-semibold text-xs text-slate-900 dark:text-white truncate">{item.name}</h5>
-                  <p className="text-[10px] text-slate-400 font-mono">
-                    {item.size} / {item.color} · Rs. {item.unitPrice.toLocaleString()}
-                  </p>
+                  <h5 className="font-semibold text-xs text-slate-900 dark:text-white truncate" title={item.name}>
+                    {item.name}
+                  </h5>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-[10px] px-1 py-0.2 rounded bg-slate-100 dark:bg-zinc-800 font-mono text-slate-600 dark:text-zinc-300">
+                      {item.size} / {item.color}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      @ Rs. {item.unitPrice.toLocaleString()}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Qty Stepper with Decimal Click-to-Edit Input */}
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-center gap-1 shrink-0">
                   <button
                     type="button"
                     onClick={() => updateQty(item.variantId, -1)}
-                    className="size-6 rounded-md bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors cursor-pointer"
+                    className="size-5 sm:size-6 rounded-md bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors cursor-pointer"
                     title="Decrease quantity"
                   >
                     <Minus className="size-3" />
                   </button>
 
-                  {/* ⭐ Click-to-Edit Decimal Quantity Input Box */}
+                  {/* Click-to-Edit Decimal Quantity Input Box */}
                   {editingQtyVariantId === item.variantId ? (
                     <input
                       type="text"
@@ -854,7 +1089,6 @@ export const QuickCheckoutPage: React.FC = () => {
                       autoFocus
                       value={tempQtyInput}
                       onChange={(e) => {
-                        // Allow only numbers and a single decimal point (e.g. 1.5, 2.25)
                         const val = e.target.value.replace(/[^0-9.]/g, '');
                         const parts = val.split('.');
                         const cleanVal = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join('')}` : val;
@@ -870,7 +1104,7 @@ export const QuickCheckoutPage: React.FC = () => {
                           setEditingQtyVariantId(null);
                         }
                       }}
-                      className="w-12 h-6 text-center font-mono text-xs font-bold bg-white dark:bg-zinc-900 border border-emerald-500 rounded text-emerald-600 dark:text-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-500 shadow-xs"
+                      className="w-11 h-5 sm:h-6 text-center font-mono text-xs font-bold bg-white dark:bg-zinc-900 border border-emerald-500 rounded text-emerald-600 dark:text-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                     />
                   ) : (
                     <button
@@ -879,8 +1113,8 @@ export const QuickCheckoutPage: React.FC = () => {
                         setEditingQtyVariantId(item.variantId);
                         setTempQtyInput(String(item.quantity));
                       }}
-                      className="min-w-6 h-6 px-1.5 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/60 font-mono text-xs font-bold text-slate-800 dark:text-zinc-200 text-center cursor-pointer transition-colors border border-transparent hover:border-emerald-300 dark:hover:border-emerald-700 select-none"
-                      title="Click to type decimal or whole quantity directly"
+                      className="min-w-6 h-5 sm:h-6 px-1 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/60 font-mono text-xs font-bold text-slate-800 dark:text-zinc-200 text-center cursor-pointer transition-colors border border-transparent hover:border-emerald-300 dark:hover:border-emerald-700 select-none"
+                      title="Click to type quantity directly"
                     >
                       {item.quantity}
                     </button>
@@ -889,61 +1123,71 @@ export const QuickCheckoutPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => updateQty(item.variantId, 1)}
-                    className="size-6 rounded-md bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors cursor-pointer"
+                    className="size-5 sm:size-6 rounded-md bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors cursor-pointer"
                     title="Increase quantity"
                   >
                     <Plus className="size-3" />
                   </button>
                 </div>
 
-                <span className="font-mono font-bold text-xs text-right w-16">
-                  Rs. {(item.unitPrice * item.quantity).toLocaleString()}
-                </span>
+                {/* Line Total & Remove button */}
+                <div className="flex items-center gap-1.5 shrink-0 pl-1">
+                  <span className="font-mono font-bold text-xs text-right text-slate-900 dark:text-white min-w-[55px]">
+                    Rs. {(item.unitPrice * item.quantity).toLocaleString()}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeFromCart(item.variantId)}
+                    className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-500 p-0.5 rounded transition-all cursor-pointer"
+                    title="Remove item"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </div>
               </div>
             ))
           )}
         </div>
 
-        {/* Totals & Payment Method */}
-        <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-2">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span>Subtotal</span>
-            <span className="font-mono">Rs. {subtotal.toLocaleString()}</span>
-          </div>
+        {/* Totals, Financial Status & Payment Method - Fixed Bottom Area */}
+        <div className="shrink-0 pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-2">
+          {/* Subtotal & Discount Row */}
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="flex items-center justify-between text-slate-500 dark:text-zinc-400">
+              <span className="font-semibold text-slate-700 dark:text-zinc-300">Sub Total:</span>
+              <span className="font-mono font-bold text-slate-900 dark:text-white">Rs. {subtotal.toLocaleString()}</span>
+            </div>
 
-          {/* Discount Field: [%] [Rs] toggle with left-aligned calculated discount display */}
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 shrink-0">
-              <span className="text-xs text-slate-500 font-medium">Discount</span>
-              <div className="inline-flex rounded-lg border border-slate-200 dark:border-zinc-800 p-0.5 bg-slate-100 dark:bg-zinc-900">
+            {/* Discount with Type Toggle */}
+            <div className="flex items-center justify-end gap-1">
+              <span className="text-slate-500 dark:text-zinc-400">Disc:</span>
+              <div className="inline-flex rounded border border-slate-200 dark:border-zinc-800 p-0.5 bg-slate-100 dark:bg-zinc-900">
                 <button
                   type="button"
                   onClick={() => setDiscountType('PERCENT')}
-                  className={`px-1.5 py-0.5 text-[10px] font-bold rounded ${discountType === 'PERCENT'
-                      ? 'bg-emerald-600 text-white shadow-xs'
+                  className={`px-1 py-0.2 text-[9px] font-bold rounded ${
+                    discountType === 'PERCENT'
+                      ? 'bg-emerald-600 text-white'
                       : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
-                    }`}
+                  }`}
                 >
                   %
                 </button>
                 <button
                   type="button"
                   onClick={() => setDiscountType('FIXED')}
-                  className={`px-1.5 py-0.5 text-[10px] font-bold rounded ${discountType === 'FIXED'
-                      ? 'bg-emerald-600 text-white shadow-xs'
+                  className={`px-1 py-0.2 text-[9px] font-bold rounded ${
+                    discountType === 'FIXED'
+                      ? 'bg-emerald-600 text-white'
                       : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
-                    }`}
+                  }`}
                 >
                   Rs
                 </button>
               </div>
-            </div>
-
-            {/* Calculated discount preview sits to the left of the static input box */}
-            <div className="flex items-center justify-end gap-1.5 flex-1 min-w-0">
               {discountType === 'PERCENT' && discountAmount > 0 && (
-                <span className="text-[11px] font-mono text-emerald-600 font-bold whitespace-nowrap">
-                  (-Rs. {discountAmount.toLocaleString()})
+                <span className="text-[10px] font-mono text-emerald-600 font-semibold">
+                  (-{discountAmount.toLocaleString()})
                 </span>
               )}
               <Input
@@ -953,107 +1197,220 @@ export const QuickCheckoutPage: React.FC = () => {
                 value={discountInput || ''}
                 onChange={(e) => setDiscountInput(Number(e.target.value) || 0)}
                 placeholder="0"
-                className="w-20 h-7 text-xs text-right font-mono shrink-0"
+                className="w-14 h-6 text-xs text-right font-mono p-1"
               />
             </div>
           </div>
 
-          {/* Client Cash Received Field */}
-          <div className="flex items-center justify-between gap-2 bg-slate-50 dark:bg-zinc-950 p-2 rounded-xl border border-slate-200 dark:border-zinc-800">
+          {/* Current Bill Total & Tendered Input */}
+          <div className="flex items-center justify-between py-1.5 px-2.5 rounded-xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800">
             <div>
-              <span className="text-sm font-bold text-slate-900 dark:text-white block">Client Cash (Rs)</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block leading-tight">Total Due (Current Bill)</span>
+              <span className="font-mono text-base font-extrabold text-emerald-600 dark:text-emerald-400">
+                Rs. {total.toLocaleString()}
+              </span>
             </div>
-            <div className="flex items-center gap-1.5">
+
+            <div className="text-right">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block leading-tight">
+                Customer Tendered ({paymentMethod})
+              </span>
               <Input
                 type="number"
                 disabled={isEditing}
                 value={clientGivenCash}
-                onChange={(e) => setClientGivenCash(e.target.value)}
+                onChange={(e) => handleClientCashChange(e.target.value)}
                 placeholder={String(total)}
-                className={`w-28 h-8 text-xs text-right font-mono font-bold ${isEditing
+                className={`w-28 h-6 text-xs text-right font-mono font-bold mt-0.5 p-1 ${
+                  isEditing
                     ? 'bg-slate-100 dark:bg-zinc-900 cursor-not-allowed !text-black dark:!text-white opacity-100 font-extrabold'
                     : 'text-emerald-600 dark:text-emerald-400'
-                  }`}
+                }`}
               />
             </div>
           </div>
 
-          {/* Payable Total */}
-          <div className="flex items-center justify-between text-sm font-bold text-slate-900 dark:text-white pt-1">
-            <span>Payable Total</span>
-            <span className="font-mono text-base text-emerald-600 dark:text-emerald-400">
-              Rs. {total.toLocaleString()}
-            </span>
+          {/* Structured Financial Ledger Breakdown */}
+          <div className="space-y-1 bg-slate-50/80 dark:bg-zinc-950/60 rounded-xl p-2.5 border border-slate-200/80 dark:border-zinc-800/80 text-xs">
+            {/* Paid for Current Bill */}
+            <div className="flex items-center justify-between">
+              <span className="w-[58%] text-slate-600 dark:text-zinc-400 font-medium">Paid for Current Bill:</span>
+              <span className="w-[42%] text-right font-mono font-bold text-slate-900 dark:text-white">
+                Rs. {paidAmount.toLocaleString()}
+              </span>
+            </div>
+
+            {/* Conditionally hide settledDueAmount if 0 */}
+            {settledDueAmount > 0 && (
+              <div className="flex items-center justify-between text-blue-600 dark:text-blue-400">
+                <div className="w-[58%] flex items-center gap-1 font-medium">
+                  <span>Due Settled from Tendered:</span>
+                  {canSettleDue && (
+                    <button
+                      type="button"
+                      onClick={() => setExcessMode('CHANGE')}
+                      className="inline-flex items-center gap-0.5 px-1.5 py-0.2 text-[9px] font-bold rounded-full bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 transition-colors cursor-pointer"
+                      title="Switch to return change to client"
+                    >
+                      <RotateCcw className="size-2" /> Change
+                    </button>
+                  )}
+                </div>
+                <span className="w-[42%] text-right font-mono font-bold">
+                  - Rs. {settledDueAmount.toLocaleString()}
+                </span>
+              </div>
+            )}
+
+            {/* Conditionally hide remainingChange if 0 */}
+            {remainingChange > 0 && (
+              <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400">
+                <div className="w-[58%] flex items-center gap-1 font-medium">
+                  <span>Change Returned:</span>
+                  {canSettleDue && !isSettlingDue && (
+                    <button
+                      type="button"
+                      onClick={() => setExcessMode('SETTLE_DUE')}
+                      className="inline-flex items-center gap-0.5 px-1.5 py-0.2 text-[9px] font-bold rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 dark:border-blue-800 transition-colors cursor-pointer"
+                      title="Settle customer outstanding balance with excess cash"
+                    >
+                      <RotateCcw className="size-2" /> Settle
+                    </button>
+                  )}
+                </div>
+                <span className="w-[42%] text-right font-mono font-bold">
+                  Rs. {remainingChange.toLocaleString()}
+                </span>
+              </div>
+            )}
+
+            {/* Previous Due (Old Bills) and Total Accumulated Credit Due */}
+            {selectedCustomer && (
+              <>
+                <div className="border-t border-dashed border-slate-200 dark:border-zinc-800 my-1 pt-1 flex items-center justify-between text-slate-600 dark:text-zinc-400">
+                  <span className="w-[58%] font-medium">Previous Due (Old Bills):</span>
+                  <span className="w-[42%] text-right font-mono font-bold text-slate-900 dark:text-white">
+                    Rs. {previousDue.toLocaleString()}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between pt-0.5 text-amber-700 dark:text-amber-300 font-extrabold">
+                  <span className="w-[58%] text-[10.5px] uppercase tracking-wider font-bold">Total Accumulated Credit Due:</span>
+                  <span className="w-[42%] text-right font-mono text-xs font-black">
+                    Rs. {totalAccumulatedDue.toLocaleString()}
+                  </span>
+                </div>
+              </>
+            )}
           </div>
 
-          {/* Dynamic Change vs Balance Due Indicators */}
-          {cashChange > 0 && (
-            <div className="flex items-center justify-between text-xs font-bold text-emerald-600">
-              <span>Change (Return to Client):</span>
-              <span className="font-mono">Rs. {cashChange.toLocaleString()}</span>
+          {/* Payment Method Controls & Note / Cheque Field */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">
+                Payment Method
+              </label>
+              {paymentMethod !== 'CHEQUE' && (
+                <button
+                  type="button"
+                  onClick={() => setShowNoteInput((prev) => !prev)}
+                  className={`text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer ${
+                    showNoteInput || paymentNote.trim()
+                      ? 'text-emerald-600 dark:text-emerald-400 font-bold'
+                      : 'text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-300'
+                  }`}
+                  title={showNoteInput ? 'Collapse note field' : 'Add transaction note / reference'}
+                >
+                  <Pencil className="size-2.5" />
+                  <span>{paymentNote.trim() ? 'Edit Note' : showNoteInput ? 'Hide Note' : '+ Note'}</span>
+                </button>
+              )}
             </div>
-          )}
-          {balanceDue > 0 && cashEntered > 0 && (
-            <div className="flex items-center justify-between text-xs font-bold text-rose-600">
-              <span>Balance Due (Credit):</span>
-              <span className="font-mono">Rs. {balanceDue.toLocaleString()}</span>
-            </div>
-          )}
 
-          {/* Payment Method Selector */}
-          <div className="grid grid-cols-3 gap-1.5 pt-1">
-            <button
-              type="button"
-              onClick={() => setPaymentMethod('CASH')}
-              className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border text-xs font-semibold ${paymentMethod === 'CASH'
-                  ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600'
-                  : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400'
+            {/* Compact Note / Cheque Input Field */}
+            {(paymentMethod === 'CHEQUE' || showNoteInput) && (
+              <div className="relative flex items-center animate-in fade-in duration-150">
+                <FileText className="absolute left-2.5 size-3.5 text-slate-400 dark:text-zinc-500 pointer-events-none" />
+                <Input
+                  value={paymentNote}
+                  onChange={(e) => setPaymentNote(e.target.value)}
+                  placeholder={
+                    paymentMethod === 'CHEQUE'
+                      ? 'Cheque No / Bank / Realization Date...'
+                      : 'Payment note, ref no, or details...'
+                  }
+                  className="pl-8 pr-7 h-7 text-xs rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-black dark:text-white font-medium placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus-visible:ring-1 focus-visible:ring-emerald-500 transition-colors"
+                />
+                {paymentNote && (
+                  <button
+                    type="button"
+                    onClick={() => setPaymentNote('')}
+                    className="absolute right-2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 text-xs p-0.5 cursor-pointer"
+                    title="Clear note"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Payment Method Selector Buttons */}
+            <div className="grid grid-cols-3 gap-1.5">
+              <button
+                type="button"
+                onClick={() => handleSelectPaymentMethod('CASH')}
+                className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
+                  paymentMethod === 'CASH'
+                    ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold shadow-xs'
+                    : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
                 }`}
-            >
-              <Banknote className="size-3.5" /> Cash
-            </button>
-            {/* Cheque Payment Option in place of Card */}
-            <button
-              type="button"
-              onClick={() => setPaymentMethod('CHEQUE')}
-              className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border text-xs font-semibold ${paymentMethod === 'CHEQUE'
-                  ? 'border-amber-500 bg-amber-500/10 text-amber-600'
-                  : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400'
+              >
+                <Banknote className="size-3.5" /> Cash
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSelectPaymentMethod('CHEQUE')}
+                className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
+                  paymentMethod === 'CHEQUE'
+                    ? 'border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold shadow-xs'
+                    : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
                 }`}
-            >
-              <FileText className="size-3.5" /> Cheque
-            </button>
-            <button
-              type="button"
-              onClick={() => setPaymentMethod('CREDIT')}
-              className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border text-xs font-semibold ${paymentMethod === 'CREDIT'
-                  ? 'border-rose-500 bg-rose-500/10 text-rose-600'
-                  : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400'
+              >
+                <FileText className="size-3.5" /> Cheque
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSelectPaymentMethod('CREDIT')}
+                className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
+                  paymentMethod === 'CREDIT'
+                    ? 'border-rose-500 bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold shadow-xs'
+                    : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
                 }`}
-            >
-              <Building className="size-3.5" /> Credit
-            </button>
+              >
+                <Building className="size-3.5" /> Credit
+              </button>
+            </div>
           </div>
 
-          {/* Action Row: Pay Now (Create Mode) OR Inline [Save Changes] + [Save & Print] (Edit Mode) */}
+          {/* Action Buttons: Pay Now / Save Changes */}
           {!isEditing ? (
             <Button
               type="button"
               disabled={cart.length === 0 || submitting}
               onClick={() => handleCheckout(true)}
-              className="w-full mt-2 h-10 gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-md"
+              className="w-full h-9 gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md cursor-pointer transition-all"
             >
-              {submitting ? <Loader2 className="size-4 animate-spin" /> : <Printer className="size-4" />}
-              Pay Now
+              {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <Printer className="size-3.5" />}
+              Pay Now & Print
             </Button>
           ) : (
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex items-center gap-2">
               <Button
                 type="button"
                 variant="outline"
                 disabled={cart.length === 0 || submitting}
                 onClick={() => handleCheckout(false)}
-                className="flex-1 h-10 gap-1.5 font-bold text-xs border-blue-600 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950"
+                className="flex-1 h-9 gap-1.5 font-bold text-xs border-blue-600 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950 cursor-pointer"
               >
                 {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
                 Save Changes
@@ -1062,15 +1419,13 @@ export const QuickCheckoutPage: React.FC = () => {
                 type="button"
                 disabled={cart.length === 0 || submitting}
                 onClick={() => handleCheckout(true)}
-                className="flex-1 h-10 gap-1.5 font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-md"
+                className="flex-1 h-9 gap-1.5 font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-md cursor-pointer"
               >
                 {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <Printer className="size-3.5" />}
                 Save & Print
               </Button>
             </div>
           )}
-
-
         </div>
       </div>
 
