@@ -14,6 +14,7 @@ import {
 import { get, post, put } from '../lib/api';
 import { toast } from 'react-toastify';
 import { A4InvoiceModal } from '../components/pos/A4InvoiceModal';
+import { SplitPaymentModal, type SplitPaymentItem } from '../components/pos/SplitPaymentModal';
 import { isValidSriLankanNIC, isValidSriLankanPhone } from '../utils/validators';
 import { useTheme } from '../contexts/ThemeContext';
 import {
@@ -39,6 +40,9 @@ import {
   Landmark,
   Pencil,
   RotateCcw,
+  Check,
+  X,
+  Layers,
 } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../utils/whatsapp';
@@ -83,6 +87,14 @@ interface PosCustomer {
   outstandingBalance?: number;
 }
 
+export interface ChequeEntry {
+  id: string;
+  chequeNumber: string;
+  bankName: string;
+  chequeDate: string;
+  amount: string;
+}
+
 export const QuickCheckoutPage: React.FC = () => {
   const { theme } = useTheme();
   const dark = theme === 'dark';
@@ -109,10 +121,19 @@ export const QuickCheckoutPage: React.FC = () => {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('walk-in');
   const [clientGivenCash, setClientGivenCash] = useState<string>('');
   const [excessMode, setExcessMode] = useState<'CHANGE' | 'SETTLE_DUE'>('CHANGE');
-  // Payment methods: Cash, Cheque, and Credit (default to CREDIT when no cash is tendered)
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CHEQUE' | 'CREDIT'>('CREDIT');
+  // Payment methods: Cash, Card, Bank Transfer, Cheque, and Credit (default to CREDIT when no cash is tendered)
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'BANK_TRANSFER' | 'CHEQUE' | 'CREDIT'>('CREDIT');
   const [paymentNote, setPaymentNote] = useState<string>('');
   const [showNoteInput, setShowNoteInput] = useState<boolean>(false);
+  const [previousDue, setPreviousDue] = useState<number>(0);
+
+  // Multi-method split payment & cheques modal states
+  const [splitModalOpen, setSplitModalOpen] = useState<boolean>(false);
+  const [splitPayments, setSplitPayments] = useState<SplitPaymentItem[]>([]);
+  const [cheques, setCheques] = useState<ChequeEntry[]>([
+    { id: '1', chequeNumber: '', bankName: '', chequeDate: new Date().toISOString().split('T')[0], amount: '' },
+  ]);
+
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const editInvoiceId = searchParams.get('editInvoiceId');
@@ -132,7 +153,13 @@ export const QuickCheckoutPage: React.FC = () => {
   const [newCustPhone, setNewCustPhone] = useState('');
   const [newCustAddress, setNewCustAddress] = useState('');
   const [newCustNic, setNewCustNic] = useState('');
+  const [newCustOutstandingBalance, setNewCustOutstandingBalance] = useState('');
   const [creatingCustomer, setCreatingCustomer] = useState(false);
+
+  // Inline edit previous due state
+  const [editingPrevDue, setEditingPrevDue] = useState(false);
+  const [tempPrevDueInput, setTempPrevDueInput] = useState('');
+  const [updatingPrevDue, setUpdatingPrevDue] = useState(false);
 
   // A4 Invoice preview state
   const [completedOrder, setCompletedOrder] = useState<any>(null);
@@ -196,6 +223,24 @@ export const QuickCheckoutPage: React.FC = () => {
   }, [selectedCustomerId]);
 
   /**
+   * Synchronize customer previous due credit balance accurately
+   */
+  useEffect(() => {
+    if (!selectedCustomer || selectedCustomerId === 'walk-in') {
+      setPreviousDue(0);
+      return;
+    }
+    const customerTotalDue = Number(selectedCustomer.outstandingBalance ?? (selectedCustomer as any).due ?? 0);
+    if (isEditing && originalInvoice && String(originalInvoice.customerId) === String(selectedCustomerId)) {
+      const originalInvoiceUnpaid = Math.max(0, Number(originalInvoice.totalAmount || 0) - Number(originalInvoice.paidAmount || 0));
+      const truePreviousDue = Math.max(0, customerTotalDue - originalInvoiceUnpaid);
+      setPreviousDue(truePreviousDue);
+    } else {
+      setPreviousDue(customerTotalDue);
+    }
+  }, [selectedCustomerId, selectedCustomer, isEditing, originalInvoice]);
+
+  /**
    * Fetch catalog products and registered customer records
    */
   const bootstrapPos = async () => {
@@ -206,7 +251,29 @@ export const QuickCheckoutPage: React.FC = () => {
         get<any[]>('/customers'),
       ]);
       setCatalog(Array.isArray(catData) ? catData : []);
-      setCustomers(Array.isArray(custData) ? custData : []);
+      setCustomers((prev) => {
+        if (!Array.isArray(custData)) return prev;
+        const map = new Map<number, PosCustomer>();
+        custData.forEach((c: any) => {
+          map.set(c.id, {
+            id: c.id,
+            name: c.name,
+            phone: c.phone || '',
+            address: c.address || '',
+            city: c.city || '',
+            creditLimit: Number(c.creditLimit) || 0,
+            outstandingBalance: Number(c.outstandingBalance) || 0,
+          });
+        });
+        prev.forEach((c) => {
+          if (map.has(c.id)) {
+            map.set(c.id, { ...map.get(c.id)!, ...c });
+          } else {
+            map.set(c.id, c);
+          }
+        });
+        return Array.from(map.values());
+      });
     } catch (err: any) {
       toast.error(err.message || 'Failed to initialize POS terminal');
     } finally {
@@ -242,19 +309,201 @@ export const QuickCheckoutPage: React.FC = () => {
           setPricingMode('RETAIL');
         }
 
-        // Pre-fill Customer with phone fallback
-        setSelectedCustomerId(inv.customerId ? String(inv.customerId) : 'walk-in');
-        // Pre-fill Payment method
-        const loadedMethod = inv.paymentMethod === 'CHEQUE' ? 'CHEQUE' : inv.paymentMethod === 'CREDIT' ? 'CREDIT' : 'CASH';
-        setPaymentMethod(loadedMethod);
-        // Pre-fill Payment Note
-        if (inv.notes) {
-          setPaymentNote(inv.notes);
-          setShowNoteInput(true);
-        } else {
-          setPaymentNote('');
-          setShowNoteInput(loadedMethod === 'CHEQUE');
+        // Pre-fill Customer with phone fallback and sync historical debt
+        const custIdStr = inv.customerId ? String(inv.customerId) : 'walk-in';
+        setSelectedCustomerId(custIdStr);
+
+        if (inv.customerId) {
+          let customerTotalDue = 0;
+          try {
+            const freshCust = await get<any>(`/customers/${inv.customerId}`);
+            if (freshCust && freshCust.id) {
+              customerTotalDue = Number(freshCust.outstandingBalance ?? freshCust.due ?? 0);
+              const custRecord: PosCustomer = {
+                id: freshCust.id,
+                name: freshCust.name,
+                phone: freshCust.phone || '',
+                address: freshCust.address || '',
+                city: freshCust.city || '',
+                creditLimit: Number(freshCust.creditLimit) || 0,
+                outstandingBalance: customerTotalDue,
+              };
+              setCustomers((prev) => {
+                const exists = prev.some((c) => c.id === custRecord.id);
+                if (exists) {
+                  return prev.map((c) => (c.id === custRecord.id ? { ...c, ...custRecord } : c));
+                }
+                return [custRecord, ...prev];
+              });
+            }
+          } catch (custErr) {
+            console.warn('Could not fetch fresh customer in loadEditInvoice:', custErr);
+            if (inv.customer && inv.customer.id) {
+              customerTotalDue = Number(inv.customer.outstandingBalance ?? inv.customer.due ?? 0);
+              const custRecord: PosCustomer = {
+                id: inv.customer.id,
+                name: inv.customer.name,
+                phone: inv.customer.phone || '',
+                address: inv.customer.address || '',
+                city: inv.customer.city || '',
+                creditLimit: Number(inv.customer.creditLimit) || 0,
+                outstandingBalance: customerTotalDue,
+              };
+              setCustomers((prev) => {
+                const exists = prev.some((c) => c.id === custRecord.id);
+                if (exists) {
+                  return prev.map((c) => (c.id === custRecord.id ? { ...c, ...custRecord } : c));
+                }
+                return [custRecord, ...prev];
+              });
+            }
+          }
+
+          const originalInvoiceUnpaid = Math.max(0, Number(inv.totalAmount || 0) - Number(inv.paidAmount || 0));
+          const effectiveCustTotal = customerTotalDue > 0 ? customerTotalDue : Number(inv.customer?.outstandingBalance ?? inv.customer?.due ?? 0);
+          const truePreviousDue = Math.max(0, effectiveCustTotal - originalInvoiceUnpaid);
+          setPreviousDue(truePreviousDue);
         }
+
+        // Pre-fill Payment method
+        const loadedMethod: 'CASH' | 'CARD' | 'BANK_TRANSFER' | 'CHEQUE' | 'CREDIT' =
+          inv.paymentMethod === 'CHEQUE'
+            ? 'CHEQUE'
+            : inv.paymentMethod === 'CARD'
+            ? 'CARD'
+            : inv.paymentMethod === 'BANK_TRANSFER'
+            ? 'BANK_TRANSFER'
+            : inv.paymentMethod === 'CREDIT'
+            ? 'CREDIT'
+            : 'CASH';
+        setPaymentMethod(loadedMethod);
+        
+        // Clean Parse of JSON Notes, Split Payments, and Multi-Cheques on Invoice Edit
+        let displayNote = '';
+        let extractedSplits: SplitPaymentItem[] = [];
+        let extractedCheques: ChequeEntry[] = [];
+
+        if (typeof inv.userNotes === 'string') {
+          displayNote = inv.userNotes;
+        }
+
+        if (Array.isArray(inv.splitPayments) && inv.splitPayments.length > 0) {
+          extractedSplits = inv.splitPayments.map((s: any, idx: number) => ({
+            id: s.id || String(idx + 1),
+            method: s.method || 'CASH',
+            amount: String(s.amount || ''),
+            date: s.date || new Date().toISOString().split('T')[0],
+            chequeNumber: s.chequeNumber || '',
+            bankName: s.bankName || '',
+            reference: s.reference || '',
+          }));
+        }
+
+        if (Array.isArray(inv.cheques) && inv.cheques.length > 0) {
+          extractedCheques = inv.cheques.map((c: any, idx: number) => ({
+            id: String(idx + 1),
+            chequeNumber: c.chequeNumber || '',
+            bankName: c.bankName || '',
+            chequeDate: c.chequeDate ? new Date(c.chequeDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+            amount: String(c.amount || ''),
+          }));
+        }
+
+        if (inv.notes) {
+          try {
+            const parsed = typeof inv.notes === 'string' ? JSON.parse(inv.notes) : inv.notes;
+            if (parsed && typeof parsed === 'object') {
+              displayNote = parsed.userNotes || (typeof parsed === 'string' ? parsed : '');
+
+              if (Array.isArray(parsed.splitPayments) && parsed.splitPayments.length > 0 && extractedSplits.length === 0) {
+                extractedSplits = parsed.splitPayments.map((s: any, idx: number) => ({
+                  id: s.id || String(idx + 1),
+                  method: s.method || 'CASH',
+                  amount: String(s.amount || ''),
+                  date: s.date || new Date().toISOString().split('T')[0],
+                  chequeNumber: s.chequeNumber || '',
+                  bankName: s.bankName || '',
+                  reference: s.reference || '',
+                }));
+              }
+
+              if (Array.isArray(parsed.cheques) && parsed.cheques.length > 0 && extractedCheques.length === 0) {
+                extractedCheques = parsed.cheques.map((c: any, idx: number) => ({
+                  id: String(idx + 1),
+                  chequeNumber: c.chequeNumber || '',
+                  bankName: c.bankName || '',
+                  chequeDate: c.chequeDate ? new Date(c.chequeDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                  amount: String(c.amount || ''),
+                }));
+              }
+            } else if (typeof parsed === 'string') {
+              displayNote = parsed;
+            }
+          } catch {
+            displayNote = typeof inv.notes === 'string' && inv.notes.trim().startsWith('{') ? '' : inv.notes;
+          }
+        }
+
+        if (typeof displayNote === 'string' && displayNote.trim().startsWith('{')) {
+          displayNote = '';
+        }
+
+        setPaymentNote(displayNote);
+        setShowNoteInput(!!displayNote || loadedMethod === 'CHEQUE');
+
+        if (extractedSplits.length > 0) {
+          setSplitPayments(extractedSplits);
+        }
+
+        if (extractedCheques.length > 0) {
+          setCheques(extractedCheques);
+        }
+
+        // If invoice has payments in database payments ledger, populate splitPayments & cheques if not already set from notes
+        if (Array.isArray(inv.payments) && inv.payments.length > 0) {
+          setSplitPayments((prev) => {
+            if (prev.length === 0) {
+              return inv.payments.map((p: any, idx: number) => {
+                let chqNo = '';
+                let bName = '';
+                if (p.method === 'CHEQUE' && p.reference) {
+                  const match = p.reference.match(/Cheque #([^\s(]+)(?:\s*\(([^)]+)\))?/i);
+                  if (match) {
+                    chqNo = match[1] || '';
+                    bName = match[2] || '';
+                  }
+                }
+                return {
+                  id: String(p.id || idx + 1),
+                  method: p.method === 'CHEQUE' ? 'CHEQUE' : p.method === 'BANK_TRANSFER' ? 'BANK_TRANSFER' : p.method === 'CARD' ? 'CARD' : 'CASH',
+                  amount: String(p.amount || ''),
+                  date: p.chequeDate ? new Date(p.chequeDate).toISOString().split('T')[0] : (p.createdAt ? new Date(p.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]),
+                  chequeNumber: chqNo,
+                  bankName: bName,
+                  reference: p.reference || '',
+                };
+              });
+            }
+            return prev;
+          });
+
+          const chqPayments = inv.payments.filter((p: any) => p.method === 'CHEQUE');
+          if (chqPayments.length > 0) {
+            setCheques((prev) => {
+              if (prev.length === 1 && !prev[0].chequeNumber && !prev[0].amount) {
+                return chqPayments.map((p: any, idx: number) => ({
+                  id: String(p.id || idx + 1),
+                  chequeNumber: p.reference || '',
+                  bankName: '',
+                  chequeDate: p.chequeDate ? new Date(p.chequeDate).toISOString().split('T')[0] : new Date(p.createdAt || Date.now()).toISOString().split('T')[0],
+                  amount: String(p.amount || ''),
+                }));
+              }
+              return prev;
+            });
+          }
+        }
+
         // Pre-fill Cash Tendered
         setClientGivenCash(String(inv.paidAmount !== undefined ? inv.paidAmount : ''));
 
@@ -446,6 +695,23 @@ export const QuickCheckoutPage: React.FC = () => {
     setCurrentPage(1);
   }, [searchQuery]);
 
+  // Real-time sum calculation for all split payments
+  const totalSplitAmount = useMemo(() => {
+    if (splitPayments.length === 0) return 0;
+    return splitPayments.reduce((acc, curr) => acc + (Math.max(0, Number(curr.amount)) || 0), 0);
+  }, [splitPayments]);
+
+  // Real-time sum calculation for all cheques in multi-cheque split
+  const totalChequeAmount = useMemo(() => {
+    if (splitPayments.length > 0) {
+      return splitPayments
+        .filter((s) => s.method === 'CHEQUE')
+        .reduce((acc, curr) => acc + (Math.max(0, Number(curr.amount)) || 0), 0);
+    }
+    if (paymentMethod !== 'CHEQUE') return 0;
+    return cheques.reduce((acc, curr) => acc + (Math.max(0, Number(curr.amount)) || 0), 0);
+  }, [cheques, paymentMethod, splitPayments]);
+
   // Subtotal and Net Payable Total calculation
   const subtotal = useMemo(() => cart.reduce((acc, curr) => acc + curr.unitPrice * curr.quantity, 0), [cart]);
 
@@ -464,14 +730,22 @@ export const QuickCheckoutPage: React.FC = () => {
   // Client Cash parsing (dynamically treat empty, negative, or invalid input as 0)
   const parsedClientCash = Math.max(0, Number(clientGivenCash) || 0);
 
-  // Dynamic real-time balance calculations
-  const tenderedAmount = clientGivenCash !== ''
-    ? parsedClientCash
-    : (paymentMethod === 'CREDIT' ? 0 : total);
+  // Dynamic real-time balance calculations supporting Cash, Split Multi-Payments, Cheques & Credit
+  const tenderedAmount = splitPayments.length > 0
+    ? totalSplitAmount
+    : (paymentMethod === 'CHEQUE'
+      ? totalChequeAmount
+      : (clientGivenCash !== ''
+        ? parsedClientCash
+        : (paymentMethod === 'CREDIT' ? 0 : total)));
 
-  const paidAmount = clientGivenCash !== ''
-    ? Math.min(total, parsedClientCash)
-    : (paymentMethod === 'CREDIT' ? 0 : total);
+  const paidAmount = splitPayments.length > 0
+    ? Math.min(total, totalSplitAmount)
+    : (paymentMethod === 'CHEQUE'
+      ? Math.min(total, totalChequeAmount)
+      : (clientGivenCash !== ''
+        ? Math.min(total, parsedClientCash)
+        : (paymentMethod === 'CREDIT' ? 0 : total)));
 
   const excessAmount = Math.max(0, tenderedAmount - total);
   const currentBillDue = Math.max(0, total - paidAmount);
@@ -479,13 +753,9 @@ export const QuickCheckoutPage: React.FC = () => {
   // Outstanding Balance calculations (Previous Due & Accumulated Credit)
   const rawCustomerOutstanding = selectedCustomer ? Number(selectedCustomer.outstandingBalance || 0) : 0;
   
-  // In edit mode, subtract original invoice's credit due from live database balance to prevent double counting
-  const originalCredit = isEditing && originalInvoice
+  // In edit mode, subtract original invoice's credit due from live database balance if editing the same customer
+  const currentInvoiceUnpaidDebt = isEditing && originalInvoice && String(originalInvoice.customerId) === String(selectedCustomerId)
     ? Math.max(0, Number(originalInvoice.totalAmount || 0) - Number(originalInvoice.paidAmount || 0))
-    : 0;
-
-  const previousDue = selectedCustomer 
-    ? Math.max(0, Math.round((rawCustomerOutstanding - originalCredit) * 100) / 100) 
     : 0;
 
   // Excess Cash Settlement Mode logic
@@ -497,15 +767,73 @@ export const QuickCheckoutPage: React.FC = () => {
   // Grand cumulative total credit due (TOTAL ACCUMULATED BALANCE DUE = previousDue - settledDueAmount + currentBillDue)
   const totalAccumulatedDue = Math.max(0, Math.round((previousDue - settledDueAmount + currentBillDue) * 100) / 100);
 
+  // Multi-Cheque Split row helpers
+  const handleAddCheque = () => {
+    setCheques((prev) => [
+      ...prev,
+      {
+        id: Date.now().toString() + Math.random().toString().slice(2, 6),
+        chequeNumber: '',
+        bankName: '',
+        chequeDate: new Date().toISOString().split('T')[0],
+        amount: '',
+      },
+    ]);
+  };
+
+  const handleRemoveCheque = (id: string) => {
+    setCheques((prev) => {
+      const next = prev.filter((c) => c.id !== id);
+      return next.length > 0 ? next : [
+        {
+          id: Date.now().toString(),
+          chequeNumber: '',
+          bankName: '',
+          chequeDate: new Date().toISOString().split('T')[0],
+          amount: '',
+        },
+      ];
+    });
+  };
+
+  const handleUpdateCheque = (id: string, field: keyof ChequeEntry, value: string) => {
+    setCheques((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, [field]: value } : c))
+    );
+  };
+
+  const handleApplySplitPayments = (appliedSplits: SplitPaymentItem[]) => {
+    setSplitPayments(appliedSplits);
+    const hasCheque = appliedSplits.some((s) => s.method === 'CHEQUE');
+    if (hasCheque) {
+      setPaymentMethod('CHEQUE');
+      setCheques(
+        appliedSplits
+          .filter((s) => s.method === 'CHEQUE')
+          .map((s, idx) => ({
+            id: s.id || String(idx + 1),
+            chequeNumber: s.chequeNumber || '',
+            bankName: s.bankName || '',
+            chequeDate: s.date || new Date().toISOString().split('T')[0],
+            amount: s.amount,
+          }))
+      );
+    } else if (appliedSplits.length === 1 && appliedSplits[0].method === 'CASH') {
+      setPaymentMethod('CASH');
+      setClientGivenCash(String(appliedSplits[0].amount));
+    }
+  };
+
   /**
    * Cashier payment method selection:
    * - If Cash is clicked and client cash is empty or 0, auto-fill with exact PAYABLE TOTAL.
-   * - If Cheque is clicked, automatically open note/cheque input field.
+   * - If Cheque is clicked, open Split Payment Modal for detailed cheque/split entry.
    * - Cashier can switch to any payment method at any point.
    */
-  const handleSelectPaymentMethod = (method: 'CASH' | 'CHEQUE' | 'CREDIT') => {
+  const handleSelectPaymentMethod = (method: 'CASH' | 'CARD' | 'BANK_TRANSFER' | 'CHEQUE' | 'CREDIT') => {
     setPaymentMethod(method);
-    if (method === 'CASH') {
+    if (method === 'CASH' || method === 'CARD' || method === 'BANK_TRANSFER') {
+      setSplitPayments([]);
       if (!clientGivenCash || Number(clientGivenCash) === 0) {
         if (total > 0) {
           setClientGivenCash(String(total));
@@ -513,6 +841,10 @@ export const QuickCheckoutPage: React.FC = () => {
       }
     } else if (method === 'CHEQUE') {
       setShowNoteInput(true);
+      setSplitModalOpen(true);
+    } else if (method === 'CREDIT') {
+      setSplitPayments([]);
+      setClientGivenCash('');
     }
   };
 
@@ -535,6 +867,39 @@ export const QuickCheckoutPage: React.FC = () => {
       if (paymentMethod === 'CASH') {
         setPaymentMethod('CREDIT');
       }
+    }
+  };
+
+  /**
+   * Inline save customer previous due
+   */
+  const handleSaveInlinePreviousDue = async () => {
+    if (!selectedCustomer) return;
+    const newBal = parseFloat(tempPrevDueInput.trim());
+    if (isNaN(newBal) || newBal < 0) {
+      toast.error('Please enter a valid non-negative number');
+      return;
+    }
+    setUpdatingPrevDue(true);
+    try {
+      // In edit mode, the total customer outstanding in database must include the original invoice credit due
+      // so that previousDue = outstandingBalance - currentInvoiceUnpaidDebt accurately preserves the entered newBal.
+      const targetOutstanding = isEditing && originalInvoice && String(originalInvoice.customerId) === String(selectedCustomer.id)
+        ? Math.max(0, Math.round((newBal + currentInvoiceUnpaidDebt) * 100) / 100)
+        : newBal;
+
+      await put(`/customers/${selectedCustomer.id}`, {
+        outstandingBalance: targetOutstanding,
+      });
+      setCustomers((prev) =>
+        prev.map((c) => (c.id === selectedCustomer.id ? { ...c, outstandingBalance: targetOutstanding } : c))
+      );
+      toast.success(`Previous due for ${selectedCustomer.name} updated to Rs. ${newBal.toLocaleString()}`);
+      setEditingPrevDue(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update previous due');
+    } finally {
+      setUpdatingPrevDue(false);
     }
   };
 
@@ -563,6 +928,7 @@ export const QuickCheckoutPage: React.FC = () => {
         phone: newCustPhone.trim(),
         address: newCustAddress.trim() || undefined,
         nic: newCustNic.trim() || undefined,
+        outstandingBalance: newCustOutstandingBalance ? Number(newCustOutstandingBalance) : 0,
         type: pricingMode === 'WHOLESALE' ? 'WHOLESALE' : 'RETAIL',
       });
       toast.success(`Customer "${created.name}" registered!`);
@@ -573,6 +939,7 @@ export const QuickCheckoutPage: React.FC = () => {
       setNewCustPhone('');
       setNewCustAddress('');
       setNewCustNic('');
+      setNewCustOutstandingBalance('');
     } catch (err: any) {
       toast.error(err.message || 'Failed to add customer');
     } finally {
@@ -604,8 +971,46 @@ export const QuickCheckoutPage: React.FC = () => {
       // Accurately resolve tendered and paid cash without wiping part-payments on credit bills
       let resolvedTendered = total;
       let resolvedPaid = total;
+      let resolvedCheques: any[] | undefined = undefined;
+      let resolvedSplitPayments: any[] | undefined = undefined;
 
-      if (clientGivenCash !== '') {
+      if (splitPayments.length > 0) {
+        resolvedSplitPayments = splitPayments
+          .filter((s) => Number(s.amount) > 0 || (s.method === 'CHEQUE' && s.chequeNumber?.trim()))
+          .map((s) => ({
+            id: s.id,
+            method: s.method,
+            amount: Number(s.amount) || 0,
+            date: s.date,
+            chequeNumber: s.chequeNumber?.trim() || undefined,
+            bankName: s.bankName?.trim() || undefined,
+            reference: s.reference?.trim() || undefined,
+          }));
+
+        const chqList = resolvedSplitPayments.filter((s) => s.method === 'CHEQUE');
+        if (chqList.length > 0) {
+          resolvedCheques = chqList.map((c) => ({
+            chequeNumber: c.chequeNumber || '',
+            bankName: c.bankName || '',
+            chequeDate: c.date,
+            amount: c.amount,
+          }));
+        }
+
+        resolvedTendered = totalSplitAmount;
+        resolvedPaid = Math.min(total, totalSplitAmount);
+      } else if (paymentMethod === 'CHEQUE') {
+        resolvedCheques = cheques
+          .filter((c) => Number(c.amount) > 0 || c.chequeNumber.trim() !== '')
+          .map((c) => ({
+            chequeNumber: c.chequeNumber.trim(),
+            bankName: c.bankName.trim(),
+            chequeDate: c.chequeDate,
+            amount: Number(c.amount) || 0,
+          }));
+        resolvedTendered = totalChequeAmount;
+        resolvedPaid = Math.min(total, totalChequeAmount);
+      } else if (clientGivenCash !== '') {
         // If cashier typed an amount (e.g. 150), honor it as the tendered & paid amount
         resolvedTendered = parsedClientCash;
         resolvedPaid = Math.min(total, parsedClientCash);
@@ -613,14 +1018,21 @@ export const QuickCheckoutPage: React.FC = () => {
         // Pure zero-down credit sale when no client cash was entered
         resolvedTendered = 0;
         resolvedPaid = 0;
-      } else if (paymentMethod === 'CHEQUE') {
-        resolvedTendered = total;
-        resolvedPaid = total;
       }
 
       const creditDue = Math.max(0, total - resolvedPaid);
       const isUnderpaidDue = creditDue > 0;
       const finalSettledDue = isSettlingDue ? settledDueAmount : (excessMode === 'SETTLE_DUE' ? Math.min(previousDue, excessAmount) : 0);
+
+      let cleanUserNote = paymentNote ? paymentNote.trim() : '';
+      while (typeof cleanUserNote === 'string' && cleanUserNote.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(cleanUserNote);
+          cleanUserNote = parsed.userNotes || '';
+        } catch {
+          break;
+        }
+      }
 
       const payload = {
         source: pricingMode === 'WHOLESALE' ? 'POS_WHOLESALE' : 'POS_RETAIL',
@@ -641,7 +1053,9 @@ export const QuickCheckoutPage: React.FC = () => {
         settledDueAmount: finalSettledDue,
         excessMode: finalSettledDue > 0 ? 'SETTLE_DUE' : excessMode,
         paymentMethod: paymentMethod === 'CREDIT' || isUnderpaidDue ? 'CREDIT' : paymentMethod,
-        notes: paymentNote.trim() || undefined,
+        splitPayments: resolvedSplitPayments && resolvedSplitPayments.length > 0 ? resolvedSplitPayments : undefined,
+        cheques: resolvedCheques && resolvedCheques.length > 0 ? resolvedCheques : undefined,
+        notes: cleanUserNote || undefined,
       };
 
       console.log('[POS CHECKOUT PAYLOAD]:', payload);
@@ -665,12 +1079,13 @@ export const QuickCheckoutPage: React.FC = () => {
       setPaymentNote('');
       setShowNoteInput(false);
       setPaymentMethod('CREDIT');
+      setSplitPayments([]);
 
       // Synchronize local customer cache with fresh outstanding balance
       if (selectedCust) {
         const freshOutstanding = resultOrder?.customer?.outstandingBalance !== undefined
           ? Number(resultOrder.customer.outstandingBalance)
-          : Math.max(0, (selectedCust.outstandingBalance || 0) + (isEditing ? (creditDue - originalCredit) : creditDue) - finalSettledDue);
+          : Math.max(0, (selectedCust.outstandingBalance || 0) + (isEditing && String(originalInvoice?.customerId) === String(selectedCust.id) ? (creditDue - currentInvoiceUnpaidDebt) : creditDue) - finalSettledDue);
 
         setCustomers((prev) =>
           prev.map((c) => (c.id === selectedCust.id ? { ...c, outstandingBalance: freshOutstanding } : c))
@@ -984,10 +1399,18 @@ export const QuickCheckoutPage: React.FC = () => {
             onValueChange={setSelectedCustomerId}
             options={[
               { value: 'walk-in', label: 'Walk-in Customer (General)' },
-              ...customers.map((c) => ({
-                value: String(c.id),
-                label: `${c.name} (${c.phone})${c.outstandingBalance && c.outstandingBalance > 0 ? ` · Due: Rs. ${Number(c.outstandingBalance).toLocaleString()}` : ''}`,
-              })),
+              ...customers.map((c) => {
+                const custUnpaid = isEditing && originalInvoice && String(originalInvoice.customerId) === String(c.id)
+                  ? Math.max(0, Number(originalInvoice.totalAmount || 0) - Number(originalInvoice.paidAmount || 0))
+                  : 0;
+                const custTotal = Number(c.outstandingBalance ?? (c as any).due ?? 0);
+                const calcDue = Math.max(0, custTotal - custUnpaid);
+                const effectiveDue = isEditing && custUnpaid > 0 && calcDue === 0 && custTotal > 0 ? custTotal : (calcDue > 0 ? calcDue : custTotal);
+                return {
+                  value: String(c.id),
+                  label: `${c.name} (${c.phone})${effectiveDue > 0 ? ` · Due: Rs. ${Number(effectiveDue).toLocaleString()}` : ''}`,
+                };
+              }),
             ]}
             placeholder="Select customer..."
             searchPlaceholder="Search by name or phone..."
@@ -1029,14 +1452,62 @@ export const QuickCheckoutPage: React.FC = () => {
                     Previous Due
                   </span>
                   {loadingCustomerBalance && <Loader2 className="size-2.5 animate-spin text-amber-500" />}
+                  {!editingPrevDue && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTempPrevDueInput(String(previousDue));
+                        setEditingPrevDue(true);
+                      }}
+                      className="p-0.5 text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 rounded transition-colors"
+                      title="Edit Customer Old Due / Opening Balance"
+                    >
+                      <Pencil className="size-2.5" />
+                    </button>
+                  )}
                 </div>
-                <span className={`font-mono text-xs font-bold block ${
-                  previousDue > 0
-                    ? 'text-amber-700 dark:text-amber-300'
-                    : 'text-emerald-600 dark:text-emerald-400'
-                }`}>
-                  {previousDue > 0 ? `Rs. ${previousDue.toLocaleString()}` : 'Cleared (Rs. 0)'}
-                </span>
+
+                {editingPrevDue ? (
+                  <div className="flex items-center gap-1.5 mt-1 justify-end">
+                    <span className="text-xs text-slate-500 font-mono">Rs.</span>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={tempPrevDueInput}
+                      onChange={(e) => setTempPrevDueInput(e.target.value)}
+                      placeholder="0"
+                      autoFocus
+                      className="w-24 h-8 px-2.5 text-sm font-semibold rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-zinc-100 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                    />
+                    <button
+                      type="button"
+                      disabled={updatingPrevDue}
+                      onClick={handleSaveInlinePreviousDue}
+                      className="w-7 h-7 flex items-center justify-center rounded-md bg-emerald-600 hover:bg-emerald-700 text-white transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+                      title="Save"
+                    >
+                      {updatingPrevDue ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={updatingPrevDue}
+                      onClick={() => setEditingPrevDue(false)}
+                      className="w-7 h-7 flex items-center justify-center rounded-md bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-500 dark:text-zinc-400 transition-all cursor-pointer"
+                      title="Cancel"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <span className={`font-mono text-xs font-bold block ${
+                    previousDue > 0
+                      ? 'text-amber-700 dark:text-amber-300'
+                      : 'text-emerald-600 dark:text-emerald-400'
+                  }`}>
+                    {previousDue > 0 ? `Rs. ${previousDue.toLocaleString()}` : 'Cleared (Rs. 0)'}
+                  </span>
+                )}
               </div>
             </div>
           )}
@@ -1220,6 +1691,8 @@ export const QuickCheckoutPage: React.FC = () => {
                 disabled={isEditing}
                 value={clientGivenCash}
                 onChange={(e) => handleClientCashChange(e.target.value)}
+                onFocus={(e) => e.target.select()}
+                onClick={(e) => (e.target as HTMLInputElement).select()}
                 placeholder={String(total)}
                 className={`w-28 h-6 text-xs text-right font-mono font-bold mt-0.5 p-1 ${
                   isEditing
@@ -1310,35 +1783,29 @@ export const QuickCheckoutPage: React.FC = () => {
               <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">
                 Payment Method
               </label>
-              {paymentMethod !== 'CHEQUE' && (
-                <button
-                  type="button"
-                  onClick={() => setShowNoteInput((prev) => !prev)}
-                  className={`text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer ${
-                    showNoteInput || paymentNote.trim()
-                      ? 'text-emerald-600 dark:text-emerald-400 font-bold'
-                      : 'text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-300'
-                  }`}
-                  title={showNoteInput ? 'Collapse note field' : 'Add transaction note / reference'}
-                >
-                  <Pencil className="size-2.5" />
-                  <span>{paymentNote.trim() ? 'Edit Note' : showNoteInput ? 'Hide Note' : '+ Note'}</span>
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => setShowNoteInput((prev) => !prev)}
+                className={`text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer ${
+                  showNoteInput || paymentNote.trim()
+                    ? 'text-emerald-600 dark:text-emerald-400 font-bold'
+                    : 'text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-300'
+                }`}
+                title={showNoteInput ? 'Collapse note field' : 'Add transaction note / reference'}
+              >
+                <Pencil className="size-2.5" />
+                <span>{paymentNote.trim() ? 'Edit Note' : showNoteInput ? 'Hide Note' : '+ Note'}</span>
+              </button>
             </div>
 
-            {/* Compact Note / Cheque Input Field */}
-            {(paymentMethod === 'CHEQUE' || showNoteInput) && (
+            {/* Optional General Note Field */}
+            {showNoteInput && (
               <div className="relative flex items-center animate-in fade-in duration-150">
                 <FileText className="absolute left-2.5 size-3.5 text-slate-400 dark:text-zinc-500 pointer-events-none" />
                 <Input
                   value={paymentNote}
                   onChange={(e) => setPaymentNote(e.target.value)}
-                  placeholder={
-                    paymentMethod === 'CHEQUE'
-                      ? 'Cheque No / Bank / Realization Date...'
-                      : 'Payment note, ref no, or details...'
-                  }
+                  placeholder="Payment note, ref no, or transaction details..."
                   className="pl-8 pr-7 h-7 text-xs rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-black dark:text-white font-medium placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus-visible:ring-1 focus-visible:ring-emerald-500 transition-colors"
                 />
                 {paymentNote && (
@@ -1354,40 +1821,121 @@ export const QuickCheckoutPage: React.FC = () => {
               </div>
             )}
 
-            {/* Payment Method Selector Buttons */}
-            <div className="grid grid-cols-3 gap-1.5">
+            {/* Split Payment Banner / Status (Replaced bulky breakdown with clean text + action link) */}
+            {splitPayments.length > 0 ? (
+              <div className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-[11px] animate-in fade-in duration-150">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Layers className="size-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                  <div className="truncate">
+                    <span className="font-bold text-indigo-900 dark:text-indigo-200">
+                      Split Active ({splitPayments.length} methods):{' '}
+                    </span>
+                    <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                      Rs. {totalSplitAmount.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setSplitModalOpen(true)}
+                    className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 underline cursor-pointer"
+                  >
+                    Edit Splits
+                  </button>
+                  <span className="text-slate-300 dark:text-zinc-700">·</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSplitPayments([]);
+                      setCheques([{ id: '1', chequeNumber: '', bankName: '', chequeDate: new Date().toISOString().split('T')[0], amount: '' }]);
+                      setPaymentMethod('CASH');
+                      setClientGivenCash(String(total));
+                    }}
+                    className="text-[10px] font-bold text-rose-500 hover:text-rose-700 cursor-pointer"
+                    title="Clear split configuration"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-100/70 dark:bg-zinc-900/60 border border-slate-200/60 dark:border-zinc-800/60 text-[11px]">
+                <span className="text-slate-500 dark:text-zinc-400 text-[10px] sm:text-[11px]">
+                  Need split payment (Cash / Card / Cheque)?
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSplitModalOpen(true)}
+                  className="text-[10px] sm:text-[11px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 hover:underline cursor-pointer flex items-center gap-1"
+                >
+                  <Layers className="size-3" />
+                  <span>Split Payment →</span>
+                </button>
+              </div>
+            )}
+
+            {/* Payment Method Selector Buttons (5 Methods without Split button) */}
+            <div className="grid grid-cols-5 gap-1">
               <button
                 type="button"
                 onClick={() => handleSelectPaymentMethod('CASH')}
-                className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
-                  paymentMethod === 'CASH'
+                className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border text-[11px] font-semibold transition-all cursor-pointer ${
+                  paymentMethod === 'CASH' && splitPayments.length === 0
                     ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold shadow-xs'
                     : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
                 }`}
+                title="Cash Payment"
               >
-                <Banknote className="size-3.5" /> Cash
+                <Banknote className="size-3.5" /> <span className="hidden sm:inline">Cash</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSelectPaymentMethod('CARD')}
+                className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border text-[11px] font-semibold transition-all cursor-pointer ${
+                  paymentMethod === 'CARD' && splitPayments.length === 0
+                    ? 'border-purple-500 bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold shadow-xs'
+                    : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
+                }`}
+                title="Credit/Debit Card POS Payment"
+              >
+                <CreditCard className="size-3.5" /> <span className="hidden sm:inline">Card</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSelectPaymentMethod('BANK_TRANSFER')}
+                className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border text-[11px] font-semibold transition-all cursor-pointer ${
+                  paymentMethod === 'BANK_TRANSFER' && splitPayments.length === 0
+                    ? 'border-blue-500 bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold shadow-xs'
+                    : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
+                }`}
+                title="Bank Transfer Payment"
+              >
+                <Landmark className="size-3.5" /> <span className="hidden sm:inline">Bank</span>
               </button>
               <button
                 type="button"
                 onClick={() => handleSelectPaymentMethod('CHEQUE')}
-                className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
-                  paymentMethod === 'CHEQUE'
+                className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border text-[11px] font-semibold transition-all cursor-pointer ${
+                  paymentMethod === 'CHEQUE' && splitPayments.length === 0
                     ? 'border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold shadow-xs'
                     : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
                 }`}
+                title="Cheque Payment"
               >
-                <FileText className="size-3.5" /> Cheque
+                <FileText className="size-3.5" /> <span className="hidden sm:inline">Cheque</span>
               </button>
               <button
                 type="button"
                 onClick={() => handleSelectPaymentMethod('CREDIT')}
-                className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
+                className={`flex items-center justify-center gap-1 py-1.5 rounded-lg border text-[11px] font-semibold transition-all cursor-pointer ${
                   paymentMethod === 'CREDIT'
                     ? 'border-rose-500 bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold shadow-xs'
                     : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
                 }`}
+                title="Credit Account / Payable Later"
               >
-                <Building className="size-3.5" /> Credit
+                <Building className="size-3.5" /> <span className="hidden sm:inline">Credit</span>
               </button>
             </div>
           </div>
@@ -1471,6 +2019,18 @@ export const QuickCheckoutPage: React.FC = () => {
                 placeholder="e.g. Makandura, Matara"
               />
             </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-amber-700 dark:text-amber-400">Opening / Old Due Balance (Rs)</label>
+              <Input
+                type="number"
+                step="any"
+                min="0"
+                value={newCustOutstandingBalance}
+                onChange={(e) => setNewCustOutstandingBalance(e.target.value)}
+                placeholder="0.00"
+                className="font-mono"
+              />
+            </div>
             <DialogFooter className="pt-2">
               <Button type="button" variant="outline" size="sm" onClick={() => setCustomerModalOpen(false)}>
                 Cancel
@@ -1482,6 +2042,29 @@ export const QuickCheckoutPage: React.FC = () => {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Split / Multi-Method Payment Modal */}
+      <SplitPaymentModal
+        open={splitModalOpen}
+        onOpenChange={setSplitModalOpen}
+        totalBill={total}
+        initialSplits={
+          splitPayments.length > 0
+            ? splitPayments
+            : cheques.some((c) => Number(c.amount) > 0 || c.chequeNumber.trim())
+            ? cheques.map((c) => ({
+                id: c.id,
+                method: 'CHEQUE',
+                amount: c.amount,
+                date: c.chequeDate,
+                chequeNumber: c.chequeNumber,
+                bankName: c.bankName,
+              }))
+            : undefined
+        }
+        onApply={handleApplySplitPayments}
+        dark={dark}
+      />
 
       {/* Headless Direct A4 Browser Print Window Trigger (Conditional Mount Prevents Duplicate Preview Loop) */}
       {invoiceOpen && completedOrder && (

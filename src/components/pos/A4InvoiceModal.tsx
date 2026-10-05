@@ -79,6 +79,41 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
       }
     }
 
+    // Clean user note text and extract split payment breakdowns
+    let displayNoteText = '';
+    let splits: any[] = [];
+
+    if (Array.isArray(order.splitPayments) && order.splitPayments.length > 0) {
+      splits = order.splitPayments;
+    }
+
+    if (order.notes) {
+      try {
+        let current = order.notes;
+        while (typeof current === 'string' && current.trim().startsWith('{')) {
+          current = JSON.parse(current);
+        }
+        if (typeof current === 'object' && current !== null) {
+          displayNoteText = current.userNotes || '';
+          if (Array.isArray(current.splitPayments) && current.splitPayments.length > 0 && splits.length === 0) {
+            splits = current.splitPayments;
+          }
+        } else {
+          displayNoteText = String(current || '');
+        }
+      } catch {
+        displayNoteText = typeof order.notes === 'string' && order.notes.trim().startsWith('{') ? '' : String(order.notes || '');
+      }
+    }
+
+    if (typeof displayNoteText === 'string' && displayNoteText.trim().startsWith('{')) {
+      displayNoteText = '';
+    }
+
+    if (!displayNoteText && typeof order.userNotes === 'string') {
+      displayNoteText = order.userNotes;
+    }
+
     // Complete Self-Contained A4 Printable Document (Modern Design Matched with Printer Safe Margins)
     const printableDoc = `
       <!DOCTYPE html>
@@ -422,12 +457,42 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
                 <div style="margin-top: 2px;"><strong>Contact:</strong> ${order.customerPhone || order.customer?.phone || '-'}</div>
               </div>
             </div>
-            ${order.notes ? `
-            <div style="max-width: 250px; text-align: right;">
+            ${(displayNoteText || (splits && splits.length > 0)) ? `
+            <div style="max-width: 320px; text-align: right;">
               <div class="section-title">Payment / Note Details</div>
-              <div style="font-size: 11px; font-weight: 600; color: #111; word-break: break-word; line-height: 1.35; margin-top: 2px;">
-                ${order.notes}
-              </div>
+              ${displayNoteText ? `
+                <div style="font-size: 11px; font-weight: 600; color: #111; word-break: break-word; line-height: 1.35; margin-top: 2px;">
+                  ${displayNoteText}
+                </div>
+              ` : ''}
+              ${splits && splits.length > 0 ? `
+                <div style="margin-top: 4px;">
+                  <table style="width: 100%; font-size: 9.5px; border-collapse: collapse; text-align: right; border: 1px solid #ccc;">
+                    <thead>
+                      <tr style="background-color: #f2f2f2; border-bottom: 1px solid #ccc; font-size: 8.5px; text-transform: uppercase;">
+                        <th style="text-align: left; padding: 2px 4px;">Method</th>
+                        <th style="text-align: left; padding: 2px 4px;">Ref / Chq</th>
+                        <th style="text-align: center; padding: 2px 4px;">Date</th>
+                        <th style="text-align: right; padding: 2px 4px;">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${splits.map((s: any) => {
+                        const ref = s.chequeNumber ? `Chq #${s.chequeNumber}${s.bankName ? ` (${s.bankName})` : ''}` : (s.reference || '-');
+                        const dateStr = s.date ? new Date(s.date).toISOString().split('T')[0] : (s.chequeDate ? new Date(s.chequeDate).toISOString().split('T')[0] : '-');
+                        return `
+                          <tr style="border-bottom: 0.5px solid #eee;">
+                            <td style="text-align: left; padding: 2px 4px; font-weight: bold;">${s.method || 'CASH'}</td>
+                            <td style="text-align: left; padding: 2px 4px; color: #333; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${ref}</td>
+                            <td style="text-align: center; padding: 2px 4px; color: #555;">${dateStr}</td>
+                            <td style="text-align: right; padding: 2px 4px; font-weight: bold;">Rs ${Number(s.amount || 0).toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                          </tr>
+                        `;
+                      }).join('')}
+                    </tbody>
+                  </table>
+                </div>
+              ` : ''}
             </div>
             ` : ''}
           </div>

@@ -4,6 +4,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
 import { SearchableSelect } from '../components/ui/searchable-select';
+import { DateTimePicker } from '../components/ui/date-time-picker';
 import { MaterialCombobox } from '../components/materials/MaterialCombobox';
 import { useTheme } from '../contexts/ThemeContext';
 import {
@@ -39,7 +40,6 @@ import {
 } from '../components/ui/dropdown-menu';
 import { get, post, del } from '../lib/api';
 import { toast } from 'react-toastify';
-import { DateTimePicker } from '../components/ui/date-time-picker';
 import {
   ShoppingCart,
   Plus,
@@ -134,7 +134,15 @@ export const BuyRawMaterialsPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [selectedShopId, setSelectedShopId] = useState<number | ''>('');
   const [invoiceNumber, setInvoiceNumber] = useState<string>('');
-  const [purchaseDate, setPurchaseDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [purchaseDate, setPurchaseDate] = useState<string>(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  });
   const [paymentMethod, setPaymentMethod] = useState<string>('CASH');
   const [paidAmount, setPaidAmount] = useState<number | ''>('');
   const [notes, setNotes] = useState<string>('');
@@ -578,15 +586,15 @@ export const BuyRawMaterialsPage: React.FC = () => {
                 const due = purchase.totalAmount - purchase.paidAmount;
                 return (
                   <TableRow key={purchase.id}>
-                    {/* Interactive Clickable Invoice / PO No: Opens Items Breakdown Modal */}
-                    <TableCell 
-                      onClick={() => setViewingPurchase(purchase)}
-                      className="cursor-pointer group/po select-none"
-                      title="Click to view purchase order breakdown"
-                    >
-                      <div className="font-semibold text-xs text-slate-900 dark:text-white flex items-center gap-1.5 group-hover/po:text-indigo-600 dark:group-hover/po:text-indigo-400 transition-colors">
-                        <Receipt className="size-3.5 text-slate-400 group-hover/po:text-indigo-600" />
-                        <span className="group-hover/po:underline">{purchase.invoiceNumber || `PO-${purchase.id}`}</span>
+                    {/* Interactive Clickable Invoice / PO No: Navigates to Edit Page */}
+                    <TableCell className="select-none">
+                      <div 
+                        onClick={() => navigate(`/system/buy-raw-materials/edit/${purchase.id}`)}
+                        className="font-semibold text-xs text-primary cursor-pointer hover:underline flex items-center gap-1.5 w-fit"
+                        title="Click to edit purchase order"
+                      >
+                        <Receipt className="size-3.5 text-primary" />
+                        <span>{purchase.invoiceNumber || `PO-${purchase.id}`}</span>
                       </div>
                       <div className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5 font-mono">
                         <Calendar className="size-3" />
@@ -805,11 +813,11 @@ export const BuyRawMaterialsPage: React.FC = () => {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold">Purchase Date</label>
-                <Input
-                  type="date"
+                <label className="text-xs font-semibold">Purchase Date & Time</label>
+                <DateTimePicker
                   value={purchaseDate}
-                  onChange={(e) => setPurchaseDate(e.target.value)}
+                  onChange={setPurchaseDate}
+                  className="w-full"
                 />
               </div>
             </div>
@@ -849,8 +857,8 @@ export const BuyRawMaterialsPage: React.FC = () => {
                       const rowTotal = (Number(item.quantity) || 0) * (Number(item.pricePerUnit) || 0);
 
                       return (
-                        <TableRow key={index}>
-                          <TableCell>
+                        <TableRow key={index} className="align-top">
+                          <TableCell className="align-top relative pb-6">
                             {/* High-Performance Portal Combobox that floats over entire Dialog */}
                             <MaterialCombobox
                               value={item.rawMaterialItemId}
@@ -865,12 +873,12 @@ export const BuyRawMaterialsPage: React.FC = () => {
                               placeholder="Select Material..."
                             />
                             {selectedItemMeta && (
-                              <span className="text-[10px] text-slate-400 mt-1 block">
+                              <span className="text-xs text-muted-foreground mt-1 absolute -bottom-5 left-0 pl-4 block whitespace-nowrap">
                                 Current stock: {selectedItemMeta.currentStock} {selectedItemMeta.unit.toLowerCase()}
                               </span>
                             )}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="align-top pb-6">
                             <Input
                               type="number"
                               min="0.01"
@@ -879,10 +887,10 @@ export const BuyRawMaterialsPage: React.FC = () => {
                               value={item.quantity}
                               onChange={(e) => handleLineItemChange(index, 'quantity', e.target.value)}
                               placeholder="Qty"
-                              className="font-mono text-xs"
+                              className="font-mono text-xs h-9"
                             />
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="align-top pb-6">
                             <Input
                               type="number"
                               min="0"
@@ -891,21 +899,21 @@ export const BuyRawMaterialsPage: React.FC = () => {
                               value={item.pricePerUnit}
                               onChange={(e) => handleLineItemChange(index, 'pricePerUnit', e.target.value)}
                               placeholder="Unit Price"
-                              className="font-mono text-xs"
+                              className="font-mono text-xs h-9"
                             />
                           </TableCell>
-                          <TableCell className="text-right font-mono font-bold text-xs text-slate-900 dark:text-white">
+                          <TableCell className="align-top pt-2.5 text-right font-mono font-bold text-xs text-slate-900 dark:text-white pb-6">
                             Rs. {rowTotal.toLocaleString()}
                           </TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className="align-top text-right pb-6">
                             <Button
                               type="button"
                               variant="ghost"
                               size="icon"
                               onClick={() => handleRemoveLineItem(index)}
-                              className="size-7 text-slate-400 hover:text-rose-500"
+                              className="size-9 text-slate-400 hover:text-rose-500 cursor-pointer"
                             >
-                              <X className="size-3.5" />
+                              <X className="size-4" />
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -1128,6 +1136,8 @@ export const BuyRawMaterialsPage: React.FC = () => {
                     max={settlingPurchase.totalAmount - settlingPurchase.paidAmount}
                     value={paymentAmount}
                     onChange={(e) => setPaymentAmount(e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                    onClick={(e) => (e.target as HTMLInputElement).select()}
                     placeholder="0.00"
                     className="h-9 font-mono font-bold text-sm"
                   />

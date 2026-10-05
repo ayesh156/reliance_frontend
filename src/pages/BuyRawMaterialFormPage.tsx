@@ -5,6 +5,7 @@ import { Input } from '../components/ui/input';
 import { SearchableSelect } from '../components/ui/searchable-select';
 import { MaterialCombobox } from '../components/materials/MaterialCombobox';
 import { DatePicker } from '../components/ui/date-picker';
+import { DateTimePicker } from '../components/ui/date-time-picker';
 import { QuickAddShopModal } from '../components/materials/QuickAddShopModal'; // ⭐ New Shop Modal
 import { QuickAddMaterialModal } from '../components/materials/QuickAddMaterialModal'; // ⭐ New Material Modal
 import { useTheme } from '../contexts/ThemeContext';
@@ -19,6 +20,13 @@ import {
 import { get, post, put } from '../lib/api';
 import { toast } from 'react-toastify';
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '../components/ui/dialog';
+import {
   ArrowLeft,
   ShoppingCart,
   PlusCircle,
@@ -31,6 +39,13 @@ import {
   Save,
   Plus,
   MessageSquare,
+  Trash2,
+  Landmark,
+  FileText,
+  Pencil,
+  Banknote,
+  CreditCard,
+  CheckCircle2,
 } from 'lucide-react';
 import { openWhatsAppChat, generateSupplierStockInWhatsAppMessage } from '../utils/whatsapp';
 
@@ -55,7 +70,37 @@ interface PurchaseLineItem {
   batchNumber?: string;
 }
 
-const PAYMENT_METHODS = ['CASH', 'CREDIT', 'CHEQUE', 'BANK_TRANSFER'];
+export interface ChequeEntry {
+  id: string;
+  chequeNumber: string;
+  bankName: string;
+  chequeDate: string;
+  amount: string;
+}
+
+const getCurrentLocalISOString = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const mins = String(now.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${mins}`;
+};
+
+export type PurchasePaymentMethod = 'CASH' | 'CARD' | 'BANK_TRANSFER' | 'CHEQUE';
+
+export interface PurchasePaymentRow {
+  id: string;
+  method: PurchasePaymentMethod;
+  amount: string;
+  paymentDate: string;
+  reference?: string;
+  chequeNumber?: string;
+  bankName?: string;
+}
+
+const PAYMENT_METHODS = ['CASH', 'CARD', 'BANK_TRANSFER', 'CHEQUE', 'CREDIT'];
 
 export const BuyRawMaterialFormPage: React.FC = () => {
   const navigate = useNavigate();
@@ -83,7 +128,30 @@ export const BuyRawMaterialFormPage: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<string>('CASH');
   const [paidAmount, setPaidAmount] = useState<number | ''>('');
   const [notes, setNotes] = useState<string>('');
-// ⭐ Preserve existing payment history ledger when updating notes in Edit Mode
+  // Multi-cheque dynamic split list state
+  const [cheques, setCheques] = useState<ChequeEntry[]>([
+    { id: '1', chequeNumber: '', bankName: '', chequeDate: new Date().toISOString().split('T')[0], amount: '' },
+  ]);
+  // Multi-Payment rows state (hydrated on edit, editable on create/edit)
+  const [paymentRows, setPaymentRows] = useState<PurchasePaymentRow[]>([]);
+  // Dedicated single entry form state for GRN payments
+  const [entryMethod, setEntryMethod] = useState<PurchasePaymentMethod>('CASH');
+  const [entryAmount, setEntryAmount] = useState<string>('');
+  const [entryDate, setEntryDate] = useState<string>(getCurrentLocalISOString);
+  const [entryChequeNumber, setEntryChequeNumber] = useState<string>('');
+  const [entryBankName, setEntryBankName] = useState<string>('');
+  const [entryReference, setEntryReference] = useState<string>('');
+
+  // Editing state for GRN payment row modal
+  const [editingPaymentRow, setEditingPaymentRow] = useState<PurchasePaymentRow | null>(null);
+  const [editMethod, setEditMethod] = useState<PurchasePaymentMethod>('CASH');
+  const [editAmount, setEditAmount] = useState<string>('');
+  const [editDate, setEditDate] = useState<string>(getCurrentLocalISOString);
+  const [editChequeNumber, setEditChequeNumber] = useState<string>('');
+  const [editBankName, setEditBankName] = useState<string>('');
+  const [editReference, setEditReference] = useState<string>('');
+
+  // ⭐ Preserve existing payment history ledger when updating notes in Edit Mode
   const [existingPaymentsLedger, setExistingPaymentsLedger] = useState<any[]>([]);
   const [generatingInvoice, setGeneratingInvoice] = useState<boolean>(false);
 
@@ -114,15 +182,28 @@ export const BuyRawMaterialFormPage: React.FC = () => {
             setPaymentMethod(orderData.paymentMethod || 'CASH');
             setPaidAmount(orderData.paidAmount ?? '');
 
-            // ⭐ Safely parse user note text and extract background payments ledger
+            // ⭐ Safely parse user note text and extract background payments & cheques ledger
             let displayNote = '';
             let parsedLedger: any[] = [];
+            let parsedCheques: any[] = [];
             if (orderData.notes) {
               try {
-                if (orderData.notes.startsWith('{') && orderData.notes.includes('"payments"')) {
+                if (orderData.notes.startsWith('{')) {
                   const parsed = JSON.parse(orderData.notes);
                   displayNote = parsed.userNotes || '';
                   parsedLedger = Array.isArray(parsed.payments) ? parsed.payments : [];
+                  if (Array.isArray(parsed.cheques) && parsed.cheques.length > 0) {
+                    parsedCheques = parsed.cheques;
+                    setCheques(
+                      parsed.cheques.map((c: any, idx: number) => ({
+                        id: String(idx + 1),
+                        chequeNumber: c.chequeNumber || '',
+                        bankName: c.bankName || '',
+                        chequeDate: c.chequeDate ? new Date(c.chequeDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                        amount: String(c.amount || ''),
+                      }))
+                    );
+                  }
                 } else {
                   displayNote = orderData.notes;
                 }
@@ -132,6 +213,62 @@ export const BuyRawMaterialFormPage: React.FC = () => {
             }
             setNotes(displayNote);
             setExistingPaymentsLedger(parsedLedger);
+
+            // ⭐ Hydrate recorded payments list for visible editing
+            let hydratedPaymentRows: PurchasePaymentRow[] = [];
+            if (Array.isArray(orderData.payments) && orderData.payments.length > 0) {
+              hydratedPaymentRows = orderData.payments.map((p: any, idx: number) => {
+                let chq = p.chequeNumber || '';
+                let bName = p.bankName || '';
+                if (p.method === 'CHEQUE' && p.reference && !chq) {
+                  const match = p.reference.match(/Cheque #([^\s(]+)(?:\s*\(([^)]+)\))?/i);
+                  if (match) {
+                    chq = match[1] || '';
+                    bName = match[2] || '';
+                  }
+                }
+                return {
+                  id: String(p.id || idx + 1),
+                  method: p.method === 'CHEQUE' ? 'CHEQUE' : p.method === 'BANK_TRANSFER' ? 'BANK_TRANSFER' : 'CASH',
+                  amount: String(p.amount || ''),
+                  paymentDate: p.paymentDate ? new Date(p.paymentDate).toISOString().split('T')[0] : (p.createdAt ? new Date(p.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]),
+                  reference: p.reference || '',
+                  chequeNumber: chq,
+                  bankName: bName,
+                };
+              });
+            } else if (parsedLedger.length > 0) {
+              hydratedPaymentRows = parsedLedger.map((p: any, idx: number) => ({
+                id: String(p.id || idx + 1),
+                method: p.method === 'CHEQUE' ? 'CHEQUE' : p.method === 'BANK_TRANSFER' ? 'BANK_TRANSFER' : 'CASH',
+                amount: String(p.amount || ''),
+                paymentDate: p.createdAt ? new Date(p.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                reference: p.reference || '',
+                chequeNumber: p.chequeNumber || '',
+                bankName: p.bankName || '',
+              }));
+            } else if (parsedCheques.length > 0) {
+              hydratedPaymentRows = parsedCheques.map((c: any, idx: number) => ({
+                id: String(idx + 1),
+                method: 'CHEQUE',
+                amount: String(c.amount || ''),
+                paymentDate: c.chequeDate ? new Date(c.chequeDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                chequeNumber: c.chequeNumber || '',
+                bankName: c.bankName || '',
+                reference: `Cheque #${c.chequeNumber || ''}`,
+              }));
+            } else if (orderData.paidAmount > 0) {
+              hydratedPaymentRows = [
+                {
+                  id: '1',
+                  method: (orderData.paymentMethod as any) || 'CASH',
+                  amount: String(orderData.paidAmount),
+                  paymentDate: orderData.purchaseDate ? new Date(orderData.purchaseDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                  reference: 'Initial Down Payment',
+                },
+              ];
+            }
+            setPaymentRows(hydratedPaymentRows);
 
             if (Array.isArray(orderData.items) && orderData.items.length > 0) {
               setLineItems(
@@ -185,6 +322,161 @@ export const BuyRawMaterialFormPage: React.FC = () => {
     });
   };
 
+  // Multi-Payment Rows calculations and helpers
+  const totalPaymentRowsAmount = useMemo(() => {
+    return paymentRows.reduce((sum, row) => sum + (Math.max(0, Number(row.amount)) || 0), 0);
+  }, [paymentRows]);
+
+  const handleAddPaymentEntry = (e?: React.SyntheticEvent) => {
+    if (e) e.preventDefault();
+    const num = parseFloat(entryAmount);
+    if (isNaN(num) || num <= 0) {
+      toast.error('Please enter a valid positive payment amount');
+      return;
+    }
+
+    if (entryMethod === 'CHEQUE' && !entryChequeNumber.trim()) {
+      toast.warn('Please enter Cheque Number');
+    }
+
+    const newRow: PurchasePaymentRow = {
+      id: `pay-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      method: entryMethod,
+      amount: String(num),
+      paymentDate: entryDate || new Date().toISOString().split('T')[0],
+      chequeNumber: entryChequeNumber.trim() || undefined,
+      bankName: entryBankName.trim() || undefined,
+      reference: entryReference.trim() || undefined,
+    };
+
+    setPaymentRows((prev) => {
+      const updated = [...prev, newRow];
+      const sum = updated.reduce((s, r) => s + (Math.max(0, Number(r.amount)) || 0), 0);
+      setPaidAmount(sum);
+      return updated;
+    });
+    
+    // Clear single entry form
+    const nextRemaining = Math.max(0, dueDebtAmount - num);
+    setEntryAmount(nextRemaining > 0 ? String(nextRemaining) : '');
+    setEntryChequeNumber('');
+    setEntryBankName('');
+    setEntryReference('');
+    toast.success(`Payment of Rs. ${num.toLocaleString()} added to purchase`);
+  };
+
+  const handleFillEntryRemaining = () => {
+    setEntryAmount(dueDebtAmount > 0 ? String(dueDebtAmount) : '0');
+  };
+
+  const handleRemovePaymentRow = (id: string) => {
+    setPaymentRows((prev) => {
+      const updated = prev.filter((r) => r.id !== id);
+      const sum = updated.reduce((s, r) => s + (Math.max(0, Number(r.amount)) || 0), 0);
+      setPaidAmount(sum > 0 ? sum : '');
+      return updated;
+    });
+    toast.info('Payment entry removed');
+  };
+
+  const handleInitiateEditPaymentRow = (row: PurchasePaymentRow) => {
+    setEditingPaymentRow(row);
+    setEditMethod(row.method);
+    setEditAmount(row.amount);
+    setEditDate(row.paymentDate || new Date().toISOString().split('T')[0]);
+    setEditChequeNumber(row.chequeNumber || '');
+    setEditBankName(row.bankName || '');
+    setEditReference(row.reference || '');
+  };
+
+  const handleSaveEditPaymentRow = (e?: React.SyntheticEvent) => {
+    if (e) e.preventDefault();
+    if (!editingPaymentRow) return;
+    const num = parseFloat(editAmount);
+    if (isNaN(num) || num <= 0) {
+      toast.error('Please enter a valid positive payment amount');
+      return;
+    }
+
+    setPaymentRows((prev) => {
+      const updated = prev.map((r) =>
+        r.id === editingPaymentRow.id
+          ? {
+              ...r,
+              method: editMethod,
+              amount: String(num),
+              paymentDate: editDate,
+              chequeNumber: editChequeNumber.trim() || undefined,
+              bankName: editBankName.trim() || undefined,
+              reference: editReference.trim() || undefined,
+            }
+          : r
+      );
+      const sum = updated.reduce((s, r) => s + (Math.max(0, Number(r.amount)) || 0), 0);
+      setPaidAmount(sum);
+      return updated;
+    });
+
+    setEditingPaymentRow(null);
+    toast.success('Payment record updated');
+  };
+
+  const handleDeleteFromEditPaymentRow = () => {
+    if (!editingPaymentRow) return;
+    setPaymentRows((prev) => {
+      const updated = prev.filter((r) => r.id !== editingPaymentRow.id);
+      const sum = updated.reduce((s, r) => s + (Math.max(0, Number(r.amount)) || 0), 0);
+      setPaidAmount(sum > 0 ? sum : '');
+      return updated;
+    });
+    setEditingPaymentRow(null);
+    toast.info('Payment record removed');
+  };
+
+  // Multi-Cheque Split helpers
+  const totalChequeAmount = useMemo(() => {
+    if (paymentMethod !== 'CHEQUE') return 0;
+    return cheques.reduce((acc, curr) => acc + (Math.max(0, Number(curr.amount)) || 0), 0);
+  }, [cheques, paymentMethod]);
+
+  const handleAddCheque = () => {
+    setCheques((prev) => [
+      ...prev,
+      {
+        id: Date.now().toString() + Math.random().toString().slice(2, 6),
+        chequeNumber: '',
+        bankName: '',
+        chequeDate: new Date().toISOString().split('T')[0],
+        amount: '',
+      },
+    ]);
+  };
+
+  const handleRemoveCheque = (id: string) => {
+    setCheques((prev) => {
+      const next = prev.filter((c) => c.id !== id);
+      return next.length > 0 ? next : [
+        {
+          id: Date.now().toString(),
+          chequeNumber: '',
+          bankName: '',
+          chequeDate: new Date().toISOString().split('T')[0],
+          amount: '',
+        },
+      ];
+    });
+  };
+
+  const handleUpdateCheque = (id: string, field: keyof ChequeEntry, value: string) => {
+    setCheques((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, [field]: value } : c))
+    );
+  };
+
+  const handleSelectPaymentMethod = (method: string) => {
+    setPaymentMethod(method);
+  };
+
   const calculatedTotalAmount = useMemo(() => {
     return lineItems.reduce((sum, item) => {
       const qty = Number(item.quantity) || 0;
@@ -193,16 +485,26 @@ export const BuyRawMaterialFormPage: React.FC = () => {
     }, 0);
   }, [lineItems]);
 
+  const effectivePaidAmount = useMemo(() => {
+    if (paymentRows.length > 0) {
+      return totalPaymentRowsAmount;
+    }
+    if (paymentMethod === 'CHEQUE') return totalChequeAmount;
+    if (paidAmount === '') return 0;
+    return Number(paidAmount) || 0;
+  }, [paymentRows.length, totalPaymentRowsAmount, paymentMethod, totalChequeAmount, paidAmount]);
+
   const dueDebtAmount = useMemo(() => {
-    const paid = Number(paidAmount) || 0;
-    return Math.max(0, calculatedTotalAmount - paid);
-  }, [calculatedTotalAmount, paidAmount]);
+    return Math.max(0, calculatedTotalAmount - effectivePaidAmount);
+  }, [calculatedTotalAmount, effectivePaidAmount]);
 
   // ⭐ Auto-Switch Payment Method:
   // 1. Paid amount is empty or less than total bill -> Automatically switch to CREDIT
   // 2. Paid amount meets or exceeds total bill -> If previously CREDIT, auto-switch to CASH (preserves CHEQUE/BANK_TRANSFER)
   useEffect(() => {
     if (calculatedTotalAmount <= 0) return;
+    if (paymentRows.length > 0) return;
+    if (paymentMethod === 'CHEQUE' || paymentMethod === 'BANK_TRANSFER') return;
 
     // Empty input box denotes Rs. 0 payment (Pure Credit Purchase)
     const numericPaid = paidAmount === '' ? 0 : Number(paidAmount);
@@ -216,7 +518,7 @@ export const BuyRawMaterialFormPage: React.FC = () => {
         setPaymentMethod('CASH');
       }
     }
-  }, [paidAmount, calculatedTotalAmount, paymentMethod]);
+  }, [paidAmount, calculatedTotalAmount, paymentMethod, paymentRows.length]);
 
   const fetchNextInvoiceFromBackend = async (): Promise<string> => {
     try {
@@ -248,28 +550,102 @@ export const BuyRawMaterialFormPage: React.FC = () => {
 
     try {
       setIsSubmitting(true);
-      // ⭐ Pack notes: If existing payments ledger exists, retain it alongside updated note
+
+      let resolvedPayments: any[] | undefined = undefined;
+      let resolvedCheques: any[] | undefined = undefined;
+      let resolvedPaidAmount = 0;
+
+      if (paymentRows.length > 0) {
+        resolvedPayments = paymentRows
+          .filter((r) => Number(r.amount) > 0 || r.reference || r.chequeNumber)
+          .map((r) => ({
+            method: r.method,
+            amount: Number(r.amount) || 0,
+            paymentDate: r.paymentDate || new Date().toISOString().split('T')[0],
+            reference: r.reference || r.bankName || undefined,
+            chequeNumber: r.chequeNumber || undefined,
+            bankName: r.bankName || undefined,
+          }));
+
+        resolvedCheques = resolvedPayments
+          .filter((p) => p.method === 'CHEQUE')
+          .map((p) => ({
+            chequeNumber: p.chequeNumber || '',
+            bankName: p.bankName || '',
+            chequeDate: p.paymentDate,
+            amount: p.amount,
+          }));
+
+        resolvedPaidAmount = resolvedPayments.reduce((sum, p) => sum + p.amount, 0);
+      } else if (paymentMethod === 'CHEQUE') {
+        resolvedCheques = cheques
+          .filter((c) => Number(c.amount) > 0 || c.chequeNumber.trim() !== '')
+          .map((c) => ({
+            chequeNumber: c.chequeNumber.trim(),
+            bankName: c.bankName.trim(),
+            chequeDate: c.chequeDate,
+            amount: Number(c.amount) || 0,
+          }));
+        resolvedPaidAmount = totalChequeAmount;
+        resolvedPayments = resolvedCheques.map((c) => ({
+          method: 'CHEQUE',
+          amount: c.amount,
+          paymentDate: c.chequeDate,
+          reference: c.bankName,
+          chequeNumber: c.chequeNumber,
+          bankName: c.bankName,
+        }));
+      } else {
+        resolvedPaidAmount = paidAmount === '' ? 0 : Number(paidAmount);
+        if (resolvedPaidAmount > 0) {
+          resolvedPayments = [
+            {
+              method: paymentMethod,
+              amount: resolvedPaidAmount,
+              paymentDate: purchaseDate ? purchaseDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+            },
+          ];
+        }
+      }
+
+      // Automatically determine primary payment method
+      let effectivePaymentMethod = paymentMethod;
+      if (paymentRows.length > 0) {
+        if (resolvedPaidAmount === 0) {
+          effectivePaymentMethod = 'CREDIT';
+        } else if (paymentRows.length === 1) {
+          effectivePaymentMethod = paymentRows[0].method;
+        } else {
+          effectivePaymentMethod = resolvedPaidAmount >= calculatedTotalAmount ? 'SPLIT' : 'CREDIT';
+        }
+      }
+
+      // ⭐ Pack notes: If existing payments ledger or cheques exist, retain it alongside updated note
       let finalNotesPayload: string | undefined = undefined;
       const cleanUserNote = notes.trim();
 
-      if (existingPaymentsLedger.length > 0) {
+      if (
+        (resolvedPayments && resolvedPayments.length > 0) ||
+        (resolvedCheques && resolvedCheques.length > 0) ||
+        existingPaymentsLedger.length > 0
+      ) {
         finalNotesPayload = JSON.stringify({
           userNotes: cleanUserNote,
-          payments: existingPaymentsLedger,
+          cheques: resolvedCheques && resolvedCheques.length > 0 ? resolvedCheques : undefined,
+          payments: resolvedPayments && resolvedPayments.length > 0 ? resolvedPayments : existingPaymentsLedger,
         });
       } else if (cleanUserNote) {
         finalNotesPayload = cleanUserNote;
       }
 
-      // Resolve paid amount accurately: empty input represents 0.00 credit sale
-      const resolvedPaidAmount = paidAmount === '' ? 0 : Number(paidAmount);
-
       const payload = {
         rawMaterialShopId: Number(selectedShopId),
         invoiceNumber: invoiceNumber.trim() || undefined,
         purchaseDate: purchaseDate ? purchaseDate.toISOString() : new Date().toISOString(),
-        paymentMethod,
+        paymentMethod: effectivePaymentMethod,
         paidAmount: resolvedPaidAmount,
+        payments: resolvedPayments,
+        cheques: resolvedCheques && resolvedCheques.length > 0 ? resolvedCheques : undefined,
         notes: finalNotesPayload,
         items: lineItems.map((item) => ({
           rawMaterialItemId: Number(item.rawMaterialItemId),
@@ -287,30 +663,6 @@ export const BuyRawMaterialFormPage: React.FC = () => {
         // New Purchase එකක් සෑදීමේදී POST request එක යැවීම
         await post('/buy-raw-materials', payload);
         toast.success('Raw materials received and stock updated successfully');
-      }
-
-      // WhatsApp Notification (නව Stock Purchase එකකදී පමණක් යැවීම හෝ සංශෝධනයේදී යැවීම)
-      const currentShop = shops.find((s) => s.id === Number(selectedShopId)) as any;
-      if (currentShop?.phone && !isEditMode) {
-        const enrichedItems = lineItems.map((item) => {
-          const matMeta = materialItems.find((m) => m.id === Number(item.rawMaterialItemId));
-          return {
-            ...item,
-            rawMaterialItem: matMeta,
-          };
-        });
-
-        const waMessage = generateSupplierStockInWhatsAppMessage({
-          invoiceNumber: invoiceNumber.trim() || undefined,
-          purchaseDate,
-          paymentMethod,
-          totalAmount: calculatedTotalAmount,
-          paidAmount: paidAmount === '' ? calculatedTotalAmount : Number(paidAmount),
-          shop: currentShop,
-          items: enrichedItems,
-        });
-
-        openWhatsAppChat(currentShop.phone, waMessage);
       }
 
       navigate('/system/buy-raw-materials');
@@ -507,12 +859,11 @@ export const BuyRawMaterialFormPage: React.FC = () => {
               </TableHeader>
               <TableBody>
                 {lineItems.map((item, index) => {
-                  const selectedItemMeta = materialItems.find((m) => m.id === Number(item.rawMaterialItemId));
                   const rowTotal = (Number(item.quantity) || 0) * (Number(item.pricePerUnit) || 0);
 
                   return (
-                    <TableRow key={index}>
-                      <TableCell>
+                    <TableRow key={index} className="items-center">
+                      <TableCell className="align-middle py-2.5">
                         <MaterialCombobox
                           value={item.rawMaterialItemId}
                           onChange={(id) => handleLineItemChange(index, 'rawMaterialItemId', id)}
@@ -525,13 +876,8 @@ export const BuyRawMaterialFormPage: React.FC = () => {
                           }))}
                           placeholder="Select Material..."
                         />
-                        {selectedItemMeta && (
-                          <span className="text-[10px] text-slate-400 mt-1 block">
-                            Current stock: {selectedItemMeta.currentStock} {selectedItemMeta.unit.toLowerCase()}
-                          </span>
-                        )}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="align-middle py-2.5">
                         <Input
                           type="number"
                           min="0.01"
@@ -543,7 +889,7 @@ export const BuyRawMaterialFormPage: React.FC = () => {
                           className="font-mono text-xs h-9"
                         />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="align-middle py-2.5">
                         <Input
                           type="number"
                           min="0"
@@ -555,18 +901,19 @@ export const BuyRawMaterialFormPage: React.FC = () => {
                           className="font-mono text-xs h-9"
                         />
                       </TableCell>
-                      <TableCell className="text-right font-mono font-bold text-xs text-slate-900 dark:text-white">
+                      <TableCell className="align-middle py-2.5 text-right font-mono font-bold text-xs text-slate-900 dark:text-white">
                         Rs. {rowTotal.toLocaleString()}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="align-middle py-2.5 text-right">
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
                           onClick={() => handleRemoveLineItem(index)}
-                          className="size-8 text-slate-400 hover:text-rose-500"
+                          className="size-8 text-slate-400 hover:text-rose-500 cursor-pointer"
+                          title="Remove item"
                         >
-                          <X className="size-4" />
+                          <Trash2 className="size-4" />
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -577,67 +924,412 @@ export const BuyRawMaterialFormPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Financials & Payment Card */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-5 space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-zinc-300">
-              Payment &amp; Delivery Notes
-            </h3>
+        {/* Financials & Recorded Payments / Cheques Card */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Recorded Payments / Payment Splits */}
+          <div className="lg:col-span-7 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="size-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                  <Landmark className="size-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-zinc-200">
+                    Recorded Payments &amp; Cheques
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-zinc-400">
+                    {paymentRows.length > 0
+                      ? `${paymentRows.length} payment entries recorded for this purchase`
+                      : 'Single payment method or split across multiple dates/cheques'}
+                  </p>
+                </div>
+              </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold">Payment Method</label>
-              <SearchableSelect
-                value={paymentMethod}
-                onValueChange={setPaymentMethod}
-                options={PAYMENT_METHODS.map((m) => ({ value: m, label: m }))}
-                placeholder="Select Payment Method"
-                dark={dark}
-              />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleFillEntryRemaining}
+                className="h-8 px-3 text-xs font-bold border-indigo-200 dark:border-indigo-800/80 bg-indigo-50/50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 rounded-lg gap-1.5 cursor-pointer whitespace-nowrap"
+              >
+                <Plus className="size-3.5" /> + New Payment
+              </Button>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold">Notes / Purchase Details</label>
+            {/* Dedicated Single Entry Form at Top for GRN Payments */}
+            <div
+              className="p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/40 space-y-3"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-zinc-200 flex items-center gap-1.5 whitespace-nowrap">
+                  <Plus className="size-3.5 text-indigo-600 dark:text-indigo-400" />
+                  Add Payment Entry
+                </span>
+                {dueDebtAmount > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleFillEntryRemaining}
+                    className="text-[11px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 inline-flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-900/60 cursor-pointer whitespace-nowrap"
+                  >
+                    <Sparkles className="size-3" /> Fill Remaining Due (Rs. {dueDebtAmount.toLocaleString()})
+                  </button>
+                )}
+              </div>
+
+              {/* Inputs Form Row - Structured Full-Width Flex Container */}
+              <div className="w-full flex flex-wrap sm:flex-nowrap items-end gap-2.5">
+                {/* Method */}
+                <div className="flex-1 min-w-[130px] space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block whitespace-nowrap">Method *</label>
+                  <SearchableSelect
+                    value={entryMethod}
+                    onValueChange={(val) => setEntryMethod(val as PurchasePaymentMethod)}
+                    options={[
+                      { value: 'CASH', label: 'Cash', icon: <Banknote className="size-3.5 text-emerald-500" /> },
+                      { value: 'CARD', label: 'Card / POS', icon: <CreditCard className="size-3.5 text-purple-500" /> },
+                      { value: 'BANK_TRANSFER', label: 'Bank T', icon: <Landmark className="size-3.5 text-blue-500" /> },
+                      { value: 'CHEQUE', label: 'Cheque', icon: <FileText className="size-3.5 text-amber-500" /> },
+                    ]}
+                    placeholder="Select Method"
+                    searchPlaceholder="Search method..."
+                    dark={dark}
+                    className="h-9 py-0 rounded-lg text-xs"
+                  />
+                </div>
+
+                {/* Amount */}
+                <div className="flex-1 min-w-[130px] space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block whitespace-nowrap">Amount (Rs.) *</label>
+                  <div className="relative flex items-center">
+                    <span className="absolute left-2.5 text-xs font-mono font-bold text-slate-400">Rs.</span>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      value={entryAmount}
+                      onChange={(e) => setEntryAmount(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddPaymentEntry(e);
+                        }
+                      }}
+                      onFocus={(e) => e.target.select()}
+                      onClick={(e) => (e.target as HTMLInputElement).select()}
+                      placeholder="0.00"
+                      className="pl-8 h-9 font-mono font-bold text-xs text-right bg-white dark:bg-zinc-900 rounded-lg border-indigo-200 dark:border-indigo-900 text-indigo-700 dark:text-indigo-300"
+                    />
+                  </div>
+                </div>
+
+                {/* Date & Time */}
+                <div className="flex-initial min-w-[210px] space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block whitespace-nowrap">Date & Time *</label>
+                  <DateTimePicker
+                    value={entryDate}
+                    onChange={setEntryDate}
+                    className="h-9"
+                  />
+                </div>
+
+                {/* Compact Square Add button */}
+                <div className="shrink-0">
+                  <Button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleAddPaymentEntry(e);
+                    }}
+                    disabled={!entryAmount || parseFloat(entryAmount) <= 0}
+                    title="Add Payment Entry"
+                    className="w-10 h-10 shrink-0 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white flex items-center justify-center shadow-sm cursor-pointer p-0"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Method Specific Extra fields */}
+              {entryMethod === 'CHEQUE' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-amber-200/40 dark:border-amber-900/40 animate-in fade-in duration-100">
+                  <Input
+                    type="text"
+                    value={entryChequeNumber}
+                    onChange={(e) => setEntryChequeNumber(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddPaymentEntry(e);
+                      }
+                    }}
+                    placeholder="Cheque No (e.g. CHQ-48201) *"
+                    className="h-8 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl border-amber-200 dark:border-amber-800/60"
+                  />
+                  <Input
+                    type="text"
+                    value={entryBankName}
+                    onChange={(e) => setEntryBankName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddPaymentEntry(e);
+                      }
+                    }}
+                    placeholder="Bank & Branch Name (e.g. Commercial Bank)"
+                    className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl border-amber-200 dark:border-amber-800/60"
+                  />
+                </div>
+              )}
+
+              {entryMethod === 'BANK_TRANSFER' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-blue-200/40 dark:border-blue-900/40 animate-in fade-in duration-100">
+                  <Input
+                    type="text"
+                    value={entryBankName}
+                    onChange={(e) => setEntryBankName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddPaymentEntry(e);
+                      }
+                    }}
+                    placeholder="Bank Name (e.g. Sampath Bank)"
+                    className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl border-blue-200 dark:border-blue-800/60"
+                  />
+                  <Input
+                    type="text"
+                    value={entryReference}
+                    onChange={(e) => setEntryReference(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddPaymentEntry(e);
+                      }
+                    }}
+                    placeholder="Transfer Reference / Deposit Slip No"
+                    className="h-8 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl border-blue-200 dark:border-blue-800/60"
+                  />
+                </div>
+              )}
+
+              {entryMethod === 'CASH' && (
+                <div className="pt-0.5">
+                  <Input
+                    type="text"
+                    value={entryReference}
+                    onChange={(e) => setEntryReference(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddPaymentEntry(e);
+                      }
+                    }}
+                    placeholder="Optional reference / payment note..."
+                    className="h-7 text-[11px] bg-white dark:bg-zinc-900 rounded-xl border-slate-200 dark:border-zinc-800"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Render Recorded Payments in Single-line Ledger Rows with Edit & Delete */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                  Recorded Payments Ledger ({paymentRows.length})
+                </span>
+                {paymentRows.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPaymentRows([]);
+                      setPaidAmount('');
+                    }}
+                    className="text-[11px] font-semibold text-rose-500 hover:text-rose-700 cursor-pointer"
+                  >
+                    Clear All
+                  </button>
+                )}
+              </div>
+
+              {paymentRows.length === 0 ? (
+                <div className="py-6 text-center rounded-2xl border border-dashed border-slate-200 dark:border-zinc-800 bg-slate-50/40 dark:bg-zinc-950/20">
+                  <Landmark className="size-7 text-slate-300 dark:text-zinc-600 mx-auto mb-1.5" />
+                  <p className="text-xs font-semibold text-slate-600 dark:text-zinc-400">No payment entries recorded yet</p>
+                  <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-0.5">
+                    Add cash, cheque, or bank transfer payments above or enter down payment in the summary.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                  {paymentRows.map((row) => (
+                    <div
+                      key={row.id}
+                      className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 group hover:border-slate-300 dark:hover:border-zinc-700 transition-colors shadow-xs"
+                    >
+                      {/* Left: Method Badge, Amount, Details */}
+                      <div className="flex items-center gap-2 flex-wrap min-w-0">
+                        <span
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold inline-flex items-center gap-1 border ${
+                            row.method === 'CHEQUE'
+                              ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                              : row.method === 'BANK_TRANSFER'
+                              ? 'bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-800'
+                              : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                          }`}
+                        >
+                          {row.method === 'CHEQUE' ? (
+                            <FileText className="size-3" />
+                          ) : row.method === 'BANK_TRANSFER' ? (
+                            <Landmark className="size-3" />
+                          ) : (
+                            <Banknote className="size-3" />
+                          )}
+                          {row.method}
+                        </span>
+
+                        <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-xs sm:text-sm">
+                          Rs. {Number(row.amount || 0).toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                        </span>
+
+                        {row.chequeNumber && (
+                          <span className="font-mono text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-200/60 dark:border-amber-800/40">
+                            #{row.chequeNumber}
+                          </span>
+                        )}
+
+                        {row.bankName && (
+                          <span
+                            className="text-slate-500 dark:text-zinc-400 text-[11px] truncate max-w-[140px] sm:max-w-[200px]"
+                            title={row.bankName}
+                          >
+                            ({row.bankName})
+                          </span>
+                        )}
+
+                        {row.reference && !row.chequeNumber && (
+                          <span
+                            className="text-slate-500 dark:text-zinc-400 text-[11px] truncate max-w-[140px] sm:max-w-[200px]"
+                            title={row.reference}
+                          >
+                            ({row.reference})
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Right: Date, Edit & Delete Icons */}
+                      <div className="flex items-center gap-2.5 shrink-0">
+                        <span className="text-slate-500 dark:text-zinc-400 text-[11px] font-mono">
+                          {row.paymentDate ? row.paymentDate.replace('T', ' ') : ''}
+                        </span>
+
+                        <div className="flex items-center gap-1 border-l border-slate-200 dark:border-zinc-800 pl-2">
+                          <button
+                            type="button"
+                            onClick={() => handleInitiateEditPaymentRow(row)}
+                            className="p-1 rounded text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors cursor-pointer"
+                            title="Edit Payment Record"
+                          >
+                            <Pencil className="size-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRemovePaymentRow(row.id)}
+                            className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                            title="Delete Payment Record"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-zinc-800">
+              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">Notes / Purchase Details</label>
               <Input
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="e.g. Received via Delivery Courier, Roll Nos #102-105"
-                className="h-10 text-xs"
+                className="h-9 text-xs"
               />
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950/60 p-5 flex flex-col justify-between space-y-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-zinc-300">
-              Financial Summary
-            </h3>
+          {/* Financial Summary Card */}
+          <div className="lg:col-span-5 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950/60 p-5 flex flex-col justify-between space-y-4">
+            <div>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-zinc-300 mb-4">
+                Financial Summary
+              </h3>
 
-            <div className="space-y-3 text-xs">
-              <div className="flex justify-between items-center text-slate-600 dark:text-zinc-400">
-                <span>Total Purchase Bill:</span>
-                <span className="font-mono text-base font-bold text-slate-900 dark:text-white">
-                  Rs. {calculatedTotalAmount.toLocaleString()}
+              <div className="space-y-3.5 text-xs">
+                <div className="flex justify-between items-center text-slate-600 dark:text-zinc-400">
+                  <span className="font-medium">Total Purchase Bill:</span>
+                  <span className="font-mono text-base font-bold text-slate-900 dark:text-white">
+                    Rs. {calculatedTotalAmount.toLocaleString()}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <label className="font-semibold text-slate-800 dark:text-zinc-200 block">
+                      Paid Amount (Rs):
+                    </label>
+                    {paymentRows.length > 0 && (
+                      <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">
+                        Auto-sum of recorded payments
+                      </span>
+                    )}
+                  </div>
+                  {paymentRows.length > 0 ? (
+                    <div className="w-40 h-9 px-3 flex items-center justify-end font-mono font-bold text-xs bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-md text-indigo-700 dark:text-indigo-300">
+                      Rs. {totalPaymentRowsAmount.toLocaleString()}
+                    </div>
+                  ) : paymentMethod === 'CHEQUE' ? (
+                    <div className="w-40 h-9 px-3 flex items-center justify-end font-mono font-bold text-xs bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-md text-amber-700 dark:text-amber-300">
+                      Rs. {totalChequeAmount.toLocaleString()}
+                    </div>
+                  ) : (
+                    <Input
+                      type="number"
+                      min="0"
+                      max={calculatedTotalAmount}
+                      value={paidAmount}
+                      onChange={(e) => setPaidAmount(e.target.value ? Number(e.target.value) : '')}
+                      onFocus={(e) => e.target.select()}
+                      onClick={(e) => (e.target as HTMLInputElement).select()}
+                      placeholder={String(calculatedTotalAmount)}
+                      className="w-40 h-9 text-right font-mono font-bold text-xs bg-white dark:bg-zinc-900"
+                    />
+                  )}
+                </div>
+
+                <div className="flex justify-between items-center border-t border-slate-200 dark:border-zinc-800 pt-3">
+                  <span className="font-bold text-slate-900 dark:text-white">Outstanding Debt:</span>
+                  <span className={`font-mono text-base font-bold ${dueDebtAmount > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                    Rs. {dueDebtAmount.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-[11px] text-slate-500 space-y-1">
+              <div className="flex justify-between">
+                <span>Supplier Balance Mode:</span>
+                <span className="font-semibold text-slate-800 dark:text-zinc-200">
+                  {dueDebtAmount > 0 ? 'Credit (Payable Added)' : 'Fully Settled'}
                 </span>
               </div>
-
-              <div className="flex items-center justify-between gap-3">
-                <label className="font-semibold text-slate-800 dark:text-zinc-200">
-                  Paid Amount (Rs):
-                </label>
-                <Input
-                  type="number"
-                  min="0"
-                  max={calculatedTotalAmount}
-                  value={paidAmount}
-                  onChange={(e) => setPaidAmount(e.target.value ? Number(e.target.value) : '')}
-                  placeholder={String(calculatedTotalAmount)}
-                  className="w-40 h-9 text-right font-mono font-bold text-xs bg-white dark:bg-zinc-900"
-                />
-              </div>
-
-              <div className="flex justify-between items-center border-t border-slate-200 dark:border-zinc-800 pt-3">
-                <span className="font-bold text-slate-900 dark:text-white">Outstanding Debt:</span>
-                <span className={`font-mono text-base font-bold ${dueDebtAmount > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                  Rs. {dueDebtAmount.toLocaleString()}
+              <div className="flex justify-between">
+                <span>Effective Method:</span>
+                <span className="font-semibold text-slate-800 dark:text-zinc-200">
+                  {paymentRows.length > 1
+                    ? (effectivePaidAmount >= calculatedTotalAmount ? 'SPLIT' : 'SPLIT + CREDIT')
+                    : paymentMethod}
                 </span>
               </div>
             </div>
@@ -674,6 +1366,167 @@ export const BuyRawMaterialFormPage: React.FC = () => {
           }
         }}
       />
+
+      {/* Edit Payment Record Modal in GRN Form */}
+      <Dialog open={!!editingPaymentRow} onOpenChange={(open) => !open && setEditingPaymentRow(null)}>
+        <DialogContent className="w-[90vw] sm:max-w-md bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl p-5 shadow-2xl z-[80] overflow-visible">
+          <DialogHeader className="pb-2 border-b border-slate-100 dark:border-zinc-800">
+            <div className="flex items-center gap-2">
+              <Pencil className="size-4 text-amber-600 dark:text-amber-400" />
+              <DialogTitle className="text-base font-bold text-slate-900 dark:text-white">
+                Edit Payment Record
+              </DialogTitle>
+            </div>
+            <DialogDescription className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+              Update recorded payment amount, method, date, or cheque reference.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSaveEditPaymentRow} className="space-y-3 pt-2">
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Method *</label>
+                <SearchableSelect
+                  value={editMethod}
+                  onValueChange={(val) => setEditMethod(val as PurchasePaymentMethod)}
+                  options={[
+                    { value: 'CASH', label: 'Cash', icon: <Banknote className="size-3.5 text-emerald-500" /> },
+                    { value: 'CARD', label: 'Card / POS', icon: <CreditCard className="size-3.5 text-purple-500" /> },
+                    { value: 'BANK_TRANSFER', label: 'Bank Transfer', icon: <Landmark className="size-3.5 text-blue-500" /> },
+                    { value: 'CHEQUE', label: 'Cheque', icon: <FileText className="size-3.5 text-amber-500" /> },
+                  ]}
+                  placeholder="Select Method"
+                  searchPlaceholder="Search method..."
+                  dark={dark}
+                  className="h-8 py-0 rounded-xl"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Amount (Rs.) *</label>
+                <div className="relative flex items-center">
+                  <span className="absolute left-2.5 text-xs font-mono font-bold text-slate-400">Rs.</span>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    required
+                    value={editAmount}
+                    onChange={(e) => setEditAmount(e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                    onClick={(e) => (e.target as HTMLInputElement).select()}
+                    placeholder="0.00"
+                    className="pl-9 h-8 font-mono font-bold text-xs text-right bg-white dark:bg-zinc-900 rounded-xl"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Date & Time *</label>
+              <DateTimePicker
+                value={editDate}
+                onChange={setEditDate}
+                className="h-8 text-xs font-mono rounded-xl bg-white dark:bg-zinc-900"
+              />
+            </div>
+
+            {editMethod === 'CHEQUE' && (
+              <div className="space-y-2 pt-1 border-t border-slate-100 dark:border-zinc-800">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Cheque Number *</label>
+                  <Input
+                    type="text"
+                    value={editChequeNumber}
+                    onChange={(e) => setEditChequeNumber(e.target.value)}
+                    placeholder="e.g. CHQ-48201"
+                    className="h-8 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Bank Name / Branch</label>
+                  <Input
+                    type="text"
+                    value={editBankName}
+                    onChange={(e) => setEditBankName(e.target.value)}
+                    placeholder="e.g. Commercial Bank"
+                    className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl"
+                  />
+                </div>
+              </div>
+            )}
+
+            {editMethod === 'BANK_TRANSFER' && (
+              <div className="space-y-2 pt-1 border-t border-slate-100 dark:border-zinc-800">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Bank Name</label>
+                  <Input
+                    type="text"
+                    value={editBankName}
+                    onChange={(e) => setEditBankName(e.target.value)}
+                    placeholder="e.g. Sampath Bank"
+                    className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Transfer Ref / Slip No</label>
+                  <Input
+                    type="text"
+                    value={editReference}
+                    onChange={(e) => setEditReference(e.target.value)}
+                    placeholder="e.g. REF-88129"
+                    className="h-8 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl"
+                  />
+                </div>
+              </div>
+            )}
+
+            {editMethod === 'CASH' && (
+              <div className="space-y-1 pt-1 border-t border-slate-100 dark:border-zinc-800">
+                <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Reference / Note</label>
+                <Input
+                  type="text"
+                  value={editReference}
+                  onChange={(e) => setEditReference(e.target.value)}
+                  placeholder="Optional payment reference note"
+                  className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl"
+                />
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-zinc-800">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleDeleteFromEditPaymentRow}
+                className="h-8 text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 border-rose-200 dark:border-rose-900 rounded-xl gap-1"
+              >
+                <Trash2 className="size-3.5" /> Delete
+              </Button>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setEditingPaymentRow(null)}
+                  className="h-8 text-xs"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="h-8 text-xs font-bold px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-sm cursor-pointer"
+                >
+                  Save Changes
+                </Button>
+              </div>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

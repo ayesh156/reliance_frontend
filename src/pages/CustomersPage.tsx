@@ -94,6 +94,7 @@ export const CustomersPage: React.FC = () => {
   const [type, setType] = useState<'RETAIL' | 'WHOLESALE'>('RETAIL');
   const [nic, setNic] = useState('');
   const [creditLimit, setCreditLimit] = useState<number | ''>('');
+  const [outstandingBalance, setOutstandingBalance] = useState<number | ''>('');
   const [address, setAddress] = useState('');
   const [notes, setNotes] = useState('');
   
@@ -155,6 +156,7 @@ export const CustomersPage: React.FC = () => {
       setType(cust.type);
       setNic(cust.nic || '');
       setCreditLimit(cust.creditLimit || '');
+      setOutstandingBalance(cust.outstandingBalance !== undefined ? cust.outstandingBalance : '');
       setAddress(cust.address || '');
       setNotes(cust.notes || '');
     } else {
@@ -164,6 +166,7 @@ export const CustomersPage: React.FC = () => {
       setType('RETAIL');
       setNic('');
       setCreditLimit('');
+      setOutstandingBalance('');
       setAddress('');
       setNotes('');
     }
@@ -200,6 +203,7 @@ export const CustomersPage: React.FC = () => {
         type,
         nic: nic.trim() || undefined,
         creditLimit: creditLimit ? Number(creditLimit) : 0,
+        outstandingBalance: outstandingBalance !== '' ? Number(outstandingBalance) : 0,
         address: address.trim() || undefined,
         notes: notes.trim() || undefined,
       };
@@ -620,6 +624,17 @@ export const CustomersPage: React.FC = () => {
                   placeholder="e.g. 50000"
                 />
               </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-semibold">Opening / Old Due Balance (Rs)</label>
+              <Input
+                type="number"
+                step="0.01"
+                value={outstandingBalance}
+                onChange={e => setOutstandingBalance(e.target.value ? Number(e.target.value) : '')}
+                placeholder="0.00"
+              />
             </div>
 
             <div className="space-y-1">

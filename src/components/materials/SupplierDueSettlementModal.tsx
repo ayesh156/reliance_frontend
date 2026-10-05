@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { get, post } from '../../lib/api';
+import { get, post, put, del } from '../../lib/api';
 import { toast } from 'react-toastify';
 import {
   Dialog,
@@ -24,6 +24,9 @@ import {
   Landmark,
   Download,
   Building2,
+  Pencil,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 // Enterprise SearchableSelect & DatePicker
 import { DateTimePicker } from '../ui/date-time-picker';
@@ -63,6 +66,16 @@ interface DuePurchaseBill {
   paymentHistory: PaymentHistoryItem[];
 }
 
+const getCurrentLocalISOString = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const mins = String(now.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${mins}`;
+};
+
 interface SupplierDueSettlementModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -90,9 +103,22 @@ export const SupplierDueSettlementModal: React.FC<SupplierDueSettlementModalProp
   const [payMethod, setPayMethod] = useState<string>('CASH');
   const [payReference, setPayReference] = useState<string>('');
 
-  // ⭐ Calendar Date පමණක් තෝරා ගැනීමේ State එක (වේලාව ස්වයංක්‍රීයව එක්වේ)
-  const [payDate, setPayDate] = useState<Date | undefined>(new Date());
+  const [payDate, setPayDate] = useState<string>(getCurrentLocalISOString);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Payment Edit & Delete States
+  const [editingPayment, setEditingPayment] = useState<PaymentHistoryItem | null>(null);
+  const [editingBillId, setEditingBillId] = useState<number | null>(null);
+  const [editAmount, setEditAmount] = useState<string>('');
+  const [editMethod, setEditMethod] = useState<string>('CASH');
+  const [editReference, setEditReference] = useState<string>('');
+  const [editDate, setEditDate] = useState<string>(getCurrentLocalISOString);
+  const [editNote, setEditNote] = useState<string>('');
+  const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
+
+  const [deletingPayment, setDeletingPayment] = useState<PaymentHistoryItem | null>(null);
+  const [deletingBillId, setDeletingBillId] = useState<number | null>(null);
+  const [isSubmittingDelete, setIsSubmittingDelete] = useState(false);
 
   // Supplier ගේ නොගෙවූ Purchase Orders සහ Item History ලබා ගැනීම
   const fetchDuePurchases = async () => {
@@ -146,19 +172,101 @@ export const SupplierDueSettlementModal: React.FC<SupplierDueSettlementModalProp
       setPayingBillId(null);
       setPayAmount('');
       setExpandedBillId(null);
+      setEditingPayment(null);
+      setDeletingPayment(null);
     }
   }, [isOpen, shop]);
 
-  // Pay Form එක විවෘත කිරීම (Reset to Current Date)
+  // Pay Form Open (Reset to Current Date & Time)
   const handleInitiatePay = (bill: DuePurchaseBill) => {
     setPayingBillId(bill.id);
     setPayAmount(bill.dueAmount.toFixed(2));
     setPayMethod('CASH');
     setPayReference('');
-    setPayDate(new Date());
+    setPayDate(getCurrentLocalISOString());
   };
 
-  // Payment Submit කිරීම
+  // Initiate Edit Supplier Payment
+  const handleInitiateEditPayment = (ph: PaymentHistoryItem, billId: number) => {
+    setEditingPayment(ph);
+    setEditingBillId(billId);
+    setEditAmount(String(ph.amount));
+    setEditMethod(ph.method || 'CASH');
+    const cleanRef = ph.reference?.replace(/\s*\[Edit:.*?\]$/, '') || '';
+    setEditReference(cleanRef);
+    if (ph.createdAt) {
+      try {
+        const d = new Date(ph.createdAt);
+        const yr = d.getFullYear();
+        const mo = String(d.getMonth() + 1).padStart(2, '0');
+        const dy = String(d.getDate()).padStart(2, '0');
+        const hr = String(d.getHours()).padStart(2, '0');
+        const mn = String(d.getMinutes()).padStart(2, '0');
+        setEditDate(`${yr}-${mo}-${dy}T${hr}:${mn}`);
+      } catch {
+        setEditDate(getCurrentLocalISOString());
+      }
+    } else {
+      setEditDate(getCurrentLocalISOString());
+    }
+    setEditNote('');
+  };
+
+  // Save Edit Supplier Payment
+  const handleSaveEditPayment = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!editingPayment || !editingBillId) return;
+    const num = parseFloat(editAmount);
+    if (isNaN(num) || num <= 0) {
+      toast.error('Please enter a valid positive payment amount');
+      return;
+    }
+
+    setIsSubmittingEdit(true);
+    try {
+      const resolvedDateTime = editDate ? new Date(editDate) : new Date();
+
+      await put(`/payments/${editingPayment.id}`, {
+        amount: num,
+        method: editMethod,
+        reference: editReference.trim() || undefined,
+        paymentDate: resolvedDateTime.toISOString(),
+        notes: editNote.trim() || undefined,
+        purchaseId: editingBillId,
+        type: 'supplier',
+      });
+
+      toast.success('Supplier payment updated successfully!');
+      setEditingPayment(null);
+      setEditingBillId(null);
+      await fetchDuePurchases();
+      onSuccess();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update supplier payment');
+    } finally {
+      setIsSubmittingEdit(false);
+    }
+  };
+
+  // Confirm Void / Delete Supplier Payment
+  const handleConfirmDeletePayment = async () => {
+    if (!deletingPayment || !deletingBillId) return;
+    setIsSubmittingDelete(true);
+    try {
+      await del(`/payments/${deletingPayment.id}?purchaseId=${deletingBillId}&type=supplier`);
+      toast.success(`Payment of Rs. ${deletingPayment.amount.toFixed(2)} voided and supplier debt restored.`);
+      setDeletingPayment(null);
+      setDeletingBillId(null);
+      await fetchDuePurchases();
+      onSuccess();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to void payment');
+    } finally {
+      setIsSubmittingDelete(false);
+    }
+  };
+
+  // Payment Submit
   const handleSettleSubmit = async (bill: DuePurchaseBill) => {
     const numericAmount = parseFloat(payAmount);
 
@@ -174,13 +282,7 @@ export const SupplierDueSettlementModal: React.FC<SupplierDueSettlementModalProp
 
     setIsSubmitting(true);
     try {
-      // ⭐ තෝරාගත් දිනය සමඟ සැබෑ වත්මන් වේලාව (Hours, Minutes, Seconds) ස්වයංක්‍රීයව එක් කිරීම
-      let resolvedPaymentDateTime = new Date();
-      if (payDate) {
-        resolvedPaymentDateTime = new Date(payDate);
-        const now = new Date();
-        resolvedPaymentDateTime.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
-      }
+      const resolvedPaymentDateTime = payDate ? new Date(payDate) : new Date();
 
       await post('/buy-raw-materials/settle-payment', {
         purchaseId: bill.id,
@@ -193,6 +295,7 @@ export const SupplierDueSettlementModal: React.FC<SupplierDueSettlementModalProp
       toast.success(`Payment of Rs. ${numericAmount.toFixed(2)} settled successfully!`);
       setPayingBillId(null);
       setPayAmount('');
+      setPayDate(getCurrentLocalISOString());
       await fetchDuePurchases();
       onSuccess();
     } catch (err: any) {
@@ -204,7 +307,7 @@ export const SupplierDueSettlementModal: React.FC<SupplierDueSettlementModalProp
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="w-[95vw] sm:max-w-3xl md:max-w-4xl max-h-[90vh] flex flex-col bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-3xl p-4 sm:p-6 shadow-2xl">
+      <DialogContent className="w-[95vw] sm:max-w-3xl md:max-w-4xl min-w-0 sm:min-w-[640px] max-h-[90vh] flex flex-col bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-3xl p-4 sm:p-6 shadow-2xl">
         {/* Header Section */}
         <DialogHeader className="pb-3 border-b shrink-0 border-slate-100 dark:border-zinc-800">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -333,10 +436,10 @@ export const SupplierDueSettlementModal: React.FC<SupplierDueSettlementModalProp
                         Settle Payment for Invoice #{bill.invoiceNumber}
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 items-end overflow-visible relative z-40">
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
-                            Paying Amount (Rs.) *
+                      <div className="flex flex-wrap sm:flex-nowrap items-end gap-2 w-full overflow-visible relative z-40">
+                        <div className="w-32 shrink-0 space-y-1">
+                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block whitespace-nowrap">
+                            Paying Amount *
                           </label>
                           <Input
                             type="number"
@@ -344,27 +447,26 @@ export const SupplierDueSettlementModal: React.FC<SupplierDueSettlementModalProp
                             max={bill.dueAmount}
                             value={payAmount}
                             onChange={(e) => setPayAmount(e.target.value)}
+                            onFocus={(e) => e.target.select()}
+                            onClick={(e) => (e.target as HTMLInputElement).select()}
                             placeholder="0.00"
-                            className="h-8 text-xs font-mono font-bold bg-white dark:bg-zinc-900 rounded-xl"
+                            className="h-9 text-xs font-mono font-bold bg-white dark:bg-zinc-900 rounded-lg"
                           />
                         </div>
 
-                        <div className="space-y-1 relative z-50">
-                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
-                            Payment Date *
+                        <div className="shrink-0 space-y-1 relative z-50">
+                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block whitespace-nowrap">
+                            Payment Date & Time *
                           </label>
-                          <div className="relative z-50">
-                            <DatePicker
-                              date={payDate}
-                              onDateChange={setPayDate}
-                              placeholder="Select date"
-                              className="h-8 text-xs rounded-xl"
-                            />
-                          </div>
+                          <DateTimePicker
+                            value={payDate}
+                            onChange={setPayDate}
+                            className="h-9"
+                          />
                         </div>
 
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
+                        <div className="w-32 shrink-0 space-y-1 relative z-40">
+                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block whitespace-nowrap">
                             Payment Method *
                           </label>
                           <SearchableSelect
@@ -377,8 +479,13 @@ export const SupplierDueSettlementModal: React.FC<SupplierDueSettlementModalProp
                                 icon: <Banknote className="size-3.5 text-emerald-500" />,
                               },
                               {
+                                value: 'CARD',
+                                label: 'Card',
+                                icon: <CreditCard className="size-3.5 text-blue-500" />,
+                              },
+                              {
                                 value: 'BANK_TRANSFER',
-                                label: 'Bank Transfer',
+                                label: 'Bank T',
                                 icon: <Landmark className="size-3.5 text-indigo-500" />,
                               },
                               {
@@ -390,12 +497,12 @@ export const SupplierDueSettlementModal: React.FC<SupplierDueSettlementModalProp
                             placeholder="Select Method"
                             searchPlaceholder="Search method..."
                             dark={dark}
-                            className="h-8 py-0 rounded-xl"
+                            className="h-9 py-0 rounded-lg text-xs"
                           />
                         </div>
 
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
+                        <div className="flex-1 min-w-[120px] space-y-1">
+                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block whitespace-nowrap">
                             Reference / Note
                           </label>
                           <Input
@@ -403,7 +510,7 @@ export const SupplierDueSettlementModal: React.FC<SupplierDueSettlementModalProp
                             value={payReference}
                             onChange={(e) => setPayReference(e.target.value)}
                             placeholder="Cheque No / Slip No"
-                            className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl"
+                            className="h-9 text-xs bg-white dark:bg-zinc-900 rounded-lg"
                           />
                         </div>
                       </div>
@@ -497,9 +604,9 @@ export const SupplierDueSettlementModal: React.FC<SupplierDueSettlementModalProp
                               return (
                                 <div
                                   key={ph.id || pIdx}
-                                  className="flex items-center justify-between text-[11px] p-2 rounded-xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 shadow-2xs"
+                                  className="flex items-center justify-between text-[11px] p-2 rounded-xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 shadow-2xs group hover:border-slate-300 dark:hover:border-zinc-700 transition-colors"
                                 >
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-2 flex-wrap min-w-0">
                                     <CheckCircle2 className="size-3.5 text-emerald-500 shrink-0" />
                                     <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
                                       Rs. {Number(ph.amount).toLocaleString('en-LK', { minimumFractionDigits: 2 })}
@@ -508,12 +615,38 @@ export const SupplierDueSettlementModal: React.FC<SupplierDueSettlementModalProp
                                       {ph.method}
                                     </span>
                                     {ph.reference && (
-                                      <span className="text-slate-400 text-[10px]">({ph.reference})</span>
+                                      <span className="text-slate-400 text-[10px] truncate max-w-[140px] sm:max-w-[200px]" title={ph.reference}>
+                                        ({ph.reference})
+                                      </span>
                                     )}
                                   </div>
-                                  <div className="flex items-center gap-2 text-slate-500 dark:text-zinc-400 font-mono text-[11px]">
-                                    <span>{fDate}</span>
-                                    <span className="text-slate-400 text-[10px]">{fTime}</span>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <div className="flex items-center gap-1.5 text-slate-500 dark:text-zinc-400 font-mono text-[11px]">
+                                      <span>{fDate}</span>
+                                      <span className="text-slate-400 text-[10px] hidden sm:inline">{fTime}</span>
+                                    </div>
+                                    {/* Action Buttons: Edit & Delete (Void) */}
+                                    <div className="flex items-center gap-1 ml-1 border-l border-slate-200 dark:border-zinc-800 pl-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleInitiateEditPayment(ph, bill.id)}
+                                        className="p-1 rounded text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors cursor-pointer"
+                                        title="Edit Payment"
+                                      >
+                                        <Pencil className="size-3" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setDeletingPayment(ph);
+                                          setDeletingBillId(bill.id);
+                                        }}
+                                        className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                                        title="Void / Delete Payment"
+                                      >
+                                        <Trash2 className="size-3" />
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
                               );
@@ -527,6 +660,192 @@ export const SupplierDueSettlementModal: React.FC<SupplierDueSettlementModalProp
               );
             })
           )}
+
+          {/* Edit Supplier Payment Modal */}
+          <Dialog open={!!editingPayment} onOpenChange={(open) => !open && setEditingPayment(null)}>
+            <DialogContent className="w-[90vw] sm:max-w-md bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-3xl p-5 shadow-2xl z-[80] overflow-visible">
+              <DialogHeader className="pb-2 border-b border-slate-100 dark:border-zinc-800">
+                <div className="flex items-center gap-2">
+                  <Pencil className="size-4 text-amber-600 dark:text-amber-400" />
+                  <DialogTitle className="text-base font-bold text-slate-900 dark:text-white">
+                    Edit Supplier Payment Record
+                  </DialogTitle>
+                </div>
+                <DialogDescription className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+                  Update payment amount, date, or cheque reference with debt reconciliation.
+                </DialogDescription>
+              </DialogHeader>
+
+              <form onSubmit={handleSaveEditPayment} className="space-y-3 pt-2 overflow-visible">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
+                    Payment Amount (Rs.) *
+                  </label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    required
+                    value={editAmount}
+                    onChange={(e) => setEditAmount(e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                    onClick={(e) => (e.target as HTMLInputElement).select()}
+                    placeholder="0.00"
+                    className="h-8 text-xs font-mono font-bold bg-white dark:bg-zinc-900 rounded-xl"
+                  />
+                </div>
+
+                <div className="space-y-1 relative z-50">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
+                    Payment Date & Time *
+                  </label>
+                  <DateTimePicker
+                    value={editDate}
+                    onChange={setEditDate}
+                    className="h-8 text-xs rounded-xl"
+                  />
+                </div>
+
+                <div className="space-y-1 relative z-40">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
+                    Payment Method *
+                  </label>
+                  <SearchableSelect
+                    value={editMethod}
+                    onValueChange={setEditMethod}
+                    options={[
+                      { value: 'CASH', label: 'Cash', icon: <Banknote className="size-3.5 text-emerald-500" /> },
+                      { value: 'CARD', label: 'Credit/Debit Card', icon: <CreditCard className="size-3.5 text-blue-500" /> },
+                      { value: 'BANK_TRANSFER', label: 'Bank Transfer', icon: <Landmark className="size-3.5 text-indigo-500" /> },
+                      { value: 'CHEQUE', label: 'Cheque', icon: <FileText className="size-3.5 text-amber-500" /> },
+                    ]}
+                    placeholder="Select Method"
+                    dark={dark}
+                    className="h-8 py-0 rounded-xl"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
+                    Cheque No / Slip Reference
+                  </label>
+                  <Input
+                    type="text"
+                    value={editReference}
+                    onChange={(e) => setEditReference(e.target.value)}
+                    placeholder="e.g. CHQ-99081 / Commercial Bank"
+                    className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-amber-700 dark:text-amber-400 block">
+                    Reason for Edit / Audit Note (Optional)
+                  </label>
+                  <Input
+                    type="text"
+                    value={editNote}
+                    onChange={(e) => setEditNote(e.target.value)}
+                    placeholder="e.g. Cheque amount corrected per bank deposit slip (optional)"
+                    className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl border-amber-300 dark:border-amber-700"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setEditingPayment(null);
+                      setEditingBillId(null);
+                    }}
+                    className="h-8 text-xs rounded-xl"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={isSubmittingEdit}
+                    className="h-8 text-xs font-semibold px-4 bg-amber-600 hover:bg-amber-700 text-white rounded-xl gap-1.5 shadow-sm transition-all cursor-pointer"
+                  >
+                    {isSubmittingEdit ? <Loader2 className="size-3 animate-spin" /> : <Pencil className="size-3.5" />}
+                    {isSubmittingEdit ? 'Saving...' : 'Save & Adjust Balance'}
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+
+          {/* Void / Delete Confirmation Modal */}
+          <Dialog open={!!deletingPayment} onOpenChange={(open) => !open && setDeletingPayment(null)}>
+            <DialogContent className="w-[90vw] sm:max-w-md bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-3xl p-5 shadow-2xl z-[80]">
+              <DialogHeader className="pb-2 border-b border-slate-100 dark:border-zinc-800">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="size-5 text-rose-600" />
+                  <DialogTitle className="text-base font-bold text-slate-900 dark:text-white">
+                    Void Payment &amp; Restore Due Debt
+                  </DialogTitle>
+                </div>
+                <DialogDescription className="text-xs text-slate-500 dark:text-zinc-400 mt-1">
+                  Are you sure you want to void this supplier payment record?
+                </DialogDescription>
+              </DialogHeader>
+
+              {deletingPayment && (
+                <div className="py-3 space-y-2 text-xs">
+                  <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 space-y-1">
+                    <div className="flex justify-between font-medium text-rose-900 dark:text-rose-200">
+                      <span>Voiding Amount:</span>
+                      <strong className="font-mono text-rose-700 dark:text-rose-300">
+                        Rs. {Number(deletingPayment.amount).toFixed(2)}
+                      </strong>
+                    </div>
+                    <div className="flex justify-between text-[11px] text-slate-500 dark:text-zinc-400">
+                      <span>Method:</span>
+                      <span>{deletingPayment.method}</span>
+                    </div>
+                    {deletingPayment.reference && (
+                      <div className="flex justify-between text-[11px] text-slate-500 dark:text-zinc-400">
+                        <span>Reference:</span>
+                        <span className="font-mono">{deletingPayment.reference}</span>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-zinc-400 leading-relaxed">
+                    Voiding this payment will decrement the GRN note's paid amount and add{' '}
+                    <strong className="text-rose-600 font-mono">Rs. {Number(deletingPayment.amount).toFixed(2)}</strong> back to the supplier's due debt balance.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setDeletingPayment(null);
+                    setDeletingBillId(null);
+                  }}
+                  className="h-8 text-xs rounded-xl"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={isSubmittingDelete}
+                  onClick={handleConfirmDeletePayment}
+                  className="h-8 text-xs font-semibold px-4 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white rounded-xl gap-1.5 shadow-sm transition-all cursor-pointer"
+                >
+                  {isSubmittingDelete ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3.5" />}
+                  {isSubmittingDelete ? 'Voiding...' : 'Yes, Void Payment'}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
 
         {/* Footer */}

@@ -68,14 +68,14 @@ export const MaterialCombobox: React.FC<MaterialComboboxProps> = ({
         type="button"
         disabled={disabled}
         onClick={handleOpen}
-        className="w-full h-9 flex items-center justify-between px-2.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs text-left shadow-xs hover:border-slate-300 dark:hover:border-zinc-700 transition-all cursor-pointer"
+        className="w-full h-9 flex items-center justify-between px-2.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs text-left shadow-xs hover:border-slate-300 dark:hover:border-zinc-700 transition-all cursor-pointer gap-2"
       >
-        <div className="truncate">
+        <div className="truncate flex items-center gap-1.5 min-w-0">
           {selectedMaterial ? (
-            <span className="font-semibold text-slate-900 dark:text-white">
+            <span className="font-semibold text-slate-900 dark:text-white truncate">
               {selectedMaterial.name}{' '}
-              <span className="text-[10px] text-slate-400 font-mono">
-                ({selectedMaterial.code || 'No SKU'} · {selectedMaterial.unit})
+              <span className="text-[11px] text-slate-500 dark:text-zinc-400 font-normal font-mono">
+                ({selectedMaterial.code || 'N/A'}) · {selectedMaterial.currentStock} {selectedMaterial.unit.toLowerCase()}
               </span>
             </span>
           ) : (
