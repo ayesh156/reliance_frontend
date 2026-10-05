@@ -56,8 +56,8 @@ export const generateCustomerInvoiceWhatsAppMessage = (order: any): string => {
     itemsList = order.items
       .map((item: any, i: number) => {
         const name = item.variant?.product?.name || item.name || 'Garment Item';
-        const size = item.variant?.size || item.size || '';
-        const color = item.variant?.color || item.color || '';
+        const size = item.size || item.selectedSize || item.variant?.size || '';
+        const color = item.color || item.selectedColor || item.variant?.color || '';
         const meta = size || color ? ` (${size}/${color})` : '';
         const unitPrice = Number(item.unitPrice || (item.quantity ? item.price / item.quantity : 0)).toLocaleString();
         const lineTotal = Number(item.price || item.unitPrice * item.quantity).toLocaleString();

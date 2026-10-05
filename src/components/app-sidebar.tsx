@@ -10,6 +10,7 @@ import {
   Building2,
   Boxes,
   ShoppingCart,
+  Factory,
 } from "lucide-react"
 
 import {
@@ -30,6 +31,7 @@ const navItems = [
   { label: "Stock Purchases", path: "/system/buy-raw-materials", icon: ShoppingCart },
   { label: "Suppliers (Shops)", path: "/system/raw-material-shops", icon: Building2 },
   { label: "Raw Materials", path: "/system/raw-material-items", icon: Boxes }, 
+  { label: "Production", path: "/system/production", icon: Factory },
   { label: "Settings", path: "/system/settings", icon: Settings },
 ];
 

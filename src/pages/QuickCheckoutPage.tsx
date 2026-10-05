@@ -70,11 +70,14 @@ interface CartItem {
   name: string;
   size: string;
   color: string;
+  selectedSize?: string;
+  selectedColor?: string;
   sku: string;
   imageUrl?: string;
   unitPrice: number;
   quantity: number;
   maxStock: number;
+  itemKey?: string;
 }
 
 interface PosCustomer {
@@ -110,8 +113,9 @@ export const QuickCheckoutPage: React.FC = () => {
   const [barcodeInput, setBarcodeInput] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   // ⭐ Inline quantity edit state with decimal support
-  const [editingQtyVariantId, setEditingQtyVariantId] = useState<number | null>(null);
+  const [editingQtyIndex, setEditingQtyIndex] = useState<number | null>(null);
   const [tempQtyInput, setTempQtyInput] = useState<string>('');
+
 
   // Pagination state for product grid
   const [currentPage, setCurrentPage] = useState(1);
@@ -509,18 +513,38 @@ export const QuickCheckoutPage: React.FC = () => {
 
         // Pre-fill Cart items
         if (Array.isArray(inv.items)) {
+          let parsedItemVariants: any[] = [];
+          if (inv.notes) {
+            try {
+              let current: any = inv.notes;
+              while (typeof current === 'string' && current.trim().startsWith('{')) {
+                current = JSON.parse(current);
+              }
+              if (typeof current === 'object' && current !== null && Array.isArray(current.itemVariants)) {
+                parsedItemVariants = current.itemVariants;
+              }
+            } catch {}
+          }
+
           setCart(
-            inv.items.map((i: any) => ({
-              variantId: i.variantId,
-              name: i.variant?.product?.name || 'Garment Item',
-              size: i.variant?.size || 'FREE',
-              color: i.variant?.color || 'Default',
-              sku: i.variant?.sku || '',
-              imageUrl: i.variant?.product?.images?.[0]?.imageUrl,
-              unitPrice: Number(i.unitPrice),
-              quantity: Number(i.quantity),
-              maxStock: Number((i.variant?.stock || 0) + i.quantity), // Add back currently allocated units so validation succeeds
-            }))
+            inv.items.map((i: any, idx: number) => {
+              const chosenSize = i.size || i.selectedSize || parsedItemVariants[idx]?.size || i.variant?.size || 'FREE';
+              const chosenColor = i.color || i.selectedColor || parsedItemVariants[idx]?.color || i.variant?.color || 'Default';
+              return {
+                variantId: i.variantId,
+                name: i.variant?.product?.name || 'Garment Item',
+                size: chosenSize,
+                color: chosenColor,
+                selectedSize: chosenSize,
+                selectedColor: chosenColor,
+                sku: i.variant?.sku || '',
+                imageUrl: i.variant?.product?.images?.[0]?.imageUrl,
+                unitPrice: Number(i.unitPrice),
+                quantity: Number(i.quantity),
+                maxStock: Number((i.variant?.stock || 0) + i.quantity), // Add back currently allocated units so validation succeeds
+                itemKey: `${i.variantId}_${chosenSize}_${chosenColor}_${idx}`,
+              };
+            })
           );
         }
 
@@ -550,25 +574,34 @@ export const QuickCheckoutPage: React.FC = () => {
   }, [editInvoiceId]);
 
   /**
-   * Add variant item to current cashier cart
+   * Add specific variant item to current cashier cart with consolidated sizes & colors
    */
-  const addToCart = (variant: CatalogVariant) => {
+  const addItemToCart = (variant: CatalogVariant, qtyToAdd: number = 1) => {
     if (variant.stock <= 0) {
       toast.error(`"${variant.product.name}" is out of stock`);
       return;
     }
 
     const price = pricingMode === 'WHOLESALE' ? variant.wholesalePrice : variant.retailPrice;
+
+    // Check total quantity of this physical variant row in cart
+    const currentTotalQtyForVariant = cart
+      .filter((i) => i.variantId === variant.id)
+      .reduce((sum, i) => sum + i.quantity, 0);
+
+    if (currentTotalQtyForVariant + qtyToAdd > variant.stock) {
+      toast.error(`Cannot add more. Only ${variant.stock} total in stock for this product.`);
+      return;
+    }
+
     const existingIndex = cart.findIndex((i) => i.variantId === variant.id);
 
+    const sizeText = (variant as any).sizes || variant.size || '';
+    const colorText = (variant as any).colors || variant.color || '';
+
     if (existingIndex > -1) {
-      const current = cart[existingIndex];
-      if (current.quantity + 1 > variant.stock) {
-        toast.error(`Cannot add more. Only ${variant.stock} available in stock`);
-        return;
-      }
       const updated = [...cart];
-      updated[existingIndex].quantity += 1;
+      updated[existingIndex].quantity += qtyToAdd;
       setCart(updated);
     } else {
       setCart([
@@ -576,16 +609,31 @@ export const QuickCheckoutPage: React.FC = () => {
         {
           variantId: variant.id,
           name: variant.product.name,
-          size: variant.size || 'FREE',
-          color: variant.color || 'Default',
+          size: sizeText,
+          color: colorText,
+          selectedSize: sizeText,
+          selectedColor: colorText,
           sku: variant.sku,
           imageUrl: variant.product.images?.[0]?.imageUrl,
           unitPrice: price,
-          quantity: 1,
+          quantity: qtyToAdd,
           maxStock: variant.stock,
+          itemKey: `${variant.id}_${Date.now()}`,
         },
       ]);
     }
+  };
+
+  /**
+   * Handle Click on Catalog Product:
+   * Immediately adds product variant to cart without prompt.
+   */
+  const handleCatalogItemClick = (variant: CatalogVariant) => {
+    if (variant.stock <= 0) {
+      toast.error(`"${variant.product.name}" is out of stock`);
+      return;
+    }
+    addItemToCart(variant, 1);
   };
 
   /**
@@ -598,7 +646,7 @@ export const QuickCheckoutPage: React.FC = () => {
 
     const matched = catalog.find((v) => v.barcode?.toUpperCase() === query || v.sku.toUpperCase() === query);
     if (matched) {
-      addToCart(matched);
+      handleCatalogItemClick(matched);
       setBarcodeInput('');
     } else {
       toast.error(`No item found for barcode "${query}"`);
@@ -606,15 +654,19 @@ export const QuickCheckoutPage: React.FC = () => {
   };
 
   /**
-   * Change item quantity in cart
+   * Change item quantity in cart by index
    */
-  const updateQty = (variantId: number, delta: number) => {
+  const updateQty = (itemIndex: number, delta: number) => {
     setCart((prev) =>
       prev
-        .map((item) => {
-          if (item.variantId === variantId) {
+        .map((item, idx) => {
+          if (idx === itemIndex) {
             const nextQty = item.quantity + delta;
-            if (nextQty > item.maxStock) {
+            const otherTotal = prev
+              .filter((o, oIdx) => oIdx !== itemIndex && o.variantId === item.variantId)
+              .reduce((sum, o) => sum + o.quantity, 0);
+
+            if (otherTotal + nextQty > item.maxStock) {
               toast.error(`Only ${item.maxStock} in stock`);
               return item;
             }
@@ -627,42 +679,49 @@ export const QuickCheckoutPage: React.FC = () => {
   };
 
   /**
-   * Remove variant item directly from cart
+   * Remove variant item directly from cart by index
    */
-  const removeFromCart = (variantId: number) => {
-    setCart((prev) => prev.filter((i) => i.variantId !== variantId));
+  const removeFromCart = (itemIndex: number) => {
+    setCart((prev) => prev.filter((_, idx) => idx !== itemIndex));
   };
 
   /**
    * ⭐ Directly update item quantity with full decimal support (e.g. 1.5, 2.25)
    * Validates against maximum stock and non-negative numbers
    */
-  const handleApplyDirectQty = (variantId: number) => {
+  const handleApplyDirectQty = (itemIndex: number) => {
     const rawVal = parseFloat(tempQtyInput.trim());
-    const targetItem = cart.find((i) => i.variantId === variantId);
+    const targetItem = cart[itemIndex];
 
     if (!targetItem) {
-      setEditingQtyVariantId(null);
+      setEditingQtyIndex(null);
       return;
     }
 
     if (isNaN(rawVal) || rawVal <= 0) {
-      setCart((prev) => prev.filter((i) => i.variantId !== variantId));
+      setCart((prev) => prev.filter((_, idx) => idx !== itemIndex));
       toast.info(`Removed "${targetItem.name}" from order`);
-    } else if (rawVal > targetItem.maxStock) {
-      toast.error(`Only ${targetItem.maxStock} available in stock`);
-      setCart((prev) =>
-        prev.map((i) => (i.variantId === variantId ? { ...i, quantity: targetItem.maxStock } : i))
-      );
     } else {
-      // Round to maximum 2 decimal places to avoid floating point issues
-      const roundedQty = Math.round(rawVal * 100) / 100;
-      setCart((prev) =>
-        prev.map((i) => (i.variantId === variantId ? { ...i, quantity: roundedQty } : i))
-      );
+      const otherTotal = cart
+        .filter((o, oIdx) => oIdx !== itemIndex && o.variantId === targetItem.variantId)
+        .reduce((sum, o) => sum + o.quantity, 0);
+
+      if (otherTotal + rawVal > targetItem.maxStock) {
+        toast.error(`Only ${targetItem.maxStock} available in stock`);
+        const allowed = Math.max(1, targetItem.maxStock - otherTotal);
+        setCart((prev) =>
+          prev.map((i, idx) => (idx === itemIndex ? { ...i, quantity: allowed } : i))
+        );
+      } else {
+        // Round to maximum 2 decimal places to avoid floating point issues
+        const roundedQty = Math.round(rawVal * 100) / 100;
+        setCart((prev) =>
+          prev.map((i, idx) => (idx === itemIndex ? { ...i, quantity: roundedQty } : i))
+        );
+      }
     }
 
-    setEditingQtyVariantId(null);
+    setEditingQtyIndex(null);
     setTempQtyInput('');
   };
 
@@ -1044,6 +1103,10 @@ export const QuickCheckoutPage: React.FC = () => {
           quantity: i.quantity,
           unitPrice: i.unitPrice,
           price: i.unitPrice * i.quantity,
+          size: i.size,
+          color: i.color,
+          selectedSize: i.size,
+          selectedColor: i.color,
         })),
         subtotal,
         discount: discountAmount,
@@ -1071,6 +1134,8 @@ export const QuickCheckoutPage: React.FC = () => {
         resultOrder = await post<any>('/orders/pos', payload);
         toast.success('Invoice generated successfully!');
       }
+
+      const checkoutCartSnapshot = cart.map((i) => ({ ...i }));
 
       setCart([]);
       setDiscountInput(0);
@@ -1113,6 +1178,13 @@ export const QuickCheckoutPage: React.FC = () => {
 
         setCompletedOrder({
           ...resultOrder,
+          items: (resultOrder?.items || []).map((ri: any, rIdx: number) => ({
+            ...ri,
+            size: checkoutCartSnapshot[rIdx]?.size || ri.size || ri.variant?.size,
+            color: checkoutCartSnapshot[rIdx]?.color || ri.color || ri.variant?.color,
+            selectedSize: checkoutCartSnapshot[rIdx]?.size || ri.size || ri.variant?.size,
+            selectedColor: checkoutCartSnapshot[rIdx]?.color || ri.color || ri.variant?.color,
+          })),
           customer: resultOrder.customer || (targetCustomer ? {
             id: targetCustomer.id,
             name: targetCustomer.name,
@@ -1270,33 +1342,44 @@ export const QuickCheckoutPage: React.FC = () => {
 
                 const currentPrice = pricingMode === 'WHOLESALE' ? v.wholesalePrice : v.retailPrice;
 
+                const sizesList = (v.size || '').split(',').map((s) => s.trim()).filter(Boolean);
+                const colorsList = (v.color || '').split(',').map((c) => c.trim()).filter(Boolean);
+                const isMultiOption = sizesList.length > 1 || colorsList.length > 1;
+
                 return (
                   <button
                     key={v.id}
                     type="button"
                     disabled={v.stock <= 0}
-                    onClick={() => addToCart(v)}
-                    className={`flex flex-col text-left rounded-xl border p-2.5 transition-all group relative overflow-hidden ${v.stock <= 0
+                    onClick={() => handleCatalogItemClick(v)}
+                    className={`flex flex-col text-left rounded-xl border p-2.5 transition-all group relative overflow-hidden cursor-pointer ${v.stock <= 0
                         ? 'opacity-40 cursor-not-allowed border-slate-200 dark:border-zinc-800'
                         : 'border-slate-200 dark:border-zinc-800 hover:border-emerald-500 hover:shadow-md bg-white dark:bg-zinc-950'
                       }`}
                   >
                     {/* Thumbnail Image */}
-                    <div className="w-full aspect-square rounded-lg bg-slate-100 dark:bg-zinc-900 mb-2 overflow-hidden flex items-center justify-center">
+                    <div className="w-full aspect-square rounded-lg bg-slate-100 dark:bg-zinc-900 mb-2 overflow-hidden flex items-center justify-center relative">
                       {resolvedUrl ? (
                         <img src={resolvedUrl} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                       ) : (
                         <Package className="size-8 text-slate-300 dark:text-zinc-700" />
                       )}
+                      {isMultiOption && (
+                        <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-emerald-600/90 text-white font-bold text-[8px] tracking-wide uppercase backdrop-blur-xs shadow-xs">
+                          Multi-Option
+                        </span>
+                      )}
                     </div>
 
                     <h4 className="font-semibold text-xs text-slate-900 dark:text-white line-clamp-1">{v.product.name}</h4>
 
-                    <div className="flex items-center gap-1.5 my-1">
-                      <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-zinc-900 text-slate-700 dark:text-zinc-300">
-                        {v.size || 'FREE'}
+                    <div className="flex flex-wrap items-center gap-1 my-1">
+                      <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-zinc-900 text-slate-700 dark:text-zinc-300 truncate max-w-[110px]" title={v.size || 'FREE'}>
+                        {sizesList.length > 2 ? `${sizesList.slice(0, 2).join(', ')}...` : (v.size || 'FREE')}
                       </span>
-                      <span className="text-[10px] text-slate-500">{v.color || 'Default'}</span>
+                      <span className="text-[10px] text-slate-500 truncate max-w-[90px]" title={v.color || 'Default'}>
+                        {colorsList.length > 2 ? `${colorsList.slice(0, 2).join(', ')}...` : (v.color || 'Default')}
+                      </span>
                     </div>
 
                     <div className="flex items-center justify-between mt-auto pt-1">
@@ -1522,30 +1605,40 @@ export const QuickCheckoutPage: React.FC = () => {
               <span className="text-[10px] opacity-75">Click products or scan barcode to add</span>
             </div>
           ) : (
-            cart.map((item) => (
-              <div
-                key={item.variantId}
-                className="py-1.5 flex items-center justify-between gap-2 group hover:bg-slate-50/60 dark:hover:bg-zinc-800/30 px-1 rounded-lg transition-colors"
-              >
-                <div className="min-w-0 flex-1">
-                  <h5 className="font-semibold text-xs text-slate-900 dark:text-white truncate" title={item.name}>
-                    {item.name}
-                  </h5>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className="text-[10px] px-1 py-0.2 rounded bg-slate-100 dark:bg-zinc-800 font-mono text-slate-600 dark:text-zinc-300">
-                      {item.size} / {item.color}
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-mono">
+            cart.map((item, idx) => {
+              const sizeVal = (item as any).sizes || item.size || '';
+              const colorVal = (item as any).colors || item.color || '';
+              const variantDesc = (sizeVal || colorVal)
+                ? `Size: ${sizeVal || 'FREE'} | Color: ${colorVal || 'Default'}`
+                : '';
+
+              return (
+                <div
+                  key={item.itemKey || `${item.variantId}_${idx}`}
+                  className="py-1.5 flex items-center justify-between gap-2 group hover:bg-slate-50/60 dark:hover:bg-zinc-800/30 px-1 rounded-lg transition-colors"
+                >
+                  <div className="min-w-0 flex-1">
+                    <h5 className="font-semibold text-xs text-slate-900 dark:text-white truncate" title={item.name}>
+                      {item.name}
+                    </h5>
+                    {variantDesc && (
+                      <p
+                        className="truncate max-w-[180px] text-xs text-muted-foreground text-slate-500 dark:text-zinc-400 mt-0.5"
+                        title={variantDesc}
+                      >
+                        {variantDesc}
+                      </p>
+                    )}
+                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">
                       @ Rs. {item.unitPrice.toLocaleString()}
-                    </span>
+                    </div>
                   </div>
-                </div>
 
                 {/* Qty Stepper with Decimal Click-to-Edit Input */}
                 <div className="flex items-center gap-1 shrink-0">
                   <button
                     type="button"
-                    onClick={() => updateQty(item.variantId, -1)}
+                    onClick={() => updateQty(idx, -1)}
                     className="size-5 sm:size-6 rounded-md bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors cursor-pointer"
                     title="Decrease quantity"
                   >
@@ -1553,7 +1646,7 @@ export const QuickCheckoutPage: React.FC = () => {
                   </button>
 
                   {/* Click-to-Edit Decimal Quantity Input Box */}
-                  {editingQtyVariantId === item.variantId ? (
+                  {editingQtyIndex === idx ? (
                     <input
                       type="text"
                       inputMode="decimal"
@@ -1566,13 +1659,13 @@ export const QuickCheckoutPage: React.FC = () => {
                         setTempQtyInput(cleanVal);
                       }}
                       onFocus={(e) => e.target.select()}
-                      onBlur={() => handleApplyDirectQty(item.variantId)}
+                      onBlur={() => handleApplyDirectQty(idx)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault();
-                          handleApplyDirectQty(item.variantId);
+                          handleApplyDirectQty(idx);
                         } else if (e.key === 'Escape') {
-                          setEditingQtyVariantId(null);
+                          setEditingQtyIndex(null);
                         }
                       }}
                       className="w-11 h-5 sm:h-6 text-center font-mono text-xs font-bold bg-white dark:bg-zinc-900 border border-emerald-500 rounded text-emerald-600 dark:text-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
@@ -1581,7 +1674,7 @@ export const QuickCheckoutPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => {
-                        setEditingQtyVariantId(item.variantId);
+                        setEditingQtyIndex(idx);
                         setTempQtyInput(String(item.quantity));
                       }}
                       className="min-w-6 h-5 sm:h-6 px-1 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/60 font-mono text-xs font-bold text-slate-800 dark:text-zinc-200 text-center cursor-pointer transition-colors border border-transparent hover:border-emerald-300 dark:hover:border-emerald-700 select-none"
@@ -1593,7 +1686,7 @@ export const QuickCheckoutPage: React.FC = () => {
 
                   <button
                     type="button"
-                    onClick={() => updateQty(item.variantId, 1)}
+                    onClick={() => updateQty(idx, 1)}
                     className="size-5 sm:size-6 rounded-md bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors cursor-pointer"
                     title="Increase quantity"
                   >
@@ -1608,7 +1701,7 @@ export const QuickCheckoutPage: React.FC = () => {
                   </span>
                   <button
                     type="button"
-                    onClick={() => removeFromCart(item.variantId)}
+                    onClick={() => removeFromCart(idx)}
                     className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-500 p-0.5 rounded transition-all cursor-pointer"
                     title="Remove item"
                   >
@@ -1616,9 +1709,10 @@ export const QuickCheckoutPage: React.FC = () => {
                   </button>
                 </div>
               </div>
-            ))
-          )}
-        </div>
+            );
+          })
+        )}
+      </div>
 
         {/* Totals, Financial Status & Payment Method - Fixed Bottom Area */}
         <div className="shrink-0 pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-2">
@@ -2065,6 +2159,7 @@ export const QuickCheckoutPage: React.FC = () => {
         onApply={handleApplySplitPayments}
         dark={dark}
       />
+
 
       {/* Headless Direct A4 Browser Print Window Trigger (Conditional Mount Prevents Duplicate Preview Loop) */}
       {invoiceOpen && completedOrder && (

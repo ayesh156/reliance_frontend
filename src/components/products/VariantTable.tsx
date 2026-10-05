@@ -212,15 +212,31 @@ export const VariantTable: React.FC<VariantTableProps> = ({
                       <button
                         type="button"
                         onClick={() => handleOpenEditModal(v)}
-                        className="font-bold text-slate-800 dark:text-zinc-200 hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center gap-1.5 transition-colors group cursor-pointer text-left"
+                        className="font-bold text-slate-800 dark:text-zinc-200 hover:text-emerald-600 dark:hover:text-emerald-400 flex flex-wrap items-center gap-1 transition-colors group cursor-pointer text-left"
                       >
-                        <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-[11px] font-medium border border-slate-200/60 dark:border-zinc-700/60">
-                          {v.size || 'No Size'}
-                        </span>
-                        <span className="text-slate-400">/</span>
-                        <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-[11px] font-medium border border-slate-200/60 dark:border-zinc-700/60">
-                          {v.color || 'No Color'}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1">
+                          {v.size ? (
+                            v.size.split(',').map((s, sIdx) => (
+                              <span key={sIdx} className="px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-[10.5px] font-mono font-medium border border-slate-200/60 dark:border-zinc-700/60">
+                                {s.trim()}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-slate-400 text-[10px]">No Size</span>
+                          )}
+                        </div>
+                        <span className="text-slate-300 dark:text-zinc-600">/</span>
+                        <div className="flex flex-wrap items-center gap-1">
+                          {v.color ? (
+                            v.color.split(',').map((c, cIdx) => (
+                              <span key={cIdx} className="px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-[10.5px] font-medium border border-slate-200/60 dark:border-zinc-700/60">
+                                {c.trim()}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-slate-400 text-[10px]">No Color</span>
+                          )}
+                        </div>
                         <span className="text-[10px] text-emerald-600 dark:text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity ml-1">
                           (Edit)
                         </span>

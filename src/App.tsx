@@ -22,6 +22,8 @@ import { QuickCheckoutPage } from './pages/QuickCheckoutPage';
 import { InvoicesPage } from './pages/InvoicesPage';
 import { BuyRawMaterialsPage } from './pages/BuyRawMaterialsPage';
 import BuyRawMaterialFormPage from './pages/BuyRawMaterialFormPage';
+import { ProductionListPage } from './pages/ProductionListPage';
+import { ProductionFormPage } from './pages/ProductionFormPage';
 
 function ThemedToastContainer() {
   const { theme } = useTheme();
@@ -149,6 +151,40 @@ export function App() {
                   <ProtectedRoute>
                     <AdminPage>
                       <InvoicesPage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Garment Production & Material Consumption Routes */}
+              <Route
+                path="/system/production"
+                element={
+                  <ProtectedRoute requiredRole="STAFF">
+                    <AdminPage>
+                      <ProductionListPage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/system/production/new"
+                element={
+                  <ProtectedRoute requiredRole="STAFF">
+                    <AdminPage>
+                      <ProductionFormPage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/system/production/edit/:id"
+                element={
+                  <ProtectedRoute requiredRole="STAFF">
+                    <AdminPage>
+                      <ProductionFormPage />
                     </AdminPage>
                   </ProtectedRoute>
                 }

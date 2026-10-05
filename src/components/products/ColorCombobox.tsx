@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronsUpDown, Plus, Loader2 } from 'lucide-react';
+import { Check, ChevronsUpDown, Plus, X, Loader2 } from 'lucide-react';
 import { post } from '../../lib/api';
 import { toast } from 'react-toastify';
 import {
@@ -41,7 +41,9 @@ export const ColorCombobox: React.FC<ColorComboboxProps> = ({
   const [newHex, setNewHex] = useState('#000000');
   const [tempColorName, setTempColorName] = useState('');
   const [creating, setCreating] = useState(false);
-  const dropdownRef = React.useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 240 });
 
   // Auto-detect human readable color names from Hex
   const getColorNameFromHex = (hex: string): string => {
@@ -63,10 +65,51 @@ export const ColorCombobox: React.FC<ColorComboboxProps> = ({
     return 'Custom Shade';
   };
 
-  const filtered = colors.filter(c => c.name.toLowerCase().includes(query.toLowerCase()));
-  const selectedColor = colors.find(c => c.name.toLowerCase() === value.toLowerCase());
+  // Parse comma-separated string into unique array of colors
+  const selectedColors = React.useMemo(() => {
+    if (!value || typeof value !== 'string') return [];
+    return value
+      .split(',')
+      .map(c => c.trim())
+      .filter(Boolean);
+  }, [value]);
 
-  // Outside click is cleanly handled by the transparent backdrop in Portal
+  const updateSelectedColors = (newList: string[]) => {
+    const unique = Array.from(new Set(newList.map(c => c.trim()).filter(Boolean)));
+    onChange(unique.join(', '));
+  };
+
+  const handleToggleColor = (colorName: string) => {
+    const cleanName = colorName.trim();
+    if (!cleanName) return;
+    if (selectedColors.includes(cleanName)) {
+      updateSelectedColors(selectedColors.filter(c => c !== cleanName));
+    } else {
+      updateSelectedColors([...selectedColors, cleanName]);
+    }
+  };
+
+  const handleRemoveColor = (e: React.MouseEvent, colorToRemove: string) => {
+    e.stopPropagation();
+    updateSelectedColors(selectedColors.filter(c => c !== colorToRemove));
+  };
+
+  const handleAddCustomTag = () => {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    const newItems = trimmed.split(',').map(c => c.trim()).filter(Boolean);
+    updateSelectedColors([...selectedColors, ...newItems]);
+    setQuery('');
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      handleAddCustomTag();
+    }
+  };
+
+  const filtered = colors.filter(c => c.name.toLowerCase().includes(query.toLowerCase()));
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
@@ -78,7 +121,7 @@ export const ColorCombobox: React.FC<ColorComboboxProps> = ({
       });
       toast.success(`Color "${created.name}" created!`);
       onColorCreated(created);
-      onChange(created.name);
+      updateSelectedColors([...selectedColors, created.name]);
       setModalOpen(false);
       setNewName('');
       setOpen(false);
@@ -89,40 +132,69 @@ export const ColorCombobox: React.FC<ColorComboboxProps> = ({
     }
   };
 
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const [coords, setCoords] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 180 });
+  const handleOpen = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('.badge-remove-btn')) return;
 
-  const handleOpen = () => {
     if (buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
       setCoords({
         top: rect.bottom + 4,
         left: rect.left,
-        width: Math.max(rect.width, 200),
+        width: Math.max(rect.width, 240),
       });
     }
     setOpen(!open);
   };
 
+  // Helper to lookup hex code for a color name
+  const findHexForName = (name: string): string | undefined => {
+    const found = colors.find(c => c.name.toLowerCase() === name.toLowerCase());
+    return found?.hexCode || undefined;
+  };
+
   return (
-    <div className="relative w-full" ref={dropdownRef}>
-      <button
+    <div className="relative w-full" ref={containerRef}>
+      {/* Interactive Trigger with Color Badges */}
+      <div
         ref={buttonRef}
-        type="button"
         onClick={handleOpen}
-        className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs text-left shadow-sm"
+        className="w-full min-h-[34px] flex items-center justify-between p-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs text-left shadow-xs cursor-pointer hover:border-emerald-500/60 transition-colors"
       >
-        <div className="flex items-center gap-1.5 truncate">
-          {selectedColor?.hexCode && (
-            <span
-              className="size-3 rounded-full border border-black/10 shrink-0"
-              style={{ backgroundColor: selectedColor.hexCode }}
-            />
+        <div className="flex flex-wrap items-center gap-1 flex-1 pr-1">
+          {selectedColors.length === 0 ? (
+            <span className="text-slate-400 dark:text-zinc-500 px-1 select-none">
+              Select or type colors (e.g. Black, White)...
+            </span>
+          ) : (
+            selectedColors.map((clr, idx) => {
+              const hex = findHexForName(clr);
+              return (
+                <span
+                  key={idx}
+                  className="inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-slate-800 dark:text-zinc-200 border border-slate-200/80 dark:border-zinc-700/80 font-medium text-[10px]"
+                >
+                  {hex && (
+                    <span
+                      className="size-2.5 rounded-full border border-black/10 shrink-0"
+                      style={{ backgroundColor: hex }}
+                    />
+                  )}
+                  <span>{clr}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => handleRemoveColor(e, clr)}
+                    className="badge-remove-btn p-0.5 hover:bg-slate-200 dark:hover:bg-zinc-700 rounded text-slate-500 hover:text-slate-800 dark:hover:text-zinc-100 transition-colors"
+                    title="Remove color"
+                  >
+                    <X className="size-2.5" />
+                  </button>
+                </span>
+              );
+            })
           )}
-          <span className="truncate font-medium">{value || 'Select Color'}</span>
         </div>
-        <ChevronsUpDown className="size-3 text-zinc-400 shrink-0" />
-      </button>
+        <ChevronsUpDown className="size-3 text-zinc-400 shrink-0 self-center" />
+      </div>
 
       {open && createPortal(
         <>
@@ -138,57 +210,96 @@ export const ColorCombobox: React.FC<ColorComboboxProps> = ({
               left: `${coords.left}px`, 
               width: `${coords.width}px` 
             }}
-            className="z-[99999] rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xl p-1.5 animate-in fade-in zoom-in-95 duration-100"
+            className="z-[99999] rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xl p-2 animate-in fade-in zoom-in-95 duration-100"
           >
-            <input
-              autoFocus
-              type="text"
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Search color..."
-              className="w-full px-2 py-1 text-xs bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg outline-none mb-1 text-slate-900 dark:text-white"
-            />
-            <div className="max-h-40 overflow-y-auto space-y-0.5">
-              {filtered.map(c => (
-                <button
-                  key={c.id}
+            {/* Tag input field */}
+            <div className="flex items-center gap-1 mb-1.5">
+              <input
+                autoFocus
+                type="text"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Type color & hit Enter (or comma)..."
+                className="w-full px-2 py-1 text-xs bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-lg outline-none text-slate-900 dark:text-white placeholder:text-slate-400"
+              />
+              {query.trim() && (
+                <Button
                   type="button"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onChange(c.name);
-                    setOpen(false);
-                    setQuery('');
-                  }}
-                  className="w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md hover:bg-slate-100 dark:hover:bg-zinc-800 text-left text-slate-800 dark:text-zinc-200 cursor-pointer"
+                  size="sm"
+                  onClick={handleAddCustomTag}
+                  className="h-7 px-2 text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white shrink-0"
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="size-3 rounded-full border border-black/10" style={{ backgroundColor: c.hexCode || '#999' }} />
-                    <span>{c.name}</span>
-                  </div>
-                  {value === c.name && <Check className="size-3 text-emerald-500" />}
-                </button>
-              ))}
+                  Add Tag
+                </Button>
+              )}
             </div>
 
-            <button
-            type="button"
-            onClick={() => {
-              setOpen(false); // ⭐ Dropdown Menu එක වසා දමයි
-              const initialName = query.trim() || getColorNameFromHex(newHex);
-              setNewName(initialName);
-              setTempColorName(initialName);
-              setModalOpen(true);
-            }}
-            className="w-full flex items-center gap-1.5 px-2 py-1.5 mt-1 pt-1.5 border-t border-slate-100 dark:border-zinc-800 text-xs text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 rounded-md font-medium cursor-pointer"
-          >
-            <Plus className="size-3" /> Quick Add Color
-          </button>
+            {/* Colors Presets List */}
+            <div className="max-h-44 overflow-y-auto space-y-0.5 pr-0.5 scrollbar-thin">
+              {filtered.map(c => {
+                const isSelected = selectedColors.includes(c.name);
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleToggleColor(c.name);
+                    }}
+                    className={`w-full flex items-center justify-between px-2 py-1.5 text-xs rounded-md transition-colors text-left cursor-pointer ${
+                      isSelected
+                        ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 font-bold'
+                        : 'hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-800 dark:text-zinc-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="size-3 rounded-full border border-black/15 shrink-0"
+                        style={{ backgroundColor: c.hexCode || '#999' }}
+                      />
+                      <span>{c.name}</span>
+                    </div>
+                    {isSelected && <Check className="size-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />}
+                  </button>
+                );
+              })}
+              {filtered.length === 0 && !query.trim() && (
+                <p className="text-[10px] text-slate-400 text-center py-2">No colors configured</p>
+              )}
+            </div>
+
+            <div className="pt-1.5 mt-1 border-t border-slate-100 dark:border-zinc-800 flex items-center justify-between gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  const initialName = query.trim() || getColorNameFromHex(newHex);
+                  setNewName(initialName);
+                  setTempColorName(initialName);
+                  setModalOpen(true);
+                }}
+                className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline font-medium p-1 cursor-pointer"
+              >
+                <Plus className="size-3" /> Quick Add Color
+              </button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setOpen(false)}
+                className="h-6 text-[10px] px-2"
+              >
+                Done
+              </Button>
+            </div>
           </div>
         </>,
         document.body
       )}
 
+      {/* Dialog for Adding New Color with Color Picker */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent className="sm:max-w-[360px]">
           <DialogHeader>
@@ -199,11 +310,11 @@ export const ColorCombobox: React.FC<ColorComboboxProps> = ({
               value={newName}
               onFocus={() => {
                 setTempColorName(newName);
-                setNewName(''); // Click කළ විට clear වේ
+                setNewName('');
               }}
               onBlur={() => {
                 if (!newName.trim()) {
-                  setNewName(tempColorName); // අලුත් නමක් නොලියා ඉවත් වුවහොත් restore වේ
+                  setNewName(tempColorName);
                 }
               }}
               onChange={e => setNewName(e.target.value)}
@@ -218,7 +329,7 @@ export const ColorCombobox: React.FC<ColorComboboxProps> = ({
                   const hex = e.target.value.toUpperCase();
                   setNewHex(hex);
                   const identified = getColorNameFromHex(hex);
-                  setNewName(identified); // Auto Color Name Resolver
+                  setNewName(identified);
                   setTempColorName(identified);
                 }}
                 className="size-7 rounded cursor-pointer bg-transparent border-0 p-0"

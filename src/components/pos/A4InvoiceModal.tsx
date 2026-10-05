@@ -292,9 +292,17 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
           .text-right { text-align: right !important; }
           .text-center { text-align: center !important; }
           .text-left { text-align: left !important; }
-          .nowrap { white-space: nowrap !important; }
           .item-desc { font-weight: bold; font-size: 12px; display: block; }
-          .item-meta { font-size: 10.5px; color: #444; display: block; margin-top: 2px; }
+          .item-meta {
+            font-size: 10.5px;
+            color: #444;
+            display: block;
+            margin-top: 2px;
+            white-space: normal !important;
+            word-break: break-word !important;
+            overflow-wrap: break-word !important;
+            line-height: 1.35;
+          }
 
           /* ⭐ Unified Closing Block: Keeps Financial Summary & Signatures together on the same sheet */
           .invoice-closing-block {
@@ -511,15 +519,20 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
             </thead>
             <tbody>
               ${(order.items || []).map((item: any, idx: number) => {
-                const styleNo = item.variant?.sku || item.variant?.styleNo || `STY-${String(idx + 1).padStart(3, '0')}`;
+                const styleNo = item.variant?.sku || item.variant?.styleNo || item.sku || '-';
+                const itemSize = item.sizes || item.size || item.selectedSize || item.variant?.sizes || item.variant?.size || '';
+                const itemColor = item.colors || item.color || item.selectedColor || item.variant?.colors || item.variant?.color || '';
+                const variantDesc = (itemSize || itemColor)
+                  ? `Size: ${itemSize || 'FREE'} | Color: ${itemColor || 'Default'}`
+                  : '';
                 return `
                 <tr>
                   <td class="text-center font-bold" style="color: #555;">${idx + 1}</td>
                   <td class="font-bold nowrap text-left">${styleNo}</td>
-                  <td class="text-left">
-                    <span class="item-desc">${item.variant?.product?.name || 'Garment Item'}</span>
-                    ${item.variant?.size || item.variant?.color ? `
-                      <span class="item-meta">Size: ${item.variant?.size || 'FREE'} | Color: ${item.variant?.color || 'Default'}</span>
+                  <td class="text-left" style="white-space: normal; word-break: break-word;">
+                    <span class="item-desc">${item.variant?.product?.name || item.name || 'Garment Item'}</span>
+                    ${variantDesc ? `
+                      <span class="item-meta">${variantDesc}</span>
                     ` : ''}
                   </td>
                   <td class="text-right nowrap" style="padding-right: 18px;">Rs ${Number(item.unitPrice).toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
