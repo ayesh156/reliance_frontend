@@ -46,6 +46,8 @@ import {
 } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../utils/whatsapp';
+import { resolveImageUrl } from '../utils/imageUrl';
+
 
 interface CatalogVariant {
   id: number;
@@ -1359,12 +1361,7 @@ export const QuickCheckoutPage: React.FC = () => {
 
                 // Priority 4: Fallback to primary product catalog photo
                 const targetImg = variantDirectImage || matchedVariantImage || matchedColorImage || productImages[0]?.imageUrl;
-
-                const resolvedUrl = targetImg
-                  ? targetImg.startsWith('http') || targetImg.startsWith('data:') || targetImg.startsWith('blob:')
-                    ? targetImg
-                    : `${apiHost}${targetImg.startsWith('/') ? '' : '/'}${targetImg.replace(/^\/?api\/?/, '')}`
-                  : null;
+                const resolvedUrl = targetImg ? resolveImageUrl(targetImg) : null;
 
                 const currentPrice = pricingMode === 'WHOLESALE' ? v.wholesalePrice : v.retailPrice;
 
@@ -1386,7 +1383,13 @@ export const QuickCheckoutPage: React.FC = () => {
                     {/* Thumbnail Image */}
                     <div className="w-full aspect-square rounded-lg bg-slate-100 dark:bg-zinc-900 mb-2 overflow-hidden flex items-center justify-center relative">
                       {resolvedUrl ? (
-                        <img src={resolvedUrl} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                        <img 
+                          src={resolvedUrl} 
+                          alt="" 
+                          loading="lazy"
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform" 
+                        />
                       ) : (
                         <Package className="size-8 text-slate-300 dark:text-zinc-700" />
                       )}

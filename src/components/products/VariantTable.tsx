@@ -13,6 +13,8 @@ import { SizeCombobox } from './SizeCombobox';
 import { ColorCombobox } from './ColorCombobox';
 import { VariantModal } from './VariantModal';
 import type { VariantItem } from '../../types/product';
+import { resolveImageUrl } from '../../utils/imageUrl';
+
 
 interface VariantTableProps {
   variants: VariantItem[];
@@ -179,12 +181,7 @@ export const VariantTable: React.FC<VariantTableProps> = ({
             ) : (
               variants.map((v, index) => {
                 const displayImg = (v.imageUrls && v.imageUrls[0]) || v.imageUrl;
-                const apiHost = import.meta.env.VITE_API_URL?.replace(/\/api\/?$/, '') || 'http://localhost:5000';
-                const resolvedPhoto = displayImg
-                  ? displayImg.startsWith('http') || displayImg.startsWith('data:')
-                    ? displayImg
-                    : `${apiHost}${displayImg.startsWith('/') ? '' : '/'}${displayImg}`
-                  : null;
+                const resolvedPhoto = displayImg ? resolveImageUrl(displayImg) : null;
 
                 return (
                   <tr key={v.key} className="hover:bg-slate-50/80 dark:hover:bg-zinc-900/40 transition-colors">
@@ -200,7 +197,13 @@ export const VariantTable: React.FC<VariantTableProps> = ({
                         className="size-8 rounded-lg border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900 overflow-hidden flex items-center justify-center mx-auto cursor-pointer hover:border-emerald-500 transition-colors"
                       >
                         {resolvedPhoto ? (
-                          <img src={resolvedPhoto} alt="" className="w-full h-full object-cover" />
+                          <img 
+                            src={resolvedPhoto} 
+                            alt="" 
+                            loading="lazy"
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-cover" 
+                          />
                         ) : (
                           <ImageIcon className="size-3.5 text-slate-400" />
                         )}

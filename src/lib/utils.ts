@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { resolveImageUrl, normalizeImageUrl } from '../utils/imageUrl';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -28,10 +29,7 @@ export function generateId(): string {
 }
 
 export function getProductImageUrl(path?: string | null): string {
-  if (!path) return '';
-  if (path.startsWith('http') || path.startsWith('data:') || path.startsWith('blob:')) {
-    return path;
-  }
-  const apiHost = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/api\/?$/, '') : 'http://localhost:5000';
-  return `${apiHost}${path.startsWith('/') ? '' : '/'}${path}`;
+  return resolveImageUrl(path);
 }
+
+export { resolveImageUrl, normalizeImageUrl };

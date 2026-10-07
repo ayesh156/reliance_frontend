@@ -321,6 +321,8 @@ const fetchAll = useCallback(async () => {
                               <img
                                 src={primaryImage}
                                 alt={p.name}
+                                loading="lazy"
+                                referrerPolicy="no-referrer"
                                 className="w-full h-full object-cover group-hover/item:scale-105 transition-transform"
                               />
                             ) : (

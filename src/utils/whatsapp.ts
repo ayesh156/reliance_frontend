@@ -47,6 +47,12 @@ export const generateCustomerInvoiceWhatsAppMessage = (order: any): string => {
   const paid = Number(order.paidAmount || 0);
   const due = Math.max(0, total - paid);
   const totalCustomerDebt = Number(order.customer?.outstandingBalance || 0);
+  const discountVal = Number(order.discount || 0);
+  const subtotalVal = Number(order.subtotal || (total + discountVal) || 0);
+  const percent = order.discountRate !== undefined && Number(order.discountRate) > 0
+    ? Number(order.discountRate)
+    : (subtotalVal > 0 && discountVal > 0 ? Math.round((discountVal / subtotalVal) * 100) : 0);
+  const discountLabel = percent > 0 ? `Discount (${percent}%):` : 'Discount:';
 
   // Resolve payment method label (CASH, CHEQUE, CREDIT)
   const paymentMethod = order.paymentMethod ? String(order.paymentMethod).toUpperCase() : 'CASH';
@@ -81,7 +87,13 @@ export const generateCustomerInvoiceWhatsAppMessage = (order: any): string => {
   text += `-------------------------------------------\n\n`;
   text += `*PURCHASED ITEMS:*\n${itemsList || '- No items recorded -'}\n\n`;
   text += `-------------------------------------------\n`;
-  text += `*Total Bill:* Rs. ${total.toLocaleString()}\n`;
+  if (discountVal > 0) {
+    text += `*Subtotal:* Rs. ${subtotalVal.toLocaleString()}\n`;
+    text += `*${discountLabel}* - Rs. ${discountVal.toLocaleString()}\n`;
+    text += `*Net Total:* Rs. ${total.toLocaleString()}\n`;
+  } else {
+    text += `*Total Bill:* Rs. ${total.toLocaleString()}\n`;
+  }
   text += `*Paid Amount (${paymentMethod}):* Rs. ${paid.toLocaleString()}\n`;
 
   if (due > 0) {

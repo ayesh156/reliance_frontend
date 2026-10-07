@@ -2,6 +2,7 @@ import React, { useRef, useState } from "react"
 import { UploadCloud, Image as ImageIcon, X, Loader2 } from "lucide-react"
 import imageCompression from "browser-image-compression"
 import { cn } from "../../lib/utils"
+import { normalizeImageUrl, resolveImageUrl } from "../../utils/imageUrl"
 
 export interface ImageUploadProps {
   value?: string
@@ -27,6 +28,23 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
   const [isDragging, setIsDragging] = useState(false)
   const [compressing, setCompressing] = useState(false)
   const [progress, setProgress] = useState(0)
+
+  /**
+   * Handle Smart Clipboard Paste of Google Drive links / web images
+   */
+  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    const text = e.clipboardData?.getData("text")?.trim()
+    if (text && /^https?:\/\/.+/i.test(text)) {
+      e.preventDefault()
+      e.stopPropagation()
+      const normalized = normalizeImageUrl(text)
+      if (onMultipleChange) {
+        onMultipleChange([normalized])
+      } else {
+        onChange(normalized)
+      }
+    }
+  }
 
   /**
    * Process and compress multiple or single selected files sequentially
@@ -86,6 +104,18 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
     setIsDragging(false)
     if (disabled) return
 
+    // Check if plain text / URL was dropped
+    const droppedText = e.dataTransfer.getData("text")?.trim()
+    if (droppedText && /^https?:\/\/.+/i.test(droppedText)) {
+      const normalized = normalizeImageUrl(droppedText)
+      if (onMultipleChange) {
+        onMultipleChange([normalized])
+      } else {
+        onChange(normalized)
+      }
+      return
+    }
+
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       handleFiles(e.dataTransfer.files)
     }
@@ -114,8 +144,10 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
     }
   }
 
+  const resolvedValue = resolveImageUrl(value)
+
   return (
-    <div className={cn("relative w-full", className)}>
+    <div className={cn("relative w-full", className)} tabIndex={0} onPaste={handlePaste}>
       <input
         ref={fileInputRef}
         type="file"
@@ -129,8 +161,10 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
       {value ? (
         <div className="relative w-full h-full min-h-[140px] rounded-2xl overflow-hidden border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 group">
           <img
-            src={value}
+            src={resolvedValue}
             alt="Uploaded preview"
+            loading="lazy"
+            referrerPolicy="no-referrer"
             className="w-full h-full object-cover"
           />
           {onRemove && (
@@ -140,7 +174,7 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
                 e.stopPropagation()
                 onRemove()
               }}
-              className="absolute top-2 right-2 p-1.5 rounded-xl bg-black/70 text-white hover:bg-rose-600 transition-colors shadow-md"
+              className="absolute top-2 right-2 p-1.5 rounded-xl bg-black/70 text-white hover:bg-rose-600 transition-colors shadow-md cursor-pointer"
             >
               <X className="size-4" />
             </button>

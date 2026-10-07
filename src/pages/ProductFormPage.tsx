@@ -11,6 +11,7 @@ import { VariantTable } from '../components/products/VariantTable';
 import type { ProductItem, VariantItem } from '../types/product';
 import { compressAndConvertToWebP } from '../utils/imageCompressor';
 import { validateProductForm } from '../utils/validators';
+import { normalizeImageUrl, resolveImageUrl, isGoogleDriveUrl } from '../utils/imageUrl';
 
 import {
   ArrowLeft,
@@ -41,14 +42,21 @@ import {
 } from '../components/ui/dialog';
 /**
  * Test & Preload External Image Address (Google, Facebook, CDN)
- * Verifies the image loads successfully before pushing to catalog preview
+ * Verifies the image loads successfully before pushing to catalog preview.
+ * Google Drive CDN links bypass strict Image() preloading since script-based contexts block it,
+ * while <img referrerPolicy="no-referrer"> displays them correctly.
  */
 const verifyAndPreloadImage = (url: string): Promise<boolean> => {
+  const normalized = normalizeImageUrl(url);
+  if (isGoogleDriveUrl(normalized) || normalized.includes('drive.google.com')) {
+    return Promise.resolve(true);
+  }
   return new Promise((resolve) => {
     const img = new Image();
+    img.referrerPolicy = 'no-referrer';
     img.onload = () => resolve(true);
     img.onerror = () => resolve(false);
-    img.src = url;
+    img.src = normalized;
   });
 };
 
@@ -285,11 +293,13 @@ export const ProductFormPage: React.FC = () => {
  * Intelligently accepts BOTH direct web image URLs (Google/Facebook addresses) AND binary pasted images
  */
   const handleClipboardPaste = async (e: React.ClipboardEvent) => {
-    // 1. Direct Web Image URL Pasted (Google, Facebook, CDN link copied via "Copy Image Address")
+    // 1. Direct Web Image URL Pasted (Google Drive, Facebook, CDN link copied via "Copy Image Address")
     const pastedText = e.clipboardData?.getData('text')?.trim();
     if (pastedText && /^https?:\/\/.+/i.test(pastedText)) {
+      const normalizedUrl = normalizeImageUrl(pastedText);
+
       // Check if already in image list to avoid duplicate entries
-      if (images.includes(pastedText)) {
+      if (images.includes(normalizedUrl)) {
         toast.warn('This image link is already added to the catalog');
         return;
       }
@@ -297,11 +307,17 @@ export const ProductFormPage: React.FC = () => {
       e.preventDefault();
       const toastId = toast.loading('Verifying web image link...');
 
-      const isValid = await verifyAndPreloadImage(pastedText);
+      const isValid = await verifyAndPreloadImage(normalizedUrl);
       if (isValid) {
-        setImages(prev => [...prev, pastedText]);
+        // If pasting a Google Drive URL and local binary data URLs exist, prioritize Google Drive and replace local state
+        setImages(prev => {
+          const filtered = isGoogleDriveUrl(normalizedUrl) ? prev.filter(img => !img.startsWith('data:')) : prev;
+          return [...filtered, normalizedUrl];
+        });
         toast.update(toastId, {
-          render: 'Web image link added successfully (Storage saved)!',
+          render: isGoogleDriveUrl(normalizedUrl) 
+            ? 'Google Drive CDN image linked (Zero disk storage)!' 
+            : 'Web image link added successfully (Storage saved)!',
           type: 'success',
           isLoading: false,
           autoClose: 2500,
@@ -368,19 +384,26 @@ export const ProductFormPage: React.FC = () => {
       e.preventDefault();
       e.stopPropagation();
 
+      const normalizedUrl = normalizeImageUrl(pastedText);
       const toastId = toast.loading('Assigning web image address to variant...');
-      const isValid = await verifyAndPreloadImage(pastedText);
+      const isValid = await verifyAndPreloadImage(normalizedUrl);
 
       if (isValid) {
-        if (!images.includes(pastedText)) {
-          setImages(prev => [...prev, pastedText]);
-        }
+        setImages(prev => {
+          const filtered = isGoogleDriveUrl(normalizedUrl) ? prev.filter(img => !img.startsWith('data:')) : prev;
+          return filtered.includes(normalizedUrl) ? filtered : [...filtered, normalizedUrl];
+        });
 
         setVariants(prev =>
           prev.map(v => {
             if (v.key === variantKey) {
               const existing = v.imageUrls || (v.imageUrl ? [v.imageUrl] : []);
-              const nextUrls = existing.includes(pastedText) ? existing : [...existing, pastedText];
+              const cleanedExisting = isGoogleDriveUrl(normalizedUrl)
+                ? existing.filter(u => !u.startsWith('data:'))
+                : existing;
+              const nextUrls = cleanedExisting.includes(normalizedUrl)
+                ? cleanedExisting
+                : [normalizedUrl, ...cleanedExisting];
               return {
                 ...v,
                 imageUrl: nextUrls[0],
@@ -392,7 +415,9 @@ export const ProductFormPage: React.FC = () => {
         );
 
         toast.update(toastId, {
-          render: 'Web image assigned to variant (Storage saved)!',
+          render: isGoogleDriveUrl(normalizedUrl) 
+            ? 'Google Drive image assigned to variant (Zero disk storage)!' 
+            : 'Web image assigned to variant (Storage saved)!',
           type: 'success',
           isLoading: false,
           autoClose: 2500,
@@ -603,12 +628,7 @@ export const ProductFormPage: React.FC = () => {
                             return (
                               <>
                                 {visibleImages.map((img, idx) => {
-                                    const apiHost = import.meta.env.VITE_API_URL 
-                                      ? import.meta.env.VITE_API_URL.replace(/\/api\/?$/, '') 
-                                      : 'http://localhost:5000';
-                                    const resolvedUrl = img.startsWith('http') || img.startsWith('data:') || img.startsWith('blob:')
-                                      ? img
-                                      : `${apiHost}${img.startsWith('/') ? '' : '/'}${img}`;
+                                    const resolvedUrl = resolveImageUrl(img);
 
                                     const assignedVariants = variants
                                       .map((v, i) => ({ variant: v, index: i }))
@@ -626,6 +646,7 @@ export const ProductFormPage: React.FC = () => {
                                           src={resolvedUrl}
                                           alt=""
                                           loading="lazy"
+                                          referrerPolicy="no-referrer"
                                           className="w-full h-full object-cover absolute inset-0 z-0 transition-transform duration-200 group-hover:scale-105"
                                           onError={(e) => {
                                             e.currentTarget.style.display = 'none';
@@ -879,12 +900,7 @@ export const ProductFormPage: React.FC = () => {
             {/* Layer 2: Independent CSS Grid Layer (Enforces true aspect-square height and mobile spacing) */}
             <div className="grid grid-cols-2 min-[420px]:grid-cols-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5 sm:gap-4">
               {images.map((img, idx) => {
-                const apiHost = import.meta.env.VITE_API_URL 
-                  ? import.meta.env.VITE_API_URL.replace(/\/api\/?$/, '') 
-                  : 'http://localhost:5000';
-                const resolvedUrl = img.startsWith('http') || img.startsWith('data:') || img.startsWith('blob:')
-                  ? img
-                  : `${apiHost}${img.startsWith('/') ? '' : '/'}${img}`;
+                const resolvedUrl = resolveImageUrl(img);
 
                 const assignedVariants = variants
                   .map((v, i) => ({ variant: v, index: i }))
@@ -902,6 +918,7 @@ export const ProductFormPage: React.FC = () => {
                       src={resolvedUrl}
                       alt=""
                       loading="lazy"
+                      referrerPolicy="no-referrer"
                       className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
                     />
 

@@ -48,6 +48,8 @@ export function AppSidebar() {
             <img 
               src="/images/logo.jpg" 
               alt="Reliance Logo" 
+              loading="lazy"
+              referrerPolicy="no-referrer"
               className="w-full h-full object-contain pointer-events-none" 
             />
           </div>

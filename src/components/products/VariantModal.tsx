@@ -7,6 +7,7 @@ import { SizeCombobox } from './SizeCombobox';
 import { ColorCombobox } from './ColorCombobox';
 import type { VariantItem } from '../../types/product';
 import { sanitizePrice, calculateAdjustedStock } from '../../utils/validators';
+import { resolveImageUrl, normalizeImageUrl, isGoogleDriveUrl } from '../../utils/imageUrl';
 
 interface VariantModalProps {
   isOpen: boolean;
@@ -38,12 +39,14 @@ export const VariantModal: React.FC<VariantModalProps> = ({
   const [stockAdjustment, setStockAdjustment] = useState<string>('');
   const [stockError, setStockError] = useState<string | null>(null);
   const [showImagePicker, setShowImagePicker] = useState(false);
+  const [urlInput, setUrlInput] = useState('');
   const popoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (variant) {
       setStockAdjustment('');
       setStockError(null);
+      setUrlInput('');
       // Database ID සහ Numeric අගයන් sanitize කර තහවුරු කර ගැනීම
       setFormData({
         ...variant,
@@ -75,6 +78,15 @@ export const VariantModal: React.FC<VariantModalProps> = ({
     setFormData(prev => (prev ? { ...prev, [field]: value } : null));
   };
 
+  const handleApplyUrl = (inputUrl: string) => {
+    if (!inputUrl.trim()) return;
+    const normalized = normalizeImageUrl(inputUrl.trim());
+    updateField('imageUrl', normalized);
+    updateField('imageUrls', [normalized]);
+    setUrlInput('');
+    setShowImagePicker(false);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (formData) {
@@ -84,15 +96,20 @@ export const VariantModal: React.FC<VariantModalProps> = ({
   };
 
   const displayImg = (formData.imageUrls && formData.imageUrls[0]) || formData.imageUrl;
-  const apiHost = import.meta.env.VITE_API_URL?.replace(/\/api\/?$/, '') || 'http://localhost:5000';
-  const resolvedPhotoSrc = displayImg
-    ? displayImg.startsWith('http') || displayImg.startsWith('data:')
-      ? displayImg
-      : `${apiHost}${displayImg.startsWith('/') ? '' : '/'}${displayImg}`
-    : null;
+  const resolvedPhotoSrc = displayImg ? resolveImageUrl(displayImg) : null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in-0 duration-200">
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in-0 duration-200"
+      onPaste={(e) => {
+        const text = e.clipboardData?.getData('text')?.trim();
+        if (text && /^https?:\/\/.+/i.test(text)) {
+          e.preventDefault();
+          e.stopPropagation();
+          handleApplyUrl(text);
+        }
+      }}
+    >
       <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 duration-200">
         
         {/* Modal Header */}
@@ -108,7 +125,7 @@ export const VariantModal: React.FC<VariantModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors"
+            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
           >
             <X className="size-4" />
           </button>
@@ -128,7 +145,13 @@ export const VariantModal: React.FC<VariantModalProps> = ({
               >
                 {resolvedPhotoSrc ? (
                   <>
-                    <img src={resolvedPhotoSrc} alt="" className="w-full h-full object-cover" />
+                    <img 
+                      src={resolvedPhotoSrc} 
+                      alt="" 
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover" 
+                    />
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white text-[10px] font-bold">
                       Change Photo
                     </div>
@@ -139,7 +162,7 @@ export const VariantModal: React.FC<VariantModalProps> = ({
                       <ImageIcon className="size-4 text-slate-400 group-hover:text-emerald-500" />
                     </div>
                     <span className="text-[10px] font-bold text-slate-600 dark:text-zinc-300">Add Photo</span>
-                    <span className="text-[8px] text-slate-400">Click to pick</span>
+                    <span className="text-[8px] text-slate-400">Click or paste</span>
                   </div>
                 )}
               </button>
@@ -151,7 +174,7 @@ export const VariantModal: React.FC<VariantModalProps> = ({
                   className="absolute top-full left-0 mt-2 z-50 p-2.5 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-2xl w-64 space-y-2 animate-in fade-in-0 zoom-in-95"
                 >
                   <div className="flex items-center justify-between text-[11px] font-bold pb-1.5 border-b border-slate-100 dark:border-zinc-800">
-                    <span>Select Catalog Photo</span>
+                    <span>Select Photo / Drive Link</span>
                     {resolvedPhotoSrc && (
                       <button
                         type="button"
@@ -166,26 +189,56 @@ export const VariantModal: React.FC<VariantModalProps> = ({
                       </button>
                     )}
                   </div>
+
+                  {/* Direct Google Drive URL input */}
+                  <div className="flex items-center gap-1">
+                    <Input
+                      value={urlInput}
+                      onChange={(e) => setUrlInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleApplyUrl(urlInput);
+                        }
+                      }}
+                      placeholder="Paste Google Drive link..."
+                      className="h-7 text-[10px]"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => handleApplyUrl(urlInput)}
+                      className="h-7 px-2 text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
+                    >
+                      Set
+                    </Button>
+                  </div>
+
                   {catalogImages.length === 0 ? (
-                    <p className="text-[10px] text-slate-400 text-center py-3">No catalog photos available</p>
+                    <p className="text-[10px] text-slate-400 text-center py-2">No catalog photos available</p>
                   ) : (
                     <div className="grid grid-cols-4 gap-1.5 max-h-40 overflow-y-auto pr-1">
                       {catalogImages.map((imgUrl, i) => {
-                        const src = imgUrl.startsWith('http') || imgUrl.startsWith('data:')
-                          ? imgUrl
-                          : `${apiHost}${imgUrl.startsWith('/') ? '' : '/'}${imgUrl}`;
+                        const src = resolveImageUrl(imgUrl);
                         return (
                           <button
                             key={i}
                             type="button"
                             onClick={() => {
-                              updateField('imageUrl', imgUrl);
-                              updateField('imageUrls', [imgUrl]);
+                              const normalized = normalizeImageUrl(imgUrl);
+                              updateField('imageUrl', normalized);
+                              updateField('imageUrls', [normalized]);
                               setShowImagePicker(false);
                             }}
                             className="aspect-square rounded-lg border overflow-hidden hover:border-emerald-500 transition-all cursor-pointer hover:scale-105"
                           >
-                            <img src={src} alt="" className="w-full h-full object-cover" />
+                            <img 
+                              src={src} 
+                              alt="" 
+                              loading="lazy"
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover" 
+                            />
                           </button>
                         );
                       })}

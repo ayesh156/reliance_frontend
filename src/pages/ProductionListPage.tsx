@@ -976,6 +976,8 @@ export const ProductionListPage: React.FC = () => {
                           <img
                             src={primaryImage}
                             alt={item.productName}
+                            loading="lazy"
+                            referrerPolicy="no-referrer"
                             className="w-full h-full object-cover"
                           />
                         ) : (
