@@ -67,3 +67,35 @@ export const put = <T>(endpoint: string, body?: any, options?: RequestInit) =>
 
 export const del = <T>(endpoint: string, options?: RequestInit) =>
   request<T>(endpoint, { ...options, method: 'DELETE' });
+
+export const downloadBlob = async (endpoint: string, defaultFilename: string) => {
+  const url = `${BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+  const token = localStorage.getItem('auth_token');
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(url, { headers });
+  if (!response.ok) {
+    const errText = await response.text();
+    let message = 'Failed to download file';
+    try {
+      const parsed = JSON.parse(errText);
+      message = parsed.error || parsed.message || message;
+    } catch {
+      if (errText) message = errText;
+    }
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = downloadUrl;
+  a.download = defaultFilename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(downloadUrl);
+};

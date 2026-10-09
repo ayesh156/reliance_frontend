@@ -12,13 +12,14 @@ import {
 import { Building2, Receipt, Palette } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
-import { get, post, patch } from '../lib/api';
+import { get, post, patch, put } from '../lib/api';
 import { toast } from 'react-toastify';
 import { Badge } from '../components/ui/badge';
 import {
   Users, UserPlus, Shield, ShieldCheck, CheckCircle2,
   XCircle, Loader2, RefreshCw, Briefcase, ShoppingBag, ShieldAlert, X,
-  MoreVertical, ChevronLeft, ChevronRight, KeyRound, Power
+  MoreVertical, ChevronLeft, ChevronRight, KeyRound, Power,
+  Eye, EyeOff, Sparkles, Key
 } from 'lucide-react';
 import { SearchableSelect, type SearchableSelectOption } from '../components/ui/searchable-select';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '../components/ui/table';
@@ -73,6 +74,95 @@ export const Settings: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('STAFF');
+
+  // Edit User Credentials Modal State
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<StaffUser | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editRole, setEditRole] = useState<'ADMIN' | 'STAFF' | 'CASHIER' | 'REP'>('STAFF');
+  const [editPassword, setEditPassword] = useState('');
+  const [showPlainPassword, setShowPlainPassword] = useState(false);
+  const [updatingCredentials, setUpdatingCredentials] = useState(false);
+
+  const handleOpenEditModal = (targetUser: StaffUser) => {
+    setEditingUser(targetUser);
+    setEditName(targetUser.name);
+    setEditEmail(targetUser.email || '');
+    setEditRole(targetUser.role);
+    setEditPassword('');
+    setShowPlainPassword(false);
+    setShowEditModal(true);
+  };
+
+  const handleGenerateStrongPassword = () => {
+    const uppercaseChars = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    const lowercaseChars = 'abcdefghijkmnopqrstuvwxyz';
+    const numberChars = '23456789';
+    const symbolChars = '!@#$%^&*';
+
+    let pwd = '';
+    pwd += uppercaseChars.charAt(Math.floor(Math.random() * uppercaseChars.length));
+    pwd += lowercaseChars.charAt(Math.floor(Math.random() * lowercaseChars.length));
+    pwd += numberChars.charAt(Math.floor(Math.random() * numberChars.length));
+    pwd += symbolChars.charAt(Math.floor(Math.random() * symbolChars.length));
+
+    const allChars = uppercaseChars + lowercaseChars + numberChars + symbolChars;
+    for (let i = 0; i < 8; i++) {
+      pwd += allChars.charAt(Math.floor(Math.random() * allChars.length));
+    }
+
+    pwd = pwd.split('').sort(() => 0.5 - Math.random()).join('');
+    setEditPassword(pwd);
+    setShowPlainPassword(true);
+    toast.info('Strong password generated!');
+  };
+
+  const handleUpdateCredentials = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+
+    const cleanName = editName.trim();
+    const cleanEmail = editEmail.trim().toLowerCase();
+    const cleanPassword = editPassword.trim();
+
+    if (!cleanName) {
+      toast.error('Please enter the full name');
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      toast.error('Please provide a valid email address');
+      return;
+    }
+
+    if (cleanPassword && cleanPassword.length < 6) {
+      toast.error('New password must be at least 6 characters in length');
+      return;
+    }
+
+    setUpdatingCredentials(true);
+    try {
+      const payload: Record<string, any> = {
+        name: cleanName,
+        email: cleanEmail,
+        role: editRole,
+      };
+      if (cleanPassword) {
+        payload.password = cleanPassword;
+      }
+
+      await put(`/users/${editingUser.id}/admin-override`, payload);
+      toast.success(`User credentials for ${cleanName} updated successfully!`);
+      setShowEditModal(false);
+      fetchUsers();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update credentials');
+    } finally {
+      setUpdatingCredentials(false);
+    }
+  };
 
   const fetchUsers = useCallback(async () => {
     if (!isAdmin) {
@@ -266,11 +356,11 @@ export const Settings: React.FC = () => {
                       return (
                         <TableRow key={u.id}>
                           <TableCell>
-                            {/* Interactive Clickable Member: Quick password reset notification trigger */}
+                            {/* Interactive Clickable Member: Direct Admin User Credential Management trigger */}
                             <div 
-                              onClick={() => toast.info(`Password reset requested for ${u.name}`)}
+                              onClick={() => handleOpenEditModal(u)}
                               className="cursor-pointer group/staff select-none inline-block"
-                              title="Click to trigger password reset"
+                              title="Click to edit user credentials & access"
                             >
                               <div className="font-semibold text-slate-900 dark:text-zinc-100 flex items-center gap-1.5 group-hover/staff:text-indigo-600 dark:group-hover/staff:text-indigo-400 group-hover/staff:underline transition-colors">
                                 {u.name}
@@ -330,11 +420,11 @@ export const Settings: React.FC = () => {
                                   <span className="sr-only">Open actions menu</span>
                                 </Button>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-44">
+                              <DropdownMenuContent align="end" className="w-48">
                                 <DropdownMenuItem
-                                  onClick={() => toast.info(`Password reset requested for ${u.name}`)}
+                                  onClick={() => handleOpenEditModal(u)}
                                 >
-                                  <KeyRound className="w-3.5 h-3.5 mr-1" /> Reset Password
+                                  <KeyRound className="w-3.5 h-3.5 mr-1.5 text-blue-500" /> Edit Credentials
                                 </DropdownMenuItem>
                                 {!isSelf && (
                                   <>
@@ -343,7 +433,7 @@ export const Settings: React.FC = () => {
                                       onClick={() => handleToggleActive(u)}
                                       variant={u.active ? "destructive" : "default"}
                                     >
-                                      <Power className="w-3.5 h-3.5 mr-1" />
+                                      <Power className="w-3.5 h-3.5 mr-1.5" />
                                       {u.active ? 'Deactivate User' : 'Activate User'}
                                     </DropdownMenuItem>
                                   </>
@@ -496,6 +586,118 @@ export const Settings: React.FC = () => {
               <Button type="submit" disabled={submitting}>
                 {submitting && <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />}
                 {submitting ? 'Creating…' : 'Create Account'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit User Credentials Modal (Direct Admin Credential Management) */}
+      <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <div className="flex items-center gap-2">
+              <Key className="w-5 h-5 text-blue-500" />
+              <DialogTitle>Edit User Credentials &amp; Access</DialogTitle>
+            </div>
+            <DialogDescription>
+              Direct administrator override for <strong className="text-slate-800 dark:text-zinc-200">{editingUser?.name}</strong>. Directly update account details, role permissions, or overwrite passwords.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleUpdateCredentials} className="space-y-4 pt-2 text-xs">
+            <div className="space-y-1.5">
+              <label className="block font-semibold text-slate-700 dark:text-zinc-300">
+                Full Name *
+              </label>
+              <Input
+                type="text"
+                required
+                value={editName}
+                onChange={e => setEditName(e.target.value)}
+                placeholder="e.g. Sunil Perera"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block font-semibold text-slate-700 dark:text-zinc-300">
+                Email Address *
+              </label>
+              <Input
+                type="email"
+                required
+                value={editEmail}
+                onChange={e => setEditEmail(e.target.value)}
+                placeholder="e.g. sunil@reliance.lk"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block font-semibold text-slate-700 dark:text-zinc-300">
+                System Role &amp; Access Level *
+              </label>
+              <SearchableSelect
+                options={ROLE_OPTIONS}
+                value={editRole}
+                onValueChange={(val: string) => setEditRole(val as any)}
+                placeholder="Select a role..."
+                searchPlaceholder="Search role..."
+                dark={dark}
+              />
+            </div>
+
+            <div className="space-y-1.5 pt-1 border-t border-slate-100 dark:border-zinc-800/80">
+              <div className="flex items-center justify-between">
+                <label className="block font-semibold text-slate-700 dark:text-zinc-300">
+                  Set New Password (Optional)
+                </label>
+                <button
+                  type="button"
+                  onClick={handleGenerateStrongPassword}
+                  className="flex items-center gap-1 text-[11px] font-medium text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                >
+                  <Sparkles className="w-3 h-3 text-amber-500" />
+                  Generate Strong Password
+                </button>
+              </div>
+
+              <div className="relative">
+                <Input
+                  type={showPlainPassword ? 'text' : 'password'}
+                  value={editPassword}
+                  onChange={e => setEditPassword(e.target.value)}
+                  placeholder="Leave blank to keep unchanged (min 6-8 chars)"
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPlainPassword(prev => !prev)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 dark:hover:text-zinc-200 transition-colors"
+                  title={showPlainPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPlainPassword ? (
+                    <EyeOff className="w-3.5 h-3.5" />
+                  ) : (
+                    <Eye className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400 dark:text-zinc-500">
+                Overwrites password directly without requiring previous credentials.
+              </p>
+            </div>
+
+            <DialogFooter className="pt-4 border-t border-slate-100 dark:border-zinc-800">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowEditModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={updatingCredentials} className="bg-blue-600 hover:bg-blue-700 text-white font-medium">
+                {updatingCredentials && <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />}
+                {updatingCredentials ? 'Saving Changes…' : 'Save Credentials'}
               </Button>
             </DialogFooter>
           </form>

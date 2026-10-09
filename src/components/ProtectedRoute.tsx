@@ -2,6 +2,8 @@ import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Loader2 } from 'lucide-react';
+import { Layout } from './Layout';
+import { AccessDenied } from './AccessDenied';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -25,9 +27,13 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requir
 
   if (requiredRole && user) {
     const roles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
-    // Admin කෙනෙක්ට සියලු routes වලට full access හිමි වේ
+    // Admin has unrestricted access to all routes
     if (user.role !== 'ADMIN' && !roles.includes(user.role)) {
-      return <Navigate to="/system/products" replace />;
+      return (
+        <Layout>
+          <AccessDenied requiredRole={requiredRole} />
+        </Layout>
+      );
     }
   }
 

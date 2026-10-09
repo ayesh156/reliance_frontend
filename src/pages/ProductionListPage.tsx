@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
@@ -141,6 +142,7 @@ interface ProductionSummaryResponse {
 export const ProductionListPage: React.FC = () => {
   const navigate = useNavigate();
   const { theme } = useTheme();
+  const { isAdmin } = useAuth();
   const dark = theme === 'dark';
 
   // Unified Date Range Filter (Defaults to current month)
@@ -857,15 +859,17 @@ export const ProductionListPage: React.FC = () => {
                             <RotateCcw className="w-3.5 h-3.5" />
                           </button>
 
-                          {/* Rollback / Delete */}
-                          <button
-                            type="button"
-                            onClick={() => setOrderToDelete(order)}
-                            title="Rollback &amp; Delete Batch"
-                            className="p-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-rose-500 hover:text-rose-600 transition-colors cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {/* Rollback / Delete (Admin Only) */}
+                          {isAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => setOrderToDelete(order)}
+                              title="Rollback &amp; Delete Batch"
+                              className="p-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-rose-500 hover:text-rose-600 transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -1302,46 +1306,48 @@ export const ProductionListPage: React.FC = () => {
       </Dialog>
 
       {/* ─────────────────────────────────────────────────────────────
-          ALERT DIALOG: ROLLBACK & DELETE PRODUCTION RUN
+          ALERT DIALOG: ROLLBACK & DELETE PRODUCTION RUN (Admin Only)
       ───────────────────────────────────────────────────────────── */}
-      <AlertDialog open={Boolean(orderToDelete)} onOpenChange={() => setOrderToDelete(null)}>
-        <AlertDialogContent className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <AlertCircle className="w-5 h-5 text-rose-500" />
-              Rollback &amp; Delete Production Batch #{orderToDelete?.productionNo}?
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-xs text-slate-500 dark:text-zinc-400 space-y-2">
-              <p>
-                This action will perform an atomic inventory rollback:
-              </p>
-              <ul className="list-disc pl-4 space-y-1 text-slate-700 dark:text-zinc-300">
-                <li>
-                  Restores <strong>consumed raw materials</strong> back to warehouse inventory stock.
-                </li>
-                <li>
-                  Deducts <strong>{orderToDelete?.completedQty} finished garment units</strong> from product stock.
-                </li>
-                <li>
-                  Permanently removes this batch record from the production ledger.
-                </li>
-              </ul>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="gap-2">
-            <AlertDialogCancel disabled={isDeleting} className="text-xs rounded-xl">
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={isDeleting}
-              onClick={handleConfirmDelete}
-              className="bg-rose-600 hover:bg-rose-700 text-white text-xs rounded-xl font-semibold shadow-sm cursor-pointer"
-            >
-              {isDeleting ? 'Rolling Back...' : 'Yes, Rollback & Delete'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {isAdmin && (
+        <AlertDialog open={Boolean(orderToDelete)} onOpenChange={() => setOrderToDelete(null)}>
+          <AlertDialogContent className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-rose-500" />
+                Rollback &amp; Delete Production Batch #{orderToDelete?.productionNo}?
+              </AlertDialogTitle>
+              <AlertDialogDescription className="text-xs text-slate-500 dark:text-zinc-400 space-y-2">
+                <p>
+                  This action will perform an atomic inventory rollback:
+                </p>
+                <ul className="list-disc pl-4 space-y-1 text-slate-700 dark:text-zinc-300">
+                  <li>
+                    Restores <strong>consumed raw materials</strong> back to warehouse inventory stock.
+                  </li>
+                  <li>
+                    Deducts <strong>{orderToDelete?.completedQty} finished garment units</strong> from product stock.
+                  </li>
+                  <li>
+                    Permanently removes this batch record from the production ledger.
+                  </li>
+                </ul>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter className="gap-2">
+              <AlertDialogCancel disabled={isDeleting} className="text-xs rounded-xl">
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                disabled={isDeleting}
+                onClick={handleConfirmDelete}
+                className="bg-rose-600 hover:bg-rose-700 text-white text-xs rounded-xl font-semibold shadow-sm cursor-pointer"
+              >
+                {isDeleting ? 'Rolling Back...' : 'Yes, Rollback & Delete'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   );
 };

@@ -8,9 +8,30 @@ interface InvoiceModalProps {
 }
 
 /**
+ * Formats a timestamp into standard 'YYYY-MM-DD' representation (e.g., '2026-10-07')
+ * using local system time with leading zero padding for standard alignment across print tables.
+ */
+const formatReturnDate = (dateInput: string | Date | undefined | null): string => {
+  if (!dateInput) return '-';
+  const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return '-';
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+const formatReturnDateTime = formatReturnDate;
+
+/**
  * Robust Headless Iframe Print Engine:
  * Generates an isolated printing context to eliminate React DOM CSS clipping,
  * blank pages, black-box artifacts, and extra blank trailing sheets.
+ *
+ * Layout & Formatting Architecture:
+ * - Replaces technical Return ID hashes with human-readable system Date (`YYYY-MM-DD`).
+ * - Formats Return Adjustment History table with strict column proportions:
+ *   `# | DATE | RETURNED ITEM & REASON | QTY | CREDIT / REFUND`.
+ * - Maintains 100% visual and mathematical synchronization with backend PDF streaming engine.
  */
 export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, order, autoPrint = false }) => {
   // Prevent duplicate execution across React re-renders and StrictMode
@@ -113,6 +134,73 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
     if (!displayNoteText && typeof order.userNotes === 'string') {
       displayNoteText = order.userNotes;
     }
+
+    // Extract return records for print preview
+    let returnsList: any[] = [];
+    if (Array.isArray(order.returns) && order.returns.length > 0) {
+      returnsList = order.returns;
+    } else if (order.notes) {
+      try {
+        let current = order.notes;
+        while (typeof current === 'string' && current.trim().startsWith('{')) {
+          current = JSON.parse(current);
+        }
+        if (typeof current === 'object' && current !== null && Array.isArray(current.returns)) {
+          returnsList = current.returns;
+        }
+      } catch {}
+    }
+
+    // Consolidate duplicate return items occurring on the exact same date
+    interface ConsolidatedReturnRow {
+      returnDateStr: string;
+      productName: string;
+      variantName?: string;
+      reason: string;
+      totalQty: number;
+      totalRefund: number;
+    }
+
+    const consolidatedReturnsMap = new Map<string, ConsolidatedReturnRow>();
+    returnsList.forEach((ret: any) => {
+      const returnDateStr = formatReturnDate(ret.returnDate || ret.createdAt || ret.date || order.createdAt);
+      const retReason = (ret.reason || 'Return').trim();
+      (ret.returnedItems || []).forEach((rit: any) => {
+        const itemReason = (rit.reason || retReason).trim();
+        const variantIdentifier = rit.variantId !== undefined && rit.variantId !== null
+          ? String(rit.variantId)
+          : (rit.sku || `${rit.productName || rit.name || 'Garment Item'}_${rit.variantName || ''}`);
+        const groupKey = `${returnDateStr}_${variantIdentifier}_${itemReason}`;
+
+        const qty = Number(rit.returnQty ?? rit.quantity ?? 1);
+        const refundAmt = Number(rit.refundAmount ?? rit.amount ?? 0);
+
+        if (consolidatedReturnsMap.has(groupKey)) {
+          const existing = consolidatedReturnsMap.get(groupKey)!;
+          existing.totalQty += qty;
+          existing.totalRefund += refundAmt;
+        } else {
+          consolidatedReturnsMap.set(groupKey, {
+            returnDateStr,
+            productName: rit.productName || rit.name || 'Garment Item',
+            variantName: rit.variantName || '',
+            reason: itemReason,
+            totalQty: qty,
+            totalRefund: refundAmt,
+          });
+        }
+      });
+    });
+
+    const consolidatedReturns = Array.from(consolidatedReturnsMap.values());
+    const hasReturns = returnsList.length > 0 && consolidatedReturns.length > 0;
+    let totalReturnRefund = returnsList.reduce((acc: number, r: any) => acc + (Number(r.totalReturnRefund) || 0), 0);
+    if (totalReturnRefund === 0 && consolidatedReturns.length > 0) {
+      totalReturnRefund = consolidatedReturns.reduce((acc, r) => acc + r.totalRefund, 0);
+    }
+    const originalBillTotal = order.originalTotalAmount !== undefined
+      ? Number(order.originalTotalAmount)
+      : (total + totalReturnRefund);
 
     // Complete Self-Contained A4 Printable Document (Modern Design Matched with Printer Safe Margins)
     const printableDoc = `
@@ -544,6 +632,39 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
             </tbody>
           </table>
 
+          ${hasReturns ? `
+          <div style="margin-bottom: 12px; border: 1px dashed #666; padding: 6px 10px; background-color: #fafafa;">
+            <div style="font-size: 10px; font-weight: bold; text-transform: uppercase; margin-bottom: 4px; color: #b91c1c;">
+              Item Return Adjustment History (Refund / Credit Deducted: Rs ${totalReturnRefund.toLocaleString('en-LK', { minimumFractionDigits: 2 })})
+            </div>
+            <table style="width: 100%; font-size: 9.5px; border-collapse: collapse;">
+              <thead>
+                <tr style="border-bottom: 1px solid #ccc; font-weight: bold; text-transform: uppercase;">
+                  <th style="text-align: center; width: 5%; padding: 3px 2px;">#</th>
+                  <th style="text-align: left; width: 18%; padding: 3px 4px;">DATE</th>
+                  <th style="text-align: left; width: 49%; padding: 3px 4px;">RETURNED ITEM & REASON</th>
+                  <th style="text-align: center; width: 10%; padding: 3px 2px;">QTY</th>
+                  <th style="text-align: right; width: 18%; padding: 3px 4px;">CREDIT / REFUND</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${consolidatedReturns.map((item, idx) => {
+                  const varDesc = item.variantName ? ` (${item.variantName})` : '';
+                  return `
+                    <tr style="border-bottom: 0.5px solid #eee;">
+                      <td style="text-align: center; padding: 3px 2px; color: #555;">${idx + 1}</td>
+                      <td style="text-align: left; padding: 3px 4px; font-weight: bold; white-space: nowrap;">${item.returnDateStr}</td>
+                      <td style="text-align: left; padding: 3px 4px;">${item.productName}${varDesc} <span style="color: #555;">[${item.reason}]</span></td>
+                      <td style="text-align: center; padding: 3px 2px; font-weight: bold;">${item.totalQty} pcs</td>
+                      <td style="text-align: right; padding: 3px 4px; font-weight: bold; color: #b91c1c;">- Rs ${Number(item.totalRefund).toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+          ` : ''}
+
          <!-- ⭐ Unified Closing Block: Prevents orphan totals or orphan signatures on continuous paper -->
           <div class="invoice-closing-block">
             
@@ -561,9 +682,19 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
                   <td class="value">- Rs ${discountVal.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
                 </tr>
                 ` : ''}
+                ${hasReturns ? `
+                <tr>
+                  <td class="label">Original Bill Total</td>
+                  <td class="value">Rs ${originalBillTotal.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                <tr>
+                  <td class="label" style="color: #b91c1c;">Return Adjustments</td>
+                  <td class="value" style="color: #b91c1c;">- Rs ${totalReturnRefund.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                ` : ''}
                 <!-- Current Invoice Total -->
                 <tr class="total-row">
-                  <td class="label">Total Due (Current Bill)</td>
+                  <td class="label">${hasReturns ? 'Net Total Due (After Returns)' : 'Total Due (Current Bill)'}</td>
                   <td class="value">Rs ${total.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
                 </tr>
 

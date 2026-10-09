@@ -20,7 +20,31 @@ export const openWhatsAppChat = (phone: string, message: string) => {
 };
 
 /**
- * 1. Build Customer POS Invoice Receipt (Supports Wholesale/Retail modes & exact yyyy-mm-dd timestamps)
+ * Format timestamp to standard 'YYYY-MM-DD' representation (e.g., '2026-10-07')
+ * for uniform presentation in customer WhatsApp receipts.
+ */
+const formatWhatsAppReturnDate = (dateInput: string | Date | undefined | null): string => {
+  if (!dateInput) return '-';
+  const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return '-';
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+const formatWhatsAppReturnDateTime = formatWhatsAppReturnDate;
+
+/**
+ * 1. Build Customer POS Invoice Receipt (Supports Wholesale/Retail modes, exact timestamps & dynamic Return Adjustments)
+ *
+ * Dynamic Return Calculations & Formatting:
+ * - Detects presence of return events on `order.returns` or structured `order.notes` JSON.
+ * - Extracts each return transaction and renders an itemized "*ITEM RETURN ADJUSTMENT HISTORY:*" ledger.
+ * - Formats each line entry with return date `[YYYY-MM-DD]`, item name, variant descriptor,
+ *   reason, quantity, and negative credit deduction.
+ * - Summarizes cumulative "*Total Return Deductions: - Rs. X*".
+ * - Reconciles financial summary with "*Original Bill*", "*Net Total Bill*", "*Paid Amount*",
+ *   "*This Bill Due*", and live "*Total Outstanding Due*" customer debt.
  */
 export const generateCustomerInvoiceWhatsAppMessage = (order: any): string => {
   // Case-insensitive check to guarantee wholesale detection across all payloads
@@ -57,6 +81,96 @@ export const generateCustomerInvoiceWhatsAppMessage = (order: any): string => {
   // Resolve payment method label (CASH, CHEQUE, CREDIT)
   const paymentMethod = order.paymentMethod ? String(order.paymentMethod).toUpperCase() : 'CASH';
 
+  // 1. Detect returns from order.returns or structured order.notes JSON
+  let returnsList: any[] = [];
+  if (Array.isArray(order.returns) && order.returns.length > 0) {
+    returnsList = order.returns;
+  } else if (order.notes) {
+    try {
+      let current: any = order.notes;
+      while (typeof current === 'string' && current.trim().startsWith('{')) {
+        current = JSON.parse(current);
+      }
+      if (typeof current === 'object' && current !== null && Array.isArray(current.returns)) {
+        returnsList = current.returns;
+      }
+    } catch {
+      // Keep empty if unparseable
+    }
+  }
+
+  // Consolidate duplicate return items occurring on the exact same date with identical variant and reason
+  interface ConsolidatedWhatsAppReturnRow {
+    returnDateStr: string;
+    productName: string;
+    variantName?: string;
+    sku?: string;
+    reason: string;
+    totalQty: number;
+    totalRefund: number;
+  }
+
+  const returnMap = new Map<string, ConsolidatedWhatsAppReturnRow>();
+  let totalReturnCredit = 0;
+
+  for (const ret of returnsList) {
+    const returnDateStr = formatWhatsAppReturnDate(ret.returnDate || ret.createdAt || ret.date || order.createdAt);
+    const retReason = (ret.reason || 'Return').trim();
+    totalReturnCredit += Number(ret.totalReturnRefund || 0);
+
+    if (Array.isArray(ret.returnedItems)) {
+      for (const item of ret.returnedItems) {
+        const itemReason = (item.reason || retReason).trim();
+        const variantIdentifier = item.variantId !== undefined && item.variantId !== null
+          ? String(item.variantId)
+          : (item.sku || `${item.productName || item.name || 'Garment Item'}_${item.variantName || ''}`);
+        const groupKey = `${returnDateStr}_${variantIdentifier}_${itemReason}`;
+
+        const qty = Number(item.returnQty ?? item.quantity ?? 1);
+        const amt = Number(item.refundAmount ?? item.amount ?? 0);
+
+        if (returnMap.has(groupKey)) {
+          const existing = returnMap.get(groupKey)!;
+          existing.totalQty += qty;
+          existing.totalRefund += amt;
+        } else {
+          returnMap.set(groupKey, {
+            returnDateStr,
+            productName: item.productName || item.name || 'Garment Item',
+            variantName: item.variantName || '',
+            sku: item.sku || '',
+            reason: itemReason,
+            totalQty: qty,
+            totalRefund: amt,
+          });
+        }
+      }
+    }
+  }
+
+  const consolidatedReturns = Array.from(returnMap.values());
+  const hasReturns = returnsList.length > 0 && consolidatedReturns.length > 0;
+  if (totalReturnCredit === 0 && consolidatedReturns.length > 0) {
+    totalReturnCredit = consolidatedReturns.reduce((acc, r) => acc + r.totalRefund, 0);
+  }
+
+  let returnedItemsText = '';
+  if (hasReturns) {
+    const returnLines = consolidatedReturns.map((item) => {
+      const vDesc = item.variantName ? ` (${item.variantName})` : (item.sku ? ` (${item.sku})` : '');
+      const amt = Number(item.totalRefund || 0).toLocaleString('en-LK');
+      return `• [${item.returnDateStr}] ${item.productName}${vDesc} [${item.reason}] - ${item.totalQty} pcs (- Rs. ${amt})`;
+    });
+
+    if (returnLines.length > 0) {
+      returnedItemsText = returnLines.join('\n');
+    }
+  }
+
+  const originalBill = order.originalTotalAmount !== undefined
+    ? Number(order.originalTotalAmount)
+    : (total + totalReturnCredit);
+
   let itemsList = '';
   if (Array.isArray(order.items)) {
     itemsList = order.items
@@ -65,8 +179,8 @@ export const generateCustomerInvoiceWhatsAppMessage = (order: any): string => {
         const size = item.size || item.selectedSize || item.variant?.size || '';
         const color = item.color || item.selectedColor || item.variant?.color || '';
         const meta = size || color ? ` (${size}/${color})` : '';
-        const unitPrice = Number(item.unitPrice || (item.quantity ? item.price / item.quantity : 0)).toLocaleString();
-        const lineTotal = Number(item.price || item.unitPrice * item.quantity).toLocaleString();
+        const unitPrice = Number(item.unitPrice || (item.quantity ? item.price / item.quantity : 0)).toLocaleString('en-LK');
+        const lineTotal = Number(item.price || item.unitPrice * item.quantity).toLocaleString('en-LK');
         return `${i + 1}. *${name}*${meta}\n   ${item.quantity} pcs x Rs. ${unitPrice} = *Rs. ${lineTotal}*`;
       })
       .join('\n');
@@ -86,21 +200,37 @@ export const generateCustomerInvoiceWhatsAppMessage = (order: any): string => {
   text += `*Payment Method:* ${paymentMethod}\n`;
   text += `-------------------------------------------\n\n`;
   text += `*PURCHASED ITEMS:*\n${itemsList || '- No items recorded -'}\n\n`;
-  text += `-------------------------------------------\n`;
-  if (discountVal > 0) {
-    text += `*Subtotal:* Rs. ${subtotalVal.toLocaleString()}\n`;
-    text += `*${discountLabel}* - Rs. ${discountVal.toLocaleString()}\n`;
-    text += `*Net Total:* Rs. ${total.toLocaleString()}\n`;
-  } else {
-    text += `*Total Bill:* Rs. ${total.toLocaleString()}\n`;
-  }
-  text += `*Paid Amount (${paymentMethod}):* Rs. ${paid.toLocaleString()}\n`;
 
-  if (due > 0) {
-    text += `*This Bill Due (Credit):* Rs. ${due.toLocaleString()}\n`;
-  }
-  if (totalCustomerDebt > 0 && totalCustomerDebt !== due) {
-    text += `*Total Outstanding Due:* Rs. ${totalCustomerDebt.toLocaleString()}\n`;
+  if (hasReturns) {
+    text += `-------------------------------------------\n`;
+    text += `*ITEM RETURN ADJUSTMENT HISTORY:*\n`;
+    text += `${returnedItemsText || '- No return items recorded -\n'}\n`;
+    text += `*Total Return Deductions:* - Rs. ${totalReturnCredit.toLocaleString('en-LK')}\n`;
+    text += `-------------------------------------------\n`;
+    text += `*Original Bill:* Rs. ${originalBill.toLocaleString('en-LK')}\n`;
+    text += `*Net Total Bill:* Rs. ${total.toLocaleString('en-LK')}\n`;
+    text += `*Paid Amount:* Rs. ${paid.toLocaleString('en-LK')}\n`;
+    text += `*This Bill Due:* Rs. ${due.toLocaleString('en-LK')}\n`;
+    if (totalCustomerDebt > 0) {
+      text += `*Total Outstanding Due:* Rs. ${totalCustomerDebt.toLocaleString('en-LK')}\n`;
+    }
+  } else {
+    text += `-------------------------------------------\n`;
+    if (discountVal > 0) {
+      text += `*Subtotal:* Rs. ${subtotalVal.toLocaleString('en-LK')}\n`;
+      text += `*${discountLabel}* - Rs. ${discountVal.toLocaleString('en-LK')}\n`;
+      text += `*Net Total:* Rs. ${total.toLocaleString('en-LK')}\n`;
+    } else {
+      text += `*Total Bill:* Rs. ${total.toLocaleString('en-LK')}\n`;
+    }
+    text += `*Paid Amount (${paymentMethod}):* Rs. ${paid.toLocaleString('en-LK')}\n`;
+
+    if (due > 0) {
+      text += `*This Bill Due (Credit):* Rs. ${due.toLocaleString('en-LK')}\n`;
+    }
+    if (totalCustomerDebt > 0 && totalCustomerDebt !== due) {
+      text += `*Total Outstanding Due:* Rs. ${totalCustomerDebt.toLocaleString('en-LK')}\n`;
+    }
   }
 
   text += `-------------------------------------------\n`;

@@ -32,6 +32,7 @@ import { get, post, put, del } from '../lib/api';
 import { toast } from 'react-toastify';
 import { isValidSriLankanNIC, isValidSriLankanPhone } from '../utils/validators';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -73,6 +74,7 @@ interface CustomerItem {
 
 export const CustomersPage: React.FC = () => {
   const { theme } = useTheme();
+  const { isAdmin } = useAuth();
   const dark = theme === 'dark';
 
   const [customers, setCustomers] = useState<CustomerItem[]>([]);
@@ -532,15 +534,18 @@ export const CustomersPage: React.FC = () => {
                           Edit Profile
                         </DropdownMenuItem>
 
-                        <DropdownMenuSeparator />
-
-                        <DropdownMenuItem
-                          onClick={() => setDeleteTarget(cust)}
-                          className="gap-2 cursor-pointer text-rose-600 focus:text-rose-700 focus:bg-rose-50 dark:focus:bg-rose-950/30"
-                        >
-                          <Trash2 className="size-3.5 text-rose-600" />
-                          Delete Account
-                        </DropdownMenuItem>
+                        {isAdmin && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => setDeleteTarget(cust)}
+                              className="gap-2 cursor-pointer text-rose-600 focus:text-rose-700 focus:bg-rose-50 dark:focus:bg-rose-950/30"
+                            >
+                              <Trash2 className="size-3.5 text-rose-600" />
+                              Delete Account
+                            </DropdownMenuItem>
+                          </>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -673,24 +678,26 @@ export const CustomersPage: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Permanent Delete Confirmation Dialog */}
-      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete the customer account for{' '}
-              <strong className="text-slate-900 dark:text-white">"{deleteTarget?.name}"</strong> and cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmDelete} className="bg-rose-600 hover:bg-rose-700 text-white">
-              Delete Customer
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Permanent Delete Confirmation Dialog (Admin Only) */}
+      {isAdmin && (
+        <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete the customer account for{' '}
+                <strong className="text-slate-900 dark:text-white">"{deleteTarget?.name}"</strong> and cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={handleConfirmDelete} className="bg-rose-600 hover:bg-rose-700 text-white">
+                Delete Customer
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
 
 {/* Debt Settlement Modal (Full vs Partial Allocation with FIFO/LIFO/Tags) */}
       {/* Enterprise-Grade Itemized Customer Due Settlement Modal */}

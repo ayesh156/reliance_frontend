@@ -11,7 +11,9 @@ import {
   Boxes,
   ShoppingCart,
   Factory,
+  BarChart3,
 } from "lucide-react"
+import { useAuth } from "../contexts/AuthContext"
 
 import {
   Sidebar,
@@ -22,21 +24,39 @@ import {
   SidebarMenuItem,
 } from "./ui/sidebar"
 
-const navItems = [
+interface NavItem {
+  label: string;
+  path: string;
+  icon: React.ElementType;
+  roles?: string[]; // If undefined, accessible to all authenticated users
+}
+
+const navItems: NavItem[] = [
   { label: "Quick Checkout", path: "/system/quick-checkout", icon: MonitorSmartphone }, 
   { label: "Invoices", path: "/system/invoices", icon: FileText },
   { label: "Products", path: "/system/products", icon: ShoppingBag },
-  { label: "Attributes", path: "/system/attributes", icon: Tags },
+  { label: "Attributes", path: "/system/attributes", icon: Tags, roles: ["ADMIN", "STAFF"] },
   { label: "Customers", path: "/system/customers", icon: Users },
-  { label: "Stock Purchases", path: "/system/buy-raw-materials", icon: ShoppingCart },
-  { label: "Suppliers (Shops)", path: "/system/raw-material-shops", icon: Building2 },
-  { label: "Raw Materials", path: "/system/raw-material-items", icon: Boxes }, 
-  { label: "Production", path: "/system/production", icon: Factory },
-  { label: "Settings", path: "/system/settings", icon: Settings },
+  { label: "Stock Purchases", path: "/system/buy-raw-materials", icon: ShoppingCart, roles: ["ADMIN"] },
+  { label: "Suppliers (Shops)", path: "/system/raw-material-shops", icon: Building2, roles: ["ADMIN"] },
+  { label: "Raw Materials", path: "/system/raw-material-items", icon: Boxes, roles: ["ADMIN"] }, 
+  { label: "Production", path: "/system/production", icon: Factory, roles: ["ADMIN", "STAFF"] },
+  { label: "Reports & Analytics", path: "/system/reports", icon: BarChart3, roles: ["ADMIN", "STAFF"] },
+  { label: "Settings", path: "/system/settings", icon: Settings, roles: ["ADMIN"] },
 ];
 
 export function AppSidebar() {
+  const { user } = useAuth()
   const location = useLocation()
+
+  const userRole = user?.role || "STAFF"
+
+  // RBAC Pruning: Non-privileged links are pruned completely from the DOM
+  const visibleNavItems = navItems.filter((item) => {
+    if (!item.roles) return true
+    if (userRole === "ADMIN") return true
+    return item.roles.includes(userRole)
+  })
 
   return (
     <Sidebar collapsible="icon">
@@ -67,7 +87,7 @@ export function AppSidebar() {
       {/* Compact Nav Items */}
       <SidebarContent>
         <SidebarMenu>
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const isActive =
               item.path === "/system"
                 ? location.pathname === "/system"

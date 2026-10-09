@@ -7,6 +7,7 @@ import { SearchableSelect } from '../components/ui/searchable-select';
 import { DateTimePicker } from '../components/ui/date-time-picker';
 import { MaterialCombobox } from '../components/materials/MaterialCombobox';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
 import {
   Table,
   TableHeader,
@@ -120,6 +121,7 @@ const PAYMENT_METHODS = ['CASH', 'CREDIT', 'CHEQUE', 'BANK_TRANSFER'];
 
 export const BuyRawMaterialsPage: React.FC = () => {
   const { theme } = useTheme();
+  const { isAdmin } = useAuth();
   const dark = theme === 'dark';
   const navigate = useNavigate();
 
@@ -725,13 +727,15 @@ export const BuyRawMaterialsPage: React.FC = () => {
                             WhatsApp Purchase Slip
                           </DropdownMenuItem>
 
-                          <DropdownMenuItem
-                            onClick={() => setDeletingPurchase(purchase)}
-                            className="gap-2 cursor-pointer text-rose-600 focus:text-rose-700 focus:bg-rose-50 dark:focus:bg-rose-950/30"
-                          >
-                            <Trash2 className="size-3.5 text-rose-600" />
-                            Cancel &amp; Rollback
-                          </DropdownMenuItem>
+                          {isAdmin && (
+                            <DropdownMenuItem
+                              onClick={() => setDeletingPurchase(purchase)}
+                              className="gap-2 cursor-pointer text-rose-600 focus:text-rose-700 focus:bg-rose-50 dark:focus:bg-rose-950/30"
+                            >
+                              <Trash2 className="size-3.5 text-rose-600" />
+                              Cancel &amp; Rollback
+                            </DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -1077,27 +1081,29 @@ export const BuyRawMaterialsPage: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Cancel/Rollback Confirmation Alert */}
-      <AlertDialog open={Boolean(deletingPurchase)} onOpenChange={(open) => !open && setDeletingPurchase(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Cancel and rollback this purchase order?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete the purchase record, decrement the material quantities from inventory stock, and reverse any outstanding supplier debt balance.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>Keep Order</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDeleteConfirm}
-              disabled={isDeleting}
-              className="bg-rose-600 hover:bg-rose-700 text-white"
-            >
-              {isDeleting ? 'Reversing...' : 'Cancel & Revert Stock'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Cancel/Rollback Confirmation Alert (Admin Only) */}
+      {isAdmin && (
+        <AlertDialog open={Boolean(deletingPurchase)} onOpenChange={(open) => !open && setDeletingPurchase(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Cancel and rollback this purchase order?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete the purchase record, decrement the material quantities from inventory stock, and reverse any outstanding supplier debt balance.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isDeleting}>Keep Order</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDeleteConfirm}
+                disabled={isDeleting}
+                className="bg-rose-600 hover:bg-rose-700 text-white"
+              >
+                {isDeleting ? 'Reversing...' : 'Cancel & Revert Stock'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
 
       {/* ⭐ Partial Payment Settlement Modal with POS Date & Time */}
       <Dialog open={Boolean(settlingPurchase)} onOpenChange={(open) => !open && setSettlingPurchase(null)}>

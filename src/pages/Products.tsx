@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
 import { formatCurrency, getProductImageUrl } from '../lib/utils';
 import { get, post, put, del } from '../lib/api';
 import { toast } from 'react-toastify';
@@ -48,6 +49,7 @@ import {
 export const Products: React.FC = () => {
   const navigate = useNavigate();
   const { theme } = useTheme();
+  const { isAdmin } = useAuth();
   const dark = theme === 'dark';
 
   const [products, setProducts] = useState<ProductItem[]>([]);
@@ -365,10 +367,14 @@ const fetchAll = useCallback(async () => {
                             <DropdownMenuItem onClick={() => navigate(`/system/products/${p.id}/edit`)}>
                               <Edit className="size-3.5 mr-1" /> Edit
                             </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem variant="destructive" onClick={() => { setSelectedProduct(p); setShowDeleteModal(true); }}>
-                              <Trash2 className="size-3.5 mr-1" /> Delete
-                            </DropdownMenuItem>
+                            {isAdmin && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem variant="destructive" onClick={() => { setSelectedProduct(p); setShowDeleteModal(true); }}>
+                                  <Trash2 className="size-3.5 mr-1" /> Delete
+                                </DropdownMenuItem>
+                              </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
@@ -394,21 +400,23 @@ const fetchAll = useCallback(async () => {
         )}
       </div>
 
-      {/* Shadcn Alert Dialog for Delete */}
-      <AlertDialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete the product <strong className="text-slate-900 dark:text-white">"{selectedProduct?.name}"</strong> and all its associated variants, barcodes, and inventory records.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete}>Delete Product</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Shadcn Alert Dialog for Delete (Admin Only) */}
+      {isAdmin && (
+        <AlertDialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete the product <strong className="text-slate-900 dark:text-white">"{selectedProduct?.name}"</strong> and all its associated variants, barcodes, and inventory records.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={handleDelete}>Delete Product</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   );
 };

@@ -4,6 +4,7 @@ import { get, del, post } from '../lib/api';
 import { DateTimePicker } from '../components/ui/date-time-picker';
 import { toast } from 'react-toastify';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
@@ -41,6 +42,10 @@ import {
   RefreshCw,
   MessageSquare,
   Wallet, // ⭐ Added for Pay Due Action
+  RotateCcw, // ⭐ Added for Process Return Action
+  History, // ⭐ Added for Historical Return Audit Log
+  AlertCircle,
+  CheckCircle2,
 } from 'lucide-react';
 import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../utils/whatsapp';
 
@@ -60,11 +65,16 @@ interface InvoiceRecord {
     outstandingBalance: number;
   };
   items: any[];
+  notes?: string;
+  returns?: any[];
+  originalTotalAmount?: number;
+  userNotes?: string;
 }
 
 export const InvoicesPage: React.FC = () => {
   const navigate = useNavigate();
   const { theme } = useTheme();
+  const { isAdmin } = useAuth();
   const dark = theme === 'dark';
 
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
@@ -112,6 +122,150 @@ export const InvoicesPage: React.FC = () => {
   const [settleDateTime, setSettleDateTime] = useState<string>(getCurrentLocalISOString());
   const [settleReference, setSettleReference] = useState<string>('');
   const [isSettling, setIsSettling] = useState<boolean>(false);
+
+  // ⭐ In-Store Return & Stock Restoration Dialog State
+  const [returnInvoice, setReturnInvoice] = useState<InvoiceRecord | null>(null);
+  const [returnModalOpen, setReturnModalOpen] = useState(false);
+  const [returnQuantities, setReturnQuantities] = useState<Record<number, number>>({});
+  const [returnReason, setReturnReason] = useState<string>('Incorrect Size');
+  const [customReturnReason, setCustomReturnReason] = useState<string>('');
+  const [isProcessingReturn, setIsProcessingReturn] = useState<boolean>(false);
+
+  /**
+   * Helper to retrieve total past returned quantity for a specific product variant on an invoice
+   */
+  const getCumulativeReturnedForVariant = (inv: InvoiceRecord | null, variantId: number): number => {
+    if (!inv || !Array.isArray(inv.returns)) return 0;
+    return inv.returns.reduce((sum, ret) => {
+      if (!Array.isArray(ret.returnedItems)) return sum;
+      const match = ret.returnedItems.find((ri: any) => Number(ri.variantId) === Number(variantId));
+      return sum + (match ? Number(match.returnQty || 0) : 0);
+    }, 0);
+  };
+
+  /**
+   * Live calculations banner state for return modal:
+   * Original Bill Total, Total Returned Value, Adjusted Net Bill Total, and Updated Customer Due
+   */
+  const returnModalCalculations = useMemo(() => {
+    if (!returnInvoice) {
+      return {
+        originalBill: 0,
+        pastReturnsTotal: 0,
+        thisReturnTotal: 0,
+        totalReturnedValue: 0,
+        adjustedNetBillTotal: 0,
+        currentBillDue: 0,
+        updatedBillDue: 0,
+        totalItemsToReturn: 0,
+        canSubmit: false,
+      };
+    }
+
+    const pastReturnsTotal = (returnInvoice.returns || []).reduce(
+      (sum, r) => sum + (Number(r.totalReturnRefund) || 0),
+      0
+    );
+
+    const originalBill = returnInvoice.originalTotalAmount !== undefined
+      ? Number(returnInvoice.originalTotalAmount)
+      : Number(returnInvoice.totalAmount) + pastReturnsTotal;
+
+    let thisReturnTotal = 0;
+    let totalItemsToReturn = 0;
+
+    if (Array.isArray(returnInvoice.items)) {
+      returnInvoice.items.forEach((item) => {
+        const qty = Number(returnQuantities[item.variantId] || 0);
+        if (qty > 0) {
+          totalItemsToReturn += qty;
+          const unitPrice = Number(item.unitPrice || (item.quantity ? item.price / item.quantity : 0));
+          thisReturnTotal += qty * unitPrice;
+        }
+      });
+    }
+
+    thisReturnTotal = Math.round(thisReturnTotal * 100) / 100;
+    const totalReturnedValue = Math.round((pastReturnsTotal + thisReturnTotal) * 100) / 100;
+    const adjustedNetBillTotal = Math.max(0, Math.round((originalBill - totalReturnedValue) * 100) / 100);
+
+    const currentBillDue = Math.max(0, Math.round((Number(returnInvoice.totalAmount) - Number(returnInvoice.paidAmount)) * 100) / 100);
+    const dueOffset = Math.min(currentBillDue, thisReturnTotal);
+    const updatedBillDue = Math.max(0, Math.round((currentBillDue - dueOffset) * 100) / 100);
+
+    return {
+      originalBill,
+      pastReturnsTotal,
+      thisReturnTotal,
+      totalReturnedValue,
+      adjustedNetBillTotal,
+      currentBillDue,
+      updatedBillDue,
+      totalItemsToReturn,
+      canSubmit: totalItemsToReturn > 0,
+    };
+  }, [returnInvoice, returnQuantities]);
+
+  const handleOpenReturnModal = (inv: InvoiceRecord) => {
+    setReturnInvoice(inv);
+    const initialQtys: Record<number, number> = {};
+    if (Array.isArray(inv.items)) {
+      inv.items.forEach((item) => {
+        initialQtys[item.variantId] = 0;
+      });
+    }
+    setReturnQuantities(initialQtys);
+    setReturnReason('Incorrect Size');
+    setCustomReturnReason('');
+    setReturnModalOpen(true);
+  };
+
+  const handleProcessReturnSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!returnInvoice) return;
+
+    if (returnModalCalculations.totalItemsToReturn <= 0) {
+      toast.error('Please enter a return quantity of at least 1 item');
+      return;
+    }
+
+    const returnedItems = Object.entries(returnQuantities)
+      .filter(([_, qty]) => Number(qty) > 0)
+      .map(([variantIdStr, qty]) => {
+        const variantId = Number(variantIdStr);
+        const originalItem = returnInvoice.items.find((it) => Number(it.variantId) === variantId);
+        const unitPrice = Number(originalItem?.unitPrice || (originalItem ? originalItem.price / originalItem.quantity : 0));
+        return {
+          variantId,
+          productId: originalItem?.variant?.productId,
+          returnQty: Number(qty),
+          unitPrice,
+          amount: Math.round(Number(qty) * unitPrice * 100) / 100,
+        };
+      });
+
+    const finalReason = returnReason === 'Other'
+      ? (customReturnReason.trim() || 'Other')
+      : returnReason;
+
+    try {
+      setIsProcessingReturn(true);
+      await post(`/orders/${returnInvoice.id}/returns`, {
+        returnedItems,
+        reason: finalReason,
+      });
+
+      toast.success(`Return processed for Invoice #INV${returnInvoice.id}! Stock restored to inventory.`);
+      setReturnModalOpen(false);
+      setReturnInvoice(null);
+      setReturnQuantities({});
+      fetchInvoices();
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || err.message || 'Failed to process return');
+    } finally {
+      setIsProcessingReturn(false);
+    }
+  };
 
   /**
    * Submit Customer Invoice Due Settlement
@@ -469,7 +623,7 @@ export const InvoicesPage: React.FC = () => {
                         className="py-3 px-4 font-mono font-bold text-slate-900 dark:text-white cursor-pointer hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline select-none"
                         title="Click to edit invoice in POS"
                       >
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span>INV{inv.id}</span>
                           {inv.source === 'POS_WHOLESALE' ? (
                             <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
@@ -478,6 +632,19 @@ export const InvoicesPage: React.FC = () => {
                           ) : (
                             <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
                               RET
+                            </span>
+                          )}
+                          {inv.returns && inv.returns.length > 0 && (
+                            <span
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenReturnModal(inv);
+                              }}
+                              className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-0.5 hover:bg-indigo-200 cursor-pointer"
+                              title="Click to view returns history"
+                            >
+                              <RotateCcw className="size-2.5" />
+                              RET ({inv.returns.length})
                             </span>
                           )}
                         </div>
@@ -524,24 +691,34 @@ export const InvoicesPage: React.FC = () => {
                         )}
                       </td>
                       <td className="py-3 px-4 text-center">
-                        {/* Vertical 3-Dots Action Dropdown Menu (modal={false} prevents layout shifting and scroll lock) */}
-                        <DropdownMenu modal={false}>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="size-8 text-slate-500 hover:text-slate-900 dark:hover:text-white">
-                              <MoreVertical className="size-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-44 text-xs font-medium">
-                            <DropdownMenuItem
-                              onClick={() => {
-                                setPrintInvoice(inv);
-                                setPrintModalOpen(true);
-                              }}
-                              className="gap-2 cursor-pointer"
-                            >
-                              <Printer className="size-3.5 text-slate-500" />
-                              Print Preview
-                            </DropdownMenuItem>
+                        <div className="flex items-center justify-center">
+                          {/* Vertical 3-Dots Action Dropdown Menu (modal={false} prevents layout shifting and scroll lock) */}
+                          <DropdownMenu modal={false}>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="size-8 text-slate-500 hover:text-slate-900 dark:hover:text-white">
+                                <MoreVertical className="size-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-48 text-xs font-medium">
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setPrintInvoice(inv);
+                                  setPrintModalOpen(true);
+                                }}
+                                className="gap-2 cursor-pointer"
+                              >
+                                <Printer className="size-3.5 text-slate-500" />
+                                Print Preview
+                              </DropdownMenuItem>
+
+                              {/* ⭐ In-Store Return Action Button */}
+                              <DropdownMenuItem
+                                onClick={() => handleOpenReturnModal(inv)}
+                                className="gap-2 cursor-pointer text-indigo-600 focus:text-indigo-700 focus:bg-indigo-50 dark:focus:bg-indigo-950/30 font-medium"
+                              >
+                                <RotateCcw className="size-3.5 text-indigo-600" />
+                                Process Return
+                              </DropdownMenuItem>
 
                             {/* ⭐ GRN-style Pay Due Balance Action (only shown if creditDue > 0) */}
                             {creditDue > 0 && (
@@ -585,17 +762,21 @@ export const InvoicesPage: React.FC = () => {
                               Edit Invoice
                             </DropdownMenuItem>
 
-                            <DropdownMenuSeparator />
-
-                            <DropdownMenuItem
-                              onClick={() => setDeleteId(inv.id)}
-                              className="gap-2 cursor-pointer text-rose-600 focus:text-rose-700 focus:bg-rose-50 dark:focus:bg-rose-950/30"
-                            >
-                              <Trash2 className="size-3.5 text-rose-600" />
-                              Delete Invoice
-                            </DropdownMenuItem>
+                            {isAdmin && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => setDeleteId(inv.id)}
+                                  className="gap-2 cursor-pointer text-rose-600 focus:text-rose-700 focus:bg-rose-50 dark:focus:bg-rose-950/30"
+                                >
+                                  <Trash2 className="size-3.5 text-rose-600" />
+                                  Delete Invoice
+                                </DropdownMenuItem>
+                              </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -635,33 +816,35 @@ export const InvoicesPage: React.FC = () => {
         )}
       </div>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteId !== null} onOpenChange={(open) => !open && setDeleteId(null)}>
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader>
-            <DialogTitle className="text-rose-600 flex items-center gap-2">
-              <Trash2 className="size-5" /> Delete Invoice #{deleteId}
-            </DialogTitle>
-            <DialogDescription className="text-xs pt-2">
-              Are you sure you want to delete this invoice? This will automatically <strong>roll back stock</strong> to the inventory and <strong>cancel any pending credit</strong> from the customer's balance.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="pt-3">
-            <Button variant="outline" size="sm" onClick={() => setDeleteId(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={deleting}
-              onClick={confirmDelete}
-              className="bg-rose-600 hover:bg-rose-700 font-bold"
-            >
-              {deleting && <Loader2 className="size-3.5 animate-spin mr-1" />} Confirm Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Delete Confirmation Dialog (Admin Only) */}
+      {isAdmin && (
+        <Dialog open={deleteId !== null} onOpenChange={(open) => !open && setDeleteId(null)}>
+          <DialogContent className="sm:max-w-[420px]">
+            <DialogHeader>
+              <DialogTitle className="text-rose-600 flex items-center gap-2">
+                <Trash2 className="size-5" /> Delete Invoice #{deleteId}
+              </DialogTitle>
+              <DialogDescription className="text-xs pt-2">
+                Are you sure you want to delete this invoice? This will automatically <strong>roll back stock</strong> to the inventory and <strong>cancel any pending credit</strong> from the customer's balance.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="pt-3">
+              <Button variant="outline" size="sm" onClick={() => setDeleteId(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={deleting}
+                onClick={confirmDelete}
+                className="bg-rose-600 hover:bg-rose-700 font-bold"
+              >
+                {deleting && <Loader2 className="size-3.5 animate-spin mr-1" />} Confirm Delete
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Headless Direct Print Trigger */}
       {printModalOpen && printInvoice && (
@@ -836,6 +1019,355 @@ export const InvoicesPage: React.FC = () => {
                 >
                   {isSettling && <Loader2 className="size-3.5 animate-spin mr-1" />}
                   Confirm Payment
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ⭐ INVOICE ITEM RETURN & RESTOCK MODAL */}
+      <Dialog open={returnModalOpen} onOpenChange={(open) => !open && setReturnModalOpen(false)}>
+        <DialogContent className="sm:max-w-[760px] max-h-[92vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base text-slate-900 dark:text-white font-bold">
+              <RotateCcw className="size-5 text-indigo-600" />
+              Process Item Return &amp; Restock — #INV{returnInvoice?.id}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500 dark:text-zinc-400">
+              Return items back to warehouse stock and automatically reconcile invoice ledgers and customer balances.
+            </DialogDescription>
+          </DialogHeader>
+
+          {returnInvoice && (
+            <form onSubmit={handleProcessReturnSubmit} className="space-y-4 py-1">
+              {/* Invoice Meta Banner */}
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200 dark:border-zinc-800 text-xs grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Customer</span>
+                  <span className="font-bold text-slate-800 dark:text-zinc-200 truncate block">
+                    {returnInvoice.customerName || 'Walk-in Customer'}
+                  </span>
+                  {returnInvoice.customerPhone && (
+                    <span className="text-[10px] font-mono text-slate-500">{returnInvoice.customerPhone}</span>
+                  )}
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Date / Mode</span>
+                  <span className="font-semibold text-slate-800 dark:text-zinc-200 block">
+                    {new Date(returnInvoice.createdAt).toISOString().split('T')[0]}
+                  </span>
+                  <span className="text-[10px] uppercase font-bold text-slate-500">{returnInvoice.paymentMethod}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Original Bill</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-white block">
+                    Rs. {returnModalCalculations.originalBill.toLocaleString()}
+                  </span>
+                  <span className="text-[10px] text-emerald-600 font-medium">
+                    Paid: Rs. {Number(returnInvoice.paidAmount).toLocaleString()}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Current Bill Due</span>
+                  <span className="font-mono font-bold text-rose-600 block">
+                    Rs. {returnModalCalculations.currentBillDue.toLocaleString()}
+                  </span>
+                  {returnInvoice.customer?.outstandingBalance !== undefined && (
+                    <span className="text-[10px] text-slate-500">
+                      Cust Total: Rs. {Number(returnInvoice.customer.outstandingBalance).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Items Return Table */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                  <span>Purchased Items &amp; Return Quantities:</span>
+                  <span className="text-[11px] text-slate-400">
+                    Max quantity cannot exceed unreturned balance
+                  </span>
+                </div>
+
+                <div className="border border-slate-200 dark:border-zinc-800 rounded-xl overflow-hidden bg-white dark:bg-zinc-950">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 dark:bg-zinc-900/80 border-b border-slate-200 dark:border-zinc-800 text-[10px] text-slate-500 uppercase tracking-wider font-bold">
+                        <th className="py-2.5 px-3 text-left">Item / Style</th>
+                        <th className="py-2.5 px-2 text-center">Purchased</th>
+                        <th className="py-2.5 px-2 text-center">Returned</th>
+                        <th className="py-2.5 px-2 text-center text-indigo-600">Available</th>
+                        <th className="py-2.5 px-2 text-right">Unit Price</th>
+                        <th className="py-2.5 px-2 text-center">Return Qty</th>
+                        <th className="py-2.5 px-3 text-right">Refund Value</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/80">
+                      {(returnInvoice.items || []).map((item) => {
+                        const variantId = Number(item.variantId);
+                        const purchasedQty = Number(item.quantity || 0);
+                        const alreadyReturned = getCumulativeReturnedForVariant(returnInvoice, variantId);
+                        const returnableQty = Math.max(0, purchasedQty - alreadyReturned);
+                        const unitPrice = Number(item.unitPrice || (item.quantity ? item.price / item.quantity : 0));
+                        const currentReturnQty = Number(returnQuantities[variantId] || 0);
+                        const lineRefund = Math.round(currentReturnQty * unitPrice * 100) / 100;
+
+                        const name = item.variant?.product?.name || item.name || 'Garment Item';
+                        const size = item.size || item.selectedSize || item.variant?.size || '';
+                        const color = item.color || item.selectedColor || item.variant?.color || '';
+                        const meta = [size, color].filter(Boolean).join('/');
+                        const sku = item.variant?.sku || '';
+
+                        return (
+                          <tr
+                            key={variantId}
+                            className={`hover:bg-slate-50/50 dark:hover:bg-zinc-900/40 transition-colors ${
+                              currentReturnQty > 0 ? 'bg-indigo-50/30 dark:bg-indigo-950/20' : ''
+                            }`}
+                          >
+                            <td className="py-2.5 px-3">
+                              <div className="font-semibold text-slate-800 dark:text-zinc-200">{name}</div>
+                              <div className="text-[10px] text-slate-400 font-mono flex items-center gap-2">
+                                {meta && <span>Variant: {meta}</span>}
+                                {sku && <span>SKU: {sku}</span>}
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-2 text-center font-mono font-medium text-slate-600 dark:text-zinc-400">
+                              {purchasedQty}
+                            </td>
+                            <td className="py-2.5 px-2 text-center font-mono text-amber-600 font-medium">
+                              {alreadyReturned > 0 ? alreadyReturned : '-'}
+                            </td>
+                            <td className="py-2.5 px-2 text-center font-mono font-bold text-indigo-600">
+                              {returnableQty}
+                            </td>
+                            <td className="py-2.5 px-2 text-right font-mono text-slate-700 dark:text-zinc-300">
+                              Rs. {unitPrice.toLocaleString()}
+                            </td>
+                            <td className="py-2.5 px-2 text-center">
+                              <Input
+                                type="number"
+                                min={0}
+                                max={returnableQty}
+                                disabled={returnableQty <= 0}
+                                value={currentReturnQty || ''}
+                                onChange={(e) => {
+                                  const parsed = parseInt(e.target.value, 10) || 0;
+                                  const bounded = Math.max(0, Math.min(returnableQty, parsed));
+                                  setReturnQuantities((prev) => ({
+                                    ...prev,
+                                    [variantId]: bounded,
+                                  }));
+                                }}
+                                placeholder="0"
+                                className={`w-20 h-8 mx-auto text-center font-mono font-bold text-xs ${
+                                  currentReturnQty > 0
+                                    ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300'
+                                    : ''
+                                }`}
+                              />
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900 dark:text-white">
+                              {lineRefund > 0 ? (
+                                <span className="text-indigo-600">- Rs. {lineRefund.toLocaleString()}</span>
+                              ) : (
+                                <span className="text-slate-400">Rs. 0</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Return Reason Selection */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                    Return Reason *
+                  </label>
+                  <SearchableSelect
+                    value={returnReason}
+                    onValueChange={setReturnReason}
+                    options={[
+                      { value: 'Incorrect Size', label: 'Incorrect Size' },
+                      { value: 'Damaged / Defect', label: 'Damaged / Defective Garment' },
+                      { value: 'Exchange Request', label: 'Customer Exchange Request' },
+                      { value: 'Customer Request', label: 'Customer General Return' },
+                      { value: 'Other', label: 'Other Reason (Specify below)' },
+                    ]}
+                    placeholder="Select Reason"
+                    dark={dark}
+                    className="h-9"
+                  />
+                </div>
+
+                {returnReason === 'Other' && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                      Specify Reason Notes *
+                    </label>
+                    <Input
+                      required
+                      value={customReturnReason}
+                      onChange={(e) => setCustomReturnReason(e.target.value)}
+                      placeholder="e.g. Color mismatch or buyer canceled"
+                      className="h-9 text-xs"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* ⭐ LIVE CALCULATION BANNER */}
+              <div className="p-3.5 rounded-xl bg-gradient-to-br from-indigo-50 via-slate-50 to-emerald-50 dark:from-indigo-950/30 dark:via-zinc-900/50 dark:to-emerald-950/30 border border-indigo-200/80 dark:border-indigo-800/60 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-400 flex items-center gap-1.5">
+                    <CheckCircle2 className="size-3.5" />
+                    Live Return Ledger Reconciliation
+                  </span>
+                  {returnModalCalculations.thisReturnTotal > 0 && (
+                    <span className="text-xs font-bold font-mono text-indigo-600 bg-indigo-100 dark:bg-indigo-900/50 px-2 py-0.5 rounded-md">
+                      Pending Refund: Rs. {returnModalCalculations.thisReturnTotal.toLocaleString()}
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs pt-1">
+                  <div className="p-2.5 rounded-lg bg-white/80 dark:bg-zinc-900/80 border border-slate-200/60 dark:border-zinc-800">
+                    <span className="text-[10px] text-slate-400 block font-medium">Original Bill</span>
+                    <span className="font-mono font-bold text-slate-900 dark:text-white text-sm">
+                      Rs. {returnModalCalculations.originalBill.toLocaleString()}
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 rounded-lg bg-white/80 dark:bg-zinc-900/80 border border-slate-200/60 dark:border-zinc-800">
+                    <span className="text-[10px] text-slate-400 block font-medium">Total Return Credit</span>
+                    <span className="font-mono font-bold text-indigo-600 text-sm">
+                      - Rs. {returnModalCalculations.totalReturnedValue.toLocaleString()}
+                    </span>
+                    {returnModalCalculations.pastReturnsTotal > 0 && (
+                      <span className="text-[9px] text-slate-400 block">
+                        Past: Rs. {returnModalCalculations.pastReturnsTotal.toLocaleString()}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="p-2.5 rounded-lg bg-white/80 dark:bg-zinc-900/80 border border-slate-200/60 dark:border-zinc-800">
+                    <span className="text-[10px] text-slate-400 block font-medium">Adjusted Net Bill</span>
+                    <span className="font-mono font-bold text-emerald-600 text-sm">
+                      Rs. {returnModalCalculations.adjustedNetBillTotal.toLocaleString()}
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 rounded-lg bg-white/80 dark:bg-zinc-900/80 border border-slate-200/60 dark:border-zinc-800">
+                    <span className="text-[10px] text-slate-400 block font-medium">Updated Bill Due</span>
+                    <span className="font-mono font-bold text-rose-600 text-sm">
+                      Rs. {returnModalCalculations.updatedBillDue.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* ⭐ HISTORICAL RETURN AUDIT LOG (Mini-Ledger UI) */}
+              <div className="space-y-2 pt-1 border-t border-slate-200 dark:border-zinc-800">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-zinc-300">
+                  <History className="size-3.5 text-indigo-600" />
+                  Historical Return Audit Log ({returnInvoice.returns?.length || 0})
+                </div>
+
+                {Array.isArray(returnInvoice.returns) && returnInvoice.returns.length > 0 ? (
+                  <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+                    {returnInvoice.returns.map((ret: any, idx: number) => (
+                      <div
+                        key={ret.returnId || idx}
+                        className="p-2.5 rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-900/40 text-xs space-y-1.5"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-slate-900 dark:text-white">
+                              #{ret.returnId}
+                            </span>
+                            <Badge
+                              variant="outline"
+                              className="text-[9px] uppercase font-bold border-indigo-400 text-indigo-600 bg-indigo-50 dark:bg-indigo-950/40"
+                            >
+                              {ret.reason || 'Return'}
+                            </Badge>
+                          </div>
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            {new Date(ret.returnDate).toLocaleString()}
+                          </span>
+                        </div>
+
+                        {/* Returned Items Breakdown */}
+                        <div className="space-y-0.5 text-[11px] text-slate-600 dark:text-zinc-300">
+                          {(ret.returnedItems || []).map((rit: any, rIdx: number) => (
+                            <div key={rIdx} className="flex justify-between items-center">
+                              <span>
+                                • {rit.productName || 'Garment Item'}
+                                {rit.variantName ? ` (${rit.variantName})` : ''}: {rit.returnQty} pcs @ Rs.{' '}
+                                {Number(rit.unitPrice).toLocaleString()}
+                              </span>
+                              <span className="font-mono font-semibold text-indigo-600">
+                                - Rs. {Number(rit.amount).toLocaleString()}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Financial Ledger Impact Breakdown */}
+                        <div className="pt-1 border-t border-slate-200/60 dark:border-zinc-800/80 flex items-center justify-between text-[10px] text-slate-500">
+                          <span>
+                            Recorded By: <strong className="text-slate-700 dark:text-zinc-300">{ret.recordedBy || 'Cashier'}</strong>
+                          </span>
+                          <div className="flex items-center gap-2 font-mono">
+                            <span>Total Refund: <strong className="text-indigo-600">- Rs. {Number(ret.totalReturnRefund).toLocaleString()}</strong></span>
+                            {Number(ret.creditDueAdjustment || 0) > 0 && (
+                              <span>(Credit Offset: Rs. {Number(ret.creditDueAdjustment).toLocaleString()})</span>
+                            )}
+                            {Number(ret.cashRefundAmount || 0) > 0 && (
+                              <span>(Cash Paid Back: Rs. {Number(ret.cashRefundAmount).toLocaleString()})</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-3 rounded-xl border border-dashed border-slate-200 dark:border-zinc-800 text-center text-xs text-slate-400">
+                    No previous returns have been processed for this invoice.
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer Actions */}
+              <DialogFooter className="pt-3 border-t border-slate-200 dark:border-zinc-800">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setReturnModalOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={!returnModalCalculations.canSubmit || isProcessingReturn}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold gap-1.5"
+                >
+                  {isProcessingReturn ? (
+                    <>
+                      <Loader2 className="size-3.5 animate-spin" /> Restoring Inventory...
+                    </>
+                  ) : (
+                    <>
+                      <RotateCcw className="size-3.5" /> Confirm Return &amp; Restock
+                    </>
+                  )}
                 </Button>
               </DialogFooter>
             </form>

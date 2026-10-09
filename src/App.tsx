@@ -24,6 +24,7 @@ import { BuyRawMaterialsPage } from './pages/BuyRawMaterialsPage';
 import BuyRawMaterialFormPage from './pages/BuyRawMaterialFormPage';
 import { ProductionListPage } from './pages/ProductionListPage';
 import { ProductionFormPage } from './pages/ProductionFormPage';
+import { ReportsPage } from './pages/ReportsPage';
 
 function ThemedToastContainer() {
   const { theme } = useTheme();
@@ -245,6 +246,18 @@ export function App() {
                   <ProtectedRoute requiredRole="ADMIN">
                     <AdminPage>
                       <BuyRawMaterialFormPage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Enterprise Reports & Analytics Route */}
+              <Route
+                path="/system/reports"
+                element={
+                  <ProtectedRoute requiredRole={['ADMIN', 'STAFF']}>
+                    <AdminPage>
+                      <ReportsPage />
                     </AdminPage>
                   </ProtectedRoute>
                 }
