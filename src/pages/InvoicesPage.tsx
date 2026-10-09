@@ -82,7 +82,13 @@ export const InvoicesPage: React.FC = () => {
 
   const canDeleteInvoice = (inv: InvoiceRecord): boolean => {
     if (isAdmin) return true;
-    if (isRep && inv.source === 'POS_WHOLESALE' && (inv.userId === user?.id || (inv as any).createdById === user?.id)) {
+    const isWholesale = inv.source === 'POS_WHOLESALE' || (inv as any).orderType === 'WHOLESALE';
+    const isOwner =
+      Number(inv.userId) === Number(user?.id) ||
+      String(inv.userId) === String(user?.id) ||
+      Number((inv as any).createdById) === Number(user?.id);
+
+    if (isRep && isWholesale && isOwner) {
       return true;
     }
     return false;
@@ -414,17 +420,24 @@ export const InvoicesPage: React.FC = () => {
     return invoices.reduce((sum, i) => sum + Math.max(0, (Number(i.totalAmount) || 0) - (Number(i.paidAmount) || 0)), 0);
   }, [invoices]);
 
-  // Handle Invoice Deletion
+  // Handle Invoice Deletion with optimistic/dynamic UI removal and robust error feedback
   const confirmDelete = async () => {
     if (!deleteId) return;
     setDeleting(true);
     try {
       await del(`/orders/invoices/${deleteId}`);
-      toast.success(`Invoice #${deleteId} deleted and stock/credit rolled back!`);
+      toast.success("Invoice deleted successfully");
+      // Dynamically remove the deleted card/row from the UI state
+      setInvoices((prev) => prev.filter((item) => item.id !== deleteId));
+      setTotalCount((prev) => Math.max(0, prev - 1));
       setDeleteId(null);
-      fetchInvoices();
     } catch (err: any) {
-      toast.error(err.message || 'Failed to delete invoice');
+      const errMsg =
+        err.response?.data?.error ||
+        err.response?.data?.message ||
+        err.message ||
+        'Failed to delete invoice';
+      toast.error(errMsg);
     } finally {
       setDeleting(false);
     }
@@ -763,11 +776,16 @@ export const InvoicesPage: React.FC = () => {
                     {canDelete && (
                       <button
                         type="button"
+                        disabled={deleting && deleteId === inv.id}
                         onClick={() => setDeleteId(inv.id)}
-                        className="min-h-[44px] min-w-[44px] px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 font-semibold text-xs flex items-center justify-center transition-colors cursor-pointer select-none"
+                        className="min-h-[44px] min-w-[44px] px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 font-semibold text-xs flex items-center justify-center transition-colors cursor-pointer select-none disabled:opacity-50"
                         title="Delete Invoice"
                       >
-                        <Trash2 className="size-4 shrink-0" />
+                        {deleting && deleteId === inv.id ? (
+                          <Loader2 className="size-4 shrink-0 animate-spin" />
+                        ) : (
+                          <Trash2 className="size-4 shrink-0" />
+                        )}
                       </button>
                     )}
                   </div>
@@ -1014,9 +1032,9 @@ export const InvoicesPage: React.FC = () => {
         )}
       </div>
 
-      {/* Delete Confirmation Dialog (Admin Only) */}
-      {isAdmin && (
-        <Dialog open={deleteId !== null} onOpenChange={(open) => !open && setDeleteId(null)}>
+      {/* Delete Confirmation Dialog (Admin & Scoped Rep) */}
+      {(isAdmin || isRep) && (
+        <Dialog open={deleteId !== null} onOpenChange={(open) => !open && !deleting && setDeleteId(null)}>
           <DialogContent className="sm:max-w-[420px]">
             <DialogHeader>
               <DialogTitle className="text-rose-600 flex items-center gap-2">
@@ -1027,7 +1045,7 @@ export const InvoicesPage: React.FC = () => {
               </DialogDescription>
             </DialogHeader>
             <DialogFooter className="pt-3">
-              <Button variant="outline" size="sm" onClick={() => setDeleteId(null)}>
+              <Button variant="outline" size="sm" disabled={deleting} onClick={() => setDeleteId(null)}>
                 Cancel
               </Button>
               <Button
@@ -1037,7 +1055,8 @@ export const InvoicesPage: React.FC = () => {
                 onClick={confirmDelete}
                 className="bg-rose-600 hover:bg-rose-700 font-bold"
               >
-                {deleting && <Loader2 className="size-3.5 animate-spin mr-1" />} Confirm Delete
+                {deleting && <Loader2 className="size-3.5 animate-spin mr-1" />}
+                {deleting ? 'Deleting...' : 'Confirm Delete'}
               </Button>
             </DialogFooter>
           </DialogContent>
