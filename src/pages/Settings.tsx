@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Input } from '../components/ui/input';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -9,12 +10,13 @@ import {
   DialogDescription,
   DialogFooter,
 } from '../components/ui/dialog';
-import { Building2, Receipt, Palette } from 'lucide-react';
+import { Building2, Receipt, Palette, Lock, Save } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { get, post, patch, put } from '../lib/api';
 import { toast } from 'react-toastify';
 import { Badge } from '../components/ui/badge';
+import { AccessDenied } from '../components/AccessDenied';
 import {
   Users, UserPlus, Shield, ShieldCheck, CheckCircle2,
   XCircle, Loader2, RefreshCw, Briefcase, ShoppingBag, ShieldAlert, X,
@@ -56,16 +58,38 @@ const ROLE_OPTIONS: SearchableSelectOption[] = [
 ];
 
 export const Settings: React.FC = () => {
-  const { user: currentUser, isAdmin } = useAuth();
+  const { user: currentUser, isAdmin, isRep } = useAuth();
   const { theme } = useTheme();
   const dark = theme === 'dark';
+
+  const [activeTab, setActiveTab] = useState<string>(isAdmin && !isRep ? 'staff' : 'general');
+
+  useEffect(() => {
+    if (isRep && activeTab === 'staff') {
+      setActiveTab('general');
+    }
+  }, [isRep, activeTab]);
+  const [storeSettings, setStoreSettings] = useState<Record<string, string>>({});
+  const [loadingSettings, setLoadingSettings] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [formData, setFormData] = useState({
+    STORE_NAME: 'Reliance Retail & Wholesale Suite',
+    STORE_PHONE: '0771234567',
+    STORE_ADDRESS: 'No. 123, Main Street, Colombo, Sri Lanka',
+    CURRENCY_SYMBOL: 'Rs.',
+    RECEIPT_HEADER: 'Welcome to Reliance Retail & Wholesale',
+    RECEIPT_FOOTER: 'Thank you for shopping with us!',
+    THERMAL_PAPER_WIDTH: '80mm',
+    STORE_TAGLINE: 'Quality Garments & Fabrics Wholesale',
+    WHATSAPP_SUPPORT: '+94771234567',
+  });
 
   const [users, setUsers] = useState<StaffUser[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Pagination State (Testing Limit = 2)
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 6; // ⭐ මෙතැනින් පිටුවකට පෙන්වන ප්‍රමාණය වෙනස් කළ හැක
+  const itemsPerPage = 6;
 
   // Form State
   const [showAddModal, setShowAddModal] = useState(false);
@@ -180,9 +204,46 @@ export const Settings: React.FC = () => {
     }
   }, [isAdmin]);
 
+  const fetchSettings = useCallback(async () => {
+    try {
+      setLoadingSettings(true);
+      const data = await get<Record<string, string>>('/settings');
+      if (data && typeof data === 'object') {
+        setStoreSettings(data);
+        setFormData(prev => ({ ...prev, ...data }));
+      }
+    } catch (err: any) {
+      console.error('Failed to load store settings:', err);
+    } finally {
+      setLoadingSettings(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchUsers();
   }, [fetchUsers]);
+
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
+
+  const handleSaveStoreSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isAdmin) {
+      toast.error('Only administrators can update store settings');
+      return;
+    }
+    try {
+      setSavingSettings(true);
+      const entries = Object.entries(formData).map(([key, value]) => ({ key, value }));
+      await put('/settings', entries);
+      toast.success('Store settings saved successfully!');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save settings');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -253,72 +314,121 @@ export const Settings: React.FC = () => {
   const totalPages = Math.ceil(users.length / itemsPerPage) || 1;
   const paginatedUsers = users.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
-  const cardClass = `rounded-2xl border p-5 sm:p-6 transition-colors ${dark ? 'bg-zinc-900/60 border-zinc-800' : 'bg-white border-slate-200 shadow-sm'
+  const cardClass = `rounded-2xl border p-3.5 sm:p-6 transition-colors ${dark ? 'bg-zinc-900/60 border-zinc-800' : 'bg-white border-slate-200 shadow-sm'
     }`;
 
-  if (!isAdmin) {
-    return (
-      <div className="p-8 text-center">
-        <Shield className="w-12 h-12 text-zinc-400 dark:text-zinc-600 mx-auto mb-3" />
-        <h2 className="text-lg font-bold text-gray-900 dark:text-zinc-200">Access Restricted</h2>
-        <p className="text-xs text-gray-500 dark:text-zinc-500 mt-1">
-          Only System Administrators have permissions to view and manage staff accounts.
-        </p>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-6 w-full pb-10">
+    <div className="space-y-4 sm:space-y-6 w-full pb-10">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className={`text-2xl font-bold tracking-tight ${dark ? 'text-white' : 'text-slate-900'}`}>
-            Staff &amp; Access Control
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+        <div className="min-w-0">
+          <h1 className={`text-xl sm:text-2xl font-bold tracking-tight break-words ${dark ? 'text-white' : 'text-slate-900'}`}>
+            {activeTab === 'staff' && isAdmin ? 'Staff & Access Control' : 'Store & System Settings'}
           </h1>
-          <p className={`text-xs mt-1 ${dark ? 'text-zinc-400' : 'text-slate-500'}`}>
-            Manage system roles, permissions, and staff credentials
+          <p className={`text-xs mt-1 leading-relaxed ${dark ? 'text-zinc-400' : 'text-slate-500'}`}>
+            {activeTab === 'staff' && isAdmin
+              ? 'Manage system roles, permissions, and staff credentials'
+              : 'Configure business identity, POS preferences, and store configurations'}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => fetchUsers()}
-            className={`p-2.5 rounded-xl border transition-all ${dark ? 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:text-white' : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
-              }`}
-            title="Refresh Directory"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          </button>
-          <Button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2"
-          >
-            <UserPlus className="w-4 h-4" />
-            Add Staff Member
-          </Button>
-        </div>
+        {isAdmin && activeTab === 'staff' && (
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => fetchUsers()}
+              className={`p-2.5 rounded-xl border transition-all ${dark ? 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:text-white' : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
+                }`}
+              title="Refresh Directory"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+            <Button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-2 min-h-[38px]"
+            >
+              <UserPlus className="w-4 h-4" />
+              Add Staff Member
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Settings Tabs Structure */}
-      <Tabs defaultValue="staff" className="w-full space-y-4">
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 max-w-2xl">
-          <TabsTrigger value="staff" className="flex items-center gap-1.5">
-            <Users className="w-3.5 h-3.5" /> Staff &amp; Access
-          </TabsTrigger>
-          <TabsTrigger value="general" className="flex items-center gap-1.5">
-            <Building2 className="w-3.5 h-3.5" /> Company Profile
-          </TabsTrigger>
-          <TabsTrigger value="pos" className="flex items-center gap-1.5">
-            <Receipt className="w-3.5 h-3.5" /> POS &amp; Thermal
-          </TabsTrigger>
-          <TabsTrigger value="storefront" className="flex items-center gap-1.5">
-            <Palette className="w-3.5 h-3.5" /> Storefront
-          </TabsTrigger>
-        </TabsList>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-4 mt-3">
+        {/* Mobile Navigation Dropdown (< 640px) */}
+        <div className="block sm:hidden w-full">
+          <Select value={activeTab} onValueChange={setActiveTab}>
+            <SelectTrigger className="w-full h-11 px-3 text-xs font-semibold rounded-xl bg-slate-100 dark:bg-zinc-900/90 border border-slate-200 dark:border-zinc-800 focus:ring-emerald-500">
+              <div className="flex items-center gap-2 truncate">
+                {activeTab === 'staff' && <Users className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />}
+                {activeTab === 'general' && <Building2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />}
+                {activeTab === 'pos' && <Receipt className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />}
+                {activeTab === 'storefront' && <Palette className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />}
+                <span className="font-semibold text-slate-800 dark:text-zinc-100 truncate">
+                  {activeTab === 'staff' && 'Staff & Access Control'}
+                  {activeTab === 'general' && 'Company Profile'}
+                  {activeTab === 'pos' && 'POS & Thermal'}
+                  {activeTab === 'storefront' && 'Storefront'}
+                </span>
+              </div>
+            </SelectTrigger>
+            <SelectContent className="bg-white dark:bg-zinc-950 border-slate-200 dark:border-zinc-800">
+              {isAdmin && !isRep && (
+                <SelectItem value="staff">
+                  <div className="flex items-center gap-2">
+                    <Users className="w-3.5 h-3.5 text-slate-500 dark:text-zinc-400" />
+                    <span>Staff &amp; Access Control</span>
+                  </div>
+                </SelectItem>
+              )}
+              <SelectItem value="general">
+                <div className="flex items-center gap-2">
+                  <Building2 className="w-3.5 h-3.5 text-slate-500 dark:text-zinc-400" />
+                  <span>Company Profile</span>
+                </div>
+              </SelectItem>
+              <SelectItem value="pos">
+                <div className="flex items-center gap-2">
+                  <Receipt className="w-3.5 h-3.5 text-slate-500 dark:text-zinc-400" />
+                  <span>POS &amp; Thermal</span>
+                </div>
+              </SelectItem>
+              <SelectItem value="storefront">
+                <div className="flex items-center gap-2">
+                  <Palette className="w-3.5 h-3.5 text-slate-500 dark:text-zinc-400" />
+                  <span>Storefront</span>
+                </div>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Tablet & Desktop Horizontal Tabs (sm:flex) */}
+        <div className="hidden sm:block w-full">
+          <TabsList className="h-auto flex overflow-x-auto no-scrollbar scroll-smooth whitespace-nowrap gap-2 p-1 bg-slate-100 dark:bg-zinc-900/80 rounded-xl border border-slate-200 dark:border-zinc-800 w-auto justify-start">
+            {isAdmin && !isRep && (
+              <TabsTrigger value="staff" className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold shrink-0 min-h-[38px] rounded-lg">
+                <Users className="w-3.5 h-3.5" /> Staff &amp; Access
+              </TabsTrigger>
+            )}
+            <TabsTrigger value="general" className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold shrink-0 min-h-[38px] rounded-lg">
+              <Building2 className="w-3.5 h-3.5" /> Company Profile
+            </TabsTrigger>
+            <TabsTrigger value="pos" className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold shrink-0 min-h-[38px] rounded-lg">
+              <Receipt className="w-3.5 h-3.5" /> POS &amp; Thermal
+            </TabsTrigger>
+            <TabsTrigger value="storefront" className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold shrink-0 min-h-[38px] rounded-lg">
+              <Palette className="w-3.5 h-3.5" /> Storefront
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* ── TAB 1: Staff & Access Control (Active) ── */}
-        <TabsContent value="staff" className="space-y-4">
-          <div className={cardClass}>
+        {!isRep && isAdmin && (
+          <TabsContent value="staff" className="space-y-4">
+          {!isAdmin ? (
+            <AccessDenied requiredRole="ADMIN" />
+          ) : (
+            <div className={cardClass}>
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-zinc-800/80">
               <div className="flex items-center gap-2">
                 <Users className={`w-4 h-4 ${dark ? 'text-zinc-400' : 'text-slate-600'}`} />
@@ -479,30 +589,241 @@ export const Settings: React.FC = () => {
               </>
             )}
           </div>
+          )}
         </TabsContent>
+      )}
 
-        {/* ── Placeholders for Future Modules ── */}
-        <TabsContent value="general">
-          <div className="rounded-2xl border p-8 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 text-center space-y-2">
-            <Building2 className="w-8 h-8 text-zinc-400 mx-auto" />
-            <h3 className="text-sm font-bold">Company Profile &amp; Billing Info</h3>
-            <p className="text-xs text-zinc-500">Configure business name, address, contact numbers, and tax/VAT numbers.</p>
+        {/* ── TAB 2: Company Profile ── */}
+        <TabsContent value="general" className="space-y-4">
+          <div className={cardClass}>
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-zinc-800/80">
+              <div className="flex items-center gap-2">
+                <Building2 className={`w-4 h-4 ${dark ? 'text-zinc-400' : 'text-slate-600'}`} />
+                <h2 className={`text-sm font-bold tracking-tight ${dark ? 'text-white' : 'text-slate-900'}`}>
+                  Company Profile &amp; General Configuration
+                </h2>
+              </div>
+              <Badge variant="outline" className="text-[10px]">
+                {isAdmin ? 'Editable' : 'Read-Only (Scoped Access)'}
+              </Badge>
+            </div>
+
+            {!isAdmin && (
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs mb-4">
+                <Lock className="w-4 h-4 shrink-0" />
+                <span>
+                  <strong>Read-Only Mode:</strong> Scoped view for staff and representatives. System Administrators have write permissions.
+                </span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveStoreSettings} className="space-y-4 text-xs">
+              <div className="flex flex-col gap-3.5 lg:grid lg:grid-cols-2 lg:gap-4">
+                <div className="space-y-1.5">
+                  <label className="block font-semibold text-slate-700 dark:text-zinc-300">
+                    Store / Business Name
+                  </label>
+                  <Input
+                    type="text"
+                    disabled={!isAdmin}
+                    value={formData.STORE_NAME}
+                    onChange={e => setFormData(prev => ({ ...prev, STORE_NAME: e.target.value }))}
+                    placeholder="e.g. Reliance Garments"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block font-semibold text-slate-700 dark:text-zinc-300">
+                    Official Contact Phone
+                  </label>
+                  <Input
+                    type="text"
+                    disabled={!isAdmin}
+                    value={formData.STORE_PHONE}
+                    onChange={e => setFormData(prev => ({ ...prev, STORE_PHONE: e.target.value }))}
+                    placeholder="e.g. 0771234567"
+                  />
+                </div>
+
+                <div className="space-y-1.5 lg:col-span-2">
+                  <label className="block font-semibold text-slate-700 dark:text-zinc-300">
+                    Physical Store Address
+                  </label>
+                  <Input
+                    type="text"
+                    disabled={!isAdmin}
+                    value={formData.STORE_ADDRESS}
+                    onChange={e => setFormData(prev => ({ ...prev, STORE_ADDRESS: e.target.value }))}
+                    placeholder="e.g. No. 123, Main Street, Colombo, Sri Lanka"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block font-semibold text-slate-700 dark:text-zinc-300">
+                    Currency Symbol
+                  </label>
+                  <Input
+                    type="text"
+                    disabled={!isAdmin}
+                    value={formData.CURRENCY_SYMBOL}
+                    onChange={e => setFormData(prev => ({ ...prev, CURRENCY_SYMBOL: e.target.value }))}
+                    placeholder="e.g. Rs."
+                  />
+                </div>
+              </div>
+
+              {isAdmin && (
+                <div className="pt-4 border-t border-slate-100 dark:border-zinc-800/80 flex justify-end">
+                  <Button type="submit" disabled={savingSettings} className="flex items-center gap-1.5">
+                    {savingSettings ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                    {savingSettings ? 'Saving...' : 'Save Company Profile'}
+                  </Button>
+                </div>
+              )}
+            </form>
           </div>
         </TabsContent>
 
-        <TabsContent value="pos">
-          <div className="rounded-2xl border p-8 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 text-center space-y-2">
-            <Receipt className="w-8 h-8 text-zinc-400 mx-auto" />
-            <h3 className="text-sm font-bold">POS Terminal &amp; 80mm Receipt Setup</h3>
-            <p className="text-xs text-zinc-500">Receipt header notes, footer greetings, auto-print triggers, and barcode scanner configs.</p>
+        {/* ── TAB 3: POS & Thermal ── */}
+        <TabsContent value="pos" className="space-y-4">
+          <div className={cardClass}>
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-zinc-800/80">
+              <div className="flex items-center gap-2">
+                <Receipt className={`w-4 h-4 ${dark ? 'text-zinc-400' : 'text-slate-600'}`} />
+                <h2 className={`text-sm font-bold tracking-tight ${dark ? 'text-white' : 'text-slate-900'}`}>
+                  POS Terminal &amp; Thermal Printing Preferences
+                </h2>
+              </div>
+              <Badge variant="outline" className="text-[10px]">
+                {isAdmin ? 'Editable' : 'Read-Only (Scoped Access)'}
+              </Badge>
+            </div>
+
+            {!isAdmin && (
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs mb-4">
+                <Lock className="w-4 h-4 shrink-0" />
+                <span>
+                  <strong>Read-Only Mode:</strong> Scoped view for staff and representatives. System Administrators have write permissions.
+                </span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveStoreSettings} className="space-y-4 text-xs">
+              <div className="flex flex-col gap-3.5 lg:grid lg:grid-cols-2 lg:gap-4">
+                <div className="space-y-1.5 lg:col-span-2">
+                  <label className="block font-semibold text-slate-700 dark:text-zinc-300">
+                    Receipt Header Greeting Note
+                  </label>
+                  <Input
+                    type="text"
+                    disabled={!isAdmin}
+                    value={formData.RECEIPT_HEADER}
+                    onChange={e => setFormData(prev => ({ ...prev, RECEIPT_HEADER: e.target.value }))}
+                    placeholder="e.g. Welcome to Reliance Retail & Wholesale"
+                  />
+                </div>
+
+                <div className="space-y-1.5 lg:col-span-2">
+                  <label className="block font-semibold text-slate-700 dark:text-zinc-300">
+                    Receipt Footer Note
+                  </label>
+                  <Input
+                    type="text"
+                    disabled={!isAdmin}
+                    value={formData.RECEIPT_FOOTER}
+                    onChange={e => setFormData(prev => ({ ...prev, RECEIPT_FOOTER: e.target.value }))}
+                    placeholder="e.g. Thank you for shopping with us!"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block font-semibold text-slate-700 dark:text-zinc-300">
+                    Default Thermal Paper Format
+                  </label>
+                  <Input
+                    type="text"
+                    disabled={!isAdmin}
+                    value={formData.THERMAL_PAPER_WIDTH}
+                    onChange={e => setFormData(prev => ({ ...prev, THERMAL_PAPER_WIDTH: e.target.value }))}
+                    placeholder="e.g. 80mm"
+                  />
+                </div>
+              </div>
+
+              {isAdmin && (
+                <div className="pt-4 border-t border-slate-100 dark:border-zinc-800/80 flex justify-end">
+                  <Button type="submit" disabled={savingSettings} className="flex items-center gap-1.5">
+                    {savingSettings ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                    {savingSettings ? 'Saving...' : 'Save POS Preferences'}
+                  </Button>
+                </div>
+              )}
+            </form>
           </div>
         </TabsContent>
 
-        <TabsContent value="storefront">
-          <div className="rounded-2xl border p-8 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 text-center space-y-2">
-            <Palette className="w-8 h-8 text-zinc-400 mx-auto" />
-            <h3 className="text-sm font-bold">Storefront &amp; Branding Settings</h3>
-            <p className="text-xs text-zinc-500">Banner text, delivery fees, WhatsApp chat widget number, and social links.</p>
+        {/* ── TAB 4: Storefront & Branding ── */}
+        <TabsContent value="storefront" className="space-y-4">
+          <div className={cardClass}>
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-zinc-800/80">
+              <div className="flex items-center gap-2">
+                <Palette className={`w-4 h-4 ${dark ? 'text-zinc-400' : 'text-slate-600'}`} />
+                <h2 className={`text-sm font-bold tracking-tight ${dark ? 'text-white' : 'text-slate-900'}`}>
+                  Storefront &amp; WhatsApp Integration
+                </h2>
+              </div>
+              <Badge variant="outline" className="text-[10px]">
+                {isAdmin ? 'Editable' : 'Read-Only (Scoped Access)'}
+              </Badge>
+            </div>
+
+            {!isAdmin && (
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs mb-4">
+                <Lock className="w-4 h-4 shrink-0" />
+                <span>
+                  <strong>Read-Only Mode:</strong> Scoped view for staff and representatives. System Administrators have write permissions.
+                </span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveStoreSettings} className="space-y-4 text-xs">
+              <div className="flex flex-col gap-3.5 lg:grid lg:grid-cols-2 lg:gap-4">
+                <div className="space-y-1.5 lg:col-span-2">
+                  <label className="block font-semibold text-slate-700 dark:text-zinc-300">
+                    Store Tagline
+                  </label>
+                  <Input
+                    type="text"
+                    disabled={!isAdmin}
+                    value={formData.STORE_TAGLINE}
+                    onChange={e => setFormData(prev => ({ ...prev, STORE_TAGLINE: e.target.value }))}
+                    placeholder="e.g. Quality Garments & Fabrics Wholesale"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block font-semibold text-slate-700 dark:text-zinc-300">
+                    WhatsApp Customer Support Contact
+                  </label>
+                  <Input
+                    type="text"
+                    disabled={!isAdmin}
+                    value={formData.WHATSAPP_SUPPORT}
+                    onChange={e => setFormData(prev => ({ ...prev, WHATSAPP_SUPPORT: e.target.value }))}
+                    placeholder="e.g. +94771234567"
+                  />
+                </div>
+              </div>
+
+              {isAdmin && (
+                <div className="pt-4 border-t border-slate-100 dark:border-zinc-800/80 flex justify-end">
+                  <Button type="submit" disabled={savingSettings} className="flex items-center gap-1.5">
+                    {savingSettings ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                    {savingSettings ? 'Saving...' : 'Save Storefront Settings'}
+                  </Button>
+                </div>
+              )}
+            </form>
           </div>
         </TabsContent>
       </Tabs>

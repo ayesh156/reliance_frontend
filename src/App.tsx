@@ -93,7 +93,7 @@ export function App() {
               <Route
                 path="/system/products/new"
                 element={
-                  <ProtectedRoute>
+                  <ProtectedRoute requiredRole={['ADMIN', 'STAFF']}>
                     <AdminPage>
                       <ProductFormPage />
                     </AdminPage>
@@ -103,7 +103,7 @@ export function App() {
               <Route
                 path="/system/products/:id/edit"
                 element={
-                  <ProtectedRoute>
+                  <ProtectedRoute requiredRole={['ADMIN', 'STAFF']}>
                     <AdminPage>
                       <ProductFormPage />
                     </AdminPage>
@@ -255,7 +255,7 @@ export function App() {
               <Route
                 path="/system/reports"
                 element={
-                  <ProtectedRoute requiredRole={['ADMIN', 'STAFF']}>
+                  <ProtectedRoute requiredRole={['ADMIN', 'STAFF', 'REP']}>
                     <AdminPage>
                       <ReportsPage />
                     </AdminPage>
@@ -265,6 +265,18 @@ export function App() {
 
               <Route
                 path="/system/settings"
+                element={
+                  <ProtectedRoute requiredRole={['ADMIN', 'REP']}>
+                    <AdminPage>
+                      <Settings />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Explicit Admin-Only User Management Route */}
+              <Route
+                path="/system/settings/users"
                 element={
                   <ProtectedRoute requiredRole="ADMIN">
                     <AdminPage>

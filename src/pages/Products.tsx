@@ -26,6 +26,12 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from '../components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog';
 import type { ProductItem } from '../types/product';
 import { SearchableSelect } from '../components/ui/searchable-select';
 import type { SearchableSelectOption } from '../components/ui/searchable-select';
@@ -49,7 +55,7 @@ import {
 export const Products: React.FC = () => {
   const navigate = useNavigate();
   const { theme } = useTheme();
-  const { isAdmin } = useAuth();
+  const { isAdmin, isRep } = useAuth();
   const dark = theme === 'dark';
 
   const [products, setProducts] = useState<ProductItem[]>([]);
@@ -61,7 +67,11 @@ export const Products: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 8;
 
-  // Dialog states සහ handleSave function එක සම්පූර්ණයෙන්ම ඉවත් කර Delete modal state පමණක් තබන්න:
+  // Read-Only Product Inspection Modal State for Sales Rep & Touch View
+  const [inspectProduct, setInspectProduct] = useState<ProductItem | null>(null);
+  const [activeInspectImage, setActiveInspectImage] = useState<string | null>(null);
+
+  // Delete modal state
   const [selectedProduct, setSelectedProduct] = useState<ProductItem | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
@@ -150,7 +160,7 @@ const fetchAll = useCallback(async () => {
   };
 
   return (
-    <div className="space-y-6 w-full pb-10">
+    <div className="space-y-4 sm:space-y-6 w-full pb-10">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Products &amp; Inventory</h1>
@@ -160,15 +170,17 @@ const fetchAll = useCallback(async () => {
           <Button variant="outline" size="icon" onClick={fetchAll}>
             <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />
           </Button>
-          <Button onClick={() => navigate('/system/products/new')} className="gap-2">
-            <Plus className="size-4" /> Add Product
-          </Button>
+          {!isRep && (
+            <Button onClick={() => navigate('/system/products/new')} className="gap-2">
+              <Plus className="size-4" /> Add Product
+            </Button>
+          )}
         </div>
       </div>
 
       {/* Metrics Row matching CustomersPage design */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
-        <div className="rounded-2xl border p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-4 w-full">
+        <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
           <div>
             <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Products</span>
             <h3 className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{totalProducts}</h3>
@@ -178,7 +190,7 @@ const fetchAll = useCallback(async () => {
           </div>
         </div>
 
-        <div className="rounded-2xl border p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
+        <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
           <div>
             <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Variants</span>
             <h3 className="text-2xl font-bold text-emerald-600 mt-1">{totalVariants}</h3>
@@ -188,7 +200,7 @@ const fetchAll = useCallback(async () => {
           </div>
         </div>
 
-        <div className="rounded-2xl border p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
+        <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
           <div>
             <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Low Stock Products</span>
             <h3 className={`text-2xl font-bold mt-1 ${totalLowStock > 0 ? 'text-amber-600' : 'text-slate-900 dark:text-white'}`}>
@@ -201,7 +213,7 @@ const fetchAll = useCallback(async () => {
         </div>
       </div>
 
-      <div className="p-4 rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 flex flex-col md:flex-row items-center gap-3">
+      <div className="p-3 sm:p-4 rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 flex flex-col md:flex-row items-center gap-2.5 sm:gap-3">
         {/* Search Input with Instant Clear (X) */}
         <div className="relative flex-1 w-full flex items-center">
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border bg-slate-50 dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 w-full focus-within:border-emerald-500 transition-colors">
@@ -270,7 +282,7 @@ const fetchAll = useCallback(async () => {
         </div>
       </div>
 
-      <div className="rounded-2xl border p-5 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800">
+      <div className="rounded-2xl border p-3 sm:p-5 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800">
         <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100 dark:border-zinc-800">
           <span className="text-sm font-bold flex items-center gap-2">
             <ShoppingBag className="size-4 text-emerald-500" /> Catalog ({filteredProducts.length})
@@ -284,105 +296,207 @@ const fetchAll = useCallback(async () => {
           </div>
         ) : (
           <>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Product</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Variants</TableHead>
-                  <TableHead>Retail (POS)</TableHead>
-                  <TableHead>Wholesale (Rep)</TableHead>
-                  <TableHead>Stock</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {paginated.map(p => {
-                  const v = p.variants?.[0];
-                  const stock = (p.variants || []).reduce((acc, cur) => acc + (cur.stock || 0), 0);
-                  
-                  // World-Class Resolution: Prioritize variant-tagged image over unassigned catalog photo
-                  const taggedImage = p.images?.find((img: any) => img.variantId !== null && img.variantId !== undefined)?.imageUrl;
-                  const firstVariantImg = p.variants?.find((item: any) => item.imageUrl)?.imageUrl;
-                  const defaultFirstImg = p.images && p.images.length > 0 ? p.images[0].imageUrl : null;
-                  
-                  const rawImage = taggedImage || firstVariantImg || defaultFirstImg;
-                  const primaryImage = rawImage ? getProductImageUrl(rawImage) : null;
+            {/* Mobile / Tablet Responsive Card Grid (< 1024px) */}
+            <div className="block lg:hidden grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 w-full">
+              {paginated.map(p => {
+                const v = p.variants?.[0];
+                const stock = (p.variants || []).reduce((acc, cur) => acc + (cur.stock || 0), 0);
+                const taggedImage = p.images?.find((img: any) => img.variantId !== null && img.variantId !== undefined)?.imageUrl;
+                const firstVariantImg = p.variants?.find((item: any) => item.imageUrl)?.imageUrl;
+                const defaultFirstImg = p.images && p.images.length > 0 ? p.images[0].imageUrl : null;
+                const rawImage = taggedImage || firstVariantImg || defaultFirstImg;
+                const primaryImage = rawImage ? getProductImageUrl(rawImage) : null;
 
-                  return (
-                    <TableRow key={p.id}>
-                      <TableCell>
-                        {/* Interactive Clickable Target: Navigates straight to Product Edit page */}
-                        <div 
-                          onClick={() => navigate(`/system/products/${p.id}/edit`)}
-                          className="flex items-center gap-3 cursor-pointer group/item select-none"
-                          title="Click to edit product"
-                        >
-                          <div className="relative size-10 rounded-lg overflow-hidden border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900 shrink-0 flex items-center justify-center group-hover/item:border-emerald-500 transition-colors">
-                            {primaryImage ? (
-                              <img
-                                src={primaryImage}
-                                alt={p.name}
-                                loading="lazy"
-                                referrerPolicy="no-referrer"
-                                className="w-full h-full object-cover group-hover/item:scale-105 transition-transform"
-                              />
-                            ) : (
-                              <Package className="size-4 text-slate-400 dark:text-zinc-500 group-hover/item:text-emerald-500" />
-                            )}
-                          </div>
-                          <div>
-                            <div className="font-semibold text-slate-900 dark:text-zinc-100 group-hover/item:text-emerald-600 dark:group-hover/item:text-emerald-400 group-hover/item:underline transition-colors">
-                              {p.name}
-                            </div>
-                            {p.searchKey && (
-                              <div className="text-[10px] text-slate-400 dark:text-zinc-500 font-mono">
-                                {p.searchKey}
-                              </div>
-                            )}
-                          </div>
+                return (
+                  <div
+                    key={p.id}
+                    onClick={() => {
+                      setInspectProduct(p);
+                      setActiveInspectImage(null);
+                    }}
+                    className="p-3 sm:p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 shadow-xs hover:border-emerald-500/60 dark:hover:border-emerald-500/50 transition-all cursor-pointer flex flex-col justify-between gap-2.5 sm:gap-3 active:scale-[0.99] select-none group w-full"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="relative size-16 rounded-xl overflow-hidden border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900 shrink-0 flex items-center justify-center">
+                        {primaryImage ? (
+                          <img
+                            src={primaryImage}
+                            alt={p.name}
+                            loading="lazy"
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                          />
+                        ) : (
+                          <Package className="size-6 text-slate-400 dark:text-zinc-500" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                            {p.category?.name || 'General'}
+                          </Badge>
+                          {p.variants?.length ? (
+                            <span className="text-[10px] text-slate-400 dark:text-zinc-500">
+                              {p.variants.length} Var
+                            </span>
+                          ) : null}
                         </div>
-                      </TableCell>
-                      <TableCell><Badge variant="secondary">{p.category?.name || 'General'}</Badge></TableCell>
-                      <TableCell>{p.variants?.length || 0} Variants</TableCell>
-                      <TableCell className="font-semibold text-emerald-500">
-                        {v ? formatCurrency(v.retailPrice) : '-'}
-                      </TableCell>
-                      <TableCell className="font-semibold text-amber-500">
-                        {v ? formatCurrency(v.wholesalePrice) : '-'}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={stock > 10 ? 'success' : 'destructive'} dot>
-                          {stock} in stock
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <DropdownMenu modal={false}>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="size-8">
-                              <MoreVertical className="size-4 text-slate-500" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => navigate(`/system/products/${p.id}/edit`)}>
-                              <Edit className="size-3.5 mr-1" /> Edit
-                            </DropdownMenuItem>
-                            {isAdmin && (
-                              <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem variant="destructive" onClick={() => { setSelectedProduct(p); setShowDeleteModal(true); }}>
-                                  <Trash2 className="size-3.5 mr-1" /> Delete
+                        <h3 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-zinc-100 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors line-clamp-1 mt-1">
+                          {p.name}
+                        </h3>
+                        {p.searchKey && (
+                          <p className="text-[10px] text-slate-400 dark:text-zinc-500 font-mono truncate">
+                            {p.searchKey}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800/80 text-[11px]">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-medium text-slate-400 dark:text-zinc-500">Wholesale (Rep)</span>
+                        <span className="font-bold font-mono text-amber-600 dark:text-amber-400 text-xs">
+                          {v ? formatCurrency(v.wholesalePrice) : '-'}
+                        </span>
+                      </div>
+                      <div className="flex flex-col text-right">
+                        <span className="text-[10px] font-medium text-slate-400 dark:text-zinc-500">Retail (POS)</span>
+                        <span className="font-bold font-mono text-emerald-600 dark:text-emerald-400 text-xs">
+                          {v ? formatCurrency(v.retailPrice) : '-'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <Badge variant={stock > 10 ? 'success' : 'destructive'} dot className="text-[10px]">
+                        {stock} in stock
+                      </Badge>
+                      <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 group-hover:underline">
+                        Inspect Details →
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop Table View (>= 1024px) */}
+            <div className="hidden lg:block overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Product</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Variants</TableHead>
+                    <TableHead>Retail (POS)</TableHead>
+                    <TableHead>Wholesale (Rep)</TableHead>
+                    <TableHead>Stock</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginated.map(p => {
+                    const v = p.variants?.[0];
+                    const stock = (p.variants || []).reduce((acc, cur) => acc + (cur.stock || 0), 0);
+                    
+                    // Prioritize variant-tagged image over unassigned catalog photo
+                    const taggedImage = p.images?.find((img: any) => img.variantId !== null && img.variantId !== undefined)?.imageUrl;
+                    const firstVariantImg = p.variants?.find((item: any) => item.imageUrl)?.imageUrl;
+                    const defaultFirstImg = p.images && p.images.length > 0 ? p.images[0].imageUrl : null;
+                    
+                    const rawImage = taggedImage || firstVariantImg || defaultFirstImg;
+                    const primaryImage = rawImage ? getProductImageUrl(rawImage) : null;
+
+                    return (
+                      <TableRow key={p.id}>
+                        <TableCell>
+                          {/* Interactive Clickable Target: REP opens inspect modal, Admin navigates to edit */}
+                          <div 
+                            onClick={() => {
+                              if (isRep) {
+                                setInspectProduct(p);
+                                setActiveInspectImage(null);
+                              } else {
+                                navigate(`/system/products/${p.id}/edit`);
+                              }
+                            }}
+                            className="flex items-center gap-3 cursor-pointer group/item select-none"
+                            title={isRep ? "Click to inspect product details" : "Click to edit product"}
+                          >
+                            <div className="relative size-10 rounded-lg overflow-hidden border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900 shrink-0 flex items-center justify-center group-hover/item:border-emerald-500 transition-colors">
+                              {primaryImage ? (
+                                <img
+                                  src={primaryImage}
+                                  alt={p.name}
+                                  loading="lazy"
+                                  referrerPolicy="no-referrer"
+                                  className="w-full h-full object-cover group-hover/item:scale-105 transition-transform"
+                                />
+                              ) : (
+                                <Package className="size-4 text-slate-400 dark:text-zinc-500 group-hover/item:text-emerald-500" />
+                              )}
+                            </div>
+                            <div>
+                              <div className="font-semibold text-slate-900 dark:text-zinc-100 group-hover/item:text-emerald-600 dark:group-hover/item:text-emerald-400 group-hover/item:underline transition-colors">
+                                {p.name}
+                              </div>
+                              {p.searchKey && (
+                                <div className="text-[10px] text-slate-400 dark:text-zinc-500 font-mono">
+                                  {p.searchKey}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell><Badge variant="secondary">{p.category?.name || 'General'}</Badge></TableCell>
+                        <TableCell>{p.variants?.length || 0} Variants</TableCell>
+                        <TableCell className="font-semibold text-emerald-500">
+                          {v ? formatCurrency(v.retailPrice) : '-'}
+                        </TableCell>
+                        <TableCell className="font-semibold text-amber-500">
+                          {v ? formatCurrency(v.wholesalePrice) : '-'}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={stock > 10 ? 'success' : 'destructive'} dot>
+                            {stock} in stock
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu modal={false}>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="size-8">
+                                <MoreVertical className="size-4 text-slate-500" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => {
+                                setInspectProduct(p);
+                                setActiveInspectImage(null);
+                              }}>
+                                <ShoppingBag className="size-3.5 mr-1" /> Inspect Details
+                              </DropdownMenuItem>
+                              {!isRep && (
+                                <DropdownMenuItem onClick={() => navigate(`/system/products/${p.id}/edit`)}>
+                                  <Edit className="size-3.5 mr-1" /> Edit
                                 </DropdownMenuItem>
-                              </>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                              )}
+                              {isAdmin && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem variant="destructive" onClick={() => { setSelectedProduct(p); setShowDeleteModal(true); }}>
+                                    <Trash2 className="size-3.5 mr-1" /> Delete
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
 
             <div className="flex items-center justify-between pt-4 mt-2 border-t border-slate-100 dark:border-zinc-800 text-xs">
               <span className="text-zinc-400">Showing {paginated.length} of {filteredProducts.length}</span>
@@ -399,6 +513,162 @@ const fetchAll = useCallback(async () => {
           </>
         )}
       </div>
+
+      {/* Read-Only Product Inspection Dialog for Mobile/Tablet & Sales Representatives */}
+      <Dialog open={!!inspectProduct} onOpenChange={(open) => !open && setInspectProduct(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-3.5 sm:p-6">
+          {inspectProduct && (
+            <div className="space-y-4">
+              <DialogHeader>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant="secondary">{inspectProduct.category?.name || 'General'}</Badge>
+                      {inspectProduct.isFeatured && <Badge variant="outline" className="text-amber-500 border-amber-500/30">Featured</Badge>}
+                      {isRep && <Badge variant="outline" className="text-blue-500 border-blue-500/30">Representative View</Badge>}
+                    </div>
+                    <DialogTitle className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
+                      {inspectProduct.name}
+                    </DialogTitle>
+                    {inspectProduct.searchKey && (
+                      <p className="text-xs text-slate-400 dark:text-zinc-500 font-mono">
+                        Tags / Search: {inspectProduct.searchKey}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </DialogHeader>
+
+              {/* Image Gallery */}
+              {(() => {
+                const galleryImages = [
+                  ...(inspectProduct.images || []).map((img) => img.imageUrl),
+                  ...(inspectProduct.variants || []).filter((v) => v.imageUrl).map((v) => v.imageUrl as string),
+                ].filter(Boolean);
+                const uniqueImages = Array.from(new Set(galleryImages));
+                const currentImg = activeInspectImage || (uniqueImages.length > 0 ? uniqueImages[0] : null);
+
+                return uniqueImages.length > 0 ? (
+                  <div className="space-y-2">
+                    <div className="w-full h-56 sm:h-72 rounded-2xl overflow-hidden border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900 flex items-center justify-center">
+                      <img
+                        src={getProductImageUrl(currentImg!)}
+                        alt={inspectProduct.name}
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    {uniqueImages.length > 1 && (
+                      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
+                        {uniqueImages.map((imgUrl, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => setActiveInspectImage(imgUrl)}
+                            className={`size-14 rounded-xl overflow-hidden border-2 shrink-0 transition-all cursor-pointer ${
+                              currentImg === imgUrl
+                                ? 'border-emerald-500 ring-2 ring-emerald-500/20'
+                                : 'border-slate-200 dark:border-zinc-800 opacity-70 hover:opacity-100'
+                            }`}
+                          >
+                            <img
+                              src={getProductImageUrl(imgUrl)}
+                              alt={`Thumbnail ${idx + 1}`}
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover"
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : null;
+              })()}
+
+              {/* Product Description */}
+              {inspectProduct.description && (
+                <div className="space-y-1 p-3 rounded-xl bg-slate-50 dark:bg-zinc-950/60 border border-slate-200/80 dark:border-zinc-800/80 text-xs text-slate-700 dark:text-zinc-300">
+                  <span className="font-bold block text-slate-900 dark:text-white">Description</span>
+                  <p className="whitespace-pre-line leading-relaxed">{inspectProduct.description}</p>
+                </div>
+              )}
+
+              {/* Variant Matrix Breakdown */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                    <SlidersHorizontal className="size-3.5 text-emerald-500" />
+                    Variant Matrix ({inspectProduct.variants?.length || 0})
+                  </span>
+                  <span className="text-[11px] font-mono text-slate-500 dark:text-zinc-400">
+                    Total Warehouse Stock: {(inspectProduct.variants || []).reduce((acc, cur) => acc + (cur.stock || 0), 0)}
+                  </span>
+                </div>
+
+                <div className="border rounded-xl border-slate-200 dark:border-zinc-800 overflow-hidden text-xs">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b bg-slate-50 dark:bg-zinc-900/80 text-slate-500 dark:text-zinc-400 font-semibold text-[11px]">
+                          <th className="p-2 sm:p-2.5">Size / Color</th>
+                          <th className="p-2 sm:p-2.5 font-mono">SKU / Barcode</th>
+                          <th className="p-2 sm:p-2.5 text-right">Wholesale</th>
+                          <th className="p-2 sm:p-2.5 text-right">Retail</th>
+                          <th className="p-2 sm:p-2.5 text-center">Stock</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60">
+                        {(inspectProduct.variants || []).map((vr, vIdx) => (
+                          <tr key={vr.id || vIdx} className="hover:bg-slate-50/50 dark:hover:bg-zinc-900/40">
+                            <td className="p-2 sm:p-2.5 font-medium text-slate-900 dark:text-zinc-100">
+                              {vr.size || '-'} {vr.color ? `· ${vr.color}` : ''}
+                            </td>
+                            <td className="p-2 sm:p-2.5 font-mono text-[11px] text-slate-500 dark:text-zinc-400">
+                              <div>{vr.sku || '-'}</div>
+                              {vr.barcode && <div className="text-[10px] text-slate-400">{vr.barcode}</div>}
+                            </td>
+                            <td className="p-2 sm:p-2.5 text-right font-mono font-bold text-amber-600 dark:text-amber-400">
+                              {formatCurrency(vr.wholesalePrice)}
+                            </td>
+                            <td className="p-2 sm:p-2.5 text-right font-mono text-slate-700 dark:text-zinc-300">
+                              {formatCurrency(vr.retailPrice)}
+                            </td>
+                            <td className="p-2 sm:p-2.5 text-center">
+                              <Badge variant={vr.stock > 5 ? 'success' : vr.stock > 0 ? 'warning' : 'destructive'} className="text-[10px] px-1.5 py-0 font-mono">
+                                {vr.stock}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              {/* Read-Only Modal Actions: No edit/delete for REP */}
+              <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-zinc-800">
+                <Button variant="outline" size="sm" onClick={() => setInspectProduct(null)}>
+                  Close
+                </Button>
+                {!isRep && (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      const id = inspectProduct.id;
+                      setInspectProduct(null);
+                      navigate(`/system/products/${id}/edit`);
+                    }}
+                    className="gap-1.5"
+                  >
+                    <Edit className="size-3.5" /> Edit Product
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Shadcn Alert Dialog for Delete (Admin Only) */}
       {isAdmin && (

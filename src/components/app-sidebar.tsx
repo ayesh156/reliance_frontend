@@ -41,8 +41,8 @@ const navItems: NavItem[] = [
   { label: "Suppliers (Shops)", path: "/system/raw-material-shops", icon: Building2, roles: ["ADMIN"] },
   { label: "Raw Materials", path: "/system/raw-material-items", icon: Boxes, roles: ["ADMIN"] }, 
   { label: "Production", path: "/system/production", icon: Factory, roles: ["ADMIN", "STAFF"] },
-  { label: "Reports & Analytics", path: "/system/reports", icon: BarChart3, roles: ["ADMIN", "STAFF"] },
-  { label: "Settings", path: "/system/settings", icon: Settings, roles: ["ADMIN"] },
+  { label: "Reports & Analytics", path: "/system/reports", icon: BarChart3, roles: ["ADMIN", "STAFF", "REP"] },
+  { label: "Settings", path: "/system/settings", icon: Settings, roles: ["ADMIN", "REP"] },
 ];
 
 export function AppSidebar() {

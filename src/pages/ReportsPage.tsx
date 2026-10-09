@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { get, downloadBlob } from '../lib/api';
+import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -69,6 +70,8 @@ const MODULE_TABS: TabItem[] = [
 ];
 
 export const ReportsPage: React.FC = () => {
+  const { user } = useAuth();
+  const isRep = user?.role === 'REP';
   const { theme } = useTheme();
   const dark = theme === 'dark';
 
@@ -81,6 +84,19 @@ export const ReportsPage: React.FC = () => {
   const [downloadingActivePdf, setDownloadingActivePdf] = useState<boolean>(false);
   const [downloadingConsolidatedPdf, setDownloadingConsolidatedPdf] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  const visibleTabs = useMemo(() => {
+    if (isRep) {
+      return MODULE_TABS.filter((t) => t.key === 'sales');
+    }
+    return MODULE_TABS;
+  }, [isRep]);
+
+  useEffect(() => {
+    if (isRep && activeModule !== 'sales') {
+      setActiveModule('sales');
+    }
+  }, [isRep, activeModule]);
 
   // Table Pagination State (15 rows per page)
   const PAGE_SIZE = 15;
@@ -153,8 +169,8 @@ export const ReportsPage: React.FC = () => {
   };
 
   const activeTabItem = useMemo(() => {
-    return MODULE_TABS.find((t) => t.key === activeModule) || MODULE_TABS[0];
-  }, [activeModule]);
+    return visibleTabs.find((t) => t.key === activeModule) || visibleTabs[0] || MODULE_TABS[0];
+  }, [activeModule, visibleTabs]);
 
   // 1. Tab-Specific Granular PDF Export (Date Filter Bar)
   const handleDownloadActivePdf = async () => {
@@ -296,18 +312,22 @@ export const ReportsPage: React.FC = () => {
   const formatRs = (val: number) => `Rs. ${(val || 0).toLocaleString('en-LK', { minimumFractionDigits: 2 })}`;
 
   return (
-    <div className={`min-h-screen p-4 md:p-6 lg:p-8 transition-colors ${dark ? 'bg-zinc-950 text-zinc-100' : 'bg-slate-50 text-slate-900'}`}>
+    <div className={`min-h-screen px-2 py-3 sm:px-4 sm:py-4 md:p-6 lg:p-8 transition-colors ${dark ? 'bg-zinc-950 text-zinc-100' : 'bg-slate-50 text-slate-900'}`}>
       {/* Header Banner */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-5 border-b border-slate-200 dark:border-zinc-800">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6 pb-4 sm:pb-5 border-b border-slate-200 dark:border-zinc-800">
         <div>
           <div className="flex items-center gap-2.5">
             <div className="p-2.5 rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-500/20">
               <TrendingUp className="size-5" />
             </div>
             <div>
-              <h1 className="text-xl md:text-2xl font-bold tracking-tight">Reports & Enterprise Analytics</h1>
+              <h1 className="text-xl md:text-2xl font-bold tracking-tight">
+                {isRep ? 'Wholesale Representative Sales Performance' : 'Reports & Enterprise Analytics'}
+              </h1>
               <p className="text-xs md:text-sm text-slate-500 dark:text-zinc-400">
-                Unified cross-domain intelligence, financial aggregations, and official A4 audit exports
+                {isRep
+                  ? 'Scoped personal wholesale billing analytics, collections, and daily sales summaries'
+                  : 'Unified cross-domain intelligence, financial aggregations, and official A4 audit exports'}
               </p>
             </div>
           </div>
@@ -326,29 +346,31 @@ export const ReportsPage: React.FC = () => {
             Refresh
           </Button>
 
-          <Button
-            onClick={handleDownloadConsolidatedPdf}
-            disabled={downloadingConsolidatedPdf || loading}
-            className="bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/20 font-medium text-xs md:text-sm"
-          >
-            {downloadingConsolidatedPdf ? (
-              <>
-                <Loader2 className="size-4 mr-2 animate-spin" />
-                Compiling Master Audit PDF...
-              </>
-            ) : (
-              <>
-                <Download className="size-4 mr-2" />
-                Download Consolidated Master Audit PDF
-              </>
-            )}
-          </Button>
+          {!isRep && (
+            <Button
+              onClick={handleDownloadConsolidatedPdf}
+              disabled={downloadingConsolidatedPdf || loading}
+              className="bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/20 font-medium text-xs md:text-sm"
+            >
+              {downloadingConsolidatedPdf ? (
+                <>
+                  <Loader2 className="size-4 mr-2 animate-spin" />
+                  Compiling Master Audit PDF...
+                </>
+              ) : (
+                <>
+                  <Download className="size-4 mr-2" />
+                  Download Consolidated Master Audit PDF
+                </>
+              )}
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* Task 1: Responsive Non-Scrolling Grid Tab Bar (Fits comfortably on all viewports without scrollbars or arrows) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 mb-6">
-        {MODULE_TABS.map((tab) => {
+      {/* Responsive Grid Tab Bar */}
+      <div className={`grid gap-1.5 sm:gap-2 mb-4 sm:mb-6 ${isRep ? 'grid-cols-1 max-w-xs' : 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-8'}`}>
+        {visibleTabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeModule === tab.key;
           return (
@@ -372,7 +394,7 @@ export const ReportsPage: React.FC = () => {
       </div>
 
       {/* Date Filtering Bar with Active Tab PDF Export Button */}
-      <div className={`p-4 rounded-2xl mb-6 border transition-all ${
+      <div className={`p-3 sm:p-4 rounded-2xl mb-4 sm:mb-6 border transition-all ${
         dark ? 'bg-zinc-900/60 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'
       }`}>
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -467,25 +489,25 @@ export const ReportsPage: React.FC = () => {
       ) : (
         <div className="space-y-6">
           {/* Quick Summary Metric Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5 md:gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3.5 md:gap-4">
             {activeModule === 'sales' && (
               <>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Gross Revenue</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-slate-900 dark:text-zinc-100">{formatRs(summary.grossRevenue)}</p>
                   <p className="text-[11px] text-slate-400 mt-1">{summary.orderCount || 0} Orders Recorded</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Net Sales</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400">{formatRs(summary.netSales)}</p>
                   <p className="text-[11px] text-slate-400 mt-1">Discounts: {formatRs(summary.totalDiscount)}</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Collected / Paid</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-blue-600 dark:text-blue-400">{formatRs(summary.totalPaid)}</p>
                   <p className="text-[11px] text-slate-400 mt-1">Avg Order: {formatRs(summary.averageOrderValue)}</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Outstanding Credit Due</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-rose-600 dark:text-rose-400">{formatRs(summary.totalDue)}</p>
                   <p className="text-[11px] text-rose-500/80 mt-1">Pending Customer Debt</p>
@@ -495,22 +517,22 @@ export const ReportsPage: React.FC = () => {
 
             {activeModule === 'returns' && (
               <>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Return Events</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-slate-900 dark:text-zinc-100">{summary.totalReturnEvents || 0}</p>
                   <p className="text-[11px] text-slate-400 mt-1">Transactions Processed</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Restocked Units</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400">{summary.totalItemsReturned || 0} Pcs</p>
                   <p className="text-[11px] text-slate-400 mt-1">Returned to Inventory</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Total Return Value</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-rose-600 dark:text-rose-400">{formatRs(summary.totalReturnValue)}</p>
                   <p className="text-[11px] text-slate-400 mt-1">Gross Adjustment Value</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Cash vs Credit Split</p>
                   <p className="text-sm md:text-base font-bold mt-1 text-slate-900 dark:text-zinc-100">
                     {formatRs(summary.totalCashRefund)} <span className="text-xs font-normal text-slate-400">Cash</span>
@@ -522,22 +544,22 @@ export const ReportsPage: React.FC = () => {
 
             {activeModule === 'inventory' && (
               <>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Total SKUs / Units</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-slate-900 dark:text-zinc-100">{summary.totalSkus || 0} SKUs</p>
                   <p className="text-[11px] text-slate-400 mt-1">{summary.totalStockUnits || 0} Total Pieces in Warehouse</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Cost Valuation</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-amber-600 dark:text-amber-400">{formatRs(summary.totalCostValuation)}</p>
                   <p className="text-[11px] text-slate-400 mt-1">Invested Garment Capital</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Retail Valuation</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400">{formatRs(summary.totalRetailValuation)}</p>
                   <p className="text-[11px] text-emerald-500 mt-1">Est. Profit: {formatRs(summary.potentialGrossProfit)}</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Stock Alerts</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-rose-600 dark:text-rose-400">{summary.lowStockCount || 0} Low Stock</p>
                   <p className="text-[11px] text-slate-400 mt-1">{summary.outOfStockCount || 0} Out of Stock SKUs</p>
@@ -547,22 +569,22 @@ export const ReportsPage: React.FC = () => {
 
             {activeModule === 'products' && (
               <>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Units Sold</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-slate-900 dark:text-zinc-100">{summary.totalProductsSold || 0} Pcs</p>
                   <p className="text-[11px] text-slate-400 mt-1">Sales Turnover</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Total Revenue</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400">{formatRs(summary.totalRevenue)}</p>
                   <p className="text-[11px] text-slate-400 mt-1">From Product Sales</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Top Velocity Product</p>
                   <p className="text-sm md:text-base font-bold mt-1 text-blue-600 dark:text-blue-400 truncate">{summary.topProduct || 'N/A'}</p>
                   <p className="text-[11px] text-slate-400 mt-1">Highest Sales Volume</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Leading Category</p>
                   <p className="text-sm md:text-base font-bold mt-1 text-purple-600 dark:text-purple-400 truncate">{summary.topCategory || 'N/A'}</p>
                   <p className="text-[11px] text-slate-400 mt-1">Highest Grossing Line</p>
@@ -572,22 +594,22 @@ export const ReportsPage: React.FC = () => {
 
             {activeModule === 'materials' && (
               <>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Material Types</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-slate-900 dark:text-zinc-100">{summary.totalMaterials || 0} Fabrics/Items</p>
                   <p className="text-[11px] text-slate-400 mt-1">Recorded in Ledger</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Stock Valuation</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400">{formatRs(summary.totalValuation)}</p>
                   <p className="text-[11px] text-slate-400 mt-1">Weighted Average Cost</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Low Stock Warnings</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-rose-600 dark:text-rose-400">{summary.lowStockMaterials || 0} Materials</p>
                   <p className="text-[11px] text-slate-400 mt-1">Below Alert Threshold</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Period Scrap Returned</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-amber-600 dark:text-amber-400">{summary.periodScrapQty || 0} Units</p>
                   <p className="text-[11px] text-slate-400 mt-1">Leftover Recovery</p>
@@ -597,22 +619,22 @@ export const ReportsPage: React.FC = () => {
 
             {activeModule === 'production' && (
               <>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Production Batches</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-slate-900 dark:text-zinc-100">{summary.totalBatches || 0} Runs</p>
                   <p className="text-[11px] text-slate-400 mt-1">Cut & Sew Operations</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Completed Garments</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400">{summary.completedQuantity || 0} Pcs</p>
                   <p className="text-[11px] text-slate-400 mt-1">Target: {summary.targetQuantity || 0} Pcs</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Overall Efficiency Yield</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-blue-600 dark:text-blue-400">{summary.overallYieldPercentage || 0}%</p>
                   <p className="text-[11px] text-slate-400 mt-1">Yield Efficiency Rate</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Raw Material Cost</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-amber-600 dark:text-amber-400">{formatRs(summary.totalMaterialCost)}</p>
                   <p className="text-[11px] text-slate-400 mt-1">Returned: {summary.scrapVariance || 0} Units</p>
@@ -622,22 +644,22 @@ export const ReportsPage: React.FC = () => {
 
             {activeModule === 'suppliers' && (
               <>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Registered Suppliers</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-slate-900 dark:text-zinc-100">{summary.totalSuppliers || 0} Vendors</p>
                   <p className="text-[11px] text-slate-400 mt-1">Raw Material Shops</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Total Purchases (GRN)</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-slate-900 dark:text-zinc-100">{formatRs(summary.totalPurchases)}</p>
                   <p className="text-[11px] text-slate-400 mt-1">{summary.grnCount || 0} GRN Vouchers</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Settled Payments</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400">{formatRs(summary.totalPaid)}</p>
                   <p className="text-[11px] text-slate-400 mt-1">Disbursed to Suppliers</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Outstanding Payables</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-rose-600 dark:text-rose-400">{formatRs(summary.totalOutstandingPayables)}</p>
                   <p className="text-[11px] text-rose-500 mt-1">Current Supplier Credit Debt</p>
@@ -647,22 +669,22 @@ export const ReportsPage: React.FC = () => {
 
             {activeModule === 'audit' && (
               <>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Invoices Created</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-slate-900 dark:text-zinc-100">{summary.totalInvoicesInPeriod || 0}</p>
                   <p className="text-[11px] text-slate-400 mt-1">Original Transactions</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Modified After Issuance</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-amber-600 dark:text-amber-400">{summary.modifiedInvoicesCount || 0}</p>
                   <p className="text-[11px] text-slate-400 mt-1">Revisions Recorded</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Modification Rate</p>
                   <p className="text-lg md:text-xl font-bold mt-1 text-blue-600 dark:text-blue-400">{summary.modificationRate || 0}%</p>
                   <p className="text-[11px] text-slate-400 mt-1">Of Total Invoices</p>
                 </div>
-                <div className={`p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Top Cashier With Edits</p>
                   <p className="text-sm md:text-base font-bold mt-1 text-rose-600 dark:text-rose-400 truncate">{summary.topCashierWithEdits || 'None'}</p>
                   <p className="text-[11px] text-slate-400 mt-1">Audit Reconciliations</p>
@@ -673,7 +695,7 @@ export const ReportsPage: React.FC = () => {
 
           {/* Analytical Charts Block */}
           {chartData.length > 0 && (
-            <div className={`p-5 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+            <div className={`p-3 sm:p-5 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="text-sm font-bold tracking-tight">
@@ -777,8 +799,100 @@ export const ReportsPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Responsive Table Scroll Container with Min Height to Prevent Layout Jumps */}
-            <div className="overflow-x-auto min-h-[360px] max-h-[520px] overflow-y-auto scrollbar-thin">
+            {/* Mobile / Tablet Responsive Audit Cards View (< 1024px) */}
+            <div className="block lg:hidden p-3 sm:p-4 space-y-3 min-h-[360px]">
+              {paginatedRows.length === 0 ? (
+                <div className="py-16 text-center text-slate-400 text-xs">
+                  No matching report records found.
+                </div>
+              ) : (
+                paginatedRows.map((row, idx) => {
+                  // Unified card field resolution across all report modules
+                  const recordId = row.invoiceNumber || (row.id ? `#${row.id}` : row.batchNumber || row.sku || `REC-${startIndex + idx + 1}`);
+                  const recordDate = (row.date || row.createdAt || row.updatedAt || row.orderDate || '')?.split('T')[0] || '-';
+                  const customerOrStyle = row.customerName || row.productName || row.materialName || row.supplierName || row.styleName || row.name || 'General Batch';
+                  const subLabel = row.channel || row.category || row.variant || row.stage || row.cashier || '';
+                  const statusVal = row.paymentMethod || row.status || (row.hasReturn ? 'Return Logged' : undefined);
+                  
+                  const grossVal = row.subtotal ?? row.totalPurchases ?? row.costValue ?? row.totalAmount ?? 0;
+                  const discountVal = row.discount ?? 0;
+                  const netVal = row.netTotal ?? row.totalAmount ?? row.totalRefund ?? row.retailValue ?? row.totalPurchases ?? 0;
+                  const balanceVal = row.creditDue ?? row.outstandingBalance ?? (row.paidAmount !== undefined ? Math.max(0, netVal - row.paidAmount) : undefined);
+
+                  return (
+                    <div
+                      key={row.id || `${recordId}-${idx}`}
+                      className="p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 shadow-xs space-y-2.5 text-xs select-none"
+                    >
+                      {/* Top Row: Transaction/Batch ID, Status, Date */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="font-mono font-bold text-xs text-blue-600 dark:text-blue-400 truncate">
+                            {recordId}
+                          </span>
+                          {statusVal && (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-semibold border-slate-300 dark:border-zinc-700">
+                              {statusVal}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 text-[11px] text-slate-400 font-mono shrink-0">
+                          <Calendar className="size-3" />
+                          <span>{recordDate}</span>
+                        </div>
+                      </div>
+
+                      {/* Second Row: Customer / Style */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="font-bold text-slate-900 dark:text-zinc-100 text-xs sm:text-sm truncate block">
+                            {customerOrStyle}
+                          </span>
+                          {subLabel && (
+                            <span className="text-[10px] text-slate-400 dark:text-zinc-500 block truncate">
+                              {subLabel}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Third Row: Financial Breakdown Grid (Gross, Discount, Net, Balance) */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800/80 text-[11px]">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] text-slate-400 dark:text-zinc-500">Gross</span>
+                          <span className="font-mono font-semibold text-slate-800 dark:text-zinc-200">
+                            {formatRs(grossVal)}
+                          </span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[10px] text-slate-400 dark:text-zinc-500">Discount</span>
+                          <span className="font-mono font-semibold text-amber-600 dark:text-amber-400">
+                            {discountVal > 0 ? `-${formatRs(discountVal)}` : 'Rs. 0'}
+                          </span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[10px] text-slate-400 dark:text-zinc-500">Net Total</span>
+                          <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                            {formatRs(netVal)}
+                          </span>
+                        </div>
+                        <div className="flex flex-col sm:text-right">
+                          <span className="text-[10px] text-slate-400 dark:text-zinc-500">Balance / Due</span>
+                          <span className={`font-mono font-bold ${
+                            Number(balanceVal || 0) > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400'
+                          }`}>
+                            {balanceVal !== undefined ? (Number(balanceVal) > 0 ? formatRs(balanceVal) : 'Rs. 0') : '-'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Desktop Table View (>= 1024px) */}
+            <div className="hidden lg:block overflow-x-auto min-h-[360px] max-h-[520px] overflow-y-auto scrollbar-thin">
               <table className="w-full min-w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className={`border-b ${dark ? 'bg-zinc-950/80 border-zinc-800 text-zinc-400' : 'bg-slate-100/80 border-slate-200 text-slate-600'}`}>

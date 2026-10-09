@@ -58,6 +58,9 @@ interface InvoiceRecord {
   paidAmount: number;
   paymentMethod: string;
   createdAt: string;
+  userId?: number;
+  subtotal?: number;
+  discount?: number;
   customer?: {
     id: number;
     name: string;
@@ -74,8 +77,16 @@ interface InvoiceRecord {
 export const InvoicesPage: React.FC = () => {
   const navigate = useNavigate();
   const { theme } = useTheme();
-  const { isAdmin } = useAuth();
+  const { user, isAdmin, isRep } = useAuth();
   const dark = theme === 'dark';
+
+  const canDeleteInvoice = (inv: InvoiceRecord): boolean => {
+    if (isAdmin) return true;
+    if (isRep && inv.source === 'POS_WHOLESALE' && (inv.userId === user?.id || (inv as any).createdById === user?.id)) {
+      return true;
+    }
+    return false;
+  };
 
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [customers, setCustomers] = useState<{ id: number; name: string; phone: string }[]>([]);
@@ -455,9 +466,9 @@ export const InvoicesPage: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col gap-4 p-4 min-h-[calc(100vh-5rem)]">
+    <div className="flex flex-col gap-2.5 sm:gap-4 p-0 min-h-[calc(100vh-5rem)] w-full">
       {/* Top Header & Refresh */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-zinc-900/60 p-4 rounded-2xl border border-slate-200 dark:border-zinc-800">
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-zinc-900/60 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-zinc-800">
         <div>
           <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <FileText className="size-5 text-emerald-600" /> Invoices & Sales Ledger
@@ -484,8 +495,8 @@ export const InvoicesPage: React.FC = () => {
       </div>
 
       {/* Metrics Row matching CustomersPage design */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
-        <div className="rounded-2xl border p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-4 w-full">
+        <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
           <div>
             <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Invoices</span>
             <h3 className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{totalInvoicesGenerated}</h3>
@@ -495,7 +506,7 @@ export const InvoicesPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="rounded-2xl border p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
+        <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
           <div>
             <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Revenue Generated</span>
             <h3 className="text-2xl font-bold text-emerald-600 mt-1 font-mono">
@@ -507,7 +518,7 @@ export const InvoicesPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="rounded-2xl border p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
+        <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
           <div>
             <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Outstanding Due (Customers)</span>
             <h3 className={`text-2xl font-bold mt-1 font-mono ${totalCustomerDebt > 0 ? 'text-rose-600' : 'text-slate-900 dark:text-white'}`}>
@@ -579,9 +590,195 @@ export const InvoicesPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Invoices Table */}
+      {/* Invoices Table & Mobile/Tablet Adaptive Touch Card View */}
       <div className="flex-1 bg-white dark:bg-zinc-900/60 rounded-2xl border border-slate-200 dark:border-zinc-800 overflow-hidden flex flex-col">
-        <div className="overflow-x-auto flex-1">
+        {/* ── Mobile & Tablet (< 1024px) Responsive Touch-Friendly Card View ── */}
+        <div className="block lg:hidden flex-1 overflow-y-auto p-2 sm:p-4 space-y-2.5 sm:space-y-3">
+          {loading ? (
+            <div className="py-12 text-center text-slate-400">
+              <Loader2 className="size-6 animate-spin mx-auto mb-2 text-emerald-500" />
+              <span>Loading invoices...</span>
+            </div>
+          ) : invoices.length === 0 ? (
+            <div className="py-12 text-center text-slate-400">
+              <FileText className="size-8 opacity-30 mx-auto mb-2" />
+              <span>No invoices found matching current criteria.</span>
+            </div>
+          ) : (
+            invoices.map((inv) => {
+              const creditDue = Math.max(0, inv.totalAmount - inv.paidAmount);
+              const isUnderpaid = creditDue > 0;
+              const subtotalAmt = Number(inv.subtotal ?? (inv.totalAmount + (inv.discount || 0)));
+              const discountAmt = Number(inv.discount || 0);
+              const customerBal = inv.customer?.outstandingBalance !== undefined
+                ? Number(inv.customer.outstandingBalance)
+                : creditDue;
+              const canDelete = canDeleteInvoice(inv);
+
+              return (
+                <div
+                  key={inv.id}
+                  className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/90 p-3 sm:p-3.5 shadow-sm space-y-2.5 sm:space-y-3 hover:border-slate-300 dark:hover:border-zinc-700 transition-colors w-full"
+                >
+                  {/* Top Row: #INV{id} badge, Wholesale/Retail pill, Date, and payment status badge */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span
+                        onClick={() => navigate(`/system/quick-checkout?editInvoiceId=${inv.id}`)}
+                        className="font-mono font-bold text-xs px-2.5 py-1 rounded bg-slate-100 dark:bg-zinc-800 text-slate-900 dark:text-white cursor-pointer hover:underline hover:text-emerald-600 dark:hover:text-emerald-400 select-none"
+                        title="Click to edit invoice in POS"
+                      >
+                        #INV{inv.id}
+                      </span>
+                      {inv.source === 'POS_WHOLESALE' ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                          Wholesale
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">
+                          Retail
+                        </span>
+                      )}
+                      {inv.returns && inv.returns.length > 0 && (
+                        <span
+                          onClick={() => handleOpenReturnModal(inv)}
+                          className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1 cursor-pointer"
+                          title="Click to view returns history"
+                        >
+                          <RotateCcw className="size-2.5" />
+                          Returns ({inv.returns.length})
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-slate-500 font-mono">
+                        {new Date(inv.createdAt).toISOString().split('T')[0]}
+                      </span>
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] font-bold uppercase ${
+                          inv.paymentMethod === 'CHEQUE'
+                            ? 'border-amber-500 text-amber-600 bg-amber-500/10'
+                            : inv.paymentMethod === 'CREDIT' || isUnderpaid
+                            ? 'border-rose-500 text-rose-600 bg-rose-500/10'
+                            : 'border-emerald-500 text-emerald-600 bg-emerald-500/10'
+                        }`}
+                      >
+                        {inv.paymentMethod}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  {/* Customer Info: Name, bold contact number, and accumulated credit balance */}
+                  <div className="flex items-start justify-between gap-2 pt-1 border-t border-slate-100 dark:border-zinc-800/60">
+                    <div className="min-w-0">
+                      <h4
+                        onClick={() => navigate(`/system/quick-checkout?editInvoiceId=${inv.id}`)}
+                        className="font-bold text-sm text-slate-900 dark:text-white truncate cursor-pointer hover:underline hover:text-emerald-600 dark:hover:text-emerald-400"
+                        title="Click to edit invoice in POS"
+                      >
+                        {inv.customerName}
+                      </h4>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-xs font-bold text-slate-800 dark:text-zinc-200 font-mono">
+                          {inv.customerPhone || inv.customer?.phone || 'No Contact'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Credit Balance</span>
+                      <span className={`text-xs font-mono font-bold ${customerBal > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                        {customerBal > 0 ? `Rs. ${customerBal.toLocaleString()}` : 'Rs. 0.00'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Financials: Subtotal, Discount, Net Amount, Paid, and Credit Due in high-contrast legible font */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50/90 dark:bg-zinc-950/60 p-2.5 rounded-lg text-xs border border-slate-100 dark:border-zinc-800/60">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block uppercase">Subtotal</span>
+                      <span className="font-mono font-semibold text-slate-800 dark:text-zinc-200">
+                        Rs. {subtotalAmt.toLocaleString()}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block uppercase">Discount</span>
+                      <span className="font-mono font-semibold text-slate-800 dark:text-zinc-200">
+                        Rs. {discountAmt.toLocaleString()}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block uppercase">Net Total / Paid</span>
+                      <span className="font-mono font-bold text-slate-900 dark:text-white block">
+                        Rs. {Number(inv.totalAmount).toLocaleString()}
+                      </span>
+                      <span className="font-mono text-[11px] text-emerald-600 font-semibold block">
+                        Paid: Rs. {Number(inv.paidAmount).toLocaleString()}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block uppercase">Credit Due</span>
+                      <span className={`font-mono font-bold block ${creditDue > 0 ? 'text-rose-600' : 'text-slate-400'}`}>
+                        {creditDue > 0 ? `- Rs. ${creditDue.toLocaleString()}` : 'Rs. 0.00'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Touch-Friendly Action Bar (Minimum 44x44px Tap Targets) */}
+                  <div className="flex items-center gap-2 pt-1 border-t border-slate-100 dark:border-zinc-800/60">
+                    {/* Direct 1-tap WhatsApp Dispatch */}
+                    <button
+                      type="button"
+                      onClick={() => handleInitiateWhatsApp(inv)}
+                      className="flex-1 min-h-[44px] px-3 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer select-none active:scale-[0.98]"
+                      title="Send WhatsApp Invoice Message"
+                    >
+                      <MessageSquare className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                      <span>WhatsApp</span>
+                    </button>
+
+                    {/* Single-tap trigger to download official invoice PDF */}
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadPdf(inv.id)}
+                      className="flex-1 min-h-[44px] px-3 py-2 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 dark:text-blue-400 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer select-none active:scale-[0.98]"
+                      title="Download Official Invoice PDF"
+                    >
+                      <Download className="size-4 shrink-0 text-blue-600 dark:text-blue-400" />
+                      <span>PDF</span>
+                    </button>
+
+                    {/* Quick POS Edit Action */}
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/system/quick-checkout?editInvoiceId=${inv.id}`)}
+                      className="min-h-[44px] min-w-[44px] px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer select-none"
+                      title="Edit Invoice in Quick Checkout"
+                    >
+                      <Edit className="size-4 shrink-0" />
+                      <span className="hidden sm:inline">Edit</span>
+                    </button>
+
+                    {/* Scoped Delete Button (Rendered ONLY if created by this logged-in REP or ADMIN) */}
+                    {canDelete && (
+                      <button
+                        type="button"
+                        onClick={() => setDeleteId(inv.id)}
+                        className="min-h-[44px] min-w-[44px] px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 font-semibold text-xs flex items-center justify-center transition-colors cursor-pointer select-none"
+                        title="Delete Invoice"
+                      >
+                        <Trash2 className="size-4 shrink-0" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* ── Desktop (lg:) Standard Full Data Table Layout ── */}
+        <div className="hidden lg:block overflow-x-auto flex-1">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="border-b border-slate-100 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-950/40 text-slate-500 font-semibold uppercase text-[10px] tracking-wider">
@@ -614,6 +811,7 @@ export const InvoicesPage: React.FC = () => {
                 invoices.map((inv) => {
                   const creditDue = Math.max(0, inv.totalAmount - inv.paidAmount);
                   const isUnderpaid = creditDue > 0;
+                  const canDelete = canDeleteInvoice(inv);
 
                   return (
                     <tr key={inv.id} className="hover:bg-slate-50/70 dark:hover:bg-zinc-800/30 transition-colors">
@@ -692,7 +890,7 @@ export const InvoicesPage: React.FC = () => {
                       </td>
                       <td className="py-3 px-4 text-center">
                         <div className="flex items-center justify-center">
-                          {/* Vertical 3-Dots Action Dropdown Menu (modal={false} prevents layout shifting and scroll lock) */}
+                          {/* Vertical 3-Dots Action Dropdown Menu */}
                           <DropdownMenu modal={false}>
                             <DropdownMenuTrigger asChild>
                               <Button variant="ghost" size="icon" className="size-8 text-slate-500 hover:text-slate-900 dark:hover:text-white">
@@ -720,7 +918,7 @@ export const InvoicesPage: React.FC = () => {
                                 Process Return
                               </DropdownMenuItem>
 
-                            {/* ⭐ GRN-style Pay Due Balance Action (only shown if creditDue > 0) */}
+                            {/* ⭐ Pay Due Balance Action (only shown if creditDue > 0) */}
                             {creditDue > 0 && (
                               <DropdownMenuItem
                                 onClick={() => {
@@ -737,7 +935,7 @@ export const InvoicesPage: React.FC = () => {
                               </DropdownMenuItem>
                             )}
 
-                            {/* Smart WhatsApp Share Action (Direct or with Phone Prompt) */}
+                            {/* Smart WhatsApp Share Action */}
                             <DropdownMenuItem
                               onClick={() => handleInitiateWhatsApp(inv)}
                               className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-700"
@@ -762,7 +960,7 @@ export const InvoicesPage: React.FC = () => {
                               Edit Invoice
                             </DropdownMenuItem>
 
-                            {isAdmin && (
+                            {canDelete && (
                               <>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem

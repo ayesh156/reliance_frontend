@@ -155,7 +155,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({
         </header>
 
         {/* Dynamic Fluid Content Body */}
-        <main className="flex-1 w-full p-4 lg:p-8 overflow-x-hidden">
+        <main className="flex-1 w-full px-2 py-3 sm:px-4 sm:py-4 lg:p-8 overflow-x-hidden">
           {children}
         </main>
       </SidebarInset>
