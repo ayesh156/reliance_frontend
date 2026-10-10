@@ -1,4 +1,4 @@
-const CACHE_NAME = 'reliance-pwa-v2';
+const CACHE_NAME = 'reliance-pwa-v3';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -31,6 +31,7 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         keys.map((key) => {
           if (key !== CACHE_NAME) {
+            console.log('[SW] Purging outdated cache bucket:', key);
             return caches.delete(key);
           }
         })
@@ -53,7 +54,7 @@ self.addEventListener('message', (event) => {
  * Service Worker Fetch Interceptor
  * - Guards against caching non-HTTP schemes (chrome-extension:, moz-extension:, etc.)
  * - Bypasses backend API & mutation requests
- * - Serves cached App Shell for offline navigation
+ * - Network-First for SPA navigation requests to guarantee root (/) serves latest storefront shell
  * - Implements Stale-While-Revalidate strategy for static resources
  */
 self.addEventListener('fetch', (event) => {
@@ -70,13 +71,23 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // SPA Navigation handling: serve cached index.html when offline
+  // SPA Navigation handling: Network-First ensures fresh storefront deployment is loaded, falling back to cached shell when offline
   if (event.request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request).catch(async () => {
-        const cached = await caches.match('/index.html');
-        return cached || caches.match('/');
-      })
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const responseClone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseClone);
+            }).catch(() => {});
+          }
+          return networkResponse;
+        })
+        .catch(async () => {
+          const cached = await caches.match('/index.html');
+          return cached || caches.match('/');
+        })
     );
     return;
   }

@@ -28,6 +28,16 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
+    // 401 Unauthorized Session Handling
+    if (response.status === 401) {
+      localStorage.removeItem('auth_token');
+      // STRICT ROUTING GUARD: Only redirect unauthenticated requests if accessing protected /system/* suite
+      // Allow public storefront routes (/, /shop, /about, /contact) to remain accessible without interruption
+      if (typeof window !== 'undefined' && window.location.pathname.startsWith('/system')) {
+        window.location.href = '/login';
+      }
+    }
+
     // ⭐ Backend එකෙන් එන message, error හෝ errors array එකෙන් පැහැදිලි පණිවිඩය කියවා ගැනීම
     const resolvedErrorMessage =
       data?.message ||

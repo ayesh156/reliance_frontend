@@ -74,7 +74,7 @@ export function App() {
           <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <ScrollToTop />
             <Routes>
-              {/* ── Public Luxury Storefront Routes ── */}
+              {/* ── Public Luxury Storefront Routes - Zero Auth Required ── */}
               <Route
                 path="/"
                 element={
@@ -108,8 +108,12 @@ export function App() {
                 }
               />
 
-              {/* ── Public / Auth Portal Route ── */}
+              {/* ── Auth Portal ── */}
               <Route path="/login" element={<Login />} />
+
+              {/* ── Legacy Direct Navigation Shortcuts (Prevent Root Hijack) ── */}
+              <Route path="/dashboard" element={<Navigate to="/system/dashboard" replace />} />
+              <Route path="/products" element={<Navigate to="/system/products" replace />} />
 
               {/* ── Admin Back-Office (/system/*) ── */}
               <Route

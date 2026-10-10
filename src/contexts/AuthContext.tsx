@@ -57,6 +57,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         localStorage.removeItem('auth_token');
         setToken(null);
+        // STRICT ROUTE GUARD: Only redirect unauthenticated requests if accessing protected /system/* suite
+        // Public Storefront routes (/, /shop, /about, /contact) load freely with zero auth redirection
+        if (typeof window !== 'undefined' && window.location.pathname.startsWith('/system')) {
+          window.location.href = '/login';
+        }
       }
     } catch {
       // Offline — keep existing state
