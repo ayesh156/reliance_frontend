@@ -27,10 +27,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [token, setToken] = useState<string | null>(localStorage.getItem('auth_token'));
   const [loading, setLoading] = useState(true);
 
+  const dismissSplashScreen = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      const splash = document.getElementById('pwa-splash-screen');
+      if (splash) {
+        splash.style.opacity = '0';
+        splash.style.pointerEvents = 'none';
+        setTimeout(() => {
+          splash.remove();
+        }, 550);
+      }
+    }
+  }, []);
+
   const fetchUser = useCallback(async () => {
     const storedToken = localStorage.getItem('auth_token');
     if (!storedToken) {
       setLoading(false);
+      dismissSplashScreen();
       return;
     }
     try {
@@ -48,8 +62,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Offline — keep existing state
     } finally {
       setLoading(false);
+      dismissSplashScreen();
     }
-  }, []);
+  }, [dismissSplashScreen]);
 
   useEffect(() => {
     fetchUser();

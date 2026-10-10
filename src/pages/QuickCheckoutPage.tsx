@@ -590,10 +590,14 @@ export const QuickCheckoutPage: React.FC = () => {
           );
         }
 
-        // Pre-fill Discount: Preserve default PERCENT (%) mode and calculate effective discount rate
-        if (inv.discount > 0 && inv.subtotal > 0) {
+        // Pre-fill Discount: Preserve default PERCENT (%) mode and calculate effective discount rate dynamically
+        const invDiscountAmt = Number((inv as any).discountAmount ?? inv.discount ?? 0);
+        const invSubtotalAmt = Number(inv.subtotal ?? (Number(inv.totalAmount || 0) + invDiscountAmt));
+        if (invDiscountAmt > 0 && invSubtotalAmt > 0) {
           setDiscountType('PERCENT');
-          const effectivePercent = Math.round((Number(inv.discount) / Number(inv.subtotal)) * 100);
+          const effectivePercent = (inv as any).discountRate !== undefined && Number((inv as any).discountRate) > 0
+            ? Number((inv as any).discountRate)
+            : parseFloat(((invDiscountAmt / invSubtotalAmt) * 100).toFixed(1));
           setDiscountInput(effectivePercent);
         } else {
           setDiscountType('PERCENT');
@@ -1088,10 +1092,15 @@ export const QuickCheckoutPage: React.FC = () => {
   };
 
   /**
-   * Submit transaction order or update existing invoice:
-   * - 'SAVE_ONLY': Saves invoice, updates balance/stock, toasts, and resets cart for next sale
-   * - 'SAVE_AND_PDF': Atomically saves invoice AND triggers backend PDF streaming download in one tap
-   * - 'SAVE_AND_PRINT': Saves invoice and opens A4InvoiceModal preview
+   * Device-Adaptive POS checkout execution engine:
+   * 
+   * Viewport Execution Matrix:
+   * - Desktop Viewports (≥1024px): Primary action defaults to 'SAVE_AND_PRINT' (saves order via api.post('/orders/pos'),
+   *   immediately mounts A4InvoiceModal sandbox and triggers window.print()). Secondary action is 'SAVE_ONLY'.
+   * - Mobile / Tablet Viewports (<1024px): Primary action defaults to 'SAVE_AND_PDF' (touch-first direct binary PDF streaming download).
+   *   Secondary action is 'SAVE_ONLY', Tertiary action is 'SAVE_AND_PRINT' preview.
+   * 
+   * @param mode - 'SAVE_ONLY' | 'SAVE_AND_PDF' | 'SAVE_AND_PRINT'
    */
   const handleCheckout = async (mode: 'SAVE_ONLY' | 'SAVE_AND_PDF' | 'SAVE_AND_PRINT' = 'SAVE_ONLY') => {
     if (cart.length === 0) {
@@ -1291,8 +1300,9 @@ export const QuickCheckoutPage: React.FC = () => {
           paidAmount: resolvedPaid,
           settledDueAmount: finalSettledDue,
           discount: discountAmount,
+          discountAmount: discountAmount,
           discountType,
-          discountRate: discountType === 'PERCENT' ? discountInput : undefined,
+          discountRate: discountType === 'PERCENT' ? (discountInput > 0 ? discountInput : undefined) : undefined,
         });
         setInvoiceOpen(true);
         setMobileCartOpen(false);
@@ -2136,7 +2146,7 @@ export const QuickCheckoutPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Action Buttons: Dual Checkout Triggers ("Save Invoice Only" & "Save & Download PDF") */}
+          {/* Action Buttons: Desktop Adaptive Checkout Triggers (Primary: "Save & Print" vs Secondary: "Save Invoice Only") */}
           <div className="flex flex-col sm:flex-row items-stretch gap-2 w-full pt-1">
             <Button
               type="button"
@@ -2150,23 +2160,23 @@ export const QuickCheckoutPage: React.FC = () => {
             <Button
               type="button"
               disabled={cart.length === 0 || submitting}
-              onClick={() => handleCheckout('SAVE_AND_PDF')}
+              onClick={() => handleCheckout('SAVE_AND_PRINT')}
               className="flex-1 min-h-[48px] h-12 gap-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm cursor-pointer transition-all active:scale-[0.98]"
             >
-              {submitting ? <Loader2 className="size-4 animate-spin" /> : <FileDown className="size-4 text-white" />}
-              <span>Save &amp; Download PDF</span>
+              {submitting ? <Loader2 className="size-4 animate-spin" /> : <Printer className="size-4 text-white" />}
+              <span>Save &amp; Print</span>
             </Button>
           </div>
-          {/* Optional Print Preview Modal Trigger */}
+          {/* Direct PDF Download Fallback Trigger for Desktop */}
           <div className="flex justify-center pt-0.5">
             <button
               type="button"
               disabled={cart.length === 0 || submitting}
-              onClick={() => handleCheckout('SAVE_AND_PRINT')}
+              onClick={() => handleCheckout('SAVE_AND_PDF')}
               className="text-[11px] font-semibold text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[36px] sm:min-h-0"
             >
-              <Printer className="size-3" />
-              <span>Or Save &amp; Print Preview</span>
+              <FileDown className="size-3" />
+              <span>Or Save &amp; Download PDF</span>
             </button>
           </div>
         </div>
@@ -2802,25 +2812,25 @@ export const QuickCheckoutPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Action Buttons in Mobile Drawer */}
+              {/* Action Buttons in Mobile Drawer (Touch-First Adaptive: Primary "Save & Download PDF" vs Secondary "Save Invoice Only") */}
               <div className="flex flex-col sm:flex-row items-stretch gap-2 w-full pt-1">
                 <Button
                   type="button"
                   disabled={cart.length === 0 || submitting}
-                  onClick={() => handleCheckout('SAVE_ONLY')}
-                  className="flex-1 min-h-[48px] h-12 gap-2 bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-100 dark:border-zinc-700 dark:border-zinc-750 font-bold text-xs sm:text-sm rounded-xl shadow-xs cursor-pointer transition-all active:scale-[0.98]"
+                  onClick={() => handleCheckout('SAVE_AND_PDF')}
+                  className="flex-1 min-h-[48px] h-12 gap-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm cursor-pointer transition-all active:scale-[0.98] order-1 sm:order-2"
                 >
-                  {submitting ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4 text-slate-700 dark:text-zinc-300" />}
-                  <span>{isEditing ? 'Save Changes Only' : 'Save Invoice Only'}</span>
+                  {submitting ? <Loader2 className="size-4 animate-spin" /> : <FileDown className="size-4 text-white" />}
+                  <span>Save &amp; Download PDF</span>
                 </Button>
                 <Button
                   type="button"
                   disabled={cart.length === 0 || submitting}
-                  onClick={() => handleCheckout('SAVE_AND_PDF')}
-                  className="flex-1 min-h-[48px] h-12 gap-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm cursor-pointer transition-all active:scale-[0.98]"
+                  onClick={() => handleCheckout('SAVE_ONLY')}
+                  className="flex-1 min-h-[48px] h-12 gap-2 bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-100 dark:border-zinc-700 dark:border-zinc-750 font-bold text-xs sm:text-sm rounded-xl shadow-xs cursor-pointer transition-all active:scale-[0.98] order-2 sm:order-1"
                 >
-                  {submitting ? <Loader2 className="size-4 animate-spin" /> : <FileDown className="size-4 text-white" />}
-                  <span>Save &amp; Download PDF</span>
+                  {submitting ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4 text-slate-700 dark:text-zinc-300" />}
+                  <span>{isEditing ? 'Save Changes Only' : 'Save Invoice Only'}</span>
                 </Button>
               </div>
               <div className="flex justify-center pt-0.5 pb-1">

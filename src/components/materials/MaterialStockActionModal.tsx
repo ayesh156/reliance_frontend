@@ -129,7 +129,7 @@ export const MaterialStockActionModal: React.FC<MaterialStockActionModalProps> =
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[420px]">
+      <DialogContent className="w-full max-w-lg sm:max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
         <DialogHeader>
           <div className="flex items-center gap-2">
             {isDeduct ? (
@@ -200,7 +200,7 @@ export const MaterialStockActionModal: React.FC<MaterialStockActionModalProps> =
             </div>
           )}
 
-          <DialogFooter className="pt-2">
+          <DialogFooter className="sticky bottom-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm pt-3 pb-1 border-t border-slate-100 dark:border-zinc-800 mt-3 flex items-center justify-end gap-2">
             <Button type="button" variant="outline" size="sm" onClick={onClose}>
               Cancel
             </Button>

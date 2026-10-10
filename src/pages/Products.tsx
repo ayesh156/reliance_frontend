@@ -516,7 +516,7 @@ const fetchAll = useCallback(async () => {
 
       {/* Read-Only Product Inspection Dialog for Mobile/Tablet & Sales Representatives */}
       <Dialog open={!!inspectProduct} onOpenChange={(open) => !open && setInspectProduct(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-3.5 sm:p-6">
+        <DialogContent className="w-full max-w-lg sm:max-w-2xl max-h-[90vh] overflow-y-auto p-3.5 sm:p-6">
           {inspectProduct && (
             <div className="space-y-4">
               <DialogHeader>
@@ -647,7 +647,7 @@ const fetchAll = useCallback(async () => {
               </div>
 
               {/* Read-Only Modal Actions: No edit/delete for REP */}
-              <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-zinc-800">
+              <div className="sticky bottom-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm pt-3 pb-1 border-t border-slate-100 dark:border-zinc-800 flex items-center justify-between">
                 <Button variant="outline" size="sm" onClick={() => setInspectProduct(null)}>
                   Close
                 </Button>
@@ -673,16 +673,16 @@ const fetchAll = useCallback(async () => {
       {/* Shadcn Alert Dialog for Delete (Admin Only) */}
       {isAdmin && (
         <AlertDialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
-          <AlertDialogContent>
+          <AlertDialogContent className="w-full max-w-lg sm:max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
             <AlertDialogHeader>
               <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
               <AlertDialogDescription>
                 This will permanently delete the product <strong className="text-slate-900 dark:text-white">"{selectedProduct?.name}"</strong> and all its associated variants, barcodes, and inventory records.
               </AlertDialogDescription>
             </AlertDialogHeader>
-            <AlertDialogFooter>
+            <AlertDialogFooter className="sticky bottom-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm pt-3 pb-1 border-t border-slate-100 dark:border-zinc-800 mt-2">
               <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={handleDelete}>Delete Product</AlertDialogAction>
+              <AlertDialogAction onClick={handleDelete} className="bg-rose-600 hover:bg-rose-700 text-white">Delete Product</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

@@ -84,18 +84,19 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
     // Cumulative total outstanding (Current Bill Credit + True Previous Due - Settled Due)
     const grandTotalCreditDue = Math.max(0, Math.round((currentBillCredit + truePreviousDue - settledDue) * 100) / 100);
 
-    // 2. Resolve discount label strictly based on chosen discountType
-    const discountVal = Number(order.discount || 0);
-    const subtotalVal = Number(order.subtotal || 0);
+    // ⭐ 2. Resolve discount label dynamically based on effective discount percentage or flat mode
+    const discountAmount = Number(order.discountAmount ?? order.discount ?? 0);
+    const subtotalVal = Number(order.subtotal || (total + discountAmount) || 0);
+    const isFlatDiscount = order.discountType === 'FIXED';
+    const discountPercent = !isFlatDiscount
+      ? (Number(order.discountRate) || (subtotalVal > 0 ? ((discountAmount / subtotalVal) * 100) : 0))
+      : 0;
+
     let discountDisplay = 'Discount:';
-    if (discountVal > 0) {
-      if (order.discountType === 'PERCENT') {
-        const percent = order.discountRate !== undefined 
-          ? order.discountRate 
-          : (subtotalVal > 0 ? Math.round((discountVal / subtotalVal) * 100) : 0);
-        discountDisplay = `Discount (${percent}%):`;
+    if (discountAmount > 0) {
+      if (discountPercent > 0) {
+        discountDisplay = `Discount (${discountPercent.toFixed(1).replace(/\.0$/, '')}%):`;
       } else {
-        // Flat/Fixed price discount label
         discountDisplay = 'Discount:';
       }
     }
@@ -676,10 +677,10 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
                   <td class="label">Sub Total</td>
                   <td class="value">Rs ${subtotalVal.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
                 </tr>
-                ${discountVal > 0 ? `
+                ${discountAmount > 0 ? `
                 <tr>
                   <td class="label">${discountDisplay}</td>
-                  <td class="value">- Rs ${discountVal.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                  <td class="value">- Rs ${discountAmount.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
                 </tr>
                 ` : ''}
                 ${hasReturns ? `

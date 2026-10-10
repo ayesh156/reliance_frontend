@@ -307,7 +307,7 @@ export const SupplierDueSettlementModal: React.FC<SupplierDueSettlementModalProp
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="w-[95vw] sm:max-w-3xl md:max-w-4xl min-w-0 sm:min-w-[640px] max-h-[90vh] flex flex-col bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-3xl p-4 sm:p-6 shadow-2xl">
+      <DialogContent className="w-full max-w-lg sm:max-w-3xl lg:max-w-4xl max-h-[90vh] flex flex-col bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-3xl p-4 sm:p-6 shadow-2xl">
         {/* Header Section */}
         <DialogHeader className="pb-3 border-b shrink-0 border-slate-100 dark:border-zinc-800">
           <div className="flex flex-wrap items-center justify-between gap-2">

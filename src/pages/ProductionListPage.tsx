@@ -694,68 +694,271 @@ export const ProductionListPage: React.FC = () => {
           </div>
         ) : (
           <>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Batch #</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Product &amp; Variant</TableHead>
-                  <TableHead>Batch Type / Reason</TableHead>
-                  <TableHead className="text-center">Completed Output</TableHead>
-                  <TableHead>Raw Materials Consumed</TableHead>
-                  <TableHead className="text-center">Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {paginatedRecords.map((order) => {
-                  const totalReturned = order.materialUsages.reduce(
-                    (acc, u) => acc + (u.returnedQty || 0),
-                    0
-                  );
+            {/* ── Production Ledger Table (Desktop Viewport >= 1024px) ── */}
+            <div className="hidden lg:block overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Batch #</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Product &amp; Variant</TableHead>
+                    <TableHead>Batch Type / Reason</TableHead>
+                    <TableHead className="text-center">Completed Output</TableHead>
+                    <TableHead>Raw Materials Consumed</TableHead>
+                    <TableHead className="text-center">Status</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedRecords.map((order) => {
+                    const totalReturned = order.materialUsages.reduce(
+                      (acc, u) => acc + (u.returnedQty || 0),
+                      0
+                    );
 
-                  return (
-                    <TableRow
-                      key={order.id}
-                      className="hover:bg-slate-50/50 dark:hover:bg-zinc-800/40 transition-colors"
-                    >
-                      {/* Clickable Batch # leading to edit page */}
-                      <TableCell className="font-mono text-xs font-bold">
-                        <button
-                          type="button"
-                          onClick={() => navigate(`/system/production/edit/${order.id}`)}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-zinc-800 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-zinc-700 border border-slate-200 dark:border-zinc-700 font-mono text-xs transition-colors cursor-pointer group"
-                        >
-                          <span>{order.productionNo}</span>
-                          <ArrowRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
-                        </button>
-                      </TableCell>
+                    return (
+                      <TableRow
+                        key={order.id}
+                        className="hover:bg-slate-50/50 dark:hover:bg-zinc-800/40 transition-colors"
+                      >
+                        {/* Clickable Batch # leading to edit page */}
+                        <TableCell className="font-mono text-xs font-bold">
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/system/production/edit/${order.id}`)}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-zinc-800 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-zinc-700 border border-slate-200 dark:border-zinc-700 font-mono text-xs transition-colors cursor-pointer group"
+                          >
+                            <span>{order.productionNo}</span>
+                            <ArrowRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </button>
+                        </TableCell>
 
-                      {/* Date */}
-                      <TableCell className="text-xs text-slate-600 dark:text-zinc-400">
-                        {new Date(order.productionDate).toLocaleDateString('en-US', {
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric',
-                        })}
-                      </TableCell>
+                        {/* Date */}
+                        <TableCell className="text-xs text-slate-600 dark:text-zinc-400">
+                          {new Date(order.productionDate).toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric',
+                          })}
+                        </TableCell>
 
-                      {/* Product & Variant */}
-                      <TableCell>
-                        <div className="space-y-0.5">
-                          <p className="text-xs font-bold text-slate-900 dark:text-white">
+                        {/* Product & Variant */}
+                        <TableCell>
+                          <div className="space-y-0.5">
+                            <p className="text-xs font-bold text-slate-900 dark:text-white">
+                              {order.product.name}
+                            </p>
+                            {order.variant && (
+                              <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-zinc-400">
+                                {order.variant.size && (
+                                  <span className="bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-[10px] font-medium">
+                                    Size: {order.variant.size}
+                                  </span>
+                                )}
+                                {order.variant.color && (
+                                  <span className="bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-[10px] font-medium">
+                                    Color: {order.variant.color}
+                                  </span>
+                                )}
+                                {order.variant.sku && (
+                                  <span className="text-[10px] text-slate-400 font-mono">
+                                    {order.variant.sku}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+
+                        {/* Reason */}
+                        <TableCell>
+                          <Badge
+                            variant="secondary"
+                            className="text-[11px] font-medium"
+                          >
+                            {order.reason || 'Regular Bulk'}
+                          </Badge>
+                        </TableCell>
+
+                        {/* Output Completed */}
+                        <TableCell className="text-center">
+                          <span className="inline-flex items-center gap-1 font-bold text-sm text-emerald-600 dark:text-emerald-400 font-mono">
+                            {order.completedQty} <span className="text-[11px] font-normal text-slate-500">Pcs</span>
+                          </span>
+                        </TableCell>
+
+                        {/* Materials Breakdown Preview */}
+                        <TableCell>
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap gap-1">
+                              {order.materialUsages.slice(0, 2).map((usage) => (
+                                <span
+                                  key={usage.id}
+                                  className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700"
+                                >
+                                  <span>{usage.rawMaterial.name}:</span>
+                                  <strong className="font-mono">{usage.netConsumedQty} {usage.rawMaterial.unit}</strong>
+                                </span>
+                              ))}
+                              {order.materialUsages.length > 2 && (
+                                <span className="text-[10px] text-slate-400 font-medium px-1 self-center">
+                                  +{order.materialUsages.length - 2} more
+                                </span>
+                              )}
+                            </div>
+                            {totalReturned > 0 && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                                <RotateCcw className="w-2.5 h-2.5" />
+                                {totalReturned} units scrap returned
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
+
+                        {/* Status */}
+                        <TableCell className="text-center">
+                          <Badge
+                            variant={order.status === 'COMPLETED' ? 'success' : 'secondary'}
+                            dot
+                          >
+                            {order.status}
+                          </Badge>
+                        </TableCell>
+
+                        {/* Actions */}
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {/* Edit Full Page */}
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/system/production/edit/${order.id}`)}
+                              title="Edit Production Batch"
+                              className="p-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-600 dark:text-zinc-400 transition-colors cursor-pointer"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+
+                            {/* View Detail */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedOrder(order);
+                                setIsDetailModalOpen(true);
+                              }}
+                              title="View Material Breakdown"
+                              className="p-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-600 dark:text-zinc-400 transition-colors cursor-pointer"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+
+                            {/* Return Leftovers */}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenReturnModal(order)}
+                              title="Return Leftover Scrap Materials"
+                              className="p-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-600 dark:text-zinc-400 transition-colors cursor-pointer"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                            </button>
+
+                            {/* Rollback / Delete (Admin Only) */}
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => setOrderToDelete(order)}
+                                title="Rollback &amp; Delete Batch"
+                                className="p-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-rose-500 hover:text-rose-600 transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* ── Touch-Friendly Production Batch Cards (Mobile & Tablet Viewports < 1024px) ── */}
+            <div className="block lg:hidden space-y-3.5">
+              {paginatedRecords.map((order) => {
+                const totalReturned = order.materialUsages.reduce(
+                  (acc, u) => acc + (u.returnedQty || 0),
+                  0
+                );
+                const targetUnits = order.targetQuantity || order.completedQty;
+                const yieldRate = targetUnits > 0
+                  ? Math.min(100, Math.round((order.completedQty / targetUnits) * 100))
+                  : 100;
+
+                const startDateStr = new Date(order.productionDate).toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric',
+                });
+
+                // Calculate expected or completed finish date
+                const finishDateStr = (() => {
+                  if (order.status === 'COMPLETED') {
+                    const finishedDate = order.createdAt ? new Date(order.createdAt) : new Date(order.productionDate);
+                    return finishedDate.toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    });
+                  }
+                  // For ongoing batches, estimate completion (e.g. +3 days from start)
+                  const est = new Date(order.productionDate);
+                  est.setDate(est.getDate() + 3);
+                  return est.toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  });
+                })();
+
+                return (
+                  <div
+                    key={order.id}
+                    className="rounded-2xl border border-slate-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900/70 p-4 shadow-xs space-y-3 hover:border-slate-300 dark:hover:border-zinc-700 transition-all"
+                  >
+                    {/* Header: Batch Number & Garment Style */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/system/production/edit/${order.id}`)}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 font-mono font-bold text-xs transition-colors cursor-pointer"
+                            title="Edit production batch"
+                          >
+                            <Factory className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                            <span>#{order.productionNo}</span>
+                            <ArrowRight className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                          </button>
+
+                          <Badge variant="outline" className="text-[10px] font-medium">
+                            {order.reason || 'Regular Bulk'}
+                          </Badge>
+                        </div>
+
+                        {/* Garment Style & Variant */}
+                        <div className="pt-1">
+                          <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">
                             {order.product.name}
-                          </p>
+                          </h4>
                           {order.variant && (
-                            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-zinc-400">
+                            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5 flex-wrap">
                               {order.variant.size && (
-                                <span className="bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-[10px] font-medium">
-                                  Size: {order.variant.size}
+                                <span className="bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-[10px] font-medium text-slate-700 dark:text-zinc-300">
+                                  Size {order.variant.size}
                                 </span>
                               )}
                               {order.variant.color && (
-                                <span className="bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-[10px] font-medium">
-                                  Color: {order.variant.color}
+                                <span className="bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-[10px] font-medium text-slate-700 dark:text-zinc-300">
+                                  {order.variant.color}
                                 </span>
                               )}
                               {order.variant.sku && (
@@ -766,117 +969,165 @@ export const ProductionListPage: React.FC = () => {
                             </div>
                           )}
                         </div>
-                      </TableCell>
+                      </div>
 
-                      {/* Reason */}
-                      <TableCell>
-                        <Badge
-                          variant="secondary"
-                          className="text-[11px] font-medium"
-                        >
-                          {order.reason || 'Regular Bulk'}
-                        </Badge>
-                      </TableCell>
-
-                      {/* Output Completed */}
-                      <TableCell className="text-center">
-                        <span className="inline-flex items-center gap-1 font-bold text-sm text-emerald-600 dark:text-emerald-400 font-mono">
-                          {order.completedQty} <span className="text-[11px] font-normal text-slate-500">Pcs</span>
-                        </span>
-                      </TableCell>
-
-                      {/* Materials Breakdown Preview */}
-                      <TableCell>
-                        <div className="space-y-1">
-                          <div className="flex flex-wrap gap-1">
-                            {order.materialUsages.slice(0, 2).map((usage) => (
-                              <span
-                                key={usage.id}
-                                className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700"
-                              >
-                                <span>{usage.rawMaterial.name}:</span>
-                                <strong className="font-mono">{usage.netConsumedQty} {usage.rawMaterial.unit}</strong>
-                              </span>
-                            ))}
-                            {order.materialUsages.length > 2 && (
-                              <span className="text-[10px] text-slate-400 font-medium px-1 self-center">
-                                +{order.materialUsages.length - 2} more
-                              </span>
-                            )}
-                          </div>
-                          {totalReturned > 0 && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
-                              <RotateCcw className="w-2.5 h-2.5" />
-                              {totalReturned} units scrap returned
-                            </span>
-                          )}
-                        </div>
-                      </TableCell>
-
-                      {/* Status */}
-                      <TableCell className="text-center">
+                      {/* Status Badge */}
+                      <div className="shrink-0 text-right">
                         <Badge
                           variant={order.status === 'COMPLETED' ? 'success' : 'secondary'}
                           dot
+                          className="text-[10px] font-bold"
                         >
                           {order.status}
                         </Badge>
-                      </TableCell>
+                      </div>
+                    </div>
 
-                      {/* Actions */}
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {/* Edit Full Page */}
-                          <button
-                            type="button"
-                            onClick={() => navigate(`/system/production/edit/${order.id}`)}
-                            title="Edit Production Batch"
-                            className="p-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-600 dark:text-zinc-400 transition-colors cursor-pointer"
+                    {/* Metric Pill Grid: Target Units, Completed Output, Yield Rate */}
+                    <div className="grid grid-cols-3 gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-zinc-950/70 border border-slate-100 dark:border-zinc-800/80 text-center">
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                          Target Units
+                        </span>
+                        <span className="text-xs sm:text-sm font-bold text-slate-700 dark:text-zinc-300 font-mono block">
+                          {targetUnits} Pcs
+                        </span>
+                      </div>
+
+                      <div className="space-y-0.5 border-x border-slate-200/70 dark:border-zinc-800">
+                        <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">
+                          Output Completed
+                        </span>
+                        <span className="text-xs sm:text-sm font-bold text-emerald-600 dark:text-emerald-400 font-mono block">
+                          {order.completedQty} Pcs
+                        </span>
+                      </div>
+
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider block">
+                          Yield Rate
+                        </span>
+                        <span className="text-xs sm:text-sm font-extrabold text-indigo-600 dark:text-indigo-400 font-mono block">
+                          {yieldRate}%
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Timeline Grid: Start Date, Expected Finish, Status badge */}
+                    <div className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800/60 flex items-center justify-between text-xs">
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                          Start Date
+                        </span>
+                        <span className="font-mono text-slate-700 dark:text-zinc-300 font-medium">
+                          {startDateStr}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 text-slate-300 dark:text-zinc-700">
+                        <ArrowRight className="size-3.5" />
+                      </div>
+
+                      <div className="space-y-0.5 text-right">
+                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                          {order.status === 'COMPLETED' ? 'Completed Finish' : 'Expected Finish'}
+                        </span>
+                        <span className={`font-mono font-medium ${order.status === 'COMPLETED' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                          {finishDateStr}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Materials preview chips */}
+                    <div className="space-y-1.5 pt-0.5">
+                      <div className="flex flex-wrap gap-1">
+                        {order.materialUsages.map((usage) => (
+                          <span
+                            key={usage.id}
+                            className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-md bg-white dark:bg-zinc-950 text-slate-700 dark:text-zinc-300 border border-slate-200/80 dark:border-zinc-800 font-mono"
                           >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
+                            <span>{usage.rawMaterial.name}:</span>
+                            <strong className="text-slate-900 dark:text-white">{usage.netConsumedQty} {usage.rawMaterial.unit}</strong>
+                          </span>
+                        ))}
+                      </div>
 
-                          {/* View Detail */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedOrder(order);
-                              setIsDetailModalOpen(true);
-                            }}
-                            title="View Material Breakdown"
-                            className="p-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-600 dark:text-zinc-400 transition-colors cursor-pointer"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </button>
+                      {totalReturned > 0 && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                          <RotateCcw className="w-2.5 h-2.5" />
+                          {totalReturned} units scrap returned to warehouse
+                        </span>
+                      )}
 
-                          {/* Return Leftovers */}
-                          <button
-                            type="button"
-                            onClick={() => handleOpenReturnModal(order)}
-                            title="Return Leftover Scrap Materials"
-                            className="p-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-600 dark:text-zinc-400 transition-colors cursor-pointer"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                          </button>
+                      {order.notes && (
+                        <p className="text-[11px] text-slate-500 dark:text-zinc-400 italic bg-white/70 dark:bg-zinc-950/40 p-2 rounded-lg border border-slate-100 dark:border-zinc-800/60 line-clamp-2">
+                          "{order.notes}"
+                        </p>
+                      )}
+                    </div>
 
-                          {/* Rollback / Delete (Admin Only) */}
-                          {isAdmin && (
-                            <button
-                              type="button"
-                              onClick={() => setOrderToDelete(order)}
-                              title="Rollback &amp; Delete Batch"
-                              className="p-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-rose-500 hover:text-rose-600 transition-colors cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
+                    {/* ── Action Buttons Bar: Update Stage, Material Usages, Admin Rollback ── */}
+                    <div className="pt-2 border-t border-slate-200/70 dark:border-zinc-800 flex items-center justify-between gap-1.5 flex-wrap">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {/* 1. Update Stage Button */}
+                        <Button
+                          type="button"
+                          variant="default"
+                          size="sm"
+                          onClick={() => navigate(`/system/production/edit/${order.id}`)}
+                          className="h-8 px-2.5 text-xs font-semibold rounded-xl gap-1.5 cursor-pointer bg-slate-900 hover:bg-slate-800 dark:bg-zinc-100 dark:text-zinc-900 text-white"
+                        >
+                          <Pencil className="size-3.5" />
+                          <span>Update Stage</span>
+                        </Button>
+
+                        {/* 2. Material Usages Button */}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedOrder(order);
+                            setIsDetailModalOpen(true);
+                          }}
+                          className="h-8 px-2.5 text-xs font-semibold rounded-xl gap-1.5 cursor-pointer"
+                        >
+                          <Layers className="size-3.5 text-indigo-500" />
+                          <span>Material Usages</span>
+                        </Button>
+
+                        {/* 3. Return Scrap Button */}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleOpenReturnModal(order)}
+                          className="h-8 px-2.5 text-xs font-semibold rounded-xl gap-1.5 cursor-pointer text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/60"
+                        >
+                          <RotateCcw className="size-3.5" />
+                          <span>Return Scrap</span>
+                        </Button>
+                      </div>
+
+                      {/* 4. Admin Rollback Button */}
+                      {isAdmin && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setOrderToDelete(order)}
+                          className="h-8 px-2 text-xs font-semibold rounded-xl gap-1 text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 ml-auto cursor-pointer"
+                          title="Rollback Production Batch (Admin Only)"
+                        >
+                          <Trash2 className="size-3.5" />
+                          <span>Admin Rollback</span>
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
 
             {/* Pagination Controls */}
             <div className="flex items-center justify-between pt-4 mt-2 border-t border-slate-100 dark:border-zinc-800 text-xs">
@@ -913,7 +1164,7 @@ export const ProductionListPage: React.FC = () => {
           MODAL 0: COMPLETED GARMENTS DETAILED BREAKDOWN & SHARES
       ───────────────────────────────────────────────────────────── */}
       <Dialog open={isGarmentsModalOpen} onOpenChange={setIsGarmentsModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 p-6 rounded-2xl">
+        <DialogContent className="w-full max-w-lg sm:max-w-2xl max-h-[90vh] flex flex-col bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 p-4 sm:p-6 rounded-2xl overflow-hidden">
           <DialogHeader className="border-b border-slate-100 dark:border-zinc-800 pb-3 shrink-0">
             <div>
               <DialogTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -1050,7 +1301,7 @@ export const ProductionListPage: React.FC = () => {
             )}
           </div>
 
-          <DialogFooter className="pt-3 border-t border-slate-100 dark:border-zinc-800 shrink-0">
+          <DialogFooter className="sticky bottom-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm pt-3 border-t border-slate-100 dark:border-zinc-800 shrink-0">
             <Button
               variant="outline"
               onClick={() => setIsGarmentsModalOpen(false)}
@@ -1066,7 +1317,7 @@ export const ProductionListPage: React.FC = () => {
           MODAL 1: VIEW FULL MATERIAL BREAKDOWN DETAIL
       ───────────────────────────────────────────────────────────── */}
       <Dialog open={isDetailModalOpen} onOpenChange={setIsDetailModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 p-6 rounded-2xl">
+        <DialogContent className="w-full max-w-lg sm:max-w-2xl max-h-[90vh] overflow-y-auto bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 p-4 sm:p-6 rounded-2xl">
           <DialogHeader className="border-b border-slate-100 dark:border-zinc-800 pb-3">
             <DialogTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <Package className="w-4 h-4 text-emerald-500" />
@@ -1117,8 +1368,8 @@ export const ProductionListPage: React.FC = () => {
                   Raw Material Consumption Details
                 </h4>
 
-                <div className="rounded-xl border border-slate-200 dark:border-zinc-800 overflow-hidden">
-                  <Table>
+                <div className="rounded-xl border border-slate-200 dark:border-zinc-800 overflow-x-auto">
+                  <Table className="min-w-[480px]">
                     <TableHeader>
                       <TableRow className="bg-slate-50 dark:bg-zinc-900">
                         <TableHead className="text-[10px] font-bold uppercase text-slate-600 dark:text-zinc-400">
@@ -1170,7 +1421,7 @@ export const ProductionListPage: React.FC = () => {
             </div>
           )}
 
-          <DialogFooter className="pt-3 border-t border-slate-100 dark:border-zinc-800">
+          <DialogFooter className="sticky bottom-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm pt-3 border-t border-slate-100 dark:border-zinc-800 mt-2">
             <Button
               variant="outline"
               onClick={() => setIsDetailModalOpen(false)}
@@ -1186,7 +1437,7 @@ export const ProductionListPage: React.FC = () => {
           MODAL 2: RETURN LEFTOVER SCRAP MATERIALS
       ───────────────────────────────────────────────────────────── */}
       <Dialog open={isReturnModalOpen} onOpenChange={setIsReturnModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 p-6 rounded-2xl">
+        <DialogContent className="w-full max-w-lg sm:max-w-2xl max-h-[90vh] overflow-y-auto bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 p-4 sm:p-6 rounded-2xl">
           <DialogHeader className="border-b border-slate-100 dark:border-zinc-800 pb-3">
             <div className="flex items-center gap-2">
               <div className="size-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
@@ -1274,7 +1525,7 @@ export const ProductionListPage: React.FC = () => {
             </div>
           </div>
 
-          <DialogFooter className="pt-3 border-t border-slate-100 dark:border-zinc-800 gap-2">
+          <DialogFooter className="sticky bottom-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm pt-3 border-t border-slate-100 dark:border-zinc-800 gap-2 mt-2">
             <Button
               type="button"
               variant="outline"
@@ -1310,7 +1561,7 @@ export const ProductionListPage: React.FC = () => {
       ───────────────────────────────────────────────────────────── */}
       {isAdmin && (
         <AlertDialog open={Boolean(orderToDelete)} onOpenChange={() => setOrderToDelete(null)}>
-          <AlertDialogContent className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl">
+          <AlertDialogContent className="w-full max-w-lg sm:max-w-2xl max-h-[90vh] overflow-y-auto bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-6">
             <AlertDialogHeader>
               <AlertDialogTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <AlertCircle className="w-5 h-5 text-rose-500" />
@@ -1333,7 +1584,7 @@ export const ProductionListPage: React.FC = () => {
                 </ul>
               </AlertDialogDescription>
             </AlertDialogHeader>
-            <AlertDialogFooter className="gap-2">
+            <AlertDialogFooter className="sticky bottom-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm pt-3 border-t border-slate-100 dark:border-zinc-800 gap-2 mt-2">
               <AlertDialogCancel disabled={isDeleting} className="text-xs rounded-xl">
                 Cancel
               </AlertDialogCancel>

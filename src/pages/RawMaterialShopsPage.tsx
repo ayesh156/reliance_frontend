@@ -444,13 +444,13 @@ export const RawMaterialShopsPage: React.FC = () => {
 
       {/* Dialog for Register/Edit Shop using Shadcn Input & Button */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="sm:max-w-[440px]">
+        <DialogContent className="w-full max-w-lg sm:max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>
               {editingShop ? 'Edit Supplier Shop' : 'Register New Supplier Shop'}
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleFormSubmit} className="space-y-3 py-2">
+          <form onSubmit={handleFormSubmit} className="space-y-3.5 py-2">
             <div className="space-y-1">
               <label className="text-xs font-semibold">Shop / Supplier Name *</label>
               <Input
@@ -461,7 +461,7 @@ export const RawMaterialShopsPage: React.FC = () => {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-xs font-semibold">Contact Person</label>
                 <Input
@@ -489,7 +489,7 @@ export const RawMaterialShopsPage: React.FC = () => {
               />
             </div>
 
-            <DialogFooter className="pt-2">
+            <DialogFooter className="sticky bottom-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm pt-3 pb-1 border-t border-slate-100 dark:border-zinc-800 mt-4 flex items-center justify-end gap-2">
               <Button
                 type="button"
                 variant="outline"
@@ -509,14 +509,14 @@ export const RawMaterialShopsPage: React.FC = () => {
 
       {/* Delete Confirmation Alert Dialog */}
       <AlertDialog open={!!deletingShop} onOpenChange={() => setDeletingShop(null)}>
-        <AlertDialogContent>
+        <AlertDialogContent className="w-full max-w-lg sm:max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <AlertDialogHeader>
             <AlertDialogTitle>Are you sure you want to delete this supplier?</AlertDialogTitle>
             <AlertDialogDescription>
               This will permanently delete <strong>{deletingShop?.name}</strong>. If there are any purchase history records linked to this shop, deletion will be blocked to maintain data integrity.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
+          <AlertDialogFooter className="sticky bottom-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm pt-3 pb-1 border-t border-slate-100 dark:border-zinc-800 mt-2">
             <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteConfirm}

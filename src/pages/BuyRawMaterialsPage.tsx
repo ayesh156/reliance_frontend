@@ -87,13 +87,25 @@ interface PurchaseLineItem {
   batchNumber?: string;
 }
 
+export interface PurchasePaymentHistoryItem {
+  id?: string | number;
+  amount: number;
+  method?: string;
+  paymentMethod?: string;
+  reference?: string;
+  createdAt?: string;
+  paymentDate?: string;
+  chequeNumber?: string;
+  bankName?: string;
+}
+
 interface PurchaseRecord {
   id: number;
   invoiceNumber: string | null;
   totalAmount: number;
   paidAmount: number;
   paymentMethod: string;
-  paymentStatus: 'PAID' | 'PARTIAL' | 'DUE';
+  paymentStatus: 'PAID' | 'PARTIAL' | 'DUE' | 'PENDING';
   purchaseDate: string;
   notes: string | null;
   shop: {
@@ -115,6 +127,7 @@ interface PurchaseRecord {
       unit: string;
     };
   }[];
+  paymentHistory?: PurchasePaymentHistoryItem[];
 }
 
 const PAYMENT_METHODS = ['CASH', 'CREDIT', 'CHEQUE', 'BANK_TRANSFER'];
@@ -154,6 +167,7 @@ export const BuyRawMaterialsPage: React.FC = () => {
 
   // Detail Modal & Delete Alert States
   const [viewingPurchase, setViewingPurchase] = useState<PurchaseRecord | null>(null);
+  const [historyPurchase, setHistoryPurchase] = useState<PurchaseRecord | null>(null);
   const [deletingPurchase, setDeletingPurchase] = useState<PurchaseRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
@@ -555,8 +569,8 @@ export const BuyRawMaterialsPage: React.FC = () => {
         )}
       </div>
 
-      {/* Purchases Table */}
-      <div className="rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 overflow-hidden">
+      {/* Purchases Table (Desktop Viewport >= 1024px) */}
+      <div className="hidden lg:block rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow>
@@ -662,13 +676,22 @@ export const BuyRawMaterialsPage: React.FC = () => {
                             <MoreVertical className="size-4" />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-48 text-xs font-medium">
+                        <DropdownMenuContent align="end" className="w-52 text-xs font-medium">
                           <DropdownMenuItem
                             onClick={() => setViewingPurchase(purchase)}
                             className="gap-2 cursor-pointer text-slate-700 dark:text-zinc-300"
                           >
                             <Eye className="size-3.5 text-slate-500" />
                             View Items
+                          </DropdownMenuItem>
+
+                          {/* ⭐ Payment History Ledger Action */}
+                          <DropdownMenuItem
+                            onClick={() => setHistoryPurchase(purchase)}
+                            className="gap-2 cursor-pointer text-indigo-600 focus:text-indigo-700 focus:bg-indigo-50 dark:focus:bg-indigo-950/30"
+                          >
+                            <Receipt className="size-3.5 text-indigo-600" />
+                            Payment History
                           </DropdownMenuItem>
 
                           {/* ⭐ Edit Purchase Order Action */}
@@ -747,9 +770,248 @@ export const BuyRawMaterialsPage: React.FC = () => {
         </Table>
       </div>
 
+      {/* ── Touch-Friendly Supplier Purchase Card Grid (Mobile & Tablet Viewports < 1024px) ── */}
+      <div className="block lg:hidden space-y-3.5">
+        {loading ? (
+          <div className="rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 p-8 text-center">
+            <Loader2 className="size-6 animate-spin mx-auto text-indigo-500 mb-2" />
+            <span className="text-xs text-slate-400 block font-medium">Loading purchase records...</span>
+          </div>
+        ) : purchases.length === 0 ? (
+          <div className="rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 p-8 text-center text-slate-400 text-xs">
+            No stock purchase records found.
+          </div>
+        ) : (
+          purchases.map((purchase) => {
+            const due = purchase.totalAmount - purchase.paidAmount;
+            const formattedDate = (() => {
+              const d = new Date(purchase.purchaseDate);
+              return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            })();
+
+            // Normalize payment status for badge display (DUE -> PENDING)
+            const displayStatus = purchase.paymentStatus === 'DUE' ? 'PENDING' : purchase.paymentStatus;
+
+            return (
+              <div
+                key={purchase.id}
+                className="rounded-2xl border border-slate-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900/70 p-4 shadow-xs transition-all space-y-3.5 hover:border-slate-300 dark:hover:border-zinc-700"
+              >
+                {/* Header: PO Badge (#PO-XXXX), Supplier Name, Purchase Date, and Status Badge */}
+                <div className="flex items-start justify-between gap-2.5">
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/system/buy-raw-materials/edit/${purchase.id}`)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 font-mono font-bold text-xs transition-colors cursor-pointer"
+                        title="Edit purchase order"
+                      >
+                        <Receipt className="size-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                        <span>{purchase.invoiceNumber || `#PO-${purchase.id}`}</span>
+                      </button>
+
+                      {/* Status Badges: PAID, PARTIAL, PENDING */}
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] font-bold px-2 py-0.5 ${
+                          displayStatus === 'PAID'
+                            ? 'border-emerald-500/30 text-emerald-600 bg-emerald-500/10'
+                            : displayStatus === 'PARTIAL'
+                            ? 'border-amber-500/30 text-amber-600 bg-amber-500/10'
+                            : 'border-rose-500/30 text-rose-600 bg-rose-500/10'
+                        }`}
+                      >
+                        {displayStatus}
+                      </Badge>
+                    </div>
+
+                    {/* Supplier Name */}
+                    <button
+                      type="button"
+                      onClick={() => setViewingPurchase(purchase)}
+                      className="text-left font-bold text-sm text-slate-900 dark:text-white flex items-center gap-1.5 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors pt-0.5 truncate cursor-pointer group"
+                    >
+                      <Building2 className="size-4 text-slate-400 group-hover:text-indigo-600 shrink-0" />
+                      <span className="truncate group-hover:underline">{purchase.shop.name}</span>
+                    </button>
+                    {purchase.shop.phone && (
+                      <span className="text-[11px] text-slate-400 font-mono pl-5 block">
+                        {purchase.shop.phone}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Purchase Date */}
+                  <div className="flex flex-col items-end shrink-0 text-right">
+                    <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-zinc-400 font-mono bg-slate-100 dark:bg-zinc-800/80 px-2 py-0.5 rounded-md">
+                      <Calendar className="size-3 text-slate-400" />
+                      {formattedDate}
+                    </span>
+                    <span className="text-[10px] text-slate-400 mt-1">
+                      {purchase.items.length} line item(s)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Financial Breakdown Pill Grid (High Contrast Due Debt Pill) */}
+                <div className="grid grid-cols-3 gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-zinc-950/60 border border-slate-100 dark:border-zinc-800/70 text-center">
+                  <div className="space-y-0.5">
+                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                      Total Bill
+                    </span>
+                    <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white font-mono block">
+                      Rs. {purchase.totalAmount.toLocaleString()}
+                    </span>
+                  </div>
+
+                  <div className="space-y-0.5 border-x border-slate-200/70 dark:border-zinc-800">
+                    <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">
+                      Paid Amount
+                    </span>
+                    <span className="text-xs sm:text-sm font-bold text-emerald-600 dark:text-emerald-400 font-mono block">
+                      Rs. {purchase.paidAmount.toLocaleString()}
+                    </span>
+                  </div>
+
+                  <div className={`space-y-0.5 rounded-lg px-1.5 py-0.5 ${
+                    due > 0 
+                      ? 'bg-rose-100/90 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 ring-1 ring-rose-500/30' 
+                      : 'bg-emerald-100/60 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300'
+                  }`}>
+                    <span className="text-[10px] font-bold uppercase tracking-wider block">
+                      Due Debt
+                    </span>
+                    <span className="text-xs sm:text-sm font-extrabold font-mono block">
+                      Rs. {due.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+
+                {purchase.notes && (
+                  <p className="text-[11px] text-slate-500 dark:text-zinc-400 italic bg-slate-50/50 dark:bg-zinc-950/30 p-2 rounded-lg border border-slate-100 dark:border-zinc-800/50 line-clamp-2">
+                    "{purchase.notes}"
+                  </p>
+                )}
+
+                {/* ── Touch Action Bar: Payment History, Add Payment, View Items, Admin-only Delete ── */}
+                <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 flex items-center justify-between gap-1.5 flex-wrap">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {/* 1. Payment History Button */}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setHistoryPurchase(purchase)}
+                      className="h-8 px-2.5 text-xs font-semibold rounded-xl gap-1.5 cursor-pointer text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800/60 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+                    >
+                      <Receipt className="size-3.5" />
+                      <span>Payment History</span>
+                    </Button>
+
+                    {/* 2. Add Payment Button */}
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        setSettlingPurchase(purchase);
+                        setPaymentAmount(due > 0 ? String(due) : '');
+                        setSettleDateTime(getCurrentLocalISOString());
+                        setSettleMethod('CASH');
+                        setSettleReference('');
+                      }}
+                      className={`h-8 px-2.5 text-xs font-bold rounded-xl gap-1.5 cursor-pointer shadow-xs ${
+                        due > 0
+                          ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                          : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                      }`}
+                      title={due > 0 ? 'Settle pending due balance' : 'Record additional payment'}
+                    >
+                      <Wallet className="size-3.5" />
+                      <span>Add Payment</span>
+                    </Button>
+
+                    {/* 3. View Items Button */}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setViewingPurchase(purchase)}
+                      className="h-8 px-2.5 text-xs font-semibold rounded-xl gap-1.5 cursor-pointer"
+                    >
+                      <Eye className="size-3.5 text-slate-500" />
+                      <span>View Items</span>
+                    </Button>
+                  </div>
+
+                  <div className="flex items-center gap-1 ml-auto">
+                    {/* 4. Admin-only Delete */}
+                    {isAdmin && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setDeletingPurchase(purchase)}
+                        className="h-8 px-2 text-xs font-semibold rounded-xl gap-1 text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                        title="Cancel & Rollback Purchase (Admin Only)"
+                      >
+                        <Trash2 className="size-3.5" />
+                        <span>Delete</span>
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Secondary Actions: Quick Edit, Download GRN, WhatsApp */}
+                <div className="pt-1.5 border-t border-slate-100/80 dark:border-zinc-800/60 flex items-center justify-between text-[11px] text-slate-500 dark:text-zinc-400">
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/system/buy-raw-materials/edit/${purchase.id}`)}
+                    className="hover:text-indigo-600 flex items-center gap-1 cursor-pointer"
+                  >
+                    <Edit2 className="size-3" />
+                    <span>Edit Order</span>
+                  </button>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadGrnPdf(purchase)}
+                      disabled={downloadingId === purchase.id}
+                      className="text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      {downloadingId === purchase.id ? (
+                        <Loader2 className="size-3 animate-spin" />
+                      ) : (
+                        <Download className="size-3" />
+                      )}
+                      <span>GRN PDF</span>
+                    </button>
+
+                    {purchase.shop?.phone && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const waMsg = generateSupplierStockInWhatsAppMessage(purchase);
+                          openWhatsAppChat(purchase.shop.phone!, waMsg);
+                        }}
+                        className="text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <MessageSquare className="size-3" />
+                        <span>WhatsApp</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
       {/* New Stock Purchase Dialog */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-full max-w-lg sm:max-w-2xl lg:max-w-3xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ShoppingCart className="size-5 text-indigo-600" /> Record Raw Material Stock-In
@@ -843,9 +1105,9 @@ export const BuyRawMaterialsPage: React.FC = () => {
                 </Button>
               </div>
 
-              {/* Set overflow-visible and relative z-index so that SearchableSelect dropdown floats over bottom fields */}
-              <div className="rounded-xl border border-slate-200 dark:border-zinc-800 overflow-visible relative z-20">
-                <Table className="overflow-visible">
+              {/* Set overflow-x-auto and relative z-index so that SearchableSelect dropdown floats over bottom fields and table doesn't cramp */}
+              <div className="rounded-xl border border-slate-200 dark:border-zinc-800 overflow-x-auto relative z-20">
+                <Table className="min-w-[560px]">
                   <TableHeader>
                     <TableRow className="bg-slate-50 dark:bg-zinc-900/50">
                       <TableHead className="w-[38%]">Material Item *</TableHead>
@@ -982,7 +1244,7 @@ export const BuyRawMaterialsPage: React.FC = () => {
               </div>
             </div>
 
-            <DialogFooter className="pt-2">
+            <DialogFooter className="sticky bottom-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm pt-3 pb-1 border-t border-slate-100 dark:border-zinc-800 mt-3 flex items-center justify-end gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => setIsModalOpen(false)}>
                 Cancel
               </Button>
@@ -997,7 +1259,7 @@ export const BuyRawMaterialsPage: React.FC = () => {
 
       {/* View Items Breakdown Modal */}
       <Dialog open={Boolean(viewingPurchase)} onOpenChange={(open) => !open && setViewingPurchase(null)}>
-        <DialogContent className="max-w-xl">
+        <DialogContent className="w-full max-w-lg sm:max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm">
               <FileText className="size-4 text-indigo-600" />
@@ -1023,8 +1285,8 @@ export const BuyRawMaterialsPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="rounded-xl border overflow-hidden">
-                <Table>
+              <div className="rounded-xl border overflow-x-auto">
+                <Table className="min-w-[420px]">
                   <TableHeader>
                     <TableRow className="bg-slate-50 dark:bg-zinc-900/50">
                       <TableHead>Material</TableHead>
@@ -1059,14 +1321,22 @@ export const BuyRawMaterialsPage: React.FC = () => {
                 <span className="text-emerald-600">Paid: Rs. {viewingPurchase.paidAmount.toLocaleString()}</span>
               </div>
 
-              <div className="pt-2 flex justify-end">
+              <DialogFooter className="sticky bottom-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm pt-3 pb-1 border-t border-slate-100 dark:border-zinc-800 mt-2 flex items-center justify-end gap-2">
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
+                  onClick={() => setViewingPurchase(null)}
+                >
+                  Close
+                </Button>
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
                   onClick={() => handleDownloadGrnPdf(viewingPurchase)}
                   disabled={downloadingId === viewingPurchase.id}
-                  className="gap-2 text-xs border-indigo-200 text-indigo-600 hover:bg-indigo-50"
+                  className="gap-2 text-xs bg-indigo-600 hover:bg-indigo-700 text-white"
                 >
                   {downloadingId === viewingPurchase.id ? (
                     <Loader2 className="size-3.5 animate-spin" />
@@ -1075,7 +1345,7 @@ export const BuyRawMaterialsPage: React.FC = () => {
                   )}
                   Download GRN Note (A4 PDF)
                 </Button>
-              </div>
+              </DialogFooter>
             </div>
           )}
         </DialogContent>
@@ -1084,14 +1354,14 @@ export const BuyRawMaterialsPage: React.FC = () => {
       {/* Cancel/Rollback Confirmation Alert (Admin Only) */}
       {isAdmin && (
         <AlertDialog open={Boolean(deletingPurchase)} onOpenChange={(open) => !open && setDeletingPurchase(null)}>
-          <AlertDialogContent>
+          <AlertDialogContent className="w-full max-w-lg sm:max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
             <AlertDialogHeader>
               <AlertDialogTitle>Cancel and rollback this purchase order?</AlertDialogTitle>
               <AlertDialogDescription>
                 This will permanently delete the purchase record, decrement the material quantities from inventory stock, and reverse any outstanding supplier debt balance.
               </AlertDialogDescription>
             </AlertDialogHeader>
-            <AlertDialogFooter>
+            <AlertDialogFooter className="sticky bottom-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm pt-3 pb-1 border-t border-slate-100 dark:border-zinc-800 mt-2">
               <AlertDialogCancel disabled={isDeleting}>Keep Order</AlertDialogCancel>
               <AlertDialogAction
                 onClick={handleDeleteConfirm}
@@ -1107,7 +1377,7 @@ export const BuyRawMaterialsPage: React.FC = () => {
 
       {/* ⭐ Partial Payment Settlement Modal with POS Date & Time */}
       <Dialog open={Boolean(settlingPurchase)} onOpenChange={(open) => !open && setSettlingPurchase(null)}>
-        <DialogContent className="sm:max-w-[440px]">
+        <DialogContent className="w-full max-w-lg sm:max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
               <Wallet className="size-5 text-emerald-600" />
@@ -1191,7 +1461,7 @@ export const BuyRawMaterialsPage: React.FC = () => {
                 />
               </div>
 
-              <DialogFooter className="pt-2">
+              <DialogFooter className="sticky bottom-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm pt-3 pb-1 border-t border-slate-100 dark:border-zinc-800 mt-3 flex items-center justify-end gap-2">
                 <Button type="button" variant="outline" size="sm" onClick={() => setSettlingPurchase(null)}>
                   Cancel
                 </Button>
@@ -1207,6 +1477,157 @@ export const BuyRawMaterialsPage: React.FC = () => {
               </DialogFooter>
             </form>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ⭐ Supplier Purchase Payment History Ledger Modal */}
+      <Dialog open={Boolean(historyPurchase)} onOpenChange={(open) => !open && setHistoryPurchase(null)}>
+        <DialogContent className="w-full max-w-lg sm:max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900 dark:text-white">
+              <Receipt className="size-5 text-indigo-600" />
+              Payment History — {historyPurchase?.invoiceNumber || `#PO-${historyPurchase?.id}`}
+            </DialogTitle>
+          </DialogHeader>
+
+          {historyPurchase && (() => {
+            const due = historyPurchase.totalAmount - historyPurchase.paidAmount;
+            const historyList = historyPurchase.paymentHistory || [];
+
+            return (
+              <div className="space-y-4 py-2">
+                {/* Supplier & Date Overview */}
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold">Supplier</span>
+                    <strong className="text-slate-900 dark:text-white text-sm">{historyPurchase.shop.name}</strong>
+                    {historyPurchase.shop.phone && (
+                      <span className="text-[11px] text-slate-400 font-mono block">{historyPurchase.shop.phone}</span>
+                    )}
+                  </div>
+                  <div className="sm:text-right">
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold">Purchase Date</span>
+                    <span className="font-mono text-slate-700 dark:text-zinc-300">
+                      {new Date(historyPurchase.purchaseDate).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Financial Summary Pill Grid */}
+                <div className="grid grid-cols-3 gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-center text-xs">
+                  <div>
+                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Total Bill</span>
+                    <span className="text-sm font-bold font-mono text-slate-900 dark:text-white block mt-0.5">
+                      Rs. {historyPurchase.totalAmount.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="border-x border-slate-200 dark:border-zinc-800">
+                    <span className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wider block">Total Paid</span>
+                    <span className="text-sm font-bold font-mono text-emerald-600 block mt-0.5">
+                      Rs. {historyPurchase.paidAmount.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className={due > 0 ? 'text-rose-600' : 'text-emerald-600'}>
+                    <span className="text-[10px] font-semibold uppercase tracking-wider block">Remaining Due</span>
+                    <span className="text-sm font-extrabold font-mono block mt-0.5">
+                      Rs. {due.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Payment Transactions Ledger */}
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold text-slate-700 dark:text-zinc-300 uppercase tracking-wider">
+                    Payment Ledger Transactions ({historyList.length})
+                  </h4>
+
+                  {historyList.length === 0 ? (
+                    <div className="p-6 text-center text-xs text-slate-400 dark:text-zinc-500 rounded-xl border border-dashed border-slate-200 dark:border-zinc-800">
+                      No payment transactions recorded for this order.
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-slate-200 dark:border-zinc-800 overflow-x-auto">
+                      <Table className="min-w-[480px]">
+                        <TableHeader>
+                          <TableRow className="bg-slate-50 dark:bg-zinc-900/50">
+                            <TableHead className="text-[11px] font-bold">Date &amp; Time</TableHead>
+                            <TableHead className="text-[11px] font-bold">Method</TableHead>
+                            <TableHead className="text-[11px] font-bold">Reference / Notes</TableHead>
+                            <TableHead className="text-[11px] font-bold text-right">Amount Paid</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {historyList.map((entry, idx) => {
+                            const entryDate = entry.createdAt || entry.paymentDate || historyPurchase.purchaseDate;
+                            return (
+                              <TableRow key={entry.id || idx}>
+                                <TableCell className="text-xs font-mono">
+                                  {new Date(entryDate).toLocaleString('en-US', {
+                                    year: 'numeric',
+                                    month: 'short',
+                                    day: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant="outline" className="text-[10px] font-semibold">
+                                    {entry.method || entry.paymentMethod || 'CASH'}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-xs text-slate-600 dark:text-zinc-400">
+                                  {entry.reference || entry.chequeNumber ? (
+                                    <span>
+                                      {entry.reference || `Cheque #${entry.chequeNumber}`}
+                                      {entry.bankName && ` (${entry.bankName})`}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400 italic">Settlement Entry</span>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-xs font-bold font-mono text-emerald-600 text-right">
+                                  Rs. {Number(entry.amount).toLocaleString()}
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </div>
+
+                <DialogFooter className="sticky bottom-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm pt-3 pb-1 border-t border-slate-100 dark:border-zinc-800 mt-3 flex items-center justify-between gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setHistoryPurchase(null)}>
+                    Close
+                  </Button>
+                  {due > 0 && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        const target = historyPurchase;
+                        setHistoryPurchase(null);
+                        setSettlingPurchase(target);
+                        setPaymentAmount(String(due));
+                        setSettleDateTime(getCurrentLocalISOString());
+                        setSettleMethod('CASH');
+                        setSettleReference('');
+                      }}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 text-xs font-bold"
+                    >
+                      <Wallet className="size-3.5" />
+                      <span>Add Payment (Pay Rs. {due.toLocaleString()})</span>
+                    </Button>
+                  )}
+                </DialogFooter>
+              </div>
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </div>

@@ -97,13 +97,13 @@ export const QuickAddMaterialModal: React.FC<QuickAddMaterialModalProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[420px]">
+      <DialogContent className="w-full max-w-lg sm:max-w-xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-sm">
             <Boxes className="size-4 text-indigo-600" /> Quick Add Material Item
           </DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-3 py-1">
+        <form onSubmit={handleSubmit} className="space-y-3.5 py-1">
           <div className="space-y-1">
             <label className="text-xs font-semibold">Material Name *</label>
             <Input
@@ -116,7 +116,7 @@ export const QuickAddMaterialModal: React.FC<QuickAddMaterialModalProps> = ({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <div className="space-y-1">
               <label className="text-xs font-semibold">Item Code</label>
               <div className="relative flex items-center">
@@ -172,7 +172,7 @@ export const QuickAddMaterialModal: React.FC<QuickAddMaterialModalProps> = ({
             />
           </div>
 
-          <DialogFooter className="pt-2">
+          <DialogFooter className="sticky bottom-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm pt-3 pb-1 border-t border-slate-100 dark:border-zinc-800 mt-3 flex items-center justify-end gap-2">
             <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>

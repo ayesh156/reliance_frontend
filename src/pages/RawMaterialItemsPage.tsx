@@ -542,13 +542,13 @@ export const RawMaterialItemsPage: React.FC = () => {
 
       {/* Add / Edit Material Item Dialog */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="sm:max-w-[440px]">
+        <DialogContent className="w-full max-w-lg sm:max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>
               {editingItem ? 'Edit Material Item' : 'Register New Material Item'}
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleFormSubmit} className="space-y-3 py-2">
+          <form onSubmit={handleFormSubmit} className="space-y-3.5 py-2">
             <div className="space-y-1">
               <label className="text-xs font-semibold">Material Name *</label>
               <Input
@@ -559,7 +559,7 @@ export const RawMaterialItemsPage: React.FC = () => {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-xs font-semibold">Item Code / SKU</label>
                 <div className="relative flex items-center">
@@ -641,7 +641,7 @@ export const RawMaterialItemsPage: React.FC = () => {
               />
             </div>
 
-            <DialogFooter className="pt-2">
+            <DialogFooter className="sticky bottom-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm pt-3 pb-1 border-t border-slate-100 dark:border-zinc-800 mt-4 flex items-center justify-end gap-2">
               <Button
                 type="button"
                 variant="outline"
@@ -661,7 +661,7 @@ export const RawMaterialItemsPage: React.FC = () => {
 
       {/* Delete Confirmation Alert Dialog */}
       <AlertDialog open={Boolean(deletingItem)} onOpenChange={(open) => !open && setDeletingItem(null)}>
-        <AlertDialogContent>
+        <AlertDialogContent className="w-full max-w-lg sm:max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <AlertDialogHeader>
             <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -670,7 +670,7 @@ export const RawMaterialItemsPage: React.FC = () => {
               Materials linked to previous purchase orders cannot be deleted to safeguard historical stock calculations.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
+          <AlertDialogFooter className="sticky bottom-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm pt-3 pb-1 border-t border-slate-100 dark:border-zinc-800 mt-2">
             <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteConfirm}

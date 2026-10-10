@@ -278,7 +278,7 @@ export const MaterialMovementHistoryModal: React.FC<MaterialMovementHistoryModal
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[760px] max-h-[90vh] flex flex-col p-5">
+      <DialogContent className="w-full max-w-lg sm:max-w-2xl lg:max-w-3xl max-h-[90vh] flex flex-col p-4 sm:p-6 overflow-hidden">
         <DialogHeader className="pb-1">
           <div className="flex items-center gap-2">
             <History className="size-5 text-indigo-600" />
@@ -490,7 +490,7 @@ export const MaterialMovementHistoryModal: React.FC<MaterialMovementHistoryModal
 
       {/* Delete Confirmation Alert Dialog */}
       <AlertDialog open={Boolean(deletingMovement)} onOpenChange={(open) => !open && setDeletingMovement(null)}>
-        <AlertDialogContent>
+        <AlertDialogContent className="w-full max-w-lg sm:max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <AlertDialogHeader>
             <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -501,7 +501,7 @@ export const MaterialMovementHistoryModal: React.FC<MaterialMovementHistoryModal
               will be immediately reversed back to active warehouse stock.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
+          <AlertDialogFooter className="sticky bottom-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm pt-3 pb-1 border-t border-slate-100 dark:border-zinc-800 mt-2">
             <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteConfirm}

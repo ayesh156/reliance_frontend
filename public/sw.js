@@ -40,6 +40,15 @@ self.addEventListener('activate', (event) => {
 });
 
 /**
+ * Service Worker Message Event
+ * Allows clients to prompt skip waiting on deployment of fresh assets
+ */
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+/**
  * Service Worker Fetch Interceptor
  * - Bypasses backend API & mutation requests
  * - Serves cached App Shell for offline navigation
