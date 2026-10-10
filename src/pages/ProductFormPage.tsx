@@ -64,8 +64,8 @@ export const ProductFormPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const isEdit = Boolean(id);
   const navigate = useNavigate();
-  const { theme } = useTheme();
-  const dark = theme === 'dark';
+  const { resolvedTheme } = useTheme();
+  const dark = resolvedTheme === 'dark';
 
   const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
   const [sizes, setSizes] = useState<{ id: number; name: string }[]>([]);

@@ -18,7 +18,7 @@ import { Settings } from './pages/Settings';
 import { RawMaterialShopsPage } from './pages/RawMaterialShopsPage';
 import { RawMaterialItemsPage } from './pages/RawMaterialItemsPage';
 import { CustomersPage } from './pages/CustomersPage';
-import { QuickCheckoutPage } from './pages/QuickCheckoutPage';
+import { QuickInvoicePage } from './pages/QuickInvoicePage';
 import { InvoicesPage } from './pages/InvoicesPage';
 import { BuyRawMaterialsPage } from './pages/BuyRawMaterialsPage';
 import BuyRawMaterialFormPage from './pages/BuyRawMaterialFormPage';
@@ -185,13 +185,25 @@ export function App() {
                 }
               />
 
-              {/* Quick Checkout Cashier Terminal Route */}
+              {/* Quick Invoice / POS Cashier Terminal Route */}
+              <Route
+                path="/system/quick-invoice"
+                element={
+                  <ProtectedRoute>
+                    <AdminPage>
+                      <QuickInvoicePage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Legacy Quick Checkout Alias (Preserves Existing Bookmarks & Links) */}
               <Route
                 path="/system/quick-checkout"
                 element={
                   <ProtectedRoute>
                     <AdminPage>
-                      <QuickCheckoutPage />
+                      <QuickInvoicePage />
                     </AdminPage>
                   </ProtectedRoute>
                 }

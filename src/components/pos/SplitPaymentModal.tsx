@@ -107,8 +107,8 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
   initialSplits,
   onApply,
 }) => {
-  const { theme } = useTheme();
-  const dark = theme === 'dark';
+  const { resolvedTheme } = useTheme();
+  const dark = resolvedTheme === 'dark';
 
   const [splits, setSplits] = useState<SplitPaymentItem[]>([]);
 

@@ -59,8 +59,8 @@ const ROLE_OPTIONS: SearchableSelectOption[] = [
 
 export const Settings: React.FC = () => {
   const { user: currentUser, isAdmin, isRep } = useAuth();
-  const { theme } = useTheme();
-  const dark = theme === 'dark';
+  const { resolvedTheme } = useTheme();
+  const dark = resolvedTheme === 'dark';
 
   const [activeTab, setActiveTab] = useState<string>(isAdmin && !isRep ? 'staff' : 'general');
 

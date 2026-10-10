@@ -133,9 +133,9 @@ interface PurchaseRecord {
 const PAYMENT_METHODS = ['CASH', 'CREDIT', 'CHEQUE', 'BANK_TRANSFER'];
 
 export const BuyRawMaterialsPage: React.FC = () => {
-  const { theme } = useTheme();
+  const { resolvedTheme } = useTheme();
   const { isAdmin } = useAuth();
-  const dark = theme === 'dark';
+  const dark = resolvedTheme === 'dark';
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 

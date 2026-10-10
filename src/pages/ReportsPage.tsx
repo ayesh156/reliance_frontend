@@ -73,8 +73,8 @@ const MODULE_TABS: TabItem[] = [
 export const ReportsPage: React.FC = () => {
   const { user } = useAuth();
   const isRep = user?.role === 'REP';
-  const { theme } = useTheme();
-  const dark = theme === 'dark';
+  const { resolvedTheme } = useTheme();
+  const dark = resolvedTheme === 'dark';
 
   const [activeModule, setActiveModule] = useState<ModuleKey>('sales');
   const [activePreset, setActivePreset] = useState<PresetKey>('monthly');

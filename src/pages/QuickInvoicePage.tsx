@@ -106,10 +106,10 @@ export interface ChequeEntry {
   amount: string;
 }
 
-export const QuickCheckoutPage: React.FC = () => {
-  const { theme } = useTheme();
+export const QuickInvoicePage: React.FC = () => {
+  const { resolvedTheme } = useTheme();
   const { user, isRep } = useAuth();
-  const dark = theme === 'dark';
+  const dark = resolvedTheme === 'dark';
 
   const [catalog, setCatalog] = useState<CatalogVariant[]>([]);
   const [customers, setCustomers] = useState<PosCustomer[]>([]);
@@ -1403,7 +1403,7 @@ export const QuickCheckoutPage: React.FC = () => {
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => navigate('/system/products/new?returnUrl=/system/quick-checkout')}
+              onClick={() => navigate('/system/products/new?returnUrl=/system/quick-invoice')}
               className="h-9 min-h-[44px] sm:min-h-0 px-2.5 text-xs font-semibold gap-1.5 border-dashed border-emerald-500/60 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 shrink-0"
               title="Register new product and return back to POS"
             >
@@ -1543,7 +1543,7 @@ export const QuickCheckoutPage: React.FC = () => {
       </div>
 
       {/* Right Column: Checkout Cart & A4 Billing (Desktop Layout) */}
-      <div className="hidden lg:flex lg:w-[380px] xl:w-[410px] h-full flex flex-col justify-between overflow-hidden bg-white dark:bg-zinc-900/70 p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 shrink-0 shadow-sm">
+      <div className="hidden lg:flex lg:w-[380px] xl:w-[410px] h-full flex-col justify-between overflow-hidden bg-white dark:bg-zinc-900/70 p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 shrink-0 shadow-sm">
         {/* Top Header */}
         <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 dark:border-zinc-800/80 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
@@ -1570,7 +1570,7 @@ export const QuickCheckoutPage: React.FC = () => {
               onClick={() => {
                 setCart([]);
                 if (isEditing) {
-                  navigate('/system/quick-checkout');
+                  navigate('/system/quick-invoice');
                   setIsEditing(false);
                   setOriginalInvoice(null);
                 }
@@ -2244,7 +2244,7 @@ export const QuickCheckoutPage: React.FC = () => {
                     onClick={() => {
                       setCart([]);
                       if (isEditing) {
-                        navigate('/system/quick-checkout');
+                        navigate('/system/quick-invoice');
                         setIsEditing(false);
                         setOriginalInvoice(null);
                       }
@@ -2812,33 +2812,33 @@ export const QuickCheckoutPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Action Buttons in Mobile Drawer (Touch-First Adaptive: Primary "Save & Download PDF" vs Secondary "Save Invoice Only") */}
-              <div className="flex flex-col sm:flex-row items-stretch gap-2 w-full pt-1">
-                <Button
-                  type="button"
-                  disabled={cart.length === 0 || submitting}
-                  onClick={() => handleCheckout('SAVE_AND_PDF')}
-                  className="flex-1 min-h-[48px] h-12 gap-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm cursor-pointer transition-all active:scale-[0.98] order-1 sm:order-2"
-                >
-                  {submitting ? <Loader2 className="size-4 animate-spin" /> : <FileDown className="size-4 text-white" />}
-                  <span>Save &amp; Download PDF</span>
-                </Button>
+              {/* Action Buttons in Mobile Drawer (Compact 2-Column Grid) */}
+              <div className="grid grid-cols-2 gap-2 w-full pt-1">
                 <Button
                   type="button"
                   disabled={cart.length === 0 || submitting}
                   onClick={() => handleCheckout('SAVE_ONLY')}
-                  className="flex-1 min-h-[48px] h-12 gap-2 bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-100 dark:border-zinc-700 dark:border-zinc-750 font-bold text-xs sm:text-sm rounded-xl shadow-xs cursor-pointer transition-all active:scale-[0.98] order-2 sm:order-1"
+                  className="h-9 min-h-[38px] gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-100 dark:border-zinc-700 text-xs font-semibold rounded-xl shadow-xs cursor-pointer transition-all active:scale-[0.98]"
                 >
-                  {submitting ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4 text-slate-700 dark:text-zinc-300" />}
-                  <span>{isEditing ? 'Save Changes Only' : 'Save Invoice Only'}</span>
+                  {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5 text-slate-700 dark:text-zinc-300" />}
+                  <span>{isEditing ? 'Save Only' : 'Save Invoice'}</span>
+                </Button>
+                <Button
+                  type="button"
+                  disabled={cart.length === 0 || submitting}
+                  onClick={() => handleCheckout('SAVE_AND_PDF')}
+                  className="h-9 min-h-[38px] gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer transition-all active:scale-[0.98]"
+                >
+                  {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <FileDown className="size-3.5 text-white" />}
+                  <span>Download PDF</span>
                 </Button>
               </div>
-              <div className="flex justify-center pt-0.5 pb-1">
+              <div className="flex justify-center pt-0.5 pb-0.5">
                 <button
                   type="button"
                   disabled={cart.length === 0 || submitting}
                   onClick={() => handleCheckout('SAVE_AND_PRINT')}
-                  className="text-[11px] font-semibold text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[36px] flex items-center"
+                  className="text-[11px] font-semibold text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[26px] py-0.5"
                 >
                   <Printer className="size-3" />
                   <span>Or Save &amp; Print Preview</span>

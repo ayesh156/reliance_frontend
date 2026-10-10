@@ -76,9 +76,9 @@ interface InvoiceRecord {
 
 export const InvoicesPage: React.FC = () => {
   const navigate = useNavigate();
-  const { theme } = useTheme();
+  const { resolvedTheme } = useTheme();
   const { user, isAdmin, isRep } = useAuth();
-  const dark = theme === 'dark';
+  const dark = resolvedTheme === 'dark';
 
   const canDeleteInvoice = (inv: InvoiceRecord): boolean => {
     if (isAdmin) return true;
@@ -499,7 +499,7 @@ export const InvoicesPage: React.FC = () => {
             <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
           </Button>
           <Button
-            onClick={() => navigate('/system/quick-checkout')}
+            onClick={() => navigate('/system/quick-invoice')}
             className="h-9 gap-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
           >
             + New Sale
@@ -637,7 +637,7 @@ export const InvoicesPage: React.FC = () => {
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span
-                        onClick={() => navigate(`/system/quick-checkout?editInvoiceId=${inv.id}`)}
+                        onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}`)}
                         className="font-mono font-bold text-xs px-2.5 py-1 rounded bg-slate-100 dark:bg-zinc-800 text-slate-900 dark:text-white cursor-pointer hover:underline hover:text-emerald-600 dark:hover:text-emerald-400 select-none"
                         title="Click to edit invoice in POS"
                       >
@@ -686,7 +686,7 @@ export const InvoicesPage: React.FC = () => {
                   <div className="flex items-start justify-between gap-2 pt-1 border-t border-slate-100 dark:border-zinc-800/60">
                     <div className="min-w-0">
                       <h4
-                        onClick={() => navigate(`/system/quick-checkout?editInvoiceId=${inv.id}`)}
+                        onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}`)}
                         className="font-bold text-sm text-slate-900 dark:text-white truncate cursor-pointer hover:underline hover:text-emerald-600 dark:hover:text-emerald-400"
                         title="Click to edit invoice in POS"
                       >
@@ -764,9 +764,9 @@ export const InvoicesPage: React.FC = () => {
                     {/* Quick POS Edit Action */}
                     <button
                       type="button"
-                      onClick={() => navigate(`/system/quick-checkout?editInvoiceId=${inv.id}`)}
+                      onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}`)}
                       className="min-h-[44px] min-w-[44px] px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer select-none"
-                      title="Edit Invoice in Quick Checkout"
+                      title="Edit Invoice in Quick Invoice"
                     >
                       <Edit className="size-4 shrink-0" />
                       <span className="hidden sm:inline">Edit</span>
@@ -835,7 +835,7 @@ export const InvoicesPage: React.FC = () => {
                     <tr key={inv.id} className="hover:bg-slate-50/70 dark:hover:bg-zinc-800/30 transition-colors">
                       {/* Interactive Clickable Invoice ID with Wholesale / Retail Badge */}
                       <td 
-                        onClick={() => navigate(`/system/quick-checkout?editInvoiceId=${inv.id}`)}
+                        onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}`)}
                         className="py-3 px-4 font-mono font-bold text-slate-900 dark:text-white cursor-pointer hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline select-none"
                         title="Click to edit invoice in POS"
                       >
@@ -870,7 +870,7 @@ export const InvoicesPage: React.FC = () => {
                       </td>
                       {/* Interactive Clickable Customer Name: Direct jump to Quick Checkout in Edit Mode */}
                       <td 
-                        onClick={() => navigate(`/system/quick-checkout?editInvoiceId=${inv.id}`)}
+                        onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}`)}
                         className="py-3 px-4 cursor-pointer group/inv-cust select-none"
                         title="Click to edit invoice in POS"
                       >
@@ -971,7 +971,7 @@ export const InvoicesPage: React.FC = () => {
                             </DropdownMenuItem>
 
                             <DropdownMenuItem
-                              onClick={() => navigate(`/system/quick-checkout?editInvoiceId=${inv.id}`)}
+                              onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}`)}
                               className="gap-2 cursor-pointer text-blue-600 focus:text-blue-700"
                             >
                               <Edit className="size-3.5 text-blue-600" />

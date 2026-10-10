@@ -112,8 +112,8 @@ const UNITS: RawMaterialUnit[] = [
  */
 export const RawMaterialItemsPage: React.FC = () => {
   // Theme state for adaptive combobox dropdown styling
-  const { theme } = useTheme();
-  const dark = theme === 'dark';
+  const { resolvedTheme } = useTheme();
+  const dark = resolvedTheme === 'dark';
 
   const [items, setItems] = useState<RawMaterialItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);

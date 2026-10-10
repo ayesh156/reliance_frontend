@@ -47,8 +47,8 @@ const STATUS_CONFIG: Record<string, { label: string; badge: string }> = {
 };
 
 export const Dashboard: React.FC = () => {
-  const { theme } = useTheme();
-  const dark = theme === 'dark';
+  const { resolvedTheme } = useTheme();
+  const dark = resolvedTheme === 'dark';
 
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [loading, setLoading] = useState(true);

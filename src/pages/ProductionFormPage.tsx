@@ -52,8 +52,8 @@ export const ProductionFormPage: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id?: string }>();
   const isEditMode = Boolean(id);
-  const { theme } = useTheme();
-  const dark = theme === 'dark';
+  const { resolvedTheme } = useTheme();
+  const dark = resolvedTheme === 'dark';
 
   // Master catalog states
   const [productsList, setProductsList] = useState<ProductComboboxOption[]>([]);

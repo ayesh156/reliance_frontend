@@ -12,8 +12,8 @@ interface AccessDeniedProps {
 export const AccessDenied: React.FC<AccessDeniedProps> = ({ requiredRole }) => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { theme } = useTheme();
-  const isDark = theme === 'dark';
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
 
   const rolesList = requiredRole
     ? Array.isArray(requiredRole)

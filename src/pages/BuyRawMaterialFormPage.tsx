@@ -107,8 +107,8 @@ export const BuyRawMaterialFormPage: React.FC = () => {
   const { id } = useParams<{ id?: string }>(); // ⭐ URL parameter eක ලබා ගැනීම
   const isEditMode = Boolean(id); // ⭐ Edit Mode එකක්දැයි හඳුනාගැනීම
 
-  const { theme } = useTheme();
-  const dark = theme === 'dark';
+  const { resolvedTheme } = useTheme();
+  const dark = resolvedTheme === 'dark';
 
   const [shops, setShops] = useState<RawMaterialShop[]>([]);
   const [materialItems, setMaterialItems] = useState<RawMaterialItem[]>([]);

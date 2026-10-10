@@ -32,7 +32,7 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { label: "Quick Checkout", path: "/system/quick-checkout", icon: MonitorSmartphone }, 
+  { label: "Quick Invoice", path: "/system/quick-invoice", icon: MonitorSmartphone }, 
   { label: "Invoices", path: "/system/invoices", icon: FileText },
   { label: "Products", path: "/system/products", icon: ShoppingBag },
   { label: "Attributes", path: "/system/attributes", icon: Tags, roles: ["ADMIN", "STAFF"] },
@@ -91,6 +91,8 @@ export function AppSidebar() {
             const isActive =
               item.path === "/system"
                 ? location.pathname === "/system"
+                : item.path === "/system/quick-invoice"
+                ? (location.pathname.startsWith("/system/quick-invoice") || location.pathname.startsWith("/system/quick-checkout"))
                 : location.pathname.startsWith(item.path)
 
             return (

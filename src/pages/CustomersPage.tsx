@@ -78,9 +78,9 @@ interface CustomerItem {
 }
 
 export const CustomersPage: React.FC = () => {
-  const { theme } = useTheme();
+  const { resolvedTheme } = useTheme();
   const { isAdmin, isRep } = useAuth();
-  const dark = theme === 'dark';
+  const dark = resolvedTheme === 'dark';
 
   const [customers, setCustomers] = useState<CustomerItem[]>([]);
   const [loading, setLoading] = useState(true);

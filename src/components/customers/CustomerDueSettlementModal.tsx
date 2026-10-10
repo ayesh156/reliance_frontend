@@ -118,8 +118,8 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
   customerName,
   onPaymentSuccess,
 }) => {
-  const { theme } = useTheme();
-  const dark = theme === 'dark';
+  const { resolvedTheme } = useTheme();
+  const dark = resolvedTheme === 'dark';
 
   const [loading, setLoading] = useState(false);
   const [bills, setBills] = useState<DueBill[]>([]);

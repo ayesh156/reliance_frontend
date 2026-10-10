@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/x-icon" href="/images/favicon.ico" />
@@ -7,6 +7,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Reliance - Retail &amp; Wholesale Store</title>
     <meta name="description" content="Reliance — Retail and wholesale store. Shop products online or visit our store for wholesale pricing." />
+
+    <!-- Anti-flash inline script: immediately evaluate reliance-theme and OS preference -->
+    <script>
+      (function() {
+        try {
+          var saved = localStorage.getItem('reliance-theme');
+          var isDark = saved === 'dark' || ((!saved || saved === 'system') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (isDark) {
+            document.documentElement.classList.add('dark');
+            document.documentElement.style.colorScheme = 'dark';
+          } else {
+            document.documentElement.classList.remove('dark');
+            document.documentElement.style.colorScheme = 'light';
+          }
+        } catch (e) {}
+      })();
+    </script>
     
     <!-- PWA Web App Manifest & Mobile Capability Meta Tags -->
     <link rel="manifest" href="/manifest.json" />

@@ -1,13 +1,11 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { useTheme } from "../contexts/ThemeContext";
 import { useAuth } from "../contexts/AuthContext";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "./ui/sidebar";
 import { AppSidebar } from "./app-sidebar";
+import { ThemeToggle } from "./ThemeToggle";
 import {
   Globe,
-  Sun,
-  Moon,
   User,
   Shield,
   LogOut,
@@ -17,7 +15,6 @@ import {
 export const Layout: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const { theme, toggleTheme } = useTheme();
   const { user, logout, isAdmin } = useAuth();
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
@@ -78,17 +75,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({
               <ExternalLink className="w-3 h-3 opacity-60" />
             </button>
 
-            {/* Theme Toggle */}
-            <button
-              onClick={toggleTheme}
-              className="p-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-900 text-slate-700 dark:text-zinc-300 transition-all"
-            >
-              {theme === "dark" ? (
-                <Sun className="w-4 h-4" />
-              ) : (
-                <Moon className="w-4 h-4" />
-              )}
-            </button>
+            {/* Unified Theme Selector (Light, Dark, System) */}
+            <ThemeToggle className="h-8 w-8 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white/80 dark:bg-zinc-900/80 hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300" />
 
             {/* Profile Dropdown */}
             <div className="relative" ref={profileRef}>

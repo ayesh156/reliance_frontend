@@ -101,8 +101,8 @@ export const MaterialMovementHistoryModal: React.FC<MaterialMovementHistoryModal
   const [page, setPage] = useState<number>(1);
   const PAGE_SIZE = 8;
 
-  const { theme } = useTheme();
-  const dark = theme === 'dark';
+  const { resolvedTheme } = useTheme();
+  const dark = resolvedTheme === 'dark';
 
   const [editingMovement, setEditingMovement] = useState<MovementRecord | null>(null);
   const [deletingMovement, setDeletingMovement] = useState<MovementRecord | null>(null);

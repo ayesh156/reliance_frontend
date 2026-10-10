@@ -7,6 +7,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from './ui/dropdown-menu';
+import { cn } from '../lib/utils';
 
 interface ThemeToggleProps {
   className?: string;
@@ -44,7 +45,10 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({ className = '' }) => {
         <button
           type="button"
           aria-label="Select color theme"
-          className={`h-9 w-9 p-0 rounded-full border border-zinc-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/70 backdrop-blur-md hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center justify-center transition-all duration-300 shadow-sm focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:focus:ring-zinc-600 ${className}`}
+          className={cn(
+            "h-9 w-9 p-0 rounded-full border border-zinc-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/70 backdrop-blur-md hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center justify-center transition-all duration-300 shadow-sm focus:outline-none focus:ring-1 focus:ring-zinc-400 dark:focus:ring-zinc-600",
+            className
+          )}
         >
           {renderIcon()}
         </button>

@@ -141,9 +141,9 @@ interface ProductionSummaryResponse {
 
 export const ProductionListPage: React.FC = () => {
   const navigate = useNavigate();
-  const { theme } = useTheme();
+  const { resolvedTheme } = useTheme();
   const { isAdmin } = useAuth();
-  const dark = theme === 'dark';
+  const dark = resolvedTheme === 'dark';
 
   // Unified Date Range Filter (Defaults to current month)
   const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {

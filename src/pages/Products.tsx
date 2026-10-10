@@ -54,9 +54,9 @@ import {
 
 export const Products: React.FC = () => {
   const navigate = useNavigate();
-  const { theme } = useTheme();
+  const { resolvedTheme } = useTheme();
   const { isAdmin, isRep } = useAuth();
-  const dark = theme === 'dark';
+  const dark = Boolean(resolvedTheme === 'dark');
 
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
@@ -297,7 +297,7 @@ const fetchAll = useCallback(async () => {
         ) : (
           <>
             {/* Mobile / Tablet Responsive Card Grid (< 1024px) */}
-            <div className="block lg:hidden grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 w-full">
+            <div className="grid lg:hidden grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 w-full">
               {paginated.map(p => {
                 const v = p.variants?.[0];
                 const stock = (p.variants || []).reduce((acc, cur) => acc + (cur.stock || 0), 0);
