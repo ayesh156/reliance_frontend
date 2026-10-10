@@ -13,9 +13,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../components/ui/alert-dialog';
-import { get, post, del } from '../lib/api';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '../components/ui/dialog';
+import { get, post, put, del } from '../lib/api';
 import { toast } from 'react-toastify';
-import { FolderOpen, Ruler, Palette, Plus, Trash2, Loader2 } from 'lucide-react';
+import { FolderOpen, Ruler, Palette, Plus, Trash2, Pencil, Loader2 } from 'lucide-react';
 
 export const AttributesPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState('categories');
@@ -124,6 +131,31 @@ export const AttributesPage: React.FC = () => {
     type: 'Category' | 'Size' | 'Color';
   } | null>(null);
 
+  // Edit category modal state
+  const [editingCategory, setEditingCategory] = useState<{ id: number; name: string; description?: string } | null>(null);
+  const [editCatName, setEditCatName] = useState('');
+  const [editCatDesc, setEditCatDesc] = useState('');
+  const [savingCategory, setSavingCategory] = useState(false);
+
+  const handleSaveEditCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCategory || !editCatName.trim()) return;
+    try {
+      setSavingCategory(true);
+      await put(`/attributes/categories/${editingCategory.id}`, {
+        name: editCatName.trim(),
+        description: editCatDesc.trim() || undefined,
+      });
+      toast.success('Category updated successfully');
+      setEditingCategory(null);
+      fetchAll();
+    } catch (err: any) {
+      toast.error(err.message || 'Error updating category');
+    } finally {
+      setSavingCategory(false);
+    }
+  };
+
   /**
    * Execute deletion of taxonomy attribute after modal confirmation
    */
@@ -228,29 +260,132 @@ export const AttributesPage: React.FC = () => {
             </form>
           </div>
 
-          <div className="rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 p-4">
+          {/* ── Mobile / Tablet Adaptive Attribute Cards (< 1024px) ── */}
+          <div className="block lg:hidden space-y-3">
+            {categories.length === 0 ? (
+              <div className="p-6 text-center text-slate-400 text-xs rounded-2xl border border-dashed border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40">
+                No categories configured yet. Add a category above.
+              </div>
+            ) : (
+              categories.map(c => (
+                <div
+                  key={c.id}
+                  className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-4 shadow-xs space-y-2.5 transition-shadow hover:shadow-sm"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1.5 min-w-0">
+                      <h4 className="font-bold text-sm text-slate-900 dark:text-white truncate">
+                        {c.name}
+                      </h4>
+                      <div className="inline-block">
+                        <span className="font-mono text-xs px-2 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 border border-slate-200/80 dark:border-zinc-700/80">
+                          {c.slug}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Quick action buttons: Edit (Pencil) & Delete (Trash2) aligned cleanly */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setEditingCategory(c);
+                          setEditCatName(c.name);
+                          setEditCatDesc(c.description || '');
+                        }}
+                        className="size-8 p-0 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-600 dark:text-zinc-400 hover:text-emerald-600 cursor-pointer"
+                        title="Edit Category"
+                      >
+                        <Pencil className="size-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          setDeleteTarget({
+                            endpoint: '/attributes/categories',
+                            id: c.id,
+                            name: c.name,
+                            type: 'Category',
+                          })
+                        }
+                        className="size-8 p-0 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-500 hover:text-rose-600 cursor-pointer"
+                        title="Delete Category"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Description */}
+                  <p className="text-xs text-slate-500 dark:text-zinc-400 leading-relaxed border-t border-slate-100 dark:border-zinc-800/80 pt-2">
+                    {c.description ? (
+                      c.description
+                    ) : (
+                      <span className="italic text-slate-400 dark:text-zinc-500">No description provided</span>
+                    )}
+                  </p>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* ── Desktop Viewport (>= 1024px) Standard Table ── */}
+          <div className="hidden lg:block rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 p-4">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Category Name</TableHead>
-                  <TableHead>Slug</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
+                  <TableHead className="w-1/4">Category Name</TableHead>
+                  <TableHead className="w-1/4">Slug</TableHead>
+                  <TableHead className="w-1/3">Description</TableHead>
+                  <TableHead className="text-right w-24">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {categories.map(c => (
-                  <TableRow key={c.id}>
-                    <TableCell className="font-semibold">{c.name}</TableCell>
-                    <TableCell className="font-mono text-xs opacity-75">{c.slug}</TableCell>
-                    <TableCell className="text-xs text-slate-500 dark:text-zinc-400">{c.description || '-'}</TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" onClick={() => setDeleteTarget({ endpoint: '/attributes/categories', id: c.id, name: c.name, type: 'Category' })} className="text-rose-500">
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </TableCell>
+                {categories.length === 0 ? (
+                  <TableRow>
+                    <td colSpan={4} className="p-6 text-center text-slate-400 text-xs">
+                      No categories configured yet. Add a category above.
+                    </td>
                   </TableRow>
-                ))}
+                ) : (
+                  categories.map(c => (
+                    <TableRow key={c.id}>
+                      <TableCell className="font-semibold">{c.name}</TableCell>
+                      <TableCell className="font-mono text-xs opacity-75">{c.slug}</TableCell>
+                      <TableCell className="text-xs text-slate-500 dark:text-zinc-400">{c.description || '-'}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setEditingCategory(c);
+                              setEditCatName(c.name);
+                              setEditCatDesc(c.description || '');
+                            }}
+                            className="size-8 p-0 text-slate-500 hover:text-emerald-600 cursor-pointer"
+                            title="Edit Category"
+                          >
+                            <Pencil className="size-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDeleteTarget({ endpoint: '/attributes/categories', id: c.id, name: c.name, type: 'Category' })}
+                            className="size-8 p-0 text-rose-500 hover:text-rose-600 cursor-pointer"
+                            title="Delete Category"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
           </div>
@@ -348,6 +483,60 @@ export const AttributesPage: React.FC = () => {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Edit Category Dialog */}
+      <Dialog open={Boolean(editingCategory)} onOpenChange={(open) => !open && setEditingCategory(null)}>
+        <DialogContent className="sm:max-w-md bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl p-6">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Pencil className="size-4 text-emerald-500" />
+              Edit Category
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSaveEditCategory} className="space-y-4 pt-2">
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                Category Name *
+              </label>
+              <Input
+                required
+                value={editCatName}
+                onChange={e => setEditCatName(e.target.value)}
+                placeholder="Category Name"
+                className="h-10 text-xs"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                Description
+              </label>
+              <Input
+                value={editCatDesc}
+                onChange={e => setEditCatDesc(e.target.value)}
+                placeholder="Category Description (Optional)"
+                className="h-10 text-xs"
+              />
+            </div>
+            <DialogFooter className="pt-2 gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setEditingCategory(null)}
+                className="text-xs rounded-xl"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={savingCategory || !editCatName.trim()}
+                className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl"
+              >
+                {savingCategory ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Attribute Delete Confirmation Modal */}
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>

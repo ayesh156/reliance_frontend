@@ -524,8 +524,141 @@ export const ProductionFormPage: React.FC = () => {
           </Button>
         </div>
 
-        {/* Dynamic Table */}
-        <div className="rounded-xl border border-slate-200 dark:border-zinc-800 overflow-visible">
+        {/* ── Mobile / Tablet Adaptive Consumption Cards (< 1024px) ── */}
+        <div className="block lg:hidden space-y-3">
+          {formMaterials.map((line, idx) => {
+            const selectedMat = rawMaterialsList.find(
+              (m) => m.id === Number(line.rawMaterialId)
+            );
+            const issued = Number(line.issuedQty) || 0;
+            const returned = Number(line.returnedQty) || 0;
+            const net = Math.max(0, issued - returned);
+            const isOverStock = selectedMat && net > selectedMat.currentStock && !isEditMode;
+
+            return (
+              <div
+                key={idx}
+                className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/70 p-3.5 sm:p-4 shadow-xs space-y-3 transition-shadow hover:shadow-sm"
+              >
+                {/* Card Header: Material Line #, Available stock pill, Delete button */}
+                <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-zinc-800/80">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono text-xs font-bold text-slate-400">
+                      Material #{idx + 1}
+                    </span>
+                    {selectedMat && (
+                      <span
+                        className={`text-[11px] px-2 py-0.5 rounded-md font-medium border ${
+                          isOverStock
+                            ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border-rose-200 dark:border-rose-900/60'
+                            : 'bg-slate-100 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300 border-slate-200/80 dark:border-zinc-700/80'
+                        }`}
+                      >
+                        Avail: <strong className="font-mono">{selectedMat.currentStock} {selectedMat.unit}</strong>
+                      </span>
+                    )}
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleRemoveMaterialLine(idx)}
+                    disabled={formMaterials.length <= 1}
+                    className="size-8 p-0 text-slate-400 hover:text-rose-500 disabled:opacity-40 cursor-pointer"
+                    title="Remove material row"
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
+
+                {/* Material Selector */}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400">
+                    Raw Material Item *
+                  </label>
+                  <div className="w-full">
+                    <MaterialCombobox
+                      value={line.rawMaterialId}
+                      onChange={(val) => handleMaterialLineChange(idx, 'rawMaterialId', val)}
+                      options={rawMaterialsList}
+                      placeholder="Select raw material..."
+                    />
+                  </div>
+                </div>
+
+                {/* Issued and Scrap Inputs: grid grid-cols-2 gap-2.5 */}
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400">
+                      Issued Units *
+                    </label>
+                    <Input
+                      type="number"
+                      min="0.01"
+                      step="any"
+                      required
+                      value={line.issuedQty}
+                      onChange={(e) => handleMaterialLineChange(idx, 'issuedQty', e.target.value)}
+                      placeholder="0.00"
+                      className="h-9 font-mono text-xs w-full bg-slate-50/50 dark:bg-zinc-950/50"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400">
+                      Scrap Returned
+                    </label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={line.returnedQty}
+                      onChange={(e) => handleMaterialLineChange(idx, 'returnedQty', e.target.value)}
+                      placeholder="0.00"
+                      className="h-9 font-mono text-xs w-full bg-slate-50/50 dark:bg-zinc-950/50"
+                    />
+                  </div>
+                </div>
+
+                {/* Scrap Return Reason / Note (if scrap returned > 0) */}
+                {returned > 0 && (
+                  <div className="space-y-1 pt-1 border-t border-slate-100 dark:border-zinc-800/80">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                      Scrap Reason / Roll Notes
+                    </label>
+                    <Input
+                      type="text"
+                      value={line.returnReason}
+                      onChange={(e) => handleMaterialLineChange(idx, 'returnReason', e.target.value)}
+                      placeholder="e.g. Clean scrap roll cut piece"
+                      className="h-8 text-xs w-full bg-white dark:bg-zinc-950"
+                    />
+                  </div>
+                )}
+
+                {/* Net Consumed Calculation Pill */}
+                <div className="flex items-center justify-between pt-1.5 border-t border-slate-100 dark:border-zinc-800/80 text-xs">
+                  <span className="text-slate-500 dark:text-zinc-400 font-semibold">Net Consumed:</span>
+                  <span className="font-mono font-bold text-xs px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-900/60">
+                    {net.toFixed(2)} {selectedMat?.unit || 'Units'}
+                  </span>
+                </div>
+
+                {/* Insufficient Stock Warning */}
+                {isOverStock && (
+                  <div className="p-2 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 flex items-center gap-1.5 text-[11px] text-rose-600 dark:text-rose-400 font-semibold">
+                    <AlertCircle className="size-3.5 shrink-0" />
+                    <span>Net required ({net.toFixed(2)}) exceeds available stock ({selectedMat.currentStock} {selectedMat.unit})</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ── Desktop Viewport (>= 1024px) Standard Table ── */}
+        <div className="hidden lg:block rounded-xl border border-slate-200 dark:border-zinc-800 overflow-visible">
           <Table className="overflow-visible">
             <TableHeader>
               <TableRow className="bg-slate-50 dark:bg-zinc-900/50 hover:bg-transparent">

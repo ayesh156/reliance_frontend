@@ -1362,13 +1362,62 @@ export const ProductionListPage: React.FC = () => {
                 </div>
               )}
 
-              {/* Material Usages Table */}
+              {/* Material Usages: Mobile Cards + Desktop Table */}
               <div className="space-y-2">
                 <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
                   Raw Material Consumption Details
                 </h4>
 
-                <div className="rounded-xl border border-slate-200 dark:border-zinc-800 overflow-x-auto">
+                {/* Mobile Cards (< sm) */}
+                <div className="block sm:hidden space-y-2.5">
+                  {selectedOrder.materialUsages.map((usage) => (
+                    <div
+                      key={usage.id}
+                      className="p-3 bg-slate-50 dark:bg-zinc-900/60 rounded-xl border border-slate-200/80 dark:border-zinc-800 space-y-2 text-xs"
+                    >
+                      <div className="flex items-center justify-between">
+                        <strong className="text-slate-900 dark:text-white font-semibold">
+                          {usage.rawMaterial.name}
+                        </strong>
+                        {usage.rawMaterial.code && (
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            {usage.rawMaterial.code}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 text-center pt-1 border-t border-slate-200/60 dark:border-zinc-800/60">
+                        <div className="bg-white dark:bg-zinc-950 p-1.5 rounded-lg border border-slate-100 dark:border-zinc-800">
+                          <span className="text-[9px] uppercase font-bold text-slate-400 block">Issued</span>
+                          <span className="font-mono font-bold text-slate-700 dark:text-zinc-300 text-xs">
+                            {usage.issuedQty} {usage.rawMaterial.unit}
+                          </span>
+                        </div>
+                        <div className="bg-white dark:bg-zinc-950 p-1.5 rounded-lg border border-slate-100 dark:border-zinc-800">
+                          <span className="text-[9px] uppercase font-bold text-emerald-600 block">Returned</span>
+                          <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-xs">
+                            {usage.returnedQty} {usage.rawMaterial.unit}
+                          </span>
+                        </div>
+                        <div className="bg-white dark:bg-zinc-950 p-1.5 rounded-lg border border-slate-100 dark:border-zinc-800">
+                          <span className="text-[9px] uppercase font-bold text-slate-400 block">Net</span>
+                          <span className="font-mono font-bold text-slate-900 dark:text-white text-xs">
+                            {usage.netConsumedQty} {usage.rawMaterial.unit}
+                          </span>
+                        </div>
+                      </div>
+
+                      {usage.returnReason && (
+                        <p className="text-[11px] text-slate-500 dark:text-zinc-400 italic pt-1">
+                          Scrap note: {usage.returnReason}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop Table (>= sm) */}
+                <div className="hidden sm:block rounded-xl border border-slate-200 dark:border-zinc-800 overflow-x-auto">
                   <Table className="min-w-[480px]">
                     <TableHeader>
                       <TableRow className="bg-slate-50 dark:bg-zinc-900">

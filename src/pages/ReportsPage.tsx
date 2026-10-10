@@ -6,6 +6,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
 import { DateRangePicker, type DateRange } from '../components/ui/date-range-picker';
+import { SearchableSelect, type SearchableSelectOption } from '../components/ui/searchable-select';
 import { toast } from 'react-toastify';
 import {
   Download,
@@ -171,6 +172,26 @@ export const ReportsPage: React.FC = () => {
   const activeTabItem = useMemo(() => {
     return visibleTabs.find((t) => t.key === activeModule) || visibleTabs[0] || MODULE_TABS[0];
   }, [activeModule, visibleTabs]);
+
+  const moduleSelectOptions = useMemo<SearchableSelectOption[]>(() => {
+    return visibleTabs.map((t) => {
+      let emoji = '📊';
+      if (t.key === 'returns') emoji = '🔄';
+      else if (t.key === 'inventory') emoji = '📦';
+      else if (t.key === 'products') emoji = '🏷️';
+      else if (t.key === 'materials') emoji = '🧵';
+      else if (t.key === 'production') emoji = '⚙️';
+      else if (t.key === 'suppliers') emoji = '🏢';
+      else if (t.key === 'audit') emoji = '📝';
+
+      const Icon = t.icon;
+      return {
+        value: t.key,
+        label: `${emoji} ${t.label}`,
+        icon: <Icon className="size-4 shrink-0 text-slate-500" />,
+      };
+    });
+  }, [visibleTabs]);
 
   // 1. Tab-Specific Granular PDF Export (Date Filter Bar)
   const handleDownloadActivePdf = async () => {
@@ -368,8 +389,24 @@ export const ReportsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Responsive Grid Tab Bar */}
-      <div className={`grid gap-1.5 sm:gap-2 mb-4 sm:mb-6 ${isRep ? 'grid-cols-1 max-w-xs' : 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-8'}`}>
+      {/* ── Mobile / Tablet Module Selector: Searchable Combobox (< 1024px) ── */}
+      <div className="block lg:hidden mb-4 sm:mb-5">
+        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400 block mb-1.5">
+          Select Audit &amp; Report Module:
+        </label>
+        <SearchableSelect
+          value={activeModule}
+          onValueChange={(val) => handleTabSelect(val as ModuleKey)}
+          options={moduleSelectOptions}
+          placeholder="Select Report Module..."
+          searchPlaceholder="Search module domains..."
+          dark={dark}
+          className="h-11 rounded-xl text-xs sm:text-sm font-semibold w-full shadow-xs bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800"
+        />
+      </div>
+
+      {/* ── Desktop Viewport (>= 1024px) Multi-Tab Grid ── */}
+      <div className={`hidden lg:grid gap-1.5 sm:gap-2 mb-4 sm:mb-6 ${isRep ? 'grid-cols-1 max-w-xs' : 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-8'}`}>
         {visibleTabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeModule === tab.key;
@@ -378,7 +415,7 @@ export const ReportsPage: React.FC = () => {
               key={tab.key}
               onClick={() => handleTabSelect(tab.key)}
               title={tab.description}
-              className={`w-full flex items-center justify-start gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+              className={`w-full flex items-center justify-start gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                 isActive
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-500/25 ring-2 ring-blue-500/20 scale-[1.01]'
                   : dark

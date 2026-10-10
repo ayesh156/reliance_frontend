@@ -436,8 +436,8 @@ export const SupplierDueSettlementModal: React.FC<SupplierDueSettlementModalProp
                         Settle Payment for Invoice #{bill.invoiceNumber}
                       </div>
 
-                      <div className="flex flex-wrap sm:flex-nowrap items-end gap-2 w-full overflow-visible relative z-40">
-                        <div className="w-32 shrink-0 space-y-1">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 items-end gap-2.5 w-full overflow-visible relative z-40">
+                        <div className="w-full space-y-1">
                           <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block whitespace-nowrap">
                             Paying Amount *
                           </label>
@@ -450,22 +450,22 @@ export const SupplierDueSettlementModal: React.FC<SupplierDueSettlementModalProp
                             onFocus={(e) => e.target.select()}
                             onClick={(e) => (e.target as HTMLInputElement).select()}
                             placeholder="0.00"
-                            className="h-9 text-xs font-mono font-bold bg-white dark:bg-zinc-900 rounded-lg"
+                            className="h-9 text-xs font-mono font-bold bg-white dark:bg-zinc-900 rounded-lg w-full"
                           />
                         </div>
 
-                        <div className="shrink-0 space-y-1 relative z-50">
+                        <div className="w-full space-y-1 relative z-50">
                           <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block whitespace-nowrap">
                             Payment Date & Time *
                           </label>
                           <DateTimePicker
                             value={payDate}
                             onChange={setPayDate}
-                            className="h-9"
+                            className="h-9 w-full"
                           />
                         </div>
 
-                        <div className="w-32 shrink-0 space-y-1 relative z-40">
+                        <div className="w-full space-y-1 relative z-40">
                           <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block whitespace-nowrap">
                             Payment Method *
                           </label>
@@ -497,11 +497,11 @@ export const SupplierDueSettlementModal: React.FC<SupplierDueSettlementModalProp
                             placeholder="Select Method"
                             searchPlaceholder="Search method..."
                             dark={dark}
-                            className="h-9 py-0 rounded-lg text-xs"
+                            className="h-9 py-0 rounded-lg text-xs w-full"
                           />
                         </div>
 
-                        <div className="flex-1 min-w-[120px] space-y-1">
+                        <div className="w-full space-y-1">
                           <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block whitespace-nowrap">
                             Reference / Note
                           </label>
@@ -510,7 +510,7 @@ export const SupplierDueSettlementModal: React.FC<SupplierDueSettlementModalProp
                             value={payReference}
                             onChange={(e) => setPayReference(e.target.value)}
                             placeholder="Cheque No / Slip No"
-                            className="h-9 text-xs bg-white dark:bg-zinc-900 rounded-lg"
+                            className="h-9 text-xs bg-white dark:bg-zinc-900 rounded-lg w-full"
                           />
                         </div>
                       </div>

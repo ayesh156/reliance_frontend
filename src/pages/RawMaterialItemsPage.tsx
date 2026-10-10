@@ -373,172 +373,344 @@ export const RawMaterialItemsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Materials Table */}
-      <div className="rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Material / Item</TableHead>
-              <TableHead>Code</TableHead>
-              <TableHead>Unit</TableHead>
-              <TableHead>Current Stock</TableHead>
-              <TableHead>Avg Cost</TableHead>
-              <TableHead className="text-center">Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={7} className="text-center py-12">
-                  <Loader2 className="size-6 animate-spin mx-auto text-indigo-500" />
-                  <span className="text-xs text-slate-400 mt-2 block">Loading materials...</span>
-                </TableCell>
-              </TableRow>
-            ) : items.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7} className="text-center py-12 text-slate-400 text-xs">
-                  No raw material items found matching criteria.
-                </TableCell>
-              </TableRow>
-            ) : (
-              items.map((item) => {
-                const isLow = item.currentStock <= item.alertThreshold;
-                return (
-                  <TableRow key={item.id}>
-                    <TableCell>
-                      {/* Interactive Clickable Target: Opens Edit Material Modal */}
-                      <div 
-                        onClick={() => handleOpenEditModal(item)}
-                        className="cursor-pointer group/mat select-none inline-block"
-                        title="Click to edit material item"
-                      >
-                        <div className="font-semibold text-xs text-slate-900 dark:text-white flex items-center gap-2">
-                          <Tag className="size-3.5 text-slate-400 group-hover/mat:text-indigo-600 transition-colors" />
-                          <span className="group-hover/mat:text-indigo-600 dark:group-hover/mat:text-indigo-400 group-hover/mat:underline transition-colors">
-                            {item.name}
-                          </span>
+      {loading ? (
+        <div className="rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 p-12 text-center">
+          <Loader2 className="size-6 animate-spin mx-auto text-indigo-500" />
+          <span className="text-xs text-slate-400 mt-2 block">Loading materials...</span>
+        </div>
+      ) : items.length === 0 ? (
+        <div className="rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 p-12 text-center text-slate-400 text-xs">
+          No raw material items found matching criteria.
+        </div>
+      ) : (
+        <>
+          {/* ── Mobile & Tablet Touch Cards (< 1024px) ── */}
+          <div className="block lg:hidden space-y-3">
+            {items.map((item) => {
+              const isLow = item.currentStock <= item.alertThreshold;
+              const totalValuation = item.currentStock * item.unitCostAverage;
+
+              return (
+                <div
+                  key={item.id}
+                  className="rounded-2xl border bg-white dark:bg-zinc-900/70 border-slate-200 dark:border-zinc-800 p-4 shadow-xs space-y-3.5 transition-all"
+                >
+                  {/* Header: Title, Item Code badge, Unit pill, Status chip */}
+                  <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-zinc-800/80">
+                    <div
+                      onClick={() => handleOpenEditModal(item)}
+                      className="cursor-pointer group/mat select-none min-w-0"
+                      title="Click to edit material item"
+                    >
+                      <div className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                        <div className="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 shrink-0">
+                          <Tag className="size-4" />
                         </div>
-                        {item.description && (
-                          <div className="text-[11px] text-slate-400 truncate max-w-[250px]">
-                            {item.description}
-                          </div>
-                        )}
+                        <span className="group-hover/mat:text-indigo-600 dark:group-hover/mat:text-indigo-400 group-hover/mat:underline transition-colors truncate">
+                          {item.name}
+                        </span>
                       </div>
-                    </TableCell>
-                    <TableCell className="text-xs font-mono text-slate-600 dark:text-zinc-300">
-                      {item.code || <span className="italic text-slate-400 text-[11px]">N/A</span>}
-                    </TableCell>
-                    <TableCell>
+                      {item.description && (
+                        <div className="text-[11px] text-slate-400 truncate max-w-[280px] mt-0.5">
+                          {item.description}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {item.code && (
+                        <span className="px-2 py-0.5 rounded-md font-mono text-[10px] font-bold bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700">
+                          {item.code}
+                        </span>
+                      )}
                       <Badge variant="outline" className="text-[10px] font-semibold">
                         {item.unit}
                       </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <span className={`text-xs font-bold ${isLow ? 'text-rose-600' : 'text-slate-900 dark:text-white'}`}>
-                        {item.currentStock.toLocaleString()} {item.unit.toLowerCase()}
-                      </span>
-                      <span className="text-[10px] text-slate-400 block">
-                        Min threshold: {item.alertThreshold}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-xs font-medium text-slate-700 dark:text-zinc-300">
-                      Rs. {item.unitCostAverage.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {isLow ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-full">
-                          <AlertTriangle className="size-3" /> Low Stock
+                    </div>
+                  </div>
+
+                  {/* Stock & Cost Pill Grid (2-column) */}
+                  <div className="grid grid-cols-2 gap-2">
+                    {/* Current Available Stock with threshold & low stock warning */}
+                    <div
+                      className={`p-3 rounded-xl border flex flex-col justify-between ${
+                        isLow
+                          ? 'bg-rose-50/50 dark:bg-rose-950/30 border-rose-200/80 dark:border-rose-900/60 text-rose-700 dark:text-rose-400'
+                          : 'bg-slate-50 dark:bg-zinc-800/60 border-slate-200/60 dark:border-zinc-700/60 text-slate-800 dark:text-zinc-200'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                          Available Stock
                         </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full">
-                          <CheckCircle2 className="size-3" /> Optimal
+                        {isLow ? (
+                          <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-rose-600 bg-rose-100 dark:bg-rose-900/50 px-1.5 py-0.5 rounded-full">
+                            <AlertTriangle className="size-2.5" /> Low
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-0.5 text-[9px] font-medium text-emerald-600 bg-emerald-100 dark:bg-emerald-900/50 px-1.5 py-0.5 rounded-full">
+                            <CheckCircle2 className="size-2.5" /> Optimal
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1">
+                        <span className={`font-mono text-sm sm:text-base font-extrabold ${isLow ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>
+                          {item.currentStock.toLocaleString()}
                         </span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <DropdownMenu modal={false}>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-8 text-slate-500 hover:text-slate-900 dark:hover:text-white"
-                          >
-                            <MoreVertical className="size-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-48 text-xs font-medium">
-                          {/* ⭐ Deduct stock for production cutting */}
-                          <DropdownMenuItem
-                            onClick={() =>
-                              setStockActionModal({
-                                isOpen: true,
-                                material: item,
-                                mode: 'DEDUCT',
-                              })
-                            }
-                            className="gap-2 cursor-pointer text-amber-600 focus:text-amber-700 focus:bg-amber-50 dark:focus:bg-amber-950/30"
-                          >
-                            <Scissors className="size-3.5 text-amber-600" />
-                            Deduct for Production
-                          </DropdownMenuItem>
+                        <span className="text-[10px] ml-1 text-slate-500 font-medium">{item.unit.toLowerCase()}</span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 dark:text-zinc-500 mt-0.5 block">
+                        Min threshold: {item.alertThreshold} {item.unit.toLowerCase()}
+                      </span>
+                    </div>
 
-                          {/* ⭐ Return leftover scrap pieces back to stock */}
-                          <DropdownMenuItem
-                            onClick={() =>
-                              setStockActionModal({
-                                isOpen: true,
-                                material: item,
-                                mode: 'SCRAP_RETURN',
-                              })
-                            }
-                            className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-700 focus:bg-emerald-50 dark:focus:bg-emerald-950/30"
-                          >
-                            <CornerDownLeft className="size-3.5 text-emerald-600" />
-                            Return Scrap Pieces
-                          </DropdownMenuItem>
+                    {/* Avg Unit Cost & Total Valuation */}
+                    <div className="p-3 rounded-xl border bg-slate-50 dark:bg-zinc-800/60 border-slate-200/60 dark:border-zinc-700/60 flex flex-col justify-between">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                        Avg Unit Cost
+                      </span>
+                      <div className="mt-1">
+                        <span className="font-mono text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+                          Rs. {item.unitCostAverage.toLocaleString()}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-500 dark:text-zinc-400 font-mono mt-0.5 block truncate" title={`Valuation: Rs. ${totalValuation.toLocaleString()}`}>
+                        Valuation: Rs. {totalValuation.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
 
-                          {/* ⭐ View stock movement history log */}
-                          <DropdownMenuItem
-                            onClick={() =>
-                              setHistoryModal({
-                                isOpen: true,
-                                material: item,
-                              })
-                            }
-                            className="gap-2 cursor-pointer text-indigo-600 focus:text-indigo-700 focus:bg-indigo-50 dark:focus:bg-indigo-950/30"
-                          >
-                            <History className="size-3.5 text-indigo-600" />
-                            Stock Movement Log
-                          </DropdownMenuItem>
+                  {/* Touch Action Bar */}
+                  <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800/80">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setStockActionModal({
+                          isOpen: true,
+                          material: item,
+                          mode: 'DEDUCT',
+                        })
+                      }
+                      className="flex-1 min-w-[95px] h-8 text-xs font-semibold gap-1.5 border-amber-200 dark:border-amber-900/60 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                    >
+                      <Scissors className="size-3.5" /> Deduct
+                    </Button>
 
-                          <DropdownMenuSeparator />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setStockActionModal({
+                          isOpen: true,
+                          material: item,
+                          mode: 'SCRAP_RETURN',
+                        })
+                      }
+                      className="flex-1 min-w-[110px] h-8 text-xs font-semibold gap-1.5 border-emerald-200 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                    >
+                      <CornerDownLeft className="size-3.5" /> Scrap Return
+                    </Button>
 
-                          <DropdownMenuItem
-                            onClick={() => handleOpenEditModal(item)}
-                            className="gap-2 cursor-pointer text-slate-700 dark:text-zinc-300"
-                          >
-                            <Edit2 className="size-3.5 text-slate-500" />
-                            Edit Item
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onClick={() => setDeletingItem(item)}
-                            className="gap-2 cursor-pointer text-rose-600 focus:text-rose-700 focus:bg-rose-50 dark:focus:bg-rose-950/30"
-                          >
-                            <Trash2 className="size-3.5 text-rose-600" />
-                            Delete Item
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setHistoryModal({
+                          isOpen: true,
+                          material: item,
+                        })
+                      }
+                      className="flex-1 min-w-[90px] h-8 text-xs font-medium gap-1.5 border-indigo-200 dark:border-indigo-900/60 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+                    >
+                      <History className="size-3.5" /> History
+                    </Button>
+
+                    <div className="flex items-center gap-1 shrink-0 ml-auto">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleOpenEditModal(item)}
+                        className="size-8 text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                        title="Edit Material"
+                      >
+                        <Edit2 className="size-3.5" />
+                      </Button>
+
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setDeletingItem(item)}
+                        className="size-8 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                        title="Delete Material"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ── Desktop Viewport (>= 1024px) Table ── */}
+          <div className="hidden lg:block rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Material / Item</TableHead>
+                  <TableHead>Code</TableHead>
+                  <TableHead>Unit</TableHead>
+                  <TableHead>Current Stock</TableHead>
+                  <TableHead>Avg Cost</TableHead>
+                  <TableHead className="text-center">Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.map((item) => {
+                  const isLow = item.currentStock <= item.alertThreshold;
+                  return (
+                    <TableRow key={item.id}>
+                      <TableCell>
+                        {/* Interactive Clickable Target: Opens Edit Material Modal */}
+                        <div 
+                          onClick={() => handleOpenEditModal(item)}
+                          className="cursor-pointer group/mat select-none inline-block"
+                          title="Click to edit material item"
+                        >
+                          <div className="font-semibold text-xs text-slate-900 dark:text-white flex items-center gap-2">
+                            <Tag className="size-3.5 text-slate-400 group-hover/mat:text-indigo-600 transition-colors" />
+                            <span className="group-hover/mat:text-indigo-600 dark:group-hover/mat:text-indigo-400 group-hover/mat:underline transition-colors">
+                              {item.name}
+                            </span>
+                          </div>
+                          {item.description && (
+                            <div className="text-[11px] text-slate-400 truncate max-w-[250px]">
+                              {item.description}
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs font-mono text-slate-600 dark:text-zinc-300">
+                        {item.code || <span className="italic text-slate-400 text-[11px]">N/A</span>}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-[10px] font-semibold">
+                          {item.unit}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <span className={`text-xs font-bold ${isLow ? 'text-rose-600' : 'text-slate-900 dark:text-white'}`}>
+                          {item.currentStock.toLocaleString()} {item.unit.toLowerCase()}
+                        </span>
+                        <span className="text-[10px] text-slate-400 block">
+                          Min threshold: {item.alertThreshold}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-xs font-medium text-slate-700 dark:text-zinc-300">
+                        Rs. {item.unitCostAverage.toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {isLow ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-full">
+                            <AlertTriangle className="size-3" /> Low Stock
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full">
+                            <CheckCircle2 className="size-3" /> Optimal
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <DropdownMenu modal={false}>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                            >
+                              <MoreVertical className="size-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-48 text-xs font-medium">
+                            {/* Deduct stock for production cutting */}
+                            <DropdownMenuItem
+                              onClick={() =>
+                                setStockActionModal({
+                                  isOpen: true,
+                                  material: item,
+                                  mode: 'DEDUCT',
+                                })
+                              }
+                              className="gap-2 cursor-pointer text-amber-600 focus:text-amber-700 focus:bg-amber-50 dark:focus:bg-amber-950/30"
+                            >
+                              <Scissors className="size-3.5 text-amber-600" />
+                              Deduct for Production
+                            </DropdownMenuItem>
+
+                            {/* Return leftover scrap pieces back to stock */}
+                            <DropdownMenuItem
+                              onClick={() =>
+                                setStockActionModal({
+                                  isOpen: true,
+                                  material: item,
+                                  mode: 'SCRAP_RETURN',
+                                })
+                              }
+                              className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-700 focus:bg-emerald-50 dark:focus:bg-emerald-950/30"
+                            >
+                              <CornerDownLeft className="size-3.5 text-emerald-600" />
+                              Return Scrap Pieces
+                            </DropdownMenuItem>
+
+                            {/* View stock movement history log */}
+                            <DropdownMenuItem
+                              onClick={() =>
+                                setHistoryModal({
+                                  isOpen: true,
+                                  material: item,
+                                })
+                              }
+                              className="gap-2 cursor-pointer text-indigo-600 focus:text-indigo-700 focus:bg-indigo-50 dark:focus:bg-indigo-950/30"
+                            >
+                              <History className="size-3.5 text-indigo-600" />
+                              Stock Movement Log
+                            </DropdownMenuItem>
+
+                            <DropdownMenuSeparator />
+
+                            <DropdownMenuItem
+                              onClick={() => handleOpenEditModal(item)}
+                              className="gap-2 cursor-pointer text-slate-700 dark:text-zinc-300"
+                            >
+                              <Edit2 className="size-3.5 text-slate-500" />
+                              Edit Item
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => setDeletingItem(item)}
+                              className="gap-2 cursor-pointer text-rose-600 focus:text-rose-700 focus:bg-rose-50 dark:focus:bg-rose-950/30"
+                            >
+                              <Trash2 className="size-3.5 text-rose-600" />
+                              Delete Item
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        </>
+      )}
 
       {/* Add / Edit Material Item Dialog */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>

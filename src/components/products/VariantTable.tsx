@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Trash2, ImageIcon, MoreVertical, Edit2 } from 'lucide-react';
+import { Plus, Trash2, ImageIcon, MoreVertical, Edit2, Copy } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import {
@@ -50,6 +50,16 @@ export const VariantTable: React.FC<VariantTableProps> = ({
   const [activeModalVariant, setActiveModalVariant] = useState<VariantItem | null>(null);
 
   /**
+   * Helper to lookup color hex code for dot/pill swatch
+   */
+  const getColorHex = (colorName: string) => {
+    const match = availableColors.find(
+      (c) => c.name.toLowerCase() === colorName.trim().toLowerCase()
+    );
+    return match?.hexCode || null;
+  };
+
+  /**
    * Open modal to create a fresh variant with auto-generated sequential SKU
    */
   const handleOpenAddModal = () => {
@@ -79,6 +89,25 @@ export const VariantTable: React.FC<VariantTableProps> = ({
   };
 
   /**
+   * Duplicate existing variant with new sequential SKU and unique key
+   */
+  const duplicateVariant = (variant: VariantItem) => {
+    const next = variants.length + 1;
+    const cleanPrefix = (productName || 'PROD')
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .slice(0, 4)
+      .toUpperCase() || 'PROD';
+    const paddedIndex = String(next).padStart(4, '0');
+    const duplicated: VariantItem = {
+      ...variant,
+      id: undefined,
+      key: `var-${Date.now()}-${next}`,
+      sku: `${cleanPrefix}-${paddedIndex}`,
+    };
+    onChange([...variants, duplicated]);
+  };
+
+  /**
    * Open modal to edit existing variant details
    */
   const handleOpenEditModal = (variant: VariantItem) => {
@@ -88,12 +117,6 @@ export const VariantTable: React.FC<VariantTableProps> = ({
 
   /**
    * Save modal changes back to the main variants list (Checks both database ID and client Key)
-   */
-  /**
-   * Preserves database primary keys and triggers parent form dirty state for database persistence
-   */
-  /**
-   * Synchronizes edited/created variant records with exact database ID bindings
    */
   const handleSaveModalVariant = (savedVariant: VariantItem) => {
     const existsIndex = variants.findIndex(v => 
@@ -137,10 +160,10 @@ export const VariantTable: React.FC<VariantTableProps> = ({
   };
 
   return (
-    <div className="space-y-3 rounded-2xl border border-slate-200 dark:border-zinc-800 p-4 bg-slate-50/50 dark:bg-zinc-950/40">
+    <div className="space-y-3 rounded-2xl border border-slate-200 dark:border-zinc-800 p-3 sm:p-4 bg-slate-50/50 dark:bg-zinc-950/40">
       <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-zinc-800">
         <div>
-          <h4 className="text-xs font-bold">Variant &amp; Multi-Price Matrix</h4>
+          <h4 className="text-xs font-bold text-slate-900 dark:text-white">Variant &amp; Multi-Price Matrix</h4>
           <p className="text-[10px] text-slate-500 dark:text-zinc-400">Configure Barcodes, Retail (POS) and Wholesale pricing</p>
         </div>
         {/* Opens VariantModal to input new variant details cleanly */}
@@ -148,14 +171,216 @@ export const VariantTable: React.FC<VariantTableProps> = ({
           size="sm" 
           type="button" 
           onClick={handleOpenAddModal} 
-          className="h-7 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+          className="h-7 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs cursor-pointer"
         >
           <Plus className="size-3.5" /> Add Variant
         </Button>
       </div>
 
-    {/* Clean 1-Row Summary Table (100% Fit across Square & Widescreen Monitors) */}
-      <div className="w-full overflow-hidden rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
+      {/* ── Mobile / Tablet Adaptive Variant Card Layout (< 1024px) ── */}
+      <div className="block lg:hidden space-y-3">
+        {variants.length === 0 ? (
+          <div className="p-6 text-center text-slate-400 text-xs rounded-xl border border-dashed border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40">
+            No variants added yet. Click <span className="font-semibold text-emerald-600">+ Add Variant</span> to configure options.
+          </div>
+        ) : (
+          variants.map((v, index) => {
+            const displayImg = (v.imageUrls && v.imageUrls[0]) || v.imageUrl;
+            const resolvedPhoto = displayImg ? resolveImageUrl(displayImg) : null;
+
+            return (
+              <div
+                key={v.key}
+                className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-3 sm:p-3.5 shadow-xs space-y-3 transition-shadow hover:shadow-sm"
+              >
+                {/* Card Header: Index, Photo thumbnail, Size chip, Color dot/pill, Action buttons */}
+                <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-zinc-800/80">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-mono text-xs font-bold text-slate-400 shrink-0">#{index + 1}</span>
+
+                    {/* Photo Thumbnail */}
+                    <div
+                      onClick={() => handleOpenEditModal(v)}
+                      className="size-9 rounded-lg border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900 overflow-hidden flex items-center justify-center shrink-0 cursor-pointer hover:border-emerald-500 transition-colors"
+                      title="Edit variant photo & details"
+                    >
+                      {resolvedPhoto ? (
+                        <img
+                          src={resolvedPhoto}
+                          alt=""
+                          loading="lazy"
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <ImageIcon className="size-4 text-slate-400" />
+                      )}
+                    </div>
+
+                    {/* Size Chip & Color Pill */}
+                    <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                      {v.size ? (
+                        v.size.split(',').map((s, sIdx) => (
+                          <span
+                            key={sIdx}
+                            className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-[11px] font-mono font-bold text-slate-800 dark:text-zinc-200 border border-slate-200 dark:border-zinc-700"
+                          >
+                            {s.trim()}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-[10px] text-slate-400 font-medium">
+                          No Size
+                        </span>
+                      )}
+
+                      {v.color ? (
+                        v.color.split(',').map((c, cIdx) => {
+                          const hex = getColorHex(c);
+                          return (
+                            <span
+                              key={cIdx}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-[11px] font-semibold text-slate-700 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700"
+                            >
+                              {hex && (
+                                <span
+                                  className="size-2 rounded-full border border-black/10 shrink-0"
+                                  style={{ backgroundColor: hex }}
+                                />
+                              )}
+                              {c.trim()}
+                            </span>
+                          );
+                        })
+                      ) : (
+                        <span className="text-[10px] text-slate-400">No Color</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Quick Action Touch Targets: Edit, Duplicate, Delete */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleOpenEditModal(v)}
+                      className="size-8 p-0 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-600 dark:text-zinc-400 hover:text-emerald-600 cursor-pointer"
+                      title="Edit variant details"
+                    >
+                      <Edit2 className="size-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => duplicateVariant(v)}
+                      className="size-8 p-0 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-600 dark:text-zinc-400 hover:text-blue-600 cursor-pointer"
+                      title="Duplicate variant"
+                    >
+                      <Copy className="size-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeVariant(v.key)}
+                      disabled={variants.length <= 1}
+                      className="size-8 p-0 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-600 disabled:opacity-40 cursor-pointer"
+                      title="Delete variant"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Stacking Inputs using responsive flex/grid: grid grid-cols-2 gap-2.5 */}
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                      SKU
+                    </label>
+                    <Input
+                      value={v.sku || ''}
+                      onChange={(e) => updateField(v.key, 'sku', e.target.value)}
+                      onFocus={handleFocus}
+                      placeholder="SKU"
+                      className="h-9 text-xs font-mono bg-slate-50/50 dark:bg-zinc-950/50"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                      Barcode
+                    </label>
+                    <Input
+                      value={v.barcode || ''}
+                      onChange={(e) => updateField(v.key, 'barcode', e.target.value)}
+                      onFocus={handleFocus}
+                      placeholder="Barcode"
+                      className="h-9 text-xs font-mono bg-slate-50/50 dark:bg-zinc-950/50"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                      Wholesale Price (Rs.)
+                    </label>
+                    <Input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={v.wholesalePrice ?? 0}
+                      onChange={(e) => updateField(v.key, 'wholesalePrice', Number(e.target.value) || 0)}
+                      onFocus={handleFocus}
+                      placeholder="0.00"
+                      className="h-9 text-xs font-mono font-bold text-amber-600 dark:text-amber-400 bg-amber-50/30 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/50"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                      Retail Price (Rs.)
+                    </label>
+                    <Input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={v.retailPrice ?? 0}
+                      onChange={(e) => updateField(v.key, 'retailPrice', Number(e.target.value) || 0)}
+                      onFocus={handleFocus}
+                      placeholder="0.00"
+                      className="h-9 text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50/30 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/50"
+                    />
+                  </div>
+                </div>
+
+                {/* Card Footer: Cost & Warehouse Stock info */}
+                <div className="flex items-center justify-between pt-1 text-[11px]">
+                  <span className="text-slate-500 dark:text-zinc-400 font-mono">
+                    Cost: <strong className="text-slate-700 dark:text-zinc-300">Rs. {Number(v.costPrice || 0).toLocaleString()}</strong>
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-500 dark:text-zinc-400">Stock:</span>
+                    <span
+                      className={`px-2 py-0.5 rounded-full font-mono text-[10px] font-bold ${
+                        (v.stock || 0) > 0
+                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400'
+                          : 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-400'
+                      }`}
+                    >
+                      {v.stock || 0}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* ── Desktop Viewport (>= 1024px) Standard Tabular Matrix ── */}
+      <div className="hidden lg:block w-full overflow-hidden rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
         <table className="w-full text-xs">
           <thead>
             <tr className="text-[10px] uppercase font-semibold text-slate-500 dark:text-zinc-400 border-b border-slate-100 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-900/50">
@@ -174,7 +399,7 @@ export const VariantTable: React.FC<VariantTableProps> = ({
           <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60">
             {variants.length === 0 ? (
               <tr>
-                <td colSpan={9} className="p-5 text-center text-slate-400 text-xs">
+                <td colSpan={10} className="p-5 text-center text-slate-400 text-xs">
                   No variants added yet. Click <span className="font-semibold text-emerald-600">+ Add Variant</span> to configure options.
                 </td>
               </tr>
@@ -282,7 +507,7 @@ export const VariantTable: React.FC<VariantTableProps> = ({
                       </span>
                     </td>
 
-                    {/* Action Column with Shadcn 3-Dots Dropdown Menu (modal={false} prevents layout shift / scroll lock) */}
+                    {/* Action Column with Shadcn 3-Dots Dropdown Menu */}
                     <td className="p-2 text-center">
                       <DropdownMenu modal={false}>
                         <DropdownMenuTrigger asChild>
@@ -296,7 +521,7 @@ export const VariantTable: React.FC<VariantTableProps> = ({
                             <span className="sr-only">Actions</span>
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-32 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 shadow-xl rounded-xl p-1 z-50">
+                        <DropdownMenuContent align="end" className="w-36 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 shadow-xl rounded-xl p-1 z-50">
                           <DropdownMenuItem
                             onClick={() => handleOpenEditModal(v)}
                             className="flex items-center gap-2 px-2.5 py-1.5 text-xs font-medium cursor-pointer rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-200"
@@ -305,7 +530,15 @@ export const VariantTable: React.FC<VariantTableProps> = ({
                             Edit
                           </DropdownMenuItem>
                           <DropdownMenuItem
+                            onClick={() => duplicateVariant(v)}
+                            className="flex items-center gap-2 px-2.5 py-1.5 text-xs font-medium cursor-pointer rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-200"
+                          >
+                            <Copy className="size-3.5 text-slate-500" />
+                            Duplicate
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
                             onClick={() => removeVariant(v.key)}
+                            disabled={variants.length <= 1}
                             className="flex items-center gap-2 px-2.5 py-1.5 text-xs font-medium cursor-pointer rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400"
                           >
                             <Trash2 className="size-3.5" />

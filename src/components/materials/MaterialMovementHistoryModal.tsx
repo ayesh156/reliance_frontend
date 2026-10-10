@@ -293,8 +293,8 @@ export const MaterialMovementHistoryModal: React.FC<MaterialMovementHistoryModal
         </DialogHeader>
 
         {/* Date Filter & Type Filter Bar */}
-        <div className="flex flex-wrap items-center gap-2 p-2 rounded-xl bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-xs">
-          <div className="flex items-center gap-1.5 w-36">
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-xs">
+          <div className="flex items-center gap-1.5 w-full sm:w-36">
             <span className="text-[11px] font-semibold text-slate-500 shrink-0">From:</span>
             <DatePicker
               date={startDate ? new Date(startDate) : undefined}
@@ -309,11 +309,11 @@ export const MaterialMovementHistoryModal: React.FC<MaterialMovementHistoryModal
                 setStartDate(`${yr}-${mo}-${dy}`);
               }}
               placeholder="Start date"
-              className="h-8 text-xs"
+              className="h-8 text-xs w-full"
             />
           </div>
 
-          <div className="flex items-center gap-1.5 w-36">
+          <div className="flex items-center gap-1.5 w-full sm:w-36">
             <span className="text-[11px] font-semibold text-slate-500 shrink-0">To:</span>
             <DatePicker
               date={endDate ? new Date(endDate) : undefined}
@@ -328,12 +328,12 @@ export const MaterialMovementHistoryModal: React.FC<MaterialMovementHistoryModal
                 setEndDate(`${yr}-${mo}-${dy}`);
               }}
               placeholder="End date"
-              className="h-8 text-xs"
+              className="h-8 text-xs w-full"
             />
           </div>
 
           {/* ⭐ Shadcn SearchableSelect with 2 Types */}
-          <div className="w-40">
+          <div className="col-span-2 sm:w-40 w-full">
             <SearchableSelect
               value={filterType}
               onValueChange={(val) => setFilterType(val)}
@@ -341,12 +341,12 @@ export const MaterialMovementHistoryModal: React.FC<MaterialMovementHistoryModal
               placeholder="Select Type"
               searchPlaceholder="Search type..."
               dark={dark}
-              className="h-8"
+              className="h-8 w-full"
             />
           </div>
 
           {/* Apply Filter Button */}
-          <Button type="button" size="sm" onClick={handleApplyFilter} className="h-8 text-xs px-3">
+          <Button type="button" size="sm" onClick={handleApplyFilter} className="h-8 text-xs px-3 w-full sm:w-auto">
             Filter
           </Button>
 
@@ -357,20 +357,113 @@ export const MaterialMovementHistoryModal: React.FC<MaterialMovementHistoryModal
               variant="ghost"
               size="sm"
               onClick={handleResetFilter}
-              className="h-8 text-xs px-2 text-slate-500"
+              className="h-8 text-xs px-2 text-slate-500 w-full sm:w-auto"
             >
               <RotateCcw className="size-3 mr-1" /> Reset
             </Button>
           )}
 
           {/* Total logs counter */}
-          <div className="ml-auto text-[11px] text-slate-400">
+          <div className="col-span-2 sm:ml-auto text-[11px] text-slate-400 text-right sm:text-left">
             Total Logs: <strong className="text-slate-700 dark:text-zinc-200">{totalCount}</strong>
           </div>
         </div>
 
-        {/* Movements Table */}
-        <div className="flex-1 overflow-y-auto rounded-xl border border-slate-200 dark:border-zinc-800 mt-2">
+        {/* ── Mobile Audit Cards (< 768px) ── */}
+        <div className="block md:hidden flex-1 overflow-y-auto space-y-2.5 mt-2">
+          {loading ? (
+            <div className="text-center py-8">
+              <Loader2 className="size-5 animate-spin mx-auto text-indigo-500" />
+              <span className="text-xs text-slate-400 mt-1 block">Loading logs...</span>
+            </div>
+          ) : paginatedMovements.length === 0 ? (
+            <div className="p-6 text-center text-slate-400 text-xs rounded-xl border border-dashed border-slate-200 dark:border-zinc-800 bg-slate-50/40 dark:bg-zinc-900/30">
+              No movements found for the selected period.
+            </div>
+          ) : (
+            paginatedMovements.map((m) => {
+              const isDeduction = m.movementType === 'PRODUCTION_USE' || m.movementType === 'DAMAGE_WASTE';
+              return (
+                <div
+                  key={m.id}
+                  className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/70 p-3 shadow-xs space-y-2 text-xs"
+                >
+                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-zinc-800/80">
+                    <span className="font-mono text-[11px] text-slate-500">
+                      {new Date(m.createdAt).toLocaleString('en-GB', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+
+                    <div className="flex items-center gap-1.5">
+                      {renderBadge(m.movementType)}
+                      <DropdownMenu modal={false}>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7 text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                          >
+                            <MoreVertical className="size-3.5" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-36 text-xs font-medium">
+                          <DropdownMenuItem
+                            onClick={() => setEditingMovement(m)}
+                            className="gap-2 cursor-pointer text-slate-700 dark:text-zinc-300"
+                          >
+                            <Edit2 className="size-3.5 text-slate-500" />
+                            Edit Record
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => setDeletingMovement(m)}
+                            className="gap-2 cursor-pointer text-rose-600 focus:text-rose-700 focus:bg-rose-50 dark:focus:bg-rose-950/30"
+                          >
+                            <Trash2 className="size-3.5 text-rose-600" />
+                            Delete & Revert
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-0.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-500 dark:text-zinc-400 font-medium">Qty:</span>
+                      <span
+                        className={`font-mono font-bold text-xs ${
+                          isDeduction
+                            ? 'text-rose-600 dark:text-rose-400'
+                            : 'text-emerald-600 dark:text-emerald-400'
+                        }`}
+                      >
+                        {isDeduction ? '-' : '+'}{m.quantity} {material.unit}
+                      </span>
+                    </div>
+
+                    <div className="text-[11px] font-mono text-slate-500">
+                      Stock: {m.previousStock} → <strong className="text-slate-900 dark:text-white">{m.newStock}</strong>
+                    </div>
+                  </div>
+
+                  {m.reference && (
+                    <div className="text-[11px] text-slate-600 dark:text-zinc-400 pt-1 border-t border-slate-100 dark:border-zinc-800/80">
+                      Ref: <span className="font-medium text-slate-800 dark:text-zinc-200">{m.reference}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* ── Desktop Viewport (>= 768px) Table ── */}
+        <div className="hidden md:block flex-1 overflow-y-auto rounded-xl border border-slate-200 dark:border-zinc-800 mt-2">
           <Table>
             <TableHeader>
               <TableRow>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
@@ -96,6 +97,7 @@ const INITIAL_FORM_DATA: FormData = {
  * Handles Supplier directory, real-time search, credit balance tracking, and CRUD modals.
  */
 export const RawMaterialShopsPage: React.FC = () => {
+  const navigate = useNavigate();
   const [shops, setShops] = useState<RawMaterialShop[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -287,160 +289,333 @@ export const RawMaterialShopsPage: React.FC = () => {
         )}
       </div>
 
-      {/* Shadcn Table & DropdownMenu Actions matching CustomersPage */}
-      <div className="rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Supplier / Shop</TableHead>
-              <TableHead>Contact Info</TableHead>
-              <TableHead>Address</TableHead>
-              <TableHead className="text-center">Purchases</TableHead>
-              <TableHead>Credit Balance</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center py-12">
-                  <Loader2 className="size-6 animate-spin mx-auto text-emerald-500" />
-                  <span className="text-xs text-slate-400 mt-2 block">Loading supplier records...</span>
-                </TableCell>
-              </TableRow>
-            ) : shops.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center py-12 text-slate-400 text-xs">
-                  No suppliers found matching your query.
-                </TableCell>
-              </TableRow>
-            ) : (
-              shops.map((shop) => (
-                <TableRow key={shop.id}>
-                  <TableCell>
-                    {/* Interactive Clickable Target: Opens Edit Supplier Modal */}
-                    <div
-                      onClick={() => handleOpenEditModal(shop)}
-                      className="font-semibold text-xs text-slate-900 dark:text-white flex items-center gap-2 cursor-pointer group/shop select-none"
-                      title="Click to edit supplier shop"
+      {loading ? (
+        <div className="rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 p-12 text-center">
+          <Loader2 className="size-6 animate-spin mx-auto text-emerald-500" />
+          <span className="text-xs text-slate-400 mt-2 block">Loading supplier records...</span>
+        </div>
+      ) : shops.length === 0 ? (
+        <div className="rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 p-12 text-center text-slate-400 text-xs">
+          No suppliers found matching your query.
+        </div>
+      ) : (
+        <>
+          {/* ── Mobile Supplier Cards Viewport (< 1024px) ── */}
+          <div className="block lg:hidden space-y-3">
+            {shops.map((shop) => (
+              <div
+                key={shop.id}
+                className="rounded-2xl border bg-white dark:bg-zinc-900/70 border-slate-200 dark:border-zinc-800 p-4 shadow-xs space-y-3.5 transition-all"
+              >
+                {/* Header: Shop Name & Status */}
+                <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-zinc-800/80">
+                  <div
+                    onClick={() => handleOpenEditModal(shop)}
+                    className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2 cursor-pointer group/shop select-none"
+                    title="Click to edit supplier shop"
+                  >
+                    <div className="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 shrink-0">
+                      <Building2 className="size-4" />
+                    </div>
+                    <span className="group-hover/shop:text-indigo-600 dark:group-hover/shop:text-indigo-400 group-hover/shop:underline transition-colors">
+                      {shop.name}
+                    </span>
+                  </div>
+
+                  {/* High-contrast Outstanding Credit Balance pill */}
+                  <span
+                    className={`text-xs font-bold font-mono px-2.5 py-1 rounded-lg shrink-0 border ${
+                      shop.creditBalance > 0
+                        ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'
+                        : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                    }`}
+                  >
+                    {shop.creditBalance > 0
+                      ? `Rs. ${Number(shop.creditBalance).toLocaleString()}`
+                      : 'Cleared'}
+                  </span>
+                </div>
+
+                {/* Contact, Phone & Physical Address */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  {shop.contactPerson && (
+                    <div className="flex items-center gap-2 text-slate-700 dark:text-zinc-300">
+                      <User className="size-3.5 text-slate-400 shrink-0" />
+                      <span className="font-medium truncate">{shop.contactPerson}</span>
+                    </div>
+                  )}
+
+                  {shop.phone ? (
+                    <a
+                      href={`tel:${shop.phone}`}
+                      className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-mono text-[11px] hover:underline"
                     >
-                      <Building2 className="size-4 text-slate-400 group-hover/shop:text-indigo-600 transition-colors" />
-                      <span className="group-hover/shop:text-indigo-600 dark:group-hover/shop:text-indigo-400 group-hover/shop:underline transition-colors">
-                        {shop.name}
+                      <Phone className="size-3.5 text-slate-400 shrink-0" />
+                      <span>{shop.phone}</span>
+                    </a>
+                  ) : (
+                    <div className="flex items-center gap-2 text-slate-400 italic text-[11px]">
+                      <Phone className="size-3.5 text-slate-400 shrink-0" />
+                      <span>No phone</span>
+                    </div>
+                  )}
+
+                  <div className="sm:col-span-2 text-slate-500 dark:text-zinc-400">
+                    {shop.address ? (
+                      <div className="flex items-start gap-2">
+                        <MapPin className="size-3.5 text-slate-400 shrink-0 mt-0.5" />
+                        <span className="break-words">{shop.address}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 italic text-slate-400">
+                        <MapPin className="size-3.5 text-slate-400 shrink-0" />
+                        <span>No address specified</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Metrics Grid */}
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800/80">
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-200/60 dark:border-zinc-700/60">
+                    <ReceiptText className="size-4 text-indigo-500 shrink-0" />
+                    <div>
+                      <span className="text-[10px] text-slate-500 dark:text-zinc-400 block font-semibold">Total Purchases</span>
+                      <span className="font-mono text-xs font-bold text-slate-800 dark:text-zinc-200">
+                        {shop._count?.purchases || 0}
                       </span>
                     </div>
-                  </TableCell>
-                  <TableCell className="text-xs space-y-0.5">
-                    {shop.contactPerson && (
-                      <div className="flex items-center gap-1.5 text-slate-700 dark:text-zinc-300">
-                        <User className="size-3 text-slate-400" />
-                        <span>{shop.contactPerson}</span>
-                      </div>
-                    )}
-                    {shop.phone ? (
-                      <div className="flex items-center gap-1.5 text-slate-500 font-mono text-[11px]">
-                        <Phone className="size-3 text-slate-400" />
-                        <span>{shop.phone}</span>
-                      </div>
-                    ) : (
-                      <span className="text-slate-400 italic text-[11px]">No phone</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-xs text-slate-500 max-w-[200px] truncate">
-                    {shop.address ? (
-                      <div className="flex items-center gap-1.5">
-                        <MapPin className="size-3 text-slate-400 shrink-0" />
-                        <span className="truncate">{shop.address}</span>
-                      </div>
-                    ) : (
-                      <span className="italic text-slate-400">No address</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <Badge variant="outline" className="text-[10px] font-semibold gap-1">
-                      <ReceiptText className="size-3" />
-                      {shop._count?.purchases || 0}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <span
-                      className={`text-xs font-bold ${shop.creditBalance > 0 ? 'text-rose-600' : 'text-emerald-600'
-                        }`}
+                  </div>
+
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-200/60 dark:border-zinc-700/60">
+                    <Wallet className={`size-4 shrink-0 ${shop.creditBalance > 0 ? 'text-rose-500' : 'text-emerald-500'}`} />
+                    <div>
+                      <span className="text-[10px] text-slate-500 dark:text-zinc-400 block font-semibold">Credit Status</span>
+                      <span className={`font-mono text-xs font-bold ${shop.creditBalance > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                        {shop.creditBalance > 0 ? 'Due Pending' : 'Cleared'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Action Bar: Touch Targets */}
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800/80">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => navigate(`/system/buy-raw-materials?search=${encodeURIComponent(shop.name)}`)}
+                    className="flex-1 min-w-[120px] h-8 text-xs font-medium gap-1.5 border-indigo-200 dark:border-indigo-900 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+                  >
+                    <ReceiptText className="size-3.5" /> View Purchases / Ledger
+                  </Button>
+
+                  {shop.creditBalance > 0 && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => setSettlementShop(shop)}
+                      className="h-8 text-xs font-semibold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
                     >
-                      {shop.creditBalance > 0
-                        ? `Rs. ${Number(shop.creditBalance).toLocaleString()}`
-                        : 'Cleared'}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {/* Vertical 3-Dots Dropdown Menu (modal={false} prevents layout shifting) */}
-                    <DropdownMenu modal={false}>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-8 text-slate-500 hover:text-slate-900 dark:hover:text-white"
-                        >
-                          <MoreVertical className="size-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48 text-xs font-medium">
-                        {/* ⭐ Settle Supplier Outstanding Due */}
-                        {shop.creditBalance > 0 && (
-                          <DropdownMenuItem
-                            onClick={() => setSettlementShop(shop)}
-                            className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-700 focus:bg-emerald-50 dark:focus:bg-emerald-950/30 font-semibold"
-                          >
-                            <CreditCard className="size-3.5 text-emerald-600" />
-                            Pay Due / Settle
-                          </DropdownMenuItem>
-                        )}
+                      <CreditCard className="size-3.5" /> Pay Due
+                    </Button>
+                  )}
 
-                        {/* WhatsApp Outstanding Credit Notice */}
-                        {shop.creditBalance > 0 && (
-                          <>
-                            <DropdownMenuItem
-                              onClick={() => {
-                                if (!shop.phone) {
-                                  toast.error('This supplier does not have a saved phone number');
-                                  return;
-                                }
-                                const waMsg = generateSupplierCreditSummaryWhatsAppMessage(shop);
-                                openWhatsAppChat(shop.phone, waMsg);
-                              }}
-                              className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-700 font-medium"
-                            >
-                              <MessageSquare className="size-3.5 text-emerald-600" />
-                              WhatsApp Credit Notice
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                          </>
-                        )}
+                  <div className="flex items-center gap-1 shrink-0 ml-auto">
+                    {shop.creditBalance > 0 && shop.phone && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          const waMsg = generateSupplierCreditSummaryWhatsAppMessage(shop);
+                          openWhatsAppChat(shop.phone!, waMsg);
+                        }}
+                        className="size-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                        title="Send WhatsApp Credit Notice"
+                      >
+                        <MessageSquare className="size-3.5" />
+                      </Button>
+                    )}
 
-                        <DropdownMenuItem
-                          onClick={() => handleOpenEditModal(shop)}
-                          className="gap-2 cursor-pointer text-slate-700 dark:text-zinc-300"
-                        >
-                          <Edit2 className="size-3.5 text-slate-500" />
-                          Edit Shop
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={() => setDeletingShop(shop)}
-                          className="gap-2 cursor-pointer text-rose-600 focus:text-rose-700 focus:bg-rose-50 dark:focus:bg-rose-950/30"
-                        >
-                          <Trash2 className="size-3.5 text-rose-600" />
-                          Delete Shop
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleOpenEditModal(shop)}
+                      className="size-8 text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                      title="Edit Supplier Shop"
+                    >
+                      <Edit2 className="size-3.5" />
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setDeletingShop(shop)}
+                      className="size-8 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                      title="Delete Supplier Shop"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* ── Desktop Viewport (>= 1024px) Table ── */}
+          <div className="hidden lg:block rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Supplier / Shop</TableHead>
+                  <TableHead>Contact Info</TableHead>
+                  <TableHead>Address</TableHead>
+                  <TableHead className="text-center">Purchases</TableHead>
+                  <TableHead>Credit Balance</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+              </TableHeader>
+              <TableBody>
+                {shops.map((shop) => (
+                  <TableRow key={shop.id}>
+                    <TableCell>
+                      {/* Interactive Clickable Target: Opens Edit Supplier Modal */}
+                      <div
+                        onClick={() => handleOpenEditModal(shop)}
+                        className="font-semibold text-xs text-slate-900 dark:text-white flex items-center gap-2 cursor-pointer group/shop select-none"
+                        title="Click to edit supplier shop"
+                      >
+                        <Building2 className="size-4 text-slate-400 group-hover/shop:text-indigo-600 transition-colors" />
+                        <span className="group-hover/shop:text-indigo-600 dark:group-hover/shop:text-indigo-400 group-hover/shop:underline transition-colors">
+                          {shop.name}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs space-y-0.5">
+                      {shop.contactPerson && (
+                        <div className="flex items-center gap-1.5 text-slate-700 dark:text-zinc-300">
+                          <User className="size-3 text-slate-400" />
+                          <span>{shop.contactPerson}</span>
+                        </div>
+                      )}
+                      {shop.phone ? (
+                        <div className="flex items-center gap-1.5 text-slate-500 font-mono text-[11px]">
+                          <Phone className="size-3 text-slate-400" />
+                          <span>{shop.phone}</span>
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 italic text-[11px]">No phone</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-500 max-w-[200px] truncate">
+                      {shop.address ? (
+                        <div className="flex items-center gap-1.5">
+                          <MapPin className="size-3 text-slate-400 shrink-0" />
+                          <span className="truncate">{shop.address}</span>
+                        </div>
+                      ) : (
+                        <span className="italic text-slate-400">No address</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Badge variant="outline" className="text-[10px] font-semibold gap-1">
+                        <ReceiptText className="size-3" />
+                        {shop._count?.purchases || 0}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <span
+                        className={`text-xs font-bold ${
+                          shop.creditBalance > 0 ? 'text-rose-600' : 'text-emerald-600'
+                        }`}
+                      >
+                        {shop.creditBalance > 0
+                          ? `Rs. ${Number(shop.creditBalance).toLocaleString()}`
+                          : 'Cleared'}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {/* Vertical 3-Dots Dropdown Menu (modal={false} prevents layout shifting) */}
+                      <DropdownMenu modal={false}>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-8 text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                          >
+                            <MoreVertical className="size-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48 text-xs font-medium">
+                          {/* Settle Supplier Outstanding Due */}
+                          {shop.creditBalance > 0 && (
+                            <DropdownMenuItem
+                              onClick={() => setSettlementShop(shop)}
+                              className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-700 focus:bg-emerald-50 dark:focus:bg-emerald-950/30 font-semibold"
+                            >
+                              <CreditCard className="size-3.5 text-emerald-600" />
+                              Pay Due / Settle
+                            </DropdownMenuItem>
+                          )}
+
+                          {/* View Purchases / Ledger navigation */}
+                          <DropdownMenuItem
+                            onClick={() => navigate(`/system/buy-raw-materials?search=${encodeURIComponent(shop.name)}`)}
+                            className="gap-2 cursor-pointer text-indigo-600 focus:text-indigo-700 font-medium"
+                          >
+                            <ReceiptText className="size-3.5 text-indigo-600" />
+                            View Purchases
+                          </DropdownMenuItem>
+
+                          {/* WhatsApp Outstanding Credit Notice */}
+                          {shop.creditBalance > 0 && (
+                            <>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  if (!shop.phone) {
+                                    toast.error('This supplier does not have a saved phone number');
+                                    return;
+                                  }
+                                  const waMsg = generateSupplierCreditSummaryWhatsAppMessage(shop);
+                                  openWhatsAppChat(shop.phone, waMsg);
+                                }}
+                                className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-700 font-medium"
+                              >
+                                <MessageSquare className="size-3.5 text-emerald-600" />
+                                WhatsApp Credit Notice
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                            </>
+                          )}
+
+                          <DropdownMenuItem
+                            onClick={() => handleOpenEditModal(shop)}
+                            className="gap-2 cursor-pointer text-slate-700 dark:text-zinc-300"
+                          >
+                            <Edit2 className="size-3.5 text-slate-500" />
+                            Edit Shop
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={() => setDeletingShop(shop)}
+                            className="gap-2 cursor-pointer text-rose-600 focus:text-rose-700 focus:bg-rose-50 dark:focus:bg-rose-950/30"
+                          >
+                            <Trash2 className="size-3.5 text-rose-600" />
+                            Delete Shop
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </>
+      )}
 
       {/* Dialog for Register/Edit Shop using Shadcn Input & Button */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>

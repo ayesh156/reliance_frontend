@@ -846,7 +846,108 @@ export const BuyRawMaterialFormPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="rounded-xl border border-slate-200 dark:border-zinc-800 overflow-visible">
+          {/* ── Mobile / Tablet Adaptive Purchase Item Cards (< 1024px) ── */}
+          <div className="block lg:hidden space-y-3">
+            {lineItems.map((item, index) => {
+              const rowTotal = (Number(item.quantity) || 0) * (Number(item.pricePerUnit) || 0);
+              const selectedMat = materialItems.find((m) => m.id === Number(item.rawMaterialItemId));
+
+              return (
+                <div
+                  key={index}
+                  className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/70 p-3.5 sm:p-4 shadow-xs space-y-3"
+                >
+                  {/* Card Header: Item # and Delete button */}
+                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-zinc-800/80">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs font-bold text-slate-400">Item #{index + 1}</span>
+                      {selectedMat && (
+                        <span className="text-[11px] text-slate-500 font-medium">
+                          Stock: <strong className="font-mono text-slate-700 dark:text-zinc-300">{selectedMat.currentStock} {selectedMat.unit}</strong>
+                        </span>
+                      )}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRemoveLineItem(index)}
+                      disabled={lineItems.length === 1}
+                      className="size-8 p-0 text-slate-400 hover:text-rose-500 disabled:opacity-40 cursor-pointer"
+                      title="Remove item"
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+
+                  {/* Material Dropdown / Combobox */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400">
+                      Material Item *
+                    </label>
+                    <MaterialCombobox
+                      value={item.rawMaterialItemId}
+                      onChange={(id) => handleLineItemChange(index, 'rawMaterialItemId', id)}
+                      options={materialItems.map((m) => ({
+                        id: m.id,
+                        name: m.name,
+                        code: m.code,
+                        unit: m.unit,
+                        currentStock: m.currentStock,
+                      }))}
+                      placeholder="Select Material..."
+                    />
+                  </div>
+
+                  {/* Quantity and Unit Price in 2-Col Grid */}
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400">
+                        Quantity ({selectedMat?.unit || 'Units'}) *
+                      </label>
+                      <Input
+                        type="number"
+                        min="0.01"
+                        step="any"
+                        required
+                        value={item.quantity}
+                        onChange={(e) => handleLineItemChange(index, 'quantity', e.target.value)}
+                        placeholder="0.00"
+                        className="font-mono text-xs h-9 bg-slate-50/50 dark:bg-zinc-950/50"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400">
+                        Cost / Unit (Rs) *
+                      </label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="any"
+                        required
+                        value={item.pricePerUnit}
+                        onChange={(e) => handleLineItemChange(index, 'pricePerUnit', e.target.value)}
+                        placeholder="0.00"
+                        className="font-mono text-xs h-9 bg-slate-50/50 dark:bg-zinc-950/50"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Subtotal calculation pill */}
+                  <div className="flex items-center justify-between pt-1 text-xs">
+                    <span className="text-slate-500 dark:text-zinc-400 font-semibold">Row Subtotal:</span>
+                    <span className="font-mono font-bold text-xs px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-900/60">
+                      Rs. {rowTotal.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ── Desktop Viewport (>= 1024px) Standard Table ── */}
+          <div className="hidden lg:block rounded-xl border border-slate-200 dark:border-zinc-800 overflow-visible">
             <Table className="overflow-visible">
               <TableHeader>
                 <TableRow className="bg-slate-50 dark:bg-zinc-900/50">
@@ -910,7 +1011,8 @@ export const BuyRawMaterialFormPage: React.FC = () => {
                           variant="ghost"
                           size="icon"
                           onClick={() => handleRemoveLineItem(index)}
-                          className="size-8 text-slate-400 hover:text-rose-500 cursor-pointer"
+                          disabled={lineItems.length === 1}
+                          className="size-8 text-slate-400 hover:text-rose-500 disabled:opacity-40 cursor-pointer"
                           title="Remove item"
                         >
                           <Trash2 className="size-4" />
@@ -927,10 +1029,10 @@ export const BuyRawMaterialFormPage: React.FC = () => {
         {/* Financials & Recorded Payments / Cheques Card */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Recorded Payments / Payment Splits */}
-          <div className="lg:col-span-7 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-5 space-y-4">
-            <div className="flex items-center justify-between">
+          <div className="lg:col-span-7 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-4 sm:p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <div className="size-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                <div className="size-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
                   <Landmark className="size-4" />
                 </div>
                 <div>
@@ -950,7 +1052,7 @@ export const BuyRawMaterialFormPage: React.FC = () => {
                 size="sm"
                 variant="outline"
                 onClick={handleFillEntryRemaining}
-                className="h-8 px-3 text-xs font-bold border-indigo-200 dark:border-indigo-800/80 bg-indigo-50/50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 rounded-lg gap-1.5 cursor-pointer whitespace-nowrap"
+                className="h-8 px-3 text-xs font-bold border-indigo-200 dark:border-indigo-800/80 bg-indigo-50/50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 rounded-lg gap-1.5 cursor-pointer whitespace-nowrap self-start sm:self-auto"
               >
                 <Plus className="size-3.5" /> + New Payment
               </Button>
@@ -958,9 +1060,9 @@ export const BuyRawMaterialFormPage: React.FC = () => {
 
             {/* Dedicated Single Entry Form at Top for GRN Payments */}
             <div
-              className="p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/40 space-y-3"
+              className="p-3 sm:p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/40 space-y-3"
             >
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-zinc-200 flex items-center gap-1.5 whitespace-nowrap">
                   <Plus className="size-3.5 text-indigo-600 dark:text-indigo-400" />
                   Add Payment Entry
@@ -969,17 +1071,18 @@ export const BuyRawMaterialFormPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={handleFillEntryRemaining}
-                    className="text-[11px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 inline-flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-900/60 cursor-pointer whitespace-nowrap"
+                    className="text-[11px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 inline-flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-950/50 px-2.5 py-1 rounded-md border border-indigo-200 dark:border-indigo-900/60 cursor-pointer whitespace-normal text-left sm:text-right"
                   >
-                    <Sparkles className="size-3" /> Fill Remaining Due (Rs. {dueDebtAmount.toLocaleString()})
+                    <Sparkles className="size-3 shrink-0" />
+                    <span>Fill Remaining Due (Rs. {dueDebtAmount.toLocaleString()})</span>
                   </button>
                 )}
               </div>
 
-              {/* Inputs Form Row - Structured Full-Width Flex Container */}
-              <div className="w-full flex flex-wrap sm:flex-nowrap items-end gap-2.5">
+              {/* Inputs Form: Responsive Grid Container (Zero Mobile Overflow) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2.5 items-end w-full">
                 {/* Method */}
-                <div className="flex-1 min-w-[130px] space-y-1">
+                <div className="sm:col-span-1 lg:col-span-3 space-y-1 w-full">
                   <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block whitespace-nowrap">Method *</label>
                   <SearchableSelect
                     value={entryMethod}
@@ -993,14 +1096,14 @@ export const BuyRawMaterialFormPage: React.FC = () => {
                     placeholder="Select Method"
                     searchPlaceholder="Search method..."
                     dark={dark}
-                    className="h-9 py-0 rounded-lg text-xs"
+                    className="h-9 py-0 rounded-lg text-xs w-full"
                   />
                 </div>
 
                 {/* Amount */}
-                <div className="flex-1 min-w-[130px] space-y-1">
+                <div className="sm:col-span-1 lg:col-span-3 space-y-1 w-full">
                   <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block whitespace-nowrap">Amount (Rs.) *</label>
-                  <div className="relative flex items-center">
+                  <div className="relative flex items-center w-full">
                     <span className="absolute left-2.5 text-xs font-mono font-bold text-slate-400">Rs.</span>
                     <Input
                       type="number"
@@ -1017,23 +1120,23 @@ export const BuyRawMaterialFormPage: React.FC = () => {
                       onFocus={(e) => e.target.select()}
                       onClick={(e) => (e.target as HTMLInputElement).select()}
                       placeholder="0.00"
-                      className="pl-8 h-9 font-mono font-bold text-xs text-right bg-white dark:bg-zinc-900 rounded-lg border-indigo-200 dark:border-indigo-900 text-indigo-700 dark:text-indigo-300"
+                      className="pl-8 h-9 font-mono font-bold text-xs text-right bg-white dark:bg-zinc-900 rounded-lg border-indigo-200 dark:border-indigo-900 text-indigo-700 dark:text-indigo-300 w-full"
                     />
                   </div>
                 </div>
 
                 {/* Date & Time */}
-                <div className="flex-initial min-w-[210px] space-y-1">
+                <div className="sm:col-span-2 lg:col-span-4 space-y-1 w-full min-w-0">
                   <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block whitespace-nowrap">Date & Time *</label>
                   <DateTimePicker
                     value={entryDate}
                     onChange={setEntryDate}
-                    className="h-9"
+                    className="h-9 w-full"
                   />
                 </div>
 
-                {/* Compact Square Add button */}
-                <div className="shrink-0">
+                {/* Add Button */}
+                <div className="sm:col-span-2 lg:col-span-2 w-full">
                   <Button
                     type="button"
                     onClick={(e) => {
@@ -1042,9 +1145,9 @@ export const BuyRawMaterialFormPage: React.FC = () => {
                     }}
                     disabled={!entryAmount || parseFloat(entryAmount) <= 0}
                     title="Add Payment Entry"
-                    className="w-10 h-10 shrink-0 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white flex items-center justify-center shadow-sm cursor-pointer p-0"
+                    className="w-full h-9 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white flex items-center justify-center gap-1.5 shadow-sm cursor-pointer text-xs font-semibold"
                   >
-                    <Plus className="w-4 h-4" />
+                    <Plus className="size-4" /> Add Entry
                   </Button>
                 </div>
               </div>
@@ -1164,10 +1267,10 @@ export const BuyRawMaterialFormPage: React.FC = () => {
                   {paymentRows.map((row) => (
                     <div
                       key={row.id}
-                      className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 group hover:border-slate-300 dark:hover:border-zinc-700 transition-colors shadow-xs"
+                      className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs p-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 group hover:border-slate-300 dark:hover:border-zinc-700 transition-colors shadow-xs"
                     >
                       {/* Left: Method Badge, Amount, Details */}
-                      <div className="flex items-center gap-2 flex-wrap min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap min-w-0 w-full sm:w-auto">
                         <span
                           className={`px-2 py-0.5 rounded-md text-[10px] font-bold inline-flex items-center gap-1 border ${
                             row.method === 'CHEQUE'
@@ -1217,7 +1320,7 @@ export const BuyRawMaterialFormPage: React.FC = () => {
                       </div>
 
                       {/* Right: Date, Edit & Delete Icons */}
-                      <div className="flex items-center gap-2.5 shrink-0">
+                      <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-2.5 pt-1.5 sm:pt-0 border-t sm:border-t-0 border-slate-100 dark:border-zinc-800/80 shrink-0">
                         <span className="text-slate-500 dark:text-zinc-400 text-[11px] font-mono">
                           {row.paymentDate ? row.paymentDate.replace('T', ' ') : ''}
                         </span>
@@ -1369,7 +1472,7 @@ export const BuyRawMaterialFormPage: React.FC = () => {
 
       {/* Edit Payment Record Modal in GRN Form */}
       <Dialog open={!!editingPaymentRow} onOpenChange={(open) => !open && setEditingPaymentRow(null)}>
-        <DialogContent className="w-[90vw] sm:max-w-md bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl p-5 shadow-2xl z-[80] overflow-visible">
+        <DialogContent className="w-full max-w-full sm:max-w-md max-h-[90vh] overflow-y-auto bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-5 shadow-2xl z-[80]">
           <DialogHeader className="pb-2 border-b border-slate-100 dark:border-zinc-800">
             <div className="flex items-center gap-2">
               <Pencil className="size-4 text-amber-600 dark:text-amber-400" />

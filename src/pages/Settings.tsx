@@ -448,114 +448,246 @@ export const Settings: React.FC = () => {
               </div>
             ) : (
               <>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Member</TableHead>
-                      <TableHead>Role / Access</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Created Date</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {paginatedUsers.map(u => {
-                      const roleConfig = ROLE_BADGES[u.role] || { label: u.role, color: 'bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300' };
-                      const isSelf = u.id === currentUser?.id;
+                {/* ── Mobile Cards Viewport (< 1024px) ── */}
+                <div className="block lg:hidden space-y-3">
+                  {paginatedUsers.map((u) => {
+                    const isSelf = u.id === currentUser?.id;
 
-                      return (
-                        <TableRow key={u.id}>
-                          <TableCell>
-                            {/* Interactive Clickable Member: Direct Admin User Credential Management trigger */}
-                            <div 
-                              onClick={() => handleOpenEditModal(u)}
-                              className="cursor-pointer group/staff select-none inline-block"
-                              title="Click to edit user credentials & access"
-                            >
-                              <div className="font-semibold text-slate-900 dark:text-zinc-100 flex items-center gap-1.5 group-hover/staff:text-indigo-600 dark:group-hover/staff:text-indigo-400 group-hover/staff:underline transition-colors">
-                                {u.name}
-                                {isSelf && (
-                                  <span className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300">
-                                    You
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[11px] text-slate-500 dark:text-zinc-400 font-mono mt-0.5">{u.email}</div>
-                            </div>
-                          </TableCell>
+                    const getRoleBadge = (userRole: string) => {
+                      switch (userRole) {
+                        case 'ADMIN':
+                          return (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                              Administrator
+                            </span>
+                          );
+                        case 'REP':
+                          return (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                              Sales Rep
+                            </span>
+                          );
+                        case 'CASHIER':
+                          return (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
+                              POS Cashier
+                            </span>
+                          );
+                        case 'STAFF':
+                        default:
+                          return (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
+                              Staff
+                            </span>
+                          );
+                      }
+                    };
 
-
-                          <TableCell>
-                            <Badge
-                              variant={
-                                u.role === 'ADMIN'
-                                  ? 'destructive'
-                                  : u.role === 'REP'
-                                    ? 'warning'
-                                    : u.role === 'CASHIER'
-                                      ? 'success'
-                                      : 'info'
-                              }
-                            >
-                              {u.role === 'ADMIN'
-                                ? 'Administrator'
-                                : u.role === 'REP'
-                                  ? 'Sales Rep'
-                                  : u.role === 'CASHIER'
-                                    ? 'POS Cashier'
-                                    : 'Staff'}
-                            </Badge>
-                          </TableCell>
-
-                          <TableCell>
-                            {u.active ? (
-                              <Badge variant="success" dot className="font-semibold">
-                                Active
-                              </Badge>
-                            ) : (
-                              <Badge variant="destructive" dot className="font-semibold">
-                                Deactivated
-                              </Badge>
+                    return (
+                      <div
+                        key={u.id}
+                        className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 p-3.5 shadow-xs space-y-3"
+                      >
+                        {/* Header: Full name with bold text, 'You' badge, active dot indicator */}
+                        <div className="flex items-center justify-between gap-2">
+                          <div
+                            onClick={() => handleOpenEditModal(u)}
+                            className="cursor-pointer group/staff select-none flex items-center gap-1.5 min-w-0"
+                            title="Click to edit user credentials & access"
+                          >
+                            <span className="font-bold text-sm text-slate-900 dark:text-zinc-100 group-hover/staff:text-indigo-600 dark:group-hover/staff:text-indigo-400 transition-colors truncate">
+                              {u.name}
+                            </span>
+                            {isSelf && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 shrink-0">
+                                You
+                              </span>
                             )}
-                          </TableCell>
-                          <TableCell className="text-slate-600 dark:text-zinc-400 text-[11px] font-mono">
-                            {new Date(u.createdAt).toLocaleDateString()}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {/* Vertical 3-dots action trigger aligned with Product & Customer pages */}
-                            <DropdownMenu modal={false}>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-slate-900 dark:hover:text-white">
-                                  <MoreVertical className="w-4 h-4" />
-                                  <span className="sr-only">Open actions menu</span>
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-48">
-                                <DropdownMenuItem
-                                  onClick={() => handleOpenEditModal(u)}
-                                >
-                                  <KeyRound className="w-3.5 h-3.5 mr-1.5 text-blue-500" /> Edit Credentials
-                                </DropdownMenuItem>
-                                {!isSelf && (
-                                  <>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                      onClick={() => handleToggleActive(u)}
-                                      variant={u.active ? "destructive" : "default"}
-                                    >
-                                      <Power className="w-3.5 h-3.5 mr-1.5" />
-                                      {u.active ? 'Deactivate User' : 'Activate User'}
-                                    </DropdownMenuItem>
-                                  </>
-                                )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+                          </div>
+
+                          {/* Active status indicator */}
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span
+                              className={`size-2 rounded-full ${
+                                u.active ? 'bg-emerald-500' : 'bg-rose-500'
+                              }`}
+                            />
+                            <span
+                              className={`text-[11px] font-semibold ${
+                                u.active
+                                  ? 'text-emerald-600 dark:text-emerald-400'
+                                  : 'text-rose-600 dark:text-rose-400'
+                              }`}
+                            >
+                              {u.active ? 'Active' : 'Deactivated'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Contact & Info: Email with clean mono/small text (break-all), creation date */}
+                        <div className="space-y-1 text-xs">
+                          <div className="text-[11px] font-mono text-slate-600 dark:text-zinc-400 break-all select-all">
+                            {u.email}
+                          </div>
+                          <div className="text-xs text-muted-foreground flex items-center gap-1 text-slate-400 dark:text-zinc-500">
+                            <span>Joined:</span>
+                            <span className="font-mono">{new Date(u.createdAt).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+
+                        {/* Footer: Role badge and 3-dots action menu */}
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-zinc-800/80">
+                          <div>{getRoleBadge(u.role)}</div>
+
+                          <DropdownMenu modal={false}>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                              >
+                                <MoreVertical className="w-4 h-4" />
+                                <span className="sr-only">Open actions menu</span>
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-56 text-xs font-medium">
+                              <DropdownMenuItem onClick={() => handleOpenEditModal(u)}>
+                                <KeyRound className="w-3.5 h-3.5 mr-2 text-blue-500" /> Edit Credentials / Reset Password
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleOpenEditModal(u)}>
+                                <ShieldCheck className="w-3.5 h-3.5 mr-2 text-indigo-500" /> Change Role
+                              </DropdownMenuItem>
+                              {!isSelf && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    onClick={() => handleToggleActive(u)}
+                                    variant={u.active ? 'destructive' : 'default'}
+                                  >
+                                    <Power className="w-3.5 h-3.5 mr-2" />
+                                    {u.active ? 'Deactivate User' : 'Activate User'}
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* ── Desktop Viewport (>= 1024px) Table ── */}
+                <div className="hidden lg:block overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Member</TableHead>
+                        <TableHead>Role / Access</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Created Date</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {paginatedUsers.map(u => {
+                        const roleConfig = ROLE_BADGES[u.role] || { label: u.role, color: 'bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300' };
+                        const isSelf = u.id === currentUser?.id;
+
+                        return (
+                          <TableRow key={u.id}>
+                            <TableCell>
+                              {/* Interactive Clickable Member: Direct Admin User Credential Management trigger */}
+                              <div 
+                                onClick={() => handleOpenEditModal(u)}
+                                className="cursor-pointer group/staff select-none inline-block"
+                                title="Click to edit user credentials & access"
+                              >
+                                <div className="font-semibold text-slate-900 dark:text-zinc-100 flex items-center gap-1.5 group-hover/staff:text-indigo-600 dark:group-hover/staff:text-indigo-400 group-hover/staff:underline transition-colors">
+                                  {u.name}
+                                  {isSelf && (
+                                    <span className="text-[9px] px-1.5 py-0.5 rounded font-bold bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300">
+                                      You
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[11px] text-slate-500 dark:text-zinc-400 font-mono mt-0.5">{u.email}</div>
+                              </div>
+                            </TableCell>
+
+
+                            <TableCell>
+                              <Badge
+                                variant={
+                                  u.role === 'ADMIN'
+                                    ? 'destructive'
+                                    : u.role === 'REP'
+                                      ? 'warning'
+                                      : u.role === 'CASHIER'
+                                        ? 'success'
+                                        : 'info'
+                                }
+                              >
+                                {u.role === 'ADMIN'
+                                  ? 'Administrator'
+                                  : u.role === 'REP'
+                                    ? 'Sales Rep'
+                                    : u.role === 'CASHIER'
+                                      ? 'POS Cashier'
+                                      : 'Staff'}
+                              </Badge>
+                            </TableCell>
+
+                            <TableCell>
+                              {u.active ? (
+                                <Badge variant="success" dot className="font-semibold">
+                                  Active
+                                </Badge>
+                              ) : (
+                                <Badge variant="destructive" dot className="font-semibold">
+                                  Deactivated
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-slate-600 dark:text-zinc-400 text-[11px] font-mono">
+                              {new Date(u.createdAt).toLocaleDateString()}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {/* Vertical 3-dots action trigger aligned with Product & Customer pages */}
+                              <DropdownMenu modal={false}>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-slate-900 dark:hover:text-white">
+                                    <MoreVertical className="w-4 h-4" />
+                                    <span className="sr-only">Open actions menu</span>
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-48">
+                                  <DropdownMenuItem
+                                    onClick={() => handleOpenEditModal(u)}
+                                  >
+                                    <KeyRound className="w-3.5 h-3.5 mr-1.5 text-blue-500" /> Edit Credentials
+                                  </DropdownMenuItem>
+                                  {!isSelf && (
+                                    <>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem
+                                        onClick={() => handleToggleActive(u)}
+                                        variant={u.active ? "destructive" : "default"}
+                                      >
+                                        <Power className="w-3.5 h-3.5 mr-1.5" />
+                                        {u.active ? 'Deactivate User' : 'Activate User'}
+                                      </DropdownMenuItem>
+                                    </>
+                                  )}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
 
                 {/* Pagination Controls */}
                 <div className="flex items-center justify-between pt-4 mt-2 border-t border-slate-100 dark:border-zinc-800/80 text-xs">
@@ -828,10 +960,9 @@ export const Settings: React.FC = () => {
         </TabsContent>
       </Tabs>
 
-      {/* Add Staff Modal */}
       {/* Add Staff Modal (Shadcn Dialog) */}
       <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-full max-w-full sm:max-w-md max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <div className="flex items-center gap-2">
               <ShieldCheck className="w-5 h-5 text-emerald-500" />
@@ -915,7 +1046,7 @@ export const Settings: React.FC = () => {
 
       {/* Edit User Credentials Modal (Direct Admin Credential Management) */}
       <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-full max-w-full sm:max-w-md max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <div className="flex items-center gap-2">
               <Key className="w-5 h-5 text-blue-500" />

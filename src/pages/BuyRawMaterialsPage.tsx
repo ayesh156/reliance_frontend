@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
@@ -137,12 +137,13 @@ export const BuyRawMaterialsPage: React.FC = () => {
   const { isAdmin } = useAuth();
   const dark = theme === 'dark';
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [purchases, setPurchases] = useState<PurchaseRecord[]>([]);
   const [shops, setShops] = useState<RawMaterialShop[]>([]);
   const [materialItems, setMaterialItems] = useState<RawMaterialItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState<string>(() => searchParams.get('search') || '');
 
   // Modal States
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -1105,8 +1106,108 @@ export const BuyRawMaterialsPage: React.FC = () => {
                 </Button>
               </div>
 
-              {/* Set overflow-x-auto and relative z-index so that SearchableSelect dropdown floats over bottom fields and table doesn't cramp */}
-              <div className="rounded-xl border border-slate-200 dark:border-zinc-800 overflow-x-auto relative z-20">
+              {/* ── Mobile Viewport (< 1024px) Line Items Cards ── */}
+              <div className="block lg:hidden space-y-3">
+                {lineItems.map((item, index) => {
+                  const selectedItemMeta = materialItems.find((m) => m.id === Number(item.rawMaterialItemId));
+                  const rowTotal = (Number(item.quantity) || 0) * (Number(item.pricePerUnit) || 0);
+
+                  return (
+                    <div
+                      key={index}
+                      className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/70 p-3.5 sm:p-4 shadow-xs space-y-3"
+                    >
+                      {/* Card Header: Item # and Delete button */}
+                      <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-zinc-800/80">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs font-bold text-slate-400">Item #{index + 1}</span>
+                          {selectedItemMeta && (
+                            <span className="text-[11px] text-slate-500 font-medium">
+                              Stock: <strong className="font-mono text-slate-700 dark:text-zinc-300">{selectedItemMeta.currentStock} {selectedItemMeta.unit}</strong>
+                            </span>
+                          )}
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleRemoveLineItem(index)}
+                          disabled={lineItems.length === 1}
+                          className="size-8 p-0 text-slate-400 hover:text-rose-500 disabled:opacity-40 cursor-pointer"
+                          title="Remove item"
+                        >
+                          <X className="size-4" />
+                        </Button>
+                      </div>
+
+                      {/* Material Combobox */}
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400">
+                          Material Item *
+                        </label>
+                        <MaterialCombobox
+                          value={item.rawMaterialItemId}
+                          onChange={(id) => handleLineItemChange(index, 'rawMaterialItemId', id)}
+                          options={materialItems.map((m) => ({
+                            id: m.id,
+                            name: m.name,
+                            code: m.code,
+                            unit: m.unit,
+                            currentStock: m.currentStock,
+                          }))}
+                          placeholder="Select Material..."
+                        />
+                      </div>
+
+                      {/* Quantity & Unit Price in 2-Col Grid */}
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400">
+                            Quantity ({selectedItemMeta?.unit || 'Units'}) *
+                          </label>
+                          <Input
+                            type="number"
+                            min="0.01"
+                            step="any"
+                            required
+                            value={item.quantity}
+                            onChange={(e) => handleLineItemChange(index, 'quantity', e.target.value)}
+                            placeholder="0.00"
+                            className="font-mono text-xs h-9 bg-slate-50/50 dark:bg-zinc-950/50"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400">
+                            Cost / Unit (Rs) *
+                          </label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="any"
+                            required
+                            value={item.pricePerUnit}
+                            onChange={(e) => handleLineItemChange(index, 'pricePerUnit', e.target.value)}
+                            placeholder="0.00"
+                            className="font-mono text-xs h-9 bg-slate-50/50 dark:bg-zinc-950/50"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Subtotal calculation pill */}
+                      <div className="flex items-center justify-between pt-1 text-xs">
+                        <span className="text-slate-500 dark:text-zinc-400 font-semibold">Row Subtotal:</span>
+                        <span className="font-mono font-bold text-xs px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-900/60">
+                          Rs. {rowTotal.toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* ── Desktop Viewport (>= 1024px) Table ── */}
+              <div className="hidden lg:block rounded-xl border border-slate-200 dark:border-zinc-800 overflow-visible relative z-20">
                 <Table className="min-w-[560px]">
                   <TableHeader>
                     <TableRow className="bg-slate-50 dark:bg-zinc-900/50">
@@ -1400,7 +1501,7 @@ export const BuyRawMaterialsPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
                     Pay Amount (Rs.) *

@@ -197,20 +197,20 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
   };
 
   return (
-    <div className={cn('shrink-0 flex items-center gap-1.5 relative z-30 overflow-visible', className)}>
+    <div className={cn('grid grid-cols-1 sm:grid-cols-2 gap-2 w-full relative z-30 overflow-visible', className)}>
       {/* Date Picker with elevated z-index so popover calendar renders cleanly in front */}
-      <div className="w-36 shrink-0 relative z-50 overflow-visible">
+      <div className="w-full relative z-50 overflow-visible">
         <DatePicker
           date={selectedDate}
           onDateChange={handleDateChange}
           placeholder="Pick date"
           disabled={disabled}
-          className="h-9 w-36 text-xs rounded-lg"
+          className="h-9 w-full text-xs rounded-lg"
         />
       </div>
 
       {/* Modern Compact Time Box with Instant Click-to-Clear */}
-      <div className="inline-flex items-center justify-between w-28 h-9 px-2 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs focus-within:ring-1 focus-within:ring-emerald-500 shrink-0 text-xs">
+      <div className="inline-flex items-center justify-between w-full h-9 px-2.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs focus-within:ring-1 focus-within:ring-emerald-500 text-xs">
         <Clock className="size-3 text-slate-400 shrink-0 pointer-events-none" />
 
         {/* Hour Input Box */}
@@ -223,7 +223,7 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
           onChange={handleHourInput}
           onBlur={handleHourBlur}
           placeholder={prevHourRef.current}
-          className="w-4 text-center font-mono text-xs font-medium text-slate-700 dark:text-zinc-200 bg-transparent focus:outline-none p-0"
+          className="w-5 text-center font-mono text-xs font-medium text-slate-700 dark:text-zinc-200 bg-transparent focus:outline-none p-0"
         />
 
         <span className="text-xs font-medium text-slate-400 select-none">:</span>
@@ -239,7 +239,7 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
           onChange={handleMinuteInput}
           onBlur={handleMinuteBlur}
           placeholder={prevMinuteRef.current}
-          className="w-4 text-center font-mono text-xs font-medium text-slate-700 dark:text-zinc-200 bg-transparent focus:outline-none p-0"
+          className="w-5 text-center font-mono text-xs font-medium text-slate-700 dark:text-zinc-200 bg-transparent focus:outline-none p-0"
         />
 
         {/* AM / PM Toggle Button */}
@@ -248,7 +248,7 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
           disabled={disabled}
           onClick={togglePeriod}
           className={cn(
-            'px-1.5 py-0.5 rounded text-[10px] font-mono font-bold tracking-wider transition-colors cursor-pointer select-none',
+            'px-2 py-0.5 rounded text-[10px] font-mono font-bold tracking-wider transition-colors cursor-pointer select-none',
             period === 'PM'
               ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800'
               : 'bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800'
