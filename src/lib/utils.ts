@@ -1,6 +1,6 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { resolveImageUrl, normalizeImageUrl } from '../utils/imageUrl';
+import { resolveImageUrl, normalizeImageUrl, FALLBACK_IMAGE } from '../utils/imageUrl';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -32,4 +32,4 @@ export function getProductImageUrl(path?: string | null): string {
   return resolveImageUrl(path);
 }
 
-export { resolveImageUrl, normalizeImageUrl };
+export { resolveImageUrl, normalizeImageUrl, FALLBACK_IMAGE };

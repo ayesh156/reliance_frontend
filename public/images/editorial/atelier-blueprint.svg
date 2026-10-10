@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="100%" height="100%">
+  <defs>
+    <!-- Blueprint Grid Patterns -->
+    <pattern id="smallGrid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M 20 0 L 0 0 0 20" fill="none" stroke="currentColor" stroke-width="0.5" stroke-opacity="0.12" />
+    </pattern>
+    <pattern id="majorGrid" width="100" height="100" patternUnits="userSpaceOnUse">
+      <rect width="100" height="100" fill="url(#smallGrid)" />
+      <path d="M 100 0 L 0 0 0 100" fill="none" stroke="currentColor" stroke-width="1.2" stroke-opacity="0.2" />
+    </pattern>
+    <linearGradient id="blueprintGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" stop-opacity="0.95" />
+      <stop offset="50%" stop-color="#1e293b" stop-opacity="0.9" />
+      <stop offset="100%" stop-color="#09090b" stop-opacity="0.98" />
+    </linearGradient>
+  </defs>
+
+  <!-- Deep Architectural Blueprint Canvas -->
+  <rect width="1920" height="1080" fill="url(#blueprintGrad)" />
+  <rect width="1920" height="1080" fill="url(#majorGrid)" stroke="currentColor" stroke-opacity="0.15" class="text-cyan-400" />
+
+  <!-- Architectural Studio Drafting Silhouette Elements -->
+  <g stroke="#38bdf8" stroke-opacity="0.4" stroke-width="1.5" fill="none" font-family="'Inter', monospace">
+    <!-- Header Title Block -->
+    <rect x="1400" y="860" width="460" height="160" stroke="#38bdf8" stroke-width="2" stroke-opacity="0.6" fill="#0f172a" fill-opacity="0.7" />
+    <line x1="1400" y1="910" x2="1860" y2="910" />
+    <line x1="1400" y1="960" x2="1860" y2="960" />
+    <line x1="1630" y1="860" x2="1630" y2="960" />
+    <text x="1420" y="890" font-size="14" fill="#7dd3fc" letter-spacing="4">PROJECT: RELIANCE ATELIER</text>
+    <text x="1650" y="890" font-size="13" fill="#94a3b8">SHEET: AR-01</text>
+    <text x="1420" y="940" font-size="13" fill="#94a3b8">LOCATION: MAKANDURA, MATARA</text>
+    <text x="1650" y="940" font-size="13" fill="#94a3b8">COORD: 6.046°N 80.573°E</text>
+    <text x="1420" y="1000" font-size="12" fill="#38bdf8" letter-spacing="3">HAUTE COUTURE BESPOKE SUITE &amp; WORKSHOP</text>
+
+    <!-- Atelier Floor Plan Draft -->
+    <!-- Outer Walls -->
+    <rect x="220" y="200" width="1120" height="680" stroke="#38bdf8" stroke-width="2.5" stroke-opacity="0.75" />
+    <rect x="230" y="210" width="1100" height="660" stroke="#0ea5e9" stroke-width="1" stroke-dasharray="6,4" stroke-opacity="0.35" />
+
+    <!-- Section 1: Cutting & Pattern Master Station -->
+    <rect x="280" y="260" width="340" height="260" stroke="#38bdf8" stroke-width="1.8" />
+    <text x="310" y="300" font-size="14" fill="#bae6fd" letter-spacing="2">01 / PATTERN ARCHIVE</text>
+    <line x1="330" y1="340" x2="570" y2="340" stroke-dasharray="4,4" />
+    <line x1="330" y1="380" x2="570" y2="380" stroke-dasharray="4,4" />
+    <line x1="330" y1="420" x2="570" y2="420" stroke-dasharray="4,4" />
+    <circle cx="450" cy="460" r="28" stroke="#38bdf8" stroke-opacity="0.5" />
+
+    <!-- Section 2: Selvedge Denim Looms & Weaving Hall -->
+    <rect x="680" y="260" width="600" height="260" stroke="#38bdf8" stroke-width="1.8" />
+    <text x="710" y="300" font-size="14" fill="#bae6fd" letter-spacing="2">02 / SELVEDGE LOOM GALLERY</text>
+    <!-- Loom machine footprints -->
+    <rect x="720" y="340" width="100" height="140" stroke="#38bdf8" stroke-opacity="0.6" />
+    <rect x="860" y="340" width="100" height="140" stroke="#38bdf8" stroke-opacity="0.6" />
+    <rect x="1000" y="340" width="100" height="140" stroke="#38bdf8" stroke-opacity="0.6" />
+    <rect x="1140" y="340" width="100" height="140" stroke="#38bdf8" stroke-opacity="0.6" />
+
+    <!-- Section 3: Bespoke Fitting Suite & Salon -->
+    <rect x="280" y="580" width="460" height="240" stroke="#38bdf8" stroke-width="1.8" />
+    <text x="310" y="620" font-size="14" fill="#bae6fd" letter-spacing="2">03 / CONCIERGE &amp; FITTING SALON</text>
+    <circle cx="510" cy="700" r="50" stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="5,5" />
+    <rect x="340" y="660" width="60" height="110" stroke="#38bdf8" stroke-opacity="0.5" />
+
+    <!-- Section 4: Finishing, Quality Inspection & Packaging -->
+    <rect x="800" y="580" width="480" height="240" stroke="#38bdf8" stroke-width="1.8" />
+    <text x="830" y="620" font-size="14" fill="#bae6fd" letter-spacing="2">04 / QUALITY &amp; PACKAGING DOCK</text>
+    <line x1="840" y1="670" x2="1240" y2="670" stroke-width="1.5" />
+    <line x1="840" y1="730" x2="1240" y2="730" stroke-width="1.5" />
+
+    <!-- Dimension Lines -->
+    <line x1="220" y1="160" x2="1340" y2="160" stroke="#7dd3fc" stroke-width="1" />
+    <line x1="220" y1="150" x2="220" y2="170" stroke="#7dd3fc" stroke-width="1" />
+    <line x1="1340" y1="150" x2="1340" y2="170" stroke="#7dd3fc" stroke-width="1" />
+    <text x="730" y="145" font-size="14" fill="#7dd3fc" text-anchor="middle" letter-spacing="3">DIMENSION: 48,000 MM [EAST TO WEST]</text>
+
+    <!-- Compass Rose -->
+    <g transform="translate(1600, 320)">
+      <circle cx="0" cy="0" r="60" stroke="#38bdf8" stroke-width="1" stroke-dasharray="3,3" />
+      <line x1="0" y1="-80" x2="0" y2="80" stroke="#38bdf8" stroke-width="2" />
+      <line x1="-80" y1="0" x2="80" y2="0" stroke="#38bdf8" stroke-width="1.5" />
+      <polygon points="0,-80 -10,-40 0,-50 10,-40" fill="#38bdf8" />
+      <text x="0" y="-95" font-size="18" font-weight="bold" fill="#7dd3fc" text-anchor="middle">N</text>
+      <text x="0" y="105" font-size="14" fill="#94a3b8" text-anchor="middle">S</text>
+      <text x="100" y="5" font-size="14" fill="#94a3b8">E</text>
+      <text x="-105" y="5" font-size="14" fill="#94a3b8">W</text>
+    </g>
+  </g>
+</svg>

@@ -2,6 +2,38 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* ── Light Haute Couture Mode (Chanel Parisian Gallery Aesthetic) ── */
+  --canvas: #f8f8f6;
+  --surface: #ffffff;
+  --surface-muted: #f4f4f5;
+  --surface-glass: rgba(255, 255, 255, 0.9);
+  --border-subtle: rgba(228, 228, 231, 0.8);
+  --border-contrast: #d4d4d8;
+  --text-primary: #09090b;
+  --text-secondary: #3f3f46;
+  --text-muted: #71717a;
+  --accent-emerald: #10b981;
+  --accent-cta-bg: #09090b;
+  --accent-cta-text: #ffffff;
+}
+
+.dark {
+  /* ── Dark Haute Mode (Deep Obsidian Canvas) ── */
+  --canvas: #09090b;
+  --surface: #18181b;
+  --surface-muted: #27272a;
+  --surface-glass: rgba(24, 24, 27, 0.8);
+  --border-subtle: rgba(39, 39, 42, 0.8);
+  --border-contrast: #3f3f46;
+  --text-primary: #f4f4f5;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  --accent-emerald: #10b981;
+  --accent-cta-bg: #ffffff;
+  --accent-cta-text: #09090b;
+}
+
 html {
   scrollbar-gutter: stable;
 }
@@ -13,19 +45,52 @@ html, body, #root {
   padding: 0;
 }
 
+body, #root {
+  background-color: #f8f8f6;
+  color: #09090b;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+.dark body, .dark #root {
+  background-color: #09090b;
+  color: #f4f4f5;
+}
+
+/* ── Haute Couture Ambient Canvas Vignette (Chanel / Dior Style) ── */
+.ambient-alabaster-canvas {
+  background-color: #f8f8f6;
+  background-image: radial-gradient(circle at 50% 20%, rgba(240, 237, 230, 0.6) 0%, rgba(248, 248, 246, 1) 100%);
+}
+
+.dark .ambient-alabaster-canvas,
+.dark.ambient-alabaster-canvas {
+  background-color: #09090b;
+  background-image: radial-gradient(circle at 50% 20%, rgba(16, 185, 129, 0.03) 0%, rgba(9, 9, 11, 1) 100%);
+}
+
+/* ── Lightweight CSS-only Hardware-Accelerated Ken Burns Effect ── */
+@keyframes kenBurnsSlow {
+  0% {
+    transform: scale(1.0) translate3d(0, 0, 0);
+  }
+  50% {
+    transform: scale(1.035) translate3d(-0.4%, -0.4%, 0);
+  }
+  100% {
+    transform: scale(1.0) translate3d(0, 0, 0);
+  }
+}
+
+.animate-ken-burns {
+  animation: kenBurnsSlow 15s ease-in-out infinite;
+  will-change: transform;
+}
+
 /* Prevent layout jump/width shifting when Radix modals open */
 body[data-scroll-locked],
 html[data-scroll-locked] {
   padding-right: 0px !important;
   margin-right: 0px !important;
-}
-
-.dark body, .dark #root {
-  background-color: #0a0a0a;
-}
-
-body, #root {
-  background-color: #fafafa;
 }
 
 @keyframes shimmer {
@@ -43,7 +108,10 @@ body, #root {
 
 .scrollbar-thin {
   scrollbar-width: thin;
-  scrollbar-color: #404040 transparent;
+  scrollbar-color: #71717a transparent;
+}
+.dark .scrollbar-thin {
+  scrollbar-color: #3f3f46 transparent;
 }
 .scrollbar-thin::-webkit-scrollbar {
   width: 6px;
@@ -52,8 +120,11 @@ body, #root {
   background: transparent;
 }
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: #404040;
+  background: #a1a1aa;
   border-radius: 3px;
+}
+.dark .scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #3f3f46;
 }
 
 /* Premium fashion typography */
@@ -61,11 +132,11 @@ body, #root {
   font-family: 'Playfair Display', Georgia, serif;
 }
 
-/* App loader (moved from index.html inline style) */
+/* App loader */
 #app-loader {
   position: fixed; inset: 0; z-index: 99999;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, #0a0a0a 0%, #171717 50%, #0a0a0a 100%);
+  background: linear-gradient(135deg, #09090b 0%, #18181b 50%, #09090b 100%);
   font-family: 'Inter', system-ui, sans-serif;
   transition: opacity 0.4s ease, visibility 0.4s ease;
 }
@@ -77,11 +148,11 @@ body, #root {
   text-transform: uppercase;
 }
 #app-loader .loader-line { width: 120px; height: 2px; background: #ffffff; margin-bottom: 16px; }
-#app-loader .loader-subtitle { font-size: 12px; color: #737373; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 40px; }
-#app-loader .loader-bar-track { width: 200px; height: 2px; background: #262626; border-radius: 4px; overflow: hidden; }
+#app-loader .loader-subtitle { font-size: 12px; color: #a1a1aa; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 40px; }
+#app-loader .loader-bar-track { width: 200px; height: 2px; background: #27272a; border-radius: 4px; overflow: hidden; }
 #app-loader .loader-bar {
   height: 100%; width: 30%;
-  background: linear-gradient(90deg, #404040, #ffffff, #404040);
+  background: linear-gradient(90deg, #3f3f46, #ffffff, #3f3f46);
   border-radius: 4px; animation: loader-slide 1.4s ease-in-out infinite;
 }
 @keyframes loader-slide {

@@ -1,16 +1,22 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Loader2, LogIn, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { Loader2, LogIn, Eye, EyeOff, ShieldCheck, ArrowLeft } from 'lucide-react';
 
 export const Login: React.FC = () => {
-  const { login } = useAuth();
+  const { login, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/system/products', { replace: true });
+    }
+  }, [isAuthenticated, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,9 +128,18 @@ export const Login: React.FC = () => {
           </form>
         </div>
 
-        <p className="text-center text-zinc-600 text-xs mt-6">
-          Reliance Retail &amp; Wholesale POS &middot; Enterprise Security
-        </p>
+        <div className="text-center mt-6 space-y-2">
+          <Link
+            to="/"
+            className="inline-flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white uppercase tracking-wider transition-colors"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Return to Luxury Storefront</span>
+          </Link>
+          <p className="text-zinc-600 text-[11px]">
+            Reliance Retail &amp; Wholesale POS &middot; Enterprise Security
+          </p>
+        </div>
       </div>
     </div>
   );

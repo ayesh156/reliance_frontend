@@ -1,4 +1,4 @@
-const CACHE_NAME = 'reliance-pwa-v1';
+const CACHE_NAME = 'reliance-pwa-v2';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -48,17 +48,25 @@ self.addEventListener('message', (event) => {
     self.skipWaiting();
   }
 });
+
 /**
  * Service Worker Fetch Interceptor
+ * - Guards against caching non-HTTP schemes (chrome-extension:, moz-extension:, etc.)
  * - Bypasses backend API & mutation requests
  * - Serves cached App Shell for offline navigation
  * - Implements Stale-While-Revalidate strategy for static resources
  */
 self.addEventListener('fetch', (event) => {
+  // ── Protocol Guard: Only cache standard HTTP/HTTPS GET requests ──
+  if (event.request.method !== 'GET') return;
+
   const url = new URL(event.request.url);
 
-  // Strictly pass-through non-GET requests and dynamic backend APIs
-  if (event.request.method !== 'GET' || url.pathname.startsWith('/api') || url.pathname.includes('/socket.io/')) {
+  // Reject non-HTTP schemes (chrome-extension:, moz-extension:, data:, blob:, etc.)
+  if (!url.protocol.startsWith('http')) return;
+
+  // Strictly pass-through dynamic backend APIs and WebSocket connections
+  if (url.pathname.startsWith('/api') || url.pathname.includes('/socket.io/')) {
     return;
   }
 
@@ -73,13 +81,27 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static Assets: Stale-While-Revalidate caching pattern
+  // Static Assets: Stale-While-Revalidate caching pattern with safe cache.put
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       const fetchPromise = fetch(event.request).then((networkResponse) => {
         if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
           const responseToCache = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseToCache));
+          // Wrap cache.put in try/catch to prevent unhandled rejection on unsupported schemes
+          try {
+            caches.open(CACHE_NAME).then((cache) => {
+              try {
+                cache.put(event.request, responseToCache);
+              } catch (cacheErr) {
+                // Silently handle cache put failures (e.g. opaque responses, scheme issues)
+                console.debug('[SW] Cache put skipped:', cacheErr.message);
+              }
+            }).catch(() => {
+              // Cache open failure — non-critical, skip silently
+            });
+          } catch (outerErr) {
+            // Defensive fallthrough
+          }
         }
         return networkResponse;
       }).catch(() => cachedResponse);

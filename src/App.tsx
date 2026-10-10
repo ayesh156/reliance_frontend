@@ -25,9 +25,17 @@ import BuyRawMaterialFormPage from './pages/BuyRawMaterialFormPage';
 import { ProductionListPage } from './pages/ProductionListPage';
 import { ProductionFormPage } from './pages/ProductionFormPage';
 import { ReportsPage } from './pages/ReportsPage';
+import { Dashboard } from './pages/Dashboard';
+
+// Luxury Fashion Storefront Suite (Chanel Haute Couture Style)
+import { StorefrontLayout } from './components/storefront/StorefrontLayout';
+import { HomePage } from './pages/storefront/HomePage';
+import { ShopPage } from './pages/storefront/ShopPage';
+import { AboutPage } from './pages/storefront/AboutPage';
+import { ContactPage } from './pages/storefront/ContactPage';
 
 function ThemedToastContainer() {
-  const { theme } = useTheme();
+  const { resolvedTheme } = useTheme();
   return (
     <ToastContainer
       position="top-right"
@@ -39,7 +47,7 @@ function ThemedToastContainer() {
       pauseOnFocusLoss
       draggable
       pauseOnHover
-      theme={theme === 'dark' ? 'dark' : 'light'}
+      theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
       style={{ zIndex: 999999 }}
     />
   );
@@ -66,17 +74,57 @@ export function App() {
           <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <ScrollToTop />
             <Routes>
-              {/* ── Public / Auth Route ── */}
-              <Route path="/login" element={<Login />} />
-
-              {/* ── Admin Back-Office (/system) ── */}
+              {/* ── Public Luxury Storefront Routes ── */}
               <Route
                 path="/"
-                element={<Navigate to="/system/products" replace />}
+                element={
+                  <StorefrontLayout>
+                    <HomePage />
+                  </StorefrontLayout>
+                }
               />
+              <Route
+                path="/shop"
+                element={
+                  <StorefrontLayout>
+                    <ShopPage />
+                  </StorefrontLayout>
+                }
+              />
+              <Route
+                path="/about"
+                element={
+                  <StorefrontLayout>
+                    <AboutPage />
+                  </StorefrontLayout>
+                }
+              />
+              <Route
+                path="/contact"
+                element={
+                  <StorefrontLayout>
+                    <ContactPage />
+                  </StorefrontLayout>
+                }
+              />
+
+              {/* ── Public / Auth Portal Route ── */}
+              <Route path="/login" element={<Login />} />
+
+              {/* ── Admin Back-Office (/system/*) ── */}
               <Route
                 path="/system"
                 element={<Navigate to="/system/products" replace />}
+              />
+              <Route
+                path="/system/dashboard"
+                element={
+                  <ProtectedRoute>
+                    <AdminPage>
+                      <Dashboard />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
               />
 
               <Route
@@ -286,8 +334,9 @@ export function App() {
                 }
               />
 
-              {/* ── Catch-all Fallback ── */}
-              <Route path="*" element={<Navigate to="/system/products" replace />} />
+              {/* ── Catch-all Fallbacks ── */}
+              <Route path="/system/*" element={<Navigate to="/system/products" replace />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </BrowserRouter>
         </TooltipProvider>

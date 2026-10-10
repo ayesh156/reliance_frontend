@@ -57,6 +57,12 @@ export function normalizeImageUrl(url?: string | null): string {
 }
 
 /**
+ * Global Fallback Image for storefront and product displays.
+ * Resolves to the branded high-res Reliance placeholder.
+ */
+export const FALLBACK_IMAGE = '/images/reliance-placeholder.jpg';
+
+/**
  * Resolves full display image URL handling local API paths, Google Drive URLs, and external web links.
  */
 export function resolveImageUrl(path?: string | null): string {
@@ -64,11 +70,14 @@ export function resolveImageUrl(path?: string | null): string {
   const normalized = normalizeImageUrl(path);
   if (!normalized) return '';
 
+  // Return direct URLs and frontend public static assets as-is
   if (
     normalized.startsWith('http://') ||
     normalized.startsWith('https://') ||
     normalized.startsWith('data:') ||
-    normalized.startsWith('blob:')
+    normalized.startsWith('blob:') ||
+    normalized.startsWith('/images/') ||
+    normalized.startsWith('/icons/')
   ) {
     return normalized;
   }
