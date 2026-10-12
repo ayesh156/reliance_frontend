@@ -502,6 +502,23 @@ export const generatePrintableInvoiceHtml = (order: any): string => {
             color: #222;
           }
 
+          /* Fluid Screen Mode Override: Dynamic content auto-fit */
+          @media screen {
+            html, body {
+              height: auto !important;
+              min-height: auto !important;
+              background: #ffffff !important;
+            }
+            .invoice-container {
+              height: auto !important;
+              min-height: auto !important;
+              padding-bottom: 8px !important;
+            }
+            .footer {
+              padding-bottom: 4px !important;
+            }
+          }
+
           /* Responsive Mobile Overrides (Screen width <= 640px) */
           @media screen and (max-width: 640px) {
             body {
@@ -555,7 +572,7 @@ export const generatePrintableInvoiceHtml = (order: any): string => {
         </style>
       </head>
       <body>
-        <div class="invoice-container">
+        <div id="invoice-root" class="invoice-container">
           
           <!-- Modern Header with Logo and Brand Details -->
           <div class="header-section">
@@ -910,23 +927,27 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
     return () => clearTimeout(timer);
   }, [open, autoPrint, order?.id]);
 
-  const [iframeHeight, setIframeHeight] = useState<number>(1050);
+  const [iframeHeight, setIframeHeight] = useState<number | null>(null);
 
   /**
-   * Dynamically measures and sets the full internal scroll height of the printable invoice iframe.
-   * Traverses body.scrollHeight, documentElement.scrollHeight, and offset heights to guarantee
-   * footers, signatures, and payment summaries are never clipped vertically across all screen viewports.
+   * Accurately measures the intrinsic content height of the printable invoice document,
+   * targeting #invoice-root and setting dynamic auto-fit height without
+   * hardcoded minimums or excessive empty white space trailing below.
    */
   const handleIframeLoad = () => {
     try {
       const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document;
       if (doc) {
-        const fullHeight = Math.max(
-          doc.body.scrollHeight,
-          doc.documentElement.scrollHeight,
-          doc.body.offsetHeight
-        );
-        setIframeHeight(fullHeight + 40); // Add breathing padding at bottom
+        // Remove default document margins and heights causing vertical stretching
+        doc.documentElement.style.height = 'auto';
+        doc.body.style.height = 'auto';
+        doc.body.style.minHeight = 'auto';
+        doc.body.style.paddingBottom = '10px';
+
+        const contentEl = doc.getElementById('invoice-root') || doc.body;
+        const measuredHeight = contentEl.scrollHeight || doc.body.offsetHeight;
+
+        setIframeHeight(measuredHeight + 16);
       }
     } catch {
       // Fallback
@@ -976,15 +997,15 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
         >
           <div 
             id="invoice-capture-area" 
-            className="w-full max-w-[794px] bg-white text-black shadow-2xl rounded-sm mx-auto overflow-hidden pb-6"
+            className="w-full max-w-[794px] bg-white text-black shadow-2xl rounded-sm mx-auto overflow-hidden pb-4"
           >
             <iframe
               ref={iframeRef}
               srcDoc={printableDoc}
               onLoad={handleIframeLoad}
               style={{ 
-                height: `${iframeHeight ? Math.max(iframeHeight, 950) : 1100}px`,
-                minHeight: '900px'
+                height: iframeHeight ? `${iframeHeight}px` : 'auto',
+                minHeight: 'auto'
               }}
               scrolling="no"
               title={`Invoice-${order?.id || ''}`}
