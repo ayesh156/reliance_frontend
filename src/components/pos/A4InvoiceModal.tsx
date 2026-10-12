@@ -1,4 +1,14 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '../ui/dialog';
+import { Button } from '../ui/button';
+import { Printer, FileDown, X, FileText, Loader2 } from 'lucide-react';
+import { toast } from 'react-toastify';
 
 interface InvoiceModalProps {
   open: boolean;
@@ -23,26 +33,11 @@ const formatReturnDate = (dateInput: string | Date | undefined | null): string =
 const formatReturnDateTime = formatReturnDate;
 
 /**
- * Robust Headless Iframe Print Engine:
- * Generates an isolated printing context to eliminate React DOM CSS clipping,
- * blank pages, black-box artifacts, and extra blank trailing sheets.
- *
- * Layout & Formatting Architecture:
- * - Replaces technical Return ID hashes with human-readable system Date (`YYYY-MM-DD`).
- * - Formats Return Adjustment History table with strict column proportions:
- *   `# | DATE | RETURNED ITEM & REASON | QTY | CREDIT / REFUND`.
- * - Maintains 100% visual and mathematical synchronization with backend PDF streaming engine.
+ * Generates official A4 invoice HTML document for printing and preview iframe rendering.
  */
-export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, order, autoPrint = false }) => {
-  // Prevent duplicate execution across React re-renders and StrictMode
-  const isPrintingRef = useRef<boolean>(false);
-
-  useEffect(() => {
-    // Abort if modal is closed, order is missing, autoPrint is off, or already dispatched
-    if (!open || !order || !autoPrint || isPrintingRef.current) return;
-    isPrintingRef.current = true;
-
-    const invoiceNo = `INV${order.id || String(Date.now()).slice(-4)}`;
+export const generatePrintableInvoiceHtml = (order: any): string => {
+  if (!order) return '';
+  const invoiceNo = `INV${order.id || String(Date.now()).slice(-4)}`;
     const dateStr = order.createdAt
       ? new Date(order.createdAt).toISOString().split('T')[0]
       : new Date().toISOString().split('T')[0];
@@ -757,76 +752,187 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
       </body>
       </html>
     `;
+  return printableDoc;
+};
 
-    // Create invisible print sandbox iframe
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = '0';
-    iframe.style.visibility = 'hidden';
+/**
+ * Responsive A4 Invoice Preview Modal
+ * Renders an adaptive A4 preview paper with headless iframe sandbox,
+ * touch-friendly scrolling on mobile, sticky action controls (Print, Download PDF, Close),
+ * and automatic PDF download / print orchestration.
+ */
+export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, order, autoPrint = false }) => {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const isPrintingRef = useRef<boolean>(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState<boolean>(false);
 
-    document.body.appendChild(iframe);
+  const printableDoc = useMemo(() => {
+    if (!order) return '';
+    return generatePrintableInvoiceHtml(order);
+  }, [order]);
 
-    const doc = iframe.contentWindow?.document;
-    if (!doc) {
-      document.body.removeChild(iframe);
-      onClose();
-      return;
-    }
-
-    doc.open();
-    doc.write(printableDoc);
-    doc.close();
-
-    // Capture the current title so it can be restored once the print dialog closes.
-    // Chrome's "Save as PDF" default filename is derived from the top-level
-    // document title at the moment print() fires, so both the iframe document
-    // and the parent window must reflect the desired invoice filename.
+  const handlePrint = () => {
+    if (!iframeRef.current?.contentWindow) return;
+    const iframeWin = iframeRef.current.contentWindow;
+    const invoiceNo = `INV${order?.id || String(Date.now()).slice(-4)}`;
     const originalTitle = document.title;
     const suggestedFileName = `Invoice-${invoiceNo}`;
     document.title = suggestedFileName;
-    if (doc) {
-      doc.title = suggestedFileName;
+    if (iframeWin.document) {
+      iframeWin.document.title = suggestedFileName;
     }
-
-    // Restore the original title once the print dialog has closed (or been cancelled)
-    const restoreTitle = () => {
+    iframeWin.focus();
+    iframeWin.print();
+    setTimeout(() => {
       document.title = originalTitle;
-    };
-    iframe.contentWindow?.addEventListener('afterprint', restoreTitle);
+    }, 1500);
+  };
 
-    // Trigger print safely once content is completely written (Single-Execution)
-    iframe.contentWindow?.focus();
-    const printTimer = setTimeout(() => {
-      iframe.contentWindow?.print();
+  const handleDownloadPdf = async () => {
+    if (!order?.id) {
+      handlePrint();
+      return;
+    }
+    try {
+      setIsDownloadingPdf(true);
+      toast.info(`Generating Invoice #INV${order.id} PDF...`);
+      const apiHost = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      const token = localStorage.getItem('token') || localStorage.getItem('auth_token') || sessionStorage.getItem('token');
+      const response = await fetch(`${apiHost}/orders/invoices/${order.id}/pdf`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      if (!response.ok) throw new Error('Failed to generate invoice PDF');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Invoice-INV${order.id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success(`Invoice #INV${order.id} PDF downloaded!`);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to download PDF. Opening print preview instead.');
+      handlePrint();
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
 
-      // Remove temporary iframe after printing dialog is closed
-      const cleanupTimer = setTimeout(() => {
-        restoreTitle();
-        iframe.contentWindow?.removeEventListener('afterprint', restoreTitle);
-        if (document.body.contains(iframe)) {
-          document.body.removeChild(iframe);
-        }
-        isPrintingRef.current = false;
-        onClose();
-      }, 500);
+  // Safe single-trigger autoPrint handler when opened
+  useEffect(() => {
+    if (!open || !order || !autoPrint || isPrintingRef.current) return;
+    isPrintingRef.current = true;
+    const timer = setTimeout(() => {
+      handlePrint();
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [open, autoPrint, order?.id]);
 
-      return () => clearTimeout(cleanupTimer);
-    }, 250);
+  if (!open || !order) return null;
 
-    return () => {
-      clearTimeout(printTimer);
-      restoreTitle();
-      iframe.contentWindow?.removeEventListener('afterprint', restoreTitle);
-      if (document.body.contains(iframe)) {
-        document.body.removeChild(iframe);
-      }
-      isPrintingRef.current = false;
-    };
-  }, [open, autoPrint, order?.id]); // Track only order id to avoid loop on parent state updates
+  return (
+    <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
+      <DialogContent className="w-full max-w-full sm:max-w-4xl max-h-[92vh] flex flex-col p-2 sm:p-6 rounded-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 shadow-2xl">
+        {/* Sticky Mobile Actions Header */}
+        <DialogHeader className="pb-2.5 border-b border-slate-100 dark:border-zinc-800 shrink-0">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <FileText className="size-5 text-indigo-600 dark:text-indigo-400" />
+              <DialogTitle className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+                Invoice Preview — #{order?.id ? `INV${order.id}` : 'NEW'}
+              </DialogTitle>
+            </div>
 
-  return null; // Headless (No DOM footprint on terminal screen)
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                onClick={handlePrint}
+                className="h-9 px-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl gap-1.5 shadow-sm active:scale-[0.98] transition-all cursor-pointer inline-flex items-center"
+              >
+                <Printer className="size-4" />
+                <span>Print</span>
+              </Button>
+
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={isDownloadingPdf}
+                onClick={handleDownloadPdf}
+                className="h-9 px-3.5 border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800 font-bold rounded-xl gap-1.5 shadow-sm active:scale-[0.98] transition-all cursor-pointer inline-flex items-center"
+              >
+                {isDownloadingPdf ? (
+                  <Loader2 className="size-4 animate-spin text-emerald-600" />
+                ) : (
+                  <FileDown className="size-4 text-emerald-600" />
+                )}
+                <span className="hidden sm:inline">Download PDF</span>
+                <span className="sm:hidden">PDF</span>
+              </Button>
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="size-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                aria-label="Close"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+          </div>
+          <DialogDescription className="text-xs text-slate-500 dark:text-zinc-400">
+            A4 format preview. Print directly to thermal/laser printer or download as PDF.
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Iframe / Paper Container: Responsive scaling or touch-friendly scrolling */}
+        <div className="overflow-y-auto flex-1 w-full bg-slate-100 dark:bg-zinc-900 rounded-xl p-2 flex justify-center items-start min-h-[360px]">
+          <iframe
+            ref={iframeRef}
+            srcDoc={printableDoc}
+            title={`Invoice-${order?.id || ''}`}
+            className="w-full h-full min-h-[60vh] sm:min-h-[70vh] border-0 rounded-lg shadow-sm bg-white"
+          />
+        </div>
+
+        {/* Sticky Mobile Actions Footer */}
+        <div className="pt-2.5 border-t border-slate-100 dark:border-zinc-800 flex sm:hidden items-center justify-between gap-2 shrink-0">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            className="h-10 flex-1 border-slate-300 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 rounded-xl font-bold text-xs"
+          >
+            <X className="size-3.5 mr-1" />
+            Close
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={isDownloadingPdf}
+            onClick={handleDownloadPdf}
+            className="h-10 flex-1 border-slate-300 dark:border-zinc-700 text-slate-800 dark:text-zinc-200 rounded-xl font-bold text-xs"
+          >
+            <FileDown className="size-3.5 text-emerald-600 mr-1" />
+            PDF
+          </Button>
+          <Button
+            type="button"
+            onClick={handlePrint}
+            className="h-10 flex-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-xs"
+          >
+            <Printer className="size-3.5 mr-1" />
+            Print
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 };

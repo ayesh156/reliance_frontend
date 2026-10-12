@@ -5,18 +5,51 @@
 
 export const sanitizeWhatsAppPhone = (phone?: string | null): string | null => {
   if (!phone) return null;
-  const cleaned = phone.replace(/[^0-9+]/g, '');
-  if (cleaned.startsWith('+94')) return cleaned.replace('+', '');
-  if (cleaned.startsWith('0') && cleaned.length === 10) return `94${cleaned.slice(1)}`;
-  if (cleaned.startsWith('94') && cleaned.length === 11) return cleaned;
+  // Remove +, spaces, dashes, brackets, and non-numeric characters
+  let cleaned = phone.replace(/[\s\-\(\)\+]/g, '').trim().replace(/[^0-9]/g, '');
+  if (!cleaned) return null;
+  // Prepend country code 94 if starting with 0 (e.g. 0771234567 -> 94771234567)
+  if (cleaned.startsWith('0')) {
+    cleaned = `94${cleaned.slice(1)}`;
+  } else if (!cleaned.startsWith('94') && cleaned.length === 9) {
+    cleaned = `94${cleaned}`;
+  }
   return cleaned.length >= 9 ? cleaned : null;
 };
 
+/**
+ * Dispatches WhatsApp messaging using native deep-link URI on mobile devices
+ * (with automatic fallback to Web/API) and desktop Web WhatsApp.
+ *
+ * @param phone Target customer mobile/WhatsApp number
+ * @param message Prepared text payload (encoded for transport)
+ */
 export const openWhatsAppChat = (phone: string, message: string) => {
-  const cleanPhone = sanitizeWhatsAppPhone(phone);
-  const encoded = encodeURIComponent(message);
-  const url = cleanPhone ? `https://wa.me/${cleanPhone}?text=${encoded}` : `https://wa.me/?text=${encoded}`;
-  window.open(url, '_blank', 'noopener,noreferrer');
+  const cleanPhone = sanitizeWhatsAppPhone(phone) || '';
+  const encodedMessage = encodeURIComponent(message);
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  if (isMobile) {
+    // Native application URI scheme targeting installed WhatsApp / WhatsApp Business
+    const nativeUri = `whatsapp://send?phone=${cleanPhone}&text=${encodedMessage}`;
+    const webFallbackUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodedMessage}`;
+
+    const startTime = Date.now();
+    window.location.href = nativeUri;
+
+    // Provide automatic timeout fallback: if custom scheme doesn't open within 1.5 seconds, redirect to web API
+    setTimeout(() => {
+      // If user navigated away or switched apps, document becomes hidden; if still active after 1500ms, redirect
+      if (document.hidden || Date.now() - startTime > 2500) {
+        return;
+      }
+      window.location.href = webFallbackUrl;
+    }, 1500);
+  } else {
+    // On Desktop: Open web.whatsapp.com in a new tab
+    const desktopUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodedMessage}`;
+    window.open(desktopUrl, '_blank', 'noopener,noreferrer');
+  }
 };
 
 /**

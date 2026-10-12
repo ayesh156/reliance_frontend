@@ -1,5 +1,27 @@
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
+/**
+ * Intercept and broadcast network-level fetch failures (e.g., backend unreachable,
+ * offline connection dropped, ERR_CONNECTION_REFUSED, ERR_NETWORK_CHANGED).
+ * Dispatches 'app:network-offline' to trigger OfflineSentinel without exposing
+ * uncaught raw alert dialogs.
+ */
+function notifyNetworkOffline(error: unknown): void {
+  const msg = error instanceof Error ? error.message : String(error);
+  const isNetworkFailure =
+    error instanceof TypeError ||
+    msg.includes('Failed to fetch') ||
+    msg.includes('ERR_CONNECTION_REFUSED') ||
+    msg.includes('ERR_NETWORK_CHANGED') ||
+    msg.includes('NetworkError') ||
+    msg.includes('fetch failed') ||
+    msg.includes('Load failed');
+
+  if (isNetworkFailure && typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('app:network-offline'));
+  }
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
 
@@ -20,10 +42,16 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers['Content-Type'] = 'application/json';
   }
 
-  const response = await fetch(url, {
-    ...options,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      headers,
+    });
+  } catch (error: unknown) {
+    notifyNetworkOffline(error);
+    throw error;
+  }
 
   const data = await response.json().catch(() => null);
 
@@ -86,7 +114,13 @@ export const downloadBlob = async (endpoint: string, defaultFilename: string) =>
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(url, { headers });
+  let response: Response;
+  try {
+    response = await fetch(url, { headers });
+  } catch (error: unknown) {
+    notifyNetworkOffline(error);
+    throw error;
+  }
   if (!response.ok) {
     const errText = await response.text();
     let message = 'Failed to download file';

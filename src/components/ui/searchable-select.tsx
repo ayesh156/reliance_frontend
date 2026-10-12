@@ -49,10 +49,26 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   const selectedOption = options.find((opt) => opt.value === value);
 
   const filteredOptions = React.useMemo(() => {
-    if (!searchQuery.trim()) return options;
-    return options.filter((opt) =>
-      opt.label.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return options;
+
+    const terms = query.split(/\s+/).filter(Boolean);
+    const queryDigits = query.replace(/\D/g, "");
+
+    return options.filter((opt) => {
+      const labelLower = opt.label.toLowerCase();
+      // 1. Multi-word matching: every search term must be found in the label
+      const wordsMatch = terms.every((term) => labelLower.includes(term));
+      if (wordsMatch) return true;
+
+      // 2. Phone number digit matching: match raw digits if at least 3 digits provided
+      if (queryDigits.length >= 3) {
+        const labelDigits = opt.label.replace(/\D/g, "");
+        if (labelDigits.includes(queryDigits)) return true;
+      }
+
+      return false;
+    });
   }, [options, searchQuery]);
 
   // Dynamically calculate coordinates attached precisely to trigger button

@@ -282,68 +282,68 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] sm:max-w-3xl min-w-0 sm:min-w-[640px] p-0 overflow-hidden border border-slate-200 dark:border-zinc-800 shadow-2xl rounded-2xl bg-white dark:bg-zinc-950">
+      <DialogContent className="max-w-lg w-full max-h-[90vh] overflow-y-auto px-4 py-3 p-0 border border-slate-200 dark:border-zinc-800 shadow-2xl rounded-2xl bg-white dark:bg-zinc-950 flex flex-col">
         {/* Header Bar */}
-        <div className="p-5 pb-4 border-b border-slate-100 dark:border-zinc-800/80 bg-slate-50/50 dark:bg-zinc-900/40">
+        <div className="p-4 pb-3 border-b border-slate-100 dark:border-zinc-800/80 bg-slate-50/50 dark:bg-zinc-900/40">
           <DialogHeader className="gap-1">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="size-9 rounded-xl bg-gradient-to-br from-indigo-500 to-emerald-600 flex items-center justify-center text-white shadow-sm">
-                  <Layers className="size-5" />
+                <div className="size-8 sm:size-9 rounded-xl bg-gradient-to-br from-indigo-500 to-emerald-600 flex items-center justify-center text-white shadow-sm shrink-0">
+                  <Layers className="size-4 sm:size-5" />
                 </div>
                 <div>
-                  <DialogTitle className="text-base sm:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <DialogTitle className="text-sm sm:text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                     Multi-Method Split Payments
                     <Badge
                       variant="outline"
-                      className="text-[10px] uppercase font-mono tracking-wider text-emerald-600 border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40"
+                      className="text-[9px] uppercase font-mono tracking-wider text-emerald-600 border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40"
                     >
                       POS Engine
                     </Badge>
                   </DialogTitle>
-                  <p className="text-xs text-slate-500 dark:text-zinc-400">
-                    Add payments across multiple methods (Cash, Cheque, Bank Transfer, Card) with clean row tracking.
+                  <p className="text-[11px] text-slate-500 dark:text-zinc-400">
+                    Add payments across multiple methods with clean row tracking.
                   </p>
                 </div>
               </div>
             </div>
           </DialogHeader>
 
-          {/* Live Financial Balance Indicator */}
-          <div className="mt-4 grid grid-cols-3 gap-2.5 p-3 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800 shadow-xs">
+          {/* Live Financial Balance Indicator - Balanced 2-col / 3-col responsive layout */}
+          <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2 p-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800 shadow-xs">
             <div className="space-y-0.5">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 whitespace-nowrap">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 block truncate">
                 Total Bill
               </span>
-              <div className="font-mono text-base sm:text-lg font-black text-slate-900 dark:text-white whitespace-nowrap">
+              <div className="font-mono text-sm sm:text-base font-black text-slate-900 dark:text-white truncate">
                 Rs. {totalBill.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
               </div>
             </div>
 
-            <div className="space-y-0.5 border-x border-slate-100 dark:border-zinc-800 px-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 whitespace-nowrap">
+            <div className="space-y-0.5 border-l border-slate-100 dark:border-zinc-800 pl-2 sm:border-x sm:px-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 block truncate">
                 Total Tendered
               </span>
-              <div className="font-mono text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+              <div className="font-mono text-sm sm:text-base font-black text-emerald-600 dark:text-emerald-400 truncate">
                 Rs. {totalTendered.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
               </div>
             </div>
 
-            <div className="space-y-0.5 pl-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 whitespace-nowrap">
+            <div className="space-y-0.5 col-span-2 sm:col-span-1 border-t sm:border-t-0 pt-1.5 sm:pt-0 border-slate-100 dark:border-zinc-800 sm:pl-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 block truncate">
                 {excessTendered > 0 ? 'Excess (Change)' : remainingDue === 0 ? 'Settlement Status' : 'Remaining Due'}
               </span>
-              <div>
+              <div className="truncate">
                 {excessTendered > 0 ? (
-                  <span className="font-mono text-base sm:text-lg font-black text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                  <span className="font-mono text-sm sm:text-base font-black text-blue-600 dark:text-blue-400 truncate">
                     + Rs. {excessTendered.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
                   </span>
                 ) : remainingDue === 0 && splits.length > 0 ? (
-                  <div className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold text-xs sm:text-sm pt-0.5 whitespace-nowrap">
-                    <CheckCircle2 className="size-4" /> Fully Balanced
+                  <div className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold text-xs sm:text-sm pt-0.5 truncate">
+                    <CheckCircle2 className="size-4 shrink-0" /> Fully Balanced
                   </div>
                 ) : (
-                  <span className="font-mono text-base sm:text-lg font-black text-amber-600 dark:text-amber-400 whitespace-nowrap">
+                  <span className="font-mono text-sm sm:text-base font-black text-amber-600 dark:text-amber-400 truncate">
                     Rs. {remainingDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
                   </span>
                 )}
@@ -353,11 +353,11 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <div className="p-5 space-y-4 max-h-[60vh] overflow-y-auto">
-          {/* Section 1: Dedicated Add Payment Entry Form (Single clean entry area) */}
+        <div className="p-4 space-y-3.5 max-h-[60vh] overflow-y-auto">
+          {/* Section 1: Dedicated Add Payment Entry Form */}
           <form
             onSubmit={handleAddPaymentEntry}
-            className="p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-900/60 space-y-3"
+            className="p-3 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-900/60 space-y-2.5"
           >
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-zinc-200 flex items-center gap-1.5 whitespace-nowrap">
@@ -370,16 +370,15 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
                   onClick={handleFillEntryRemaining}
                   className="text-[11px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 inline-flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-900/60 cursor-pointer whitespace-nowrap"
                 >
-                  <Sparkles className="size-3" /> Fill Remaining Due (Rs. {remainingDue.toLocaleString()})
+                  <Sparkles className="size-3" /> Fill Due (Rs. {remainingDue.toLocaleString()})
                 </button>
               )}
             </div>
 
-            {/* Inputs Form Row - Structured Full-Width Responsive Flex Container */}
-            <div className="w-full flex flex-wrap sm:flex-nowrap items-end gap-2.5">
-              {/* Payment Method */}
-              <div className="flex-1 min-w-[130px] space-y-1">
-                <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block whitespace-nowrap">Method *</label>
+            {/* Row 1: Method and Amount in 2-column grid */}
+            <div className="grid grid-cols-2 gap-2 w-full">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Method *</label>
                 <SearchableSelect
                   value={entryMethod}
                   onValueChange={(val) => setEntryMethod(val as SplitMethod)}
@@ -391,13 +390,12 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
                   placeholder="Select Method"
                   searchPlaceholder="Search method..."
                   dark={dark}
-                  className="h-9 py-0 rounded-lg text-xs"
+                  className="h-9 py-0 rounded-lg text-xs w-full"
                 />
               </div>
 
-              {/* Amount Input */}
-              <div className="flex-1 min-w-[130px] space-y-1">
-                <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block whitespace-nowrap">Amount (Rs.) *</label>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Amount (Rs.) *</label>
                 <div className="relative flex items-center">
                   <span className="absolute left-2.5 text-xs font-mono font-bold text-slate-400">Rs.</span>
                   <Input
@@ -415,23 +413,24 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
                     onFocus={(e) => e.target.select()}
                     onClick={(e) => (e.target as HTMLInputElement).select()}
                     placeholder="0.00"
-                    className="pl-8 h-9 font-mono font-bold text-xs text-right bg-white dark:bg-zinc-900 rounded-lg"
+                    className="pl-8 h-9 font-mono font-bold text-xs text-right bg-white dark:bg-zinc-900 rounded-lg w-full"
                   />
                 </div>
               </div>
+            </div>
 
-              {/* Date & Time */}
-              <div className="flex-initial min-w-[210px] space-y-1">
-                <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block whitespace-nowrap">Date & Time *</label>
+            {/* Row 2: Date & Time and Add Entry Button in a responsive stacked layout */}
+            <div className="flex flex-col sm:flex-row items-end gap-2 w-full">
+              <div className="w-full sm:flex-1 space-y-1">
+                <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Date & Time *</label>
                 <DateTimePicker
                   value={entryDate}
                   onChange={setEntryDate}
-                  className="h-9"
+                  className="h-9 w-full"
                 />
               </div>
 
-              {/* Compact Square Add Action Button */}
-              <div className="shrink-0">
+              <div className="w-full sm:w-auto shrink-0">
                 <Button
                   type="button"
                   onClick={(e) => {
@@ -440,9 +439,10 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
                   }}
                   disabled={!entryAmount || parseFloat(entryAmount) <= 0}
                   title="Add Payment Entry"
-                  className="w-10 h-10 shrink-0 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white flex items-center justify-center shadow-sm cursor-pointer p-0"
+                  className="w-full sm:w-auto h-9 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white flex items-center justify-center gap-1.5 shadow-sm cursor-pointer font-semibold text-xs disabled:opacity-50 select-none"
                 >
                   <Plus className="w-4 h-4" />
+                  <span>+ Add Entry</span>
                 </Button>
               </div>
             </div>

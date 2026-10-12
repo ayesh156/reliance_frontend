@@ -309,6 +309,13 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
               >
                 Last 30 Days
               </button>
+              <button
+                type="button"
+                onClick={() => setPreset('clear')}
+                className="px-2 py-1 rounded-md text-[11px] font-semibold bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 transition-colors cursor-pointer shrink-0 ml-auto"
+              >
+                Clear
+              </button>
             </div>
 
             {/* Header / Month navigation */}

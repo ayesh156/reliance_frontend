@@ -8,6 +8,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { TooltipProvider } from './components/ui/Tooltip';
+import { OfflineSentinel } from './components/common/OfflineSentinel';
 import { AttributesPage } from './pages/AttributesPage';
 
 // Active Pages (Phase 1 & Phase 2)
@@ -70,6 +71,7 @@ export function App() {
     <ThemeProvider>
       <AuthProvider>
         <TooltipProvider delayDuration={150}>
+          <OfflineSentinel />
           <ThemedToastContainer />
           <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <ScrollToTop />

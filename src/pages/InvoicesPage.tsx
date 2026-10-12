@@ -10,6 +10,7 @@ import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
 import { SearchableSelect } from '../components/ui/searchable-select';
 import { A4InvoiceModal } from '../components/pos/A4InvoiceModal';
+import { ReturnOrderModal } from '../components/invoices/ReturnOrderModal';
 import {
   Dialog,
   DialogContent,
@@ -46,8 +47,32 @@ import {
   History, // ⭐ Added for Historical Return Audit Log
   AlertCircle,
   CheckCircle2,
+  SlidersHorizontal,
+  Calendar,
+  X,
+  MessageCircle,
+  Pencil,
+  ArrowUpDown,
 } from 'lucide-react';
+import { DateRangePicker } from '../components/ui/date-range-picker';
 import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../utils/whatsapp';
+
+const PAYMENT_METHOD_OPTIONS = [
+  { value: 'ALL', label: 'All Payment Methods' },
+  { value: 'CASH', label: 'Cash' },
+  { value: 'CHEQUE', label: 'Cheque' },
+  { value: 'CARD', label: 'Card' },
+  { value: 'BANK_TRANSFER', label: 'Bank Transfer' },
+  { value: 'CREDIT', label: 'Credit' },
+];
+
+const SORT_OPTIONS = [
+  { value: 'newest', label: 'Newest First' },
+  { value: 'oldest', label: 'Oldest First' },
+  { value: 'highest_amount', label: 'Highest Amount' },
+  { value: 'lowest_amount', label: 'Lowest Amount' },
+  { value: 'highest_due', label: 'Highest Due' },
+];
 
 interface InvoiceRecord {
   id: number;
@@ -102,6 +127,10 @@ export const InvoicesPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState('all');
   const [selectedMethod, setSelectedMethod] = useState('ALL');
+  const [startDate, setStartDate] = useState<Date | undefined>(undefined);
+  const [endDate, setEndDate] = useState<Date | undefined>(undefined);
+  const [sortBy, setSortBy] = useState<string>('newest');
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -143,145 +172,10 @@ export const InvoicesPage: React.FC = () => {
   // ⭐ In-Store Return & Stock Restoration Dialog State
   const [returnInvoice, setReturnInvoice] = useState<InvoiceRecord | null>(null);
   const [returnModalOpen, setReturnModalOpen] = useState(false);
-  const [returnQuantities, setReturnQuantities] = useState<Record<number, number>>({});
-  const [returnReason, setReturnReason] = useState<string>('Incorrect Size');
-  const [customReturnReason, setCustomReturnReason] = useState<string>('');
-  const [isProcessingReturn, setIsProcessingReturn] = useState<boolean>(false);
-
-  /**
-   * Helper to retrieve total past returned quantity for a specific product variant on an invoice
-   */
-  const getCumulativeReturnedForVariant = (inv: InvoiceRecord | null, variantId: number): number => {
-    if (!inv || !Array.isArray(inv.returns)) return 0;
-    return inv.returns.reduce((sum, ret) => {
-      if (!Array.isArray(ret.returnedItems)) return sum;
-      const match = ret.returnedItems.find((ri: any) => Number(ri.variantId) === Number(variantId));
-      return sum + (match ? Number(match.returnQty || 0) : 0);
-    }, 0);
-  };
-
-  /**
-   * Live calculations banner state for return modal:
-   * Original Bill Total, Total Returned Value, Adjusted Net Bill Total, and Updated Customer Due
-   */
-  const returnModalCalculations = useMemo(() => {
-    if (!returnInvoice) {
-      return {
-        originalBill: 0,
-        pastReturnsTotal: 0,
-        thisReturnTotal: 0,
-        totalReturnedValue: 0,
-        adjustedNetBillTotal: 0,
-        currentBillDue: 0,
-        updatedBillDue: 0,
-        totalItemsToReturn: 0,
-        canSubmit: false,
-      };
-    }
-
-    const pastReturnsTotal = (returnInvoice.returns || []).reduce(
-      (sum, r) => sum + (Number(r.totalReturnRefund) || 0),
-      0
-    );
-
-    const originalBill = returnInvoice.originalTotalAmount !== undefined
-      ? Number(returnInvoice.originalTotalAmount)
-      : Number(returnInvoice.totalAmount) + pastReturnsTotal;
-
-    let thisReturnTotal = 0;
-    let totalItemsToReturn = 0;
-
-    if (Array.isArray(returnInvoice.items)) {
-      returnInvoice.items.forEach((item) => {
-        const qty = Number(returnQuantities[item.variantId] || 0);
-        if (qty > 0) {
-          totalItemsToReturn += qty;
-          const unitPrice = Number(item.unitPrice || (item.quantity ? item.price / item.quantity : 0));
-          thisReturnTotal += qty * unitPrice;
-        }
-      });
-    }
-
-    thisReturnTotal = Math.round(thisReturnTotal * 100) / 100;
-    const totalReturnedValue = Math.round((pastReturnsTotal + thisReturnTotal) * 100) / 100;
-    const adjustedNetBillTotal = Math.max(0, Math.round((originalBill - totalReturnedValue) * 100) / 100);
-
-    const currentBillDue = Math.max(0, Math.round((Number(returnInvoice.totalAmount) - Number(returnInvoice.paidAmount)) * 100) / 100);
-    const dueOffset = Math.min(currentBillDue, thisReturnTotal);
-    const updatedBillDue = Math.max(0, Math.round((currentBillDue - dueOffset) * 100) / 100);
-
-    return {
-      originalBill,
-      pastReturnsTotal,
-      thisReturnTotal,
-      totalReturnedValue,
-      adjustedNetBillTotal,
-      currentBillDue,
-      updatedBillDue,
-      totalItemsToReturn,
-      canSubmit: totalItemsToReturn > 0,
-    };
-  }, [returnInvoice, returnQuantities]);
 
   const handleOpenReturnModal = (inv: InvoiceRecord) => {
     setReturnInvoice(inv);
-    const initialQtys: Record<number, number> = {};
-    if (Array.isArray(inv.items)) {
-      inv.items.forEach((item) => {
-        initialQtys[item.variantId] = 0;
-      });
-    }
-    setReturnQuantities(initialQtys);
-    setReturnReason('Incorrect Size');
-    setCustomReturnReason('');
     setReturnModalOpen(true);
-  };
-
-  const handleProcessReturnSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!returnInvoice) return;
-
-    if (returnModalCalculations.totalItemsToReturn <= 0) {
-      toast.error('Please enter a return quantity of at least 1 item');
-      return;
-    }
-
-    const returnedItems = Object.entries(returnQuantities)
-      .filter(([_, qty]) => Number(qty) > 0)
-      .map(([variantIdStr, qty]) => {
-        const variantId = Number(variantIdStr);
-        const originalItem = returnInvoice.items.find((it) => Number(it.variantId) === variantId);
-        const unitPrice = Number(originalItem?.unitPrice || (originalItem ? originalItem.price / originalItem.quantity : 0));
-        return {
-          variantId,
-          productId: originalItem?.variant?.productId,
-          returnQty: Number(qty),
-          unitPrice,
-          amount: Math.round(Number(qty) * unitPrice * 100) / 100,
-        };
-      });
-
-    const finalReason = returnReason === 'Other'
-      ? (customReturnReason.trim() || 'Other')
-      : returnReason;
-
-    try {
-      setIsProcessingReturn(true);
-      await post(`/orders/${returnInvoice.id}/returns`, {
-        returnedItems,
-        reason: finalReason,
-      });
-
-      toast.success(`Return processed for Invoice #INV${returnInvoice.id}! Stock restored to inventory.`);
-      setReturnModalOpen(false);
-      setReturnInvoice(null);
-      setReturnQuantities({});
-      fetchInvoices();
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || err.message || 'Failed to process return');
-    } finally {
-      setIsProcessingReturn(false);
-    }
   };
 
   /**
@@ -365,6 +259,44 @@ export const InvoicesPage: React.FC = () => {
       .catch(() => {});
   }, []);
 
+  /**
+   * Helper to format a JavaScript Date into YYYY-MM-DD in local time
+   * without UTC conversion drift or calendar day shifting.
+   */
+  const formatLocalDate = (d: Date | undefined): string | undefined => {
+    if (!d) return undefined;
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  /**
+   * Count of active non-default secondary filters for badge indicator
+   */
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (selectedCustomerId !== 'all') count++;
+    if (selectedMethod !== 'ALL') count++;
+    if (startDate) count++;
+    if (endDate) count++;
+    if (sortBy !== 'newest') count++;
+    return count;
+  }, [selectedCustomerId, selectedMethod, startDate, endDate, sortBy]);
+
+  /**
+   * Reset all secondary filters and search query back to default view
+   */
+  const handleClearAllFilters = () => {
+    setSelectedCustomerId('all');
+    setSelectedMethod('ALL');
+    setStartDate(undefined);
+    setEndDate(undefined);
+    setSortBy('newest');
+    setSearchQuery('');
+    setPage(1);
+  };
+
   // Single Unified Fetcher with race-condition protection
   const fetchInvoices = async (targetPage = page) => {
     setLoading(true);
@@ -375,9 +307,23 @@ export const InvoicesPage: React.FC = () => {
       if (searchQuery.trim()) params.set('search', searchQuery.trim());
       if (selectedCustomerId !== 'all') params.set('customerId', selectedCustomerId);
       if (selectedMethod !== 'ALL') params.set('paymentMethod', selectedMethod);
+      if (sortBy) params.set('sortBy', sortBy);
+
+      const sDateStr = formatLocalDate(startDate);
+      const eDateStr = formatLocalDate(endDate);
+      if (sDateStr) params.set('startDate', sDateStr);
+      if (eDateStr) params.set('endDate', eDateStr);
 
       const res = await get<any>(`/orders/invoices?${params.toString()}`);
-      setInvoices(res.data || []);
+      let list = res.data || [];
+      if (sortBy === 'highest_due') {
+        list = [...list].sort((a, b) => {
+          const dueA = Math.max(0, (Number(a.totalAmount) || 0) - (Number(a.paidAmount) || 0));
+          const dueB = Math.max(0, (Number(b.totalAmount) || 0) - (Number(b.paidAmount) || 0));
+          return dueB - dueA;
+        });
+      }
+      setInvoices(list);
       setTotalPages(res.pagination?.totalPages || 1);
       setTotalCount(res.pagination?.total || 0);
     } catch (err: any) {
@@ -392,7 +338,7 @@ export const InvoicesPage: React.FC = () => {
 
   /**
    * Single Consolidated Effect:
-   * Handles Initial Load, Pagination, Customer Filter, Payment Method & Debounced Search seamlessly.
+   * Handles Initial Load, Pagination, Customer Filter, Payment Method, Date Range & Debounced Search seamlessly.
    */
   useEffect(() => {
     // If it's the very first time the page opens, fetch immediately (0ms delay)
@@ -402,14 +348,14 @@ export const InvoicesPage: React.FC = () => {
       return;
     }
 
-    // For any subsequent changes (typing in search, picking a customer, clicking a payment pill)
-    const delay = searchQuery ? 350 : 0; // Instant for dropdowns/pagination, 350ms debounce for typing
+    // For any subsequent changes (typing in search, picking a customer, clicking a payment pill, changing dates)
+    const delay = searchQuery ? 350 : 0; // Instant for dropdowns/pickers, 350ms debounce for typing
     const timer = setTimeout(() => {
       fetchInvoices(page);
     }, delay);
 
     return () => clearTimeout(timer);
-  }, [page, selectedCustomerId, selectedMethod, searchQuery]);
+  }, [page, selectedCustomerId, selectedMethod, startDate, endDate, sortBy, searchQuery]);
 
   // Comprehensive Invoice Metrics
   const totalInvoicesGenerated = totalCount;
@@ -544,10 +490,149 @@ export const InvoicesPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Filters Row (Search, Customer Combobox, Payment Method) */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-white dark:bg-zinc-900/60 p-3 rounded-2xl border border-slate-200 dark:border-zinc-800">
-        {/* Keyword Search */}
-        <div className="relative">
+      {/* ── Mobile View (< 1024px): Clean Search Bar + Collapsible Filters Drawer Button ── */}
+      <div className="block lg:hidden bg-white dark:bg-zinc-900/60 p-3 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-2.5">
+        <div className="flex items-center gap-2">
+          {/* Primary Search Bar */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                if (page !== 1) setPage(1);
+              }}
+              placeholder="Search invoice #, customer, phone..."
+              className="pl-9 h-9 text-xs"
+            />
+          </div>
+
+          {/* Sleek Filters Toggle Button with Active Badge */}
+          <button
+            type="button"
+            onClick={() => setMobileFiltersOpen((prev) => !prev)}
+            className={`h-9 px-3 rounded-xl border flex items-center gap-1.5 text-xs font-semibold cursor-pointer transition-all shrink-0 select-none ${
+              mobileFiltersOpen || activeFiltersCount > 0
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300'
+                : 'bg-slate-50 dark:bg-zinc-800/60 border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800'
+            }`}
+          >
+            <SlidersHorizontal className="size-3.5" />
+            <span>Filters</span>
+            {activeFiltersCount > 0 && (
+              <span className="size-4 rounded-full bg-emerald-600 text-white text-[10px] font-bold flex items-center justify-center ml-0.5">
+                {activeFiltersCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Collapsible Expansion Tray */}
+        {mobileFiltersOpen && (
+          <div className="pt-2.5 border-t border-slate-100 dark:border-zinc-800/80 space-y-2.5 animate-in fade-in-0 slide-in-from-top-2 duration-150">
+            {/* 1. Customer Filter  */}
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Customer Account
+                </label>
+                <SearchableSelect
+                  value={selectedCustomerId}
+                  onValueChange={(val) => {
+                    setSelectedCustomerId(val);
+                    if (page !== 1) setPage(1);
+                  }}
+                  options={[
+                    { value: 'all', label: 'All Customers' },
+                    ...customers.map((c) => ({
+                      value: String(c.id),
+                      label: `${c.name} (${c.phone})`,
+                    })),
+                  ]}
+                  placeholder="All Customers"
+                  searchPlaceholder="Search customer..."
+                  dark={dark}
+                  className="h-9 text-xs"
+                />
+              </div>
+
+            {/* 2. Unified Highlighted Date Range Picker */}
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                Invoice Date Range
+              </label>
+              <DateRangePicker
+                date={{ from: startDate, to: endDate }}
+                onDateChange={(range) => {
+                  setStartDate(range?.from);
+                  setEndDate(range?.to);
+                  if (page !== 1) setPage(1);
+                }}
+                placeholder="Pick date range..."
+                className="h-9 text-xs w-full"
+              />
+            </div>
+
+            {/* 3. Sort Order Selector & Payment Method Combobox side-by-side in 2-column grid */}
+            <div className="grid grid-cols-2 gap-2 w-full">
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                Sort Order
+              </label>
+              <SearchableSelect
+                value={sortBy}
+                onValueChange={(val) => {
+                  setSortBy(val);
+                  if (page !== 1) setPage(1);
+                }}
+                options={SORT_OPTIONS}
+                placeholder="Sort Invoices..."
+                searchPlaceholder="Search sort order..."
+                dark={dark}
+                className="h-9 text-xs"
+              />
+            </div>
+            <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Payment Method
+                </label>
+                <SearchableSelect
+                  value={selectedMethod}
+                  onValueChange={(val) => {
+                    setSelectedMethod(val);
+                    if (page !== 1) setPage(1);
+                  }}
+                  options={PAYMENT_METHOD_OPTIONS}
+                  placeholder="All Methods"
+                  searchPlaceholder="Search method..."
+                  dark={dark}
+                  className="h-9 text-xs"
+                />
+              </div>
+            </div>
+
+            {/* Clear All Filters Shortcut */}
+            {(activeFiltersCount > 0 || searchQuery) && (
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs text-slate-500">
+                  {activeFiltersCount} active {activeFiltersCount === 1 ? 'filter' : 'filters'}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleClearAllFilters}
+                  className="text-xs font-semibold text-rose-500 hover:text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <X className="size-3.5" /> Clear All Filters
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Desktop View (≥ 1024px): Inline Executive Filter Matrix ── */}
+      <div className="hidden lg:grid lg:grid-cols-12 gap-2.5 bg-white dark:bg-zinc-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 items-center">
+        {/* Search Bar (col-span-3) */}
+        <div className="relative col-span-3">
           <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
           <Input
             value={searchQuery}
@@ -560,13 +645,13 @@ export const InvoicesPage: React.FC = () => {
           />
         </div>
 
-        {/* Searchable Customer Select */}
-        <div>
+        {/* Customer Select (col-span-2) */}
+        <div className="col-span-2">
           <SearchableSelect
             value={selectedCustomerId}
             onValueChange={(val) => {
               setSelectedCustomerId(val);
-              setPage(1);
+              if (page !== 1) setPage(1);
             }}
             options={[
               { value: 'all', label: 'All Customers' },
@@ -575,31 +660,66 @@ export const InvoicesPage: React.FC = () => {
                 label: `${c.name} (${c.phone})`,
               })),
             ]}
-            placeholder="Filter by Customer..."
+            placeholder="All Customers..."
             searchPlaceholder="Search customer..."
             dark={dark}
           />
         </div>
 
-        {/* Payment Method Filter */}
-        <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl">
-          {['ALL', 'CASH', 'CHEQUE', 'CREDIT'].map((method) => (
-            <button
-              key={method}
-              type="button"
-              onClick={() => {
-                setSelectedMethod(method);
-                setPage(1);
+        {/* Payment Method Selector (col-span-2) */}
+        <div className="col-span-2">
+          <SearchableSelect
+            value={selectedMethod}
+            onValueChange={(val) => {
+              setSelectedMethod(val);
+              if (page !== 1) setPage(1);
+            }}
+            options={PAYMENT_METHOD_OPTIONS}
+            placeholder="Payment Method"
+            searchPlaceholder="Search method..."
+            dark={dark}
+          />
+        </div>
+
+        {/* Unified Date Range Picker (col-span-3) */}
+        <div className="col-span-3">
+          <DateRangePicker
+            date={{ from: startDate, to: endDate }}
+            onDateChange={(range) => {
+              setStartDate(range?.from);
+              setEndDate(range?.to);
+              if (page !== 1) setPage(1);
+            }}
+            placeholder="Select Date Range..."
+            className="h-9 text-xs w-full"
+          />
+        </div>
+
+        {/* Sort Selector & Clear All Shortcut (col-span-2) */}
+        <div className="col-span-2 flex items-center gap-1.5">
+          <div className="flex-1 min-w-0">
+            <SearchableSelect
+              value={sortBy}
+              onValueChange={(val) => {
+                setSortBy(val);
+                if (page !== 1) setPage(1);
               }}
-              className={`flex-1 py-1 text-[11px] font-bold rounded-lg transition-colors ${
-                selectedMethod === method
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
-              }`}
+              options={SORT_OPTIONS}
+              placeholder="Sort..."
+              searchPlaceholder="Sort by..."
+              dark={dark}
+            />
+          </div>
+          {(activeFiltersCount > 0 || searchQuery) && (
+            <button
+              type="button"
+              onClick={handleClearAllFilters}
+              className="size-9 rounded-xl border border-slate-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-800 text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 hover:border-rose-300 dark:hover:border-rose-800 flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+              title="Clear All Filters"
             >
-              {method}
+              <X className="size-4" />
             </button>
-          ))}
+          )}
         </div>
       </div>
 
@@ -637,7 +757,7 @@ export const InvoicesPage: React.FC = () => {
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span
-                        onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}`)}
+                        onClick={() => navigate(`/system/quick-checkout?editInvoiceId=${inv.id}`)}
                         className="font-mono font-bold text-xs px-2.5 py-1 rounded bg-slate-100 dark:bg-zinc-800 text-slate-900 dark:text-white cursor-pointer hover:underline hover:text-emerald-600 dark:hover:text-emerald-400 select-none"
                         title="Click to edit invoice in POS"
                       >
@@ -686,7 +806,7 @@ export const InvoicesPage: React.FC = () => {
                   <div className="flex items-start justify-between gap-2 pt-1 border-t border-slate-100 dark:border-zinc-800/60">
                     <div className="min-w-0">
                       <h4
-                        onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}`)}
+                        onClick={() => navigate(`/system/quick-checkout?editInvoiceId=${inv.id}`)}
                         className="font-bold text-sm text-slate-900 dark:text-white truncate cursor-pointer hover:underline hover:text-emerald-600 dark:hover:text-emerald-400"
                         title="Click to edit invoice in POS"
                       >
@@ -737,7 +857,7 @@ export const InvoicesPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Touch-Friendly Action Bar (Minimum 44x44px Tap Targets) */}
+                  {/* Touch-Friendly Action Bar (Minimum 44x44px Tap Targets) with Complete 7-Action Desktop Parity */}
                   <div className="flex items-center gap-2 pt-1 border-t border-slate-100 dark:border-zinc-800/60">
                     {/* Direct 1-tap WhatsApp Dispatch */}
                     <button
@@ -746,7 +866,7 @@ export const InvoicesPage: React.FC = () => {
                       className="flex-1 min-h-[44px] px-3 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer select-none active:scale-[0.98]"
                       title="Send WhatsApp Invoice Message"
                     >
-                      <MessageSquare className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                      <MessageCircle className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                       <span>WhatsApp</span>
                     </button>
 
@@ -764,30 +884,104 @@ export const InvoicesPage: React.FC = () => {
                     {/* Quick POS Edit Action */}
                     <button
                       type="button"
-                      onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}`)}
+                      onClick={() => navigate(`/system/quick-checkout?editInvoiceId=${inv.id}`)}
                       className="min-h-[44px] min-w-[44px] px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer select-none"
-                      title="Edit Invoice in Quick Invoice"
+                      title="Edit Invoice in Quick Checkout"
                     >
-                      <Edit className="size-4 shrink-0" />
+                      <Pencil className="size-4 shrink-0" />
                       <span className="hidden sm:inline">Edit</span>
                     </button>
 
-                    {/* Scoped Delete Button (Rendered ONLY if created by this logged-in REP or ADMIN) */}
-                    {canDelete && (
-                      <button
-                        type="button"
-                        disabled={deleting && deleteId === inv.id}
-                        onClick={() => setDeleteId(inv.id)}
-                        className="min-h-[44px] min-w-[44px] px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 font-semibold text-xs flex items-center justify-center transition-colors cursor-pointer select-none disabled:opacity-50"
-                        title="Delete Invoice"
-                      >
-                        {deleting && deleteId === inv.id ? (
-                          <Loader2 className="size-4 shrink-0 animate-spin" />
-                        ) : (
-                          <Trash2 className="size-4 shrink-0" />
+                    {/* Full 3-Dots DropdownMenu (All 7 Desktop Actions for 100% Mobile Parity) */}
+                    <DropdownMenu modal={false}>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="min-h-[44px] min-w-[44px] px-2.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-600 dark:text-zinc-300 flex items-center justify-center transition-colors cursor-pointer select-none"
+                          title="More Invoice Actions"
+                        >
+                          <MoreVertical className="size-4.5" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-56 text-xs font-medium">
+                        {/* 1. A4 Print Preview */}
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setPrintInvoice(inv);
+                            setPrintModalOpen(true);
+                          }}
+                          className="gap-2.5 cursor-pointer py-2"
+                        >
+                          <Printer className="size-4 text-slate-500" />
+                          <span>A4 Print Preview</span>
+                        </DropdownMenuItem>
+
+                        {/* 2. Direct PDF Download */}
+                        <DropdownMenuItem
+                          onClick={() => handleDownloadPdf(inv.id)}
+                          className="gap-2.5 cursor-pointer py-2 text-blue-600 focus:text-blue-700 font-medium"
+                        >
+                          <Download className="size-4 text-blue-600" />
+                          <span>Direct PDF Download</span>
+                        </DropdownMenuItem>
+
+                        {/* 3. WhatsApp Invoice Slip */}
+                        <DropdownMenuItem
+                          onClick={() => handleInitiateWhatsApp(inv)}
+                          className="gap-2.5 cursor-pointer py-2 text-emerald-600 focus:text-emerald-700 font-medium"
+                        >
+                          <MessageCircle className="size-4 text-emerald-600" />
+                          <span>WhatsApp Invoice Slip</span>
+                        </DropdownMenuItem>
+
+                        {/* 4. Pay Due / Settle Customer Balance */}
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setSettlingInvoice(inv);
+                            setSettleAmount(String(creditDue > 0 ? creditDue : customerBal));
+                            setSettleMethod('CASH');
+                            setSettleDateTime(getCurrentLocalISOString());
+                            setSettleReference('');
+                          }}
+                          className="gap-2.5 cursor-pointer py-2 text-amber-600 focus:text-amber-700 font-semibold"
+                        >
+                          <Wallet className="size-4 text-amber-600" />
+                          <span>Pay Due / Settle Balance {creditDue > 0 ? `(Rs. ${creditDue.toLocaleString()})` : ''}</span>
+                        </DropdownMenuItem>
+
+                        {/* 5. Return & Exchange */}
+                        <DropdownMenuItem
+                          onClick={() => handleOpenReturnModal(inv)}
+                          className="gap-2.5 cursor-pointer py-2 text-indigo-600 focus:text-indigo-700 font-medium"
+                        >
+                          <RotateCcw className="size-4 text-indigo-600" />
+                          <span>Return &amp; Exchange</span>
+                        </DropdownMenuItem>
+
+                        {/* 6. Edit Invoice */}
+                        <DropdownMenuItem
+                          onClick={() => navigate(`/system/quick-checkout?editInvoiceId=${inv.id}`)}
+                          className="gap-2.5 cursor-pointer py-2 text-slate-700 dark:text-zinc-200 font-medium"
+                        >
+                          <Pencil className="size-4 text-slate-600" />
+                          <span>Edit Invoice</span>
+                        </DropdownMenuItem>
+
+                        {/* 7. Delete Invoice */}
+                        {canDelete && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => setDeleteId(inv.id)}
+                              className="gap-2.5 cursor-pointer py-2 text-rose-600 focus:text-rose-700 focus:bg-rose-50 dark:focus:bg-rose-950/30 font-semibold"
+                            >
+                              <Trash2 className="size-4 text-rose-600" />
+                              <span>Delete Invoice</span>
+                            </DropdownMenuItem>
+                          </>
                         )}
-                      </button>
-                    )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
               );
@@ -971,7 +1165,7 @@ export const InvoicesPage: React.FC = () => {
                             </DropdownMenuItem>
 
                             <DropdownMenuItem
-                              onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}`)}
+                              onClick={() => navigate(`/system/quick-checkout?editInvoiceId=${inv.id}`)}
                               className="gap-2 cursor-pointer text-blue-600 focus:text-blue-700"
                             >
                               <Edit className="size-3.5 text-blue-600" />
@@ -1135,36 +1329,43 @@ export const InvoicesPage: React.FC = () => {
 
       {/* ⭐ GRN-style Settle Due Modal for Invoices */}
       <Dialog open={Boolean(settlingInvoice)} onOpenChange={(open) => !open && setSettlingInvoice(null)}>
-        <DialogContent className="sm:max-w-[440px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base text-slate-900 dark:text-white">
+        <DialogContent className="w-full max-w-md max-h-[90vh] overflow-y-auto p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-2xl">
+          <DialogHeader className="pb-1">
+            <DialogTitle className="flex items-center gap-2 text-base text-slate-900 dark:text-white font-bold">
               <Wallet className="size-5 text-emerald-600" />
               Settle Due for Invoice #INV{settlingInvoice?.id}
             </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500 dark:text-zinc-400">
+              Record customer payment against outstanding invoice balance.
+            </DialogDescription>
           </DialogHeader>
 
           {settlingInvoice && (
-            <form onSubmit={handleSettleInvoiceSubmit} className="space-y-3.5 py-1">
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-xs space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Customer:</span>
-                  <span className="font-bold text-slate-800 dark:text-zinc-200">{settlingInvoice.customerName}</span>
+            <form onSubmit={handleSettleInvoiceSubmit} className="space-y-4 pt-1">
+              {/* Header Card: Wrap customer meta with proper vertical padding and distinct pills */}
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/70 border border-slate-200/80 dark:border-zinc-800/80 space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-500 dark:text-zinc-400 font-medium">Customer:</span>
+                  <span className="font-bold text-slate-800 dark:text-zinc-200 px-2 py-0.5 rounded-md bg-white dark:bg-zinc-800 border border-slate-200/60 dark:border-zinc-700/60">
+                    {settlingInvoice.customerName || 'Customer'}
+                  </span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Invoice Total:</span>
-                  <span className="font-mono font-bold text-slate-800 dark:text-zinc-200">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-500 dark:text-zinc-400 font-medium">Invoice Total:</span>
+                  <span className="font-mono font-bold text-slate-800 dark:text-zinc-200 px-2 py-0.5 rounded-md bg-white dark:bg-zinc-800 border border-slate-200/60 dark:border-zinc-700/60">
                     Rs. {Number(settlingInvoice.totalAmount).toLocaleString()}
                   </span>
                 </div>
-                <div className="flex justify-between border-t border-slate-200 dark:border-zinc-800 pt-1">
-                  <span className="text-slate-500">Remaining Due Balance:</span>
-                  <span className="font-mono font-bold text-rose-600 text-sm">
+                <div className="flex items-center justify-between border-t border-slate-200/70 dark:border-zinc-800/70 pt-1.5 text-xs">
+                  <span className="text-slate-600 dark:text-zinc-300 font-semibold">Remaining Due Balance:</span>
+                  <span className="font-mono font-extrabold text-rose-600 dark:text-rose-400 text-sm px-2.5 py-0.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-200/80 dark:border-rose-900/50">
                     Rs. {(settlingInvoice.totalAmount - settlingInvoice.paidAmount).toLocaleString()}
                   </span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              {/* Inputs Grid: Convert Amount and Payment Method into a responsive 2-column grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
                     Pay Amount (Rs.) *
@@ -1177,7 +1378,7 @@ export const InvoicesPage: React.FC = () => {
                     value={settleAmount}
                     onChange={(e) => setSettleAmount(e.target.value)}
                     placeholder="0.00"
-                    className="h-9 font-mono font-bold text-sm"
+                    className="h-10 font-mono font-bold text-sm bg-white dark:bg-zinc-900 rounded-xl"
                   />
                 </div>
 
@@ -1196,20 +1397,23 @@ export const InvoicesPage: React.FC = () => {
                     ]}
                     placeholder="Select Method"
                     dark={dark}
-                    className="h-9"
+                    className="h-10 rounded-xl"
                   />
                 </div>
               </div>
 
-              {/* Payment Date & Timestamp (Material Payment Modal එකේ ආකාරයටම) */}
+              {/* Payment Timestamp Row: Ensure date picker and time inputs fit inside container boundaries without horizontal overflow */}
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
                   Payment Date &amp; Timestamp *
                 </label>
-                <DateTimePicker
-                  value={settleDateTime}
-                  onChange={setSettleDateTime}
-                />
+                <div className="flex flex-col sm:flex-row gap-2.5 w-full">
+                  <DateTimePicker
+                    value={settleDateTime}
+                    onChange={setSettleDateTime}
+                    className="w-full"
+                  />
+                </div>
               </div>
 
               <div className="space-y-1">
@@ -1220,377 +1424,46 @@ export const InvoicesPage: React.FC = () => {
                   value={settleReference}
                   onChange={(e) => setSettleReference(e.target.value)}
                   placeholder="e.g. Part payment cash / Cheque #8812"
-                  className="h-9 text-xs"
+                  className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl"
                 />
               </div>
 
-              <DialogFooter className="pt-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => setSettlingInvoice(null)}>
-                  Cancel
-                </Button>
+              {/* Action Footer: Add clear spacing (pt-2 space-y-2) */}
+              <div className="pt-2 space-y-2">
                 <Button
                   type="submit"
-                  size="sm"
                   disabled={isSettling}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  className="h-11 w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-sm active:scale-[0.98] transition-all cursor-pointer inline-flex items-center justify-center gap-2"
                 >
-                  {isSettling && <Loader2 className="size-3.5 animate-spin mr-1" />}
+                  {isSettling ? <Loader2 className="size-4 animate-spin" /> : <Banknote className="size-4" />}
                   Confirm Payment
                 </Button>
-              </DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setSettlingInvoice(null)}
+                  className="h-10 w-full border border-slate-300 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors font-medium text-xs sm:text-sm"
+                >
+                  Cancel
+                </Button>
+              </div>
             </form>
           )}
         </DialogContent>
       </Dialog>
 
       {/* ⭐ INVOICE ITEM RETURN & RESTOCK MODAL */}
-      <Dialog open={returnModalOpen} onOpenChange={(open) => !open && setReturnModalOpen(false)}>
-        <DialogContent className="sm:max-w-[760px] max-h-[92vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base text-slate-900 dark:text-white font-bold">
-              <RotateCcw className="size-5 text-indigo-600" />
-              Process Item Return &amp; Restock — #INV{returnInvoice?.id}
-            </DialogTitle>
-            <DialogDescription className="text-xs text-slate-500 dark:text-zinc-400">
-              Return items back to warehouse stock and automatically reconcile invoice ledgers and customer balances.
-            </DialogDescription>
-          </DialogHeader>
-
-          {returnInvoice && (
-            <form onSubmit={handleProcessReturnSubmit} className="space-y-4 py-1">
-              {/* Invoice Meta Banner */}
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200 dark:border-zinc-800 text-xs grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div>
-                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Customer</span>
-                  <span className="font-bold text-slate-800 dark:text-zinc-200 truncate block">
-                    {returnInvoice.customerName || 'Walk-in Customer'}
-                  </span>
-                  {returnInvoice.customerPhone && (
-                    <span className="text-[10px] font-mono text-slate-500">{returnInvoice.customerPhone}</span>
-                  )}
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Date / Mode</span>
-                  <span className="font-semibold text-slate-800 dark:text-zinc-200 block">
-                    {new Date(returnInvoice.createdAt).toISOString().split('T')[0]}
-                  </span>
-                  <span className="text-[10px] uppercase font-bold text-slate-500">{returnInvoice.paymentMethod}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Original Bill</span>
-                  <span className="font-mono font-bold text-slate-900 dark:text-white block">
-                    Rs. {returnModalCalculations.originalBill.toLocaleString()}
-                  </span>
-                  <span className="text-[10px] text-emerald-600 font-medium">
-                    Paid: Rs. {Number(returnInvoice.paidAmount).toLocaleString()}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Current Bill Due</span>
-                  <span className="font-mono font-bold text-rose-600 block">
-                    Rs. {returnModalCalculations.currentBillDue.toLocaleString()}
-                  </span>
-                  {returnInvoice.customer?.outstandingBalance !== undefined && (
-                    <span className="text-[10px] text-slate-500">
-                      Cust Total: Rs. {Number(returnInvoice.customer.outstandingBalance).toLocaleString()}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Items Return Table */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                  <span>Purchased Items &amp; Return Quantities:</span>
-                  <span className="text-[11px] text-slate-400">
-                    Max quantity cannot exceed unreturned balance
-                  </span>
-                </div>
-
-                <div className="border border-slate-200 dark:border-zinc-800 rounded-xl overflow-hidden bg-white dark:bg-zinc-950">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="bg-slate-50 dark:bg-zinc-900/80 border-b border-slate-200 dark:border-zinc-800 text-[10px] text-slate-500 uppercase tracking-wider font-bold">
-                        <th className="py-2.5 px-3 text-left">Item / Style</th>
-                        <th className="py-2.5 px-2 text-center">Purchased</th>
-                        <th className="py-2.5 px-2 text-center">Returned</th>
-                        <th className="py-2.5 px-2 text-center text-indigo-600">Available</th>
-                        <th className="py-2.5 px-2 text-right">Unit Price</th>
-                        <th className="py-2.5 px-2 text-center">Return Qty</th>
-                        <th className="py-2.5 px-3 text-right">Refund Value</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/80">
-                      {(returnInvoice.items || []).map((item) => {
-                        const variantId = Number(item.variantId);
-                        const purchasedQty = Number(item.quantity || 0);
-                        const alreadyReturned = getCumulativeReturnedForVariant(returnInvoice, variantId);
-                        const returnableQty = Math.max(0, purchasedQty - alreadyReturned);
-                        const unitPrice = Number(item.unitPrice || (item.quantity ? item.price / item.quantity : 0));
-                        const currentReturnQty = Number(returnQuantities[variantId] || 0);
-                        const lineRefund = Math.round(currentReturnQty * unitPrice * 100) / 100;
-
-                        const name = item.variant?.product?.name || item.name || 'Garment Item';
-                        const size = item.size || item.selectedSize || item.variant?.size || '';
-                        const color = item.color || item.selectedColor || item.variant?.color || '';
-                        const meta = [size, color].filter(Boolean).join('/');
-                        const sku = item.variant?.sku || '';
-
-                        return (
-                          <tr
-                            key={variantId}
-                            className={`hover:bg-slate-50/50 dark:hover:bg-zinc-900/40 transition-colors ${
-                              currentReturnQty > 0 ? 'bg-indigo-50/30 dark:bg-indigo-950/20' : ''
-                            }`}
-                          >
-                            <td className="py-2.5 px-3">
-                              <div className="font-semibold text-slate-800 dark:text-zinc-200">{name}</div>
-                              <div className="text-[10px] text-slate-400 font-mono flex items-center gap-2">
-                                {meta && <span>Variant: {meta}</span>}
-                                {sku && <span>SKU: {sku}</span>}
-                              </div>
-                            </td>
-                            <td className="py-2.5 px-2 text-center font-mono font-medium text-slate-600 dark:text-zinc-400">
-                              {purchasedQty}
-                            </td>
-                            <td className="py-2.5 px-2 text-center font-mono text-amber-600 font-medium">
-                              {alreadyReturned > 0 ? alreadyReturned : '-'}
-                            </td>
-                            <td className="py-2.5 px-2 text-center font-mono font-bold text-indigo-600">
-                              {returnableQty}
-                            </td>
-                            <td className="py-2.5 px-2 text-right font-mono text-slate-700 dark:text-zinc-300">
-                              Rs. {unitPrice.toLocaleString()}
-                            </td>
-                            <td className="py-2.5 px-2 text-center">
-                              <Input
-                                type="number"
-                                min={0}
-                                max={returnableQty}
-                                disabled={returnableQty <= 0}
-                                value={currentReturnQty || ''}
-                                onChange={(e) => {
-                                  const parsed = parseInt(e.target.value, 10) || 0;
-                                  const bounded = Math.max(0, Math.min(returnableQty, parsed));
-                                  setReturnQuantities((prev) => ({
-                                    ...prev,
-                                    [variantId]: bounded,
-                                  }));
-                                }}
-                                placeholder="0"
-                                className={`w-20 h-8 mx-auto text-center font-mono font-bold text-xs ${
-                                  currentReturnQty > 0
-                                    ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300'
-                                    : ''
-                                }`}
-                              />
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900 dark:text-white">
-                              {lineRefund > 0 ? (
-                                <span className="text-indigo-600">- Rs. {lineRefund.toLocaleString()}</span>
-                              ) : (
-                                <span className="text-slate-400">Rs. 0</span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Return Reason Selection */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                    Return Reason *
-                  </label>
-                  <SearchableSelect
-                    value={returnReason}
-                    onValueChange={setReturnReason}
-                    options={[
-                      { value: 'Incorrect Size', label: 'Incorrect Size' },
-                      { value: 'Damaged / Defect', label: 'Damaged / Defective Garment' },
-                      { value: 'Exchange Request', label: 'Customer Exchange Request' },
-                      { value: 'Customer Request', label: 'Customer General Return' },
-                      { value: 'Other', label: 'Other Reason (Specify below)' },
-                    ]}
-                    placeholder="Select Reason"
-                    dark={dark}
-                    className="h-9"
-                  />
-                </div>
-
-                {returnReason === 'Other' && (
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                      Specify Reason Notes *
-                    </label>
-                    <Input
-                      required
-                      value={customReturnReason}
-                      onChange={(e) => setCustomReturnReason(e.target.value)}
-                      placeholder="e.g. Color mismatch or buyer canceled"
-                      className="h-9 text-xs"
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* ⭐ LIVE CALCULATION BANNER */}
-              <div className="p-3.5 rounded-xl bg-gradient-to-br from-indigo-50 via-slate-50 to-emerald-50 dark:from-indigo-950/30 dark:via-zinc-900/50 dark:to-emerald-950/30 border border-indigo-200/80 dark:border-indigo-800/60 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-400 flex items-center gap-1.5">
-                    <CheckCircle2 className="size-3.5" />
-                    Live Return Ledger Reconciliation
-                  </span>
-                  {returnModalCalculations.thisReturnTotal > 0 && (
-                    <span className="text-xs font-bold font-mono text-indigo-600 bg-indigo-100 dark:bg-indigo-900/50 px-2 py-0.5 rounded-md">
-                      Pending Refund: Rs. {returnModalCalculations.thisReturnTotal.toLocaleString()}
-                    </span>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs pt-1">
-                  <div className="p-2.5 rounded-lg bg-white/80 dark:bg-zinc-900/80 border border-slate-200/60 dark:border-zinc-800">
-                    <span className="text-[10px] text-slate-400 block font-medium">Original Bill</span>
-                    <span className="font-mono font-bold text-slate-900 dark:text-white text-sm">
-                      Rs. {returnModalCalculations.originalBill.toLocaleString()}
-                    </span>
-                  </div>
-
-                  <div className="p-2.5 rounded-lg bg-white/80 dark:bg-zinc-900/80 border border-slate-200/60 dark:border-zinc-800">
-                    <span className="text-[10px] text-slate-400 block font-medium">Total Return Credit</span>
-                    <span className="font-mono font-bold text-indigo-600 text-sm">
-                      - Rs. {returnModalCalculations.totalReturnedValue.toLocaleString()}
-                    </span>
-                    {returnModalCalculations.pastReturnsTotal > 0 && (
-                      <span className="text-[9px] text-slate-400 block">
-                        Past: Rs. {returnModalCalculations.pastReturnsTotal.toLocaleString()}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="p-2.5 rounded-lg bg-white/80 dark:bg-zinc-900/80 border border-slate-200/60 dark:border-zinc-800">
-                    <span className="text-[10px] text-slate-400 block font-medium">Adjusted Net Bill</span>
-                    <span className="font-mono font-bold text-emerald-600 text-sm">
-                      Rs. {returnModalCalculations.adjustedNetBillTotal.toLocaleString()}
-                    </span>
-                  </div>
-
-                  <div className="p-2.5 rounded-lg bg-white/80 dark:bg-zinc-900/80 border border-slate-200/60 dark:border-zinc-800">
-                    <span className="text-[10px] text-slate-400 block font-medium">Updated Bill Due</span>
-                    <span className="font-mono font-bold text-rose-600 text-sm">
-                      Rs. {returnModalCalculations.updatedBillDue.toLocaleString()}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* ⭐ HISTORICAL RETURN AUDIT LOG (Mini-Ledger UI) */}
-              <div className="space-y-2 pt-1 border-t border-slate-200 dark:border-zinc-800">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-zinc-300">
-                  <History className="size-3.5 text-indigo-600" />
-                  Historical Return Audit Log ({returnInvoice.returns?.length || 0})
-                </div>
-
-                {Array.isArray(returnInvoice.returns) && returnInvoice.returns.length > 0 ? (
-                  <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
-                    {returnInvoice.returns.map((ret: any, idx: number) => (
-                      <div
-                        key={ret.returnId || idx}
-                        className="p-2.5 rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-900/40 text-xs space-y-1.5"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold text-slate-900 dark:text-white">
-                              #{ret.returnId}
-                            </span>
-                            <Badge
-                              variant="outline"
-                              className="text-[9px] uppercase font-bold border-indigo-400 text-indigo-600 bg-indigo-50 dark:bg-indigo-950/40"
-                            >
-                              {ret.reason || 'Return'}
-                            </Badge>
-                          </div>
-                          <span className="text-[10px] text-slate-400 font-mono">
-                            {new Date(ret.returnDate).toLocaleString()}
-                          </span>
-                        </div>
-
-                        {/* Returned Items Breakdown */}
-                        <div className="space-y-0.5 text-[11px] text-slate-600 dark:text-zinc-300">
-                          {(ret.returnedItems || []).map((rit: any, rIdx: number) => (
-                            <div key={rIdx} className="flex justify-between items-center">
-                              <span>
-                                • {rit.productName || 'Garment Item'}
-                                {rit.variantName ? ` (${rit.variantName})` : ''}: {rit.returnQty} pcs @ Rs.{' '}
-                                {Number(rit.unitPrice).toLocaleString()}
-                              </span>
-                              <span className="font-mono font-semibold text-indigo-600">
-                                - Rs. {Number(rit.amount).toLocaleString()}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-
-                        {/* Financial Ledger Impact Breakdown */}
-                        <div className="pt-1 border-t border-slate-200/60 dark:border-zinc-800/80 flex items-center justify-between text-[10px] text-slate-500">
-                          <span>
-                            Recorded By: <strong className="text-slate-700 dark:text-zinc-300">{ret.recordedBy || 'Cashier'}</strong>
-                          </span>
-                          <div className="flex items-center gap-2 font-mono">
-                            <span>Total Refund: <strong className="text-indigo-600">- Rs. {Number(ret.totalReturnRefund).toLocaleString()}</strong></span>
-                            {Number(ret.creditDueAdjustment || 0) > 0 && (
-                              <span>(Credit Offset: Rs. {Number(ret.creditDueAdjustment).toLocaleString()})</span>
-                            )}
-                            {Number(ret.cashRefundAmount || 0) > 0 && (
-                              <span>(Cash Paid Back: Rs. {Number(ret.cashRefundAmount).toLocaleString()})</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="p-3 rounded-xl border border-dashed border-slate-200 dark:border-zinc-800 text-center text-xs text-slate-400">
-                    No previous returns have been processed for this invoice.
-                  </div>
-                )}
-              </div>
-
-              {/* Modal Footer Actions */}
-              <DialogFooter className="pt-3 border-t border-slate-200 dark:border-zinc-800">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setReturnModalOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  size="sm"
-                  disabled={!returnModalCalculations.canSubmit || isProcessingReturn}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold gap-1.5"
-                >
-                  {isProcessingReturn ? (
-                    <>
-                      <Loader2 className="size-3.5 animate-spin" /> Restoring Inventory...
-                    </>
-                  ) : (
-                    <>
-                      <RotateCcw className="size-3.5" /> Confirm Return &amp; Restock
-                    </>
-                  )}
-                </Button>
-              </DialogFooter>
-            </form>
-          )}
-        </DialogContent>
-      </Dialog>
+      <ReturnOrderModal
+        isOpen={returnModalOpen}
+        onClose={() => {
+          setReturnModalOpen(false);
+          setReturnInvoice(null);
+        }}
+        invoice={returnInvoice}
+        onReturnSuccess={() => {
+          fetchInvoices(page);
+        }}
+      />
     </div>
   );
 };

@@ -2395,7 +2395,7 @@ export const QuickInvoicePage: React.FC = () => {
             </div>
 
             {/* Cart Line Items in Mobile Drawer */}
-            <div className="flex-1 min-h-[140px] max-h-[35vh] overflow-y-auto divide-y divide-slate-100 dark:divide-zinc-800/50 my-1.5 pr-1 space-y-0.5">
+            <div className="flex-1 min-h-[140px] max-h-[38vh] overflow-y-auto space-y-2.5 my-2 pr-1">
               {cart.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center gap-1 text-slate-400 dark:text-zinc-500 text-xs py-6">
                   <ShoppingCart className="size-8 opacity-25" />
@@ -2413,94 +2413,107 @@ export const QuickInvoicePage: React.FC = () => {
                   return (
                     <div
                       key={`mob_${item.itemKey || `${item.variantId}_${idx}`}`}
-                      className="py-1.5 flex items-center justify-between gap-2 hover:bg-slate-50/60 dark:hover:bg-zinc-800/30 px-1 rounded-lg transition-colors"
+                      className="py-2.5 px-2.5 rounded-xl border border-slate-100 dark:border-zinc-800/80 bg-slate-50/50 dark:bg-zinc-900/40 hover:bg-slate-100/60 dark:hover:bg-zinc-800/40 transition-colors flex flex-col gap-2"
                     >
-                      <div className="min-w-0 flex-1">
-                        <h5 className="font-semibold text-xs text-slate-900 dark:text-white truncate" title={item.name}>
-                          {item.name}
-                        </h5>
-                        {variantDesc && (
-                          <p className="truncate max-w-[180px] text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
-                            {variantDesc}
-                          </p>
-                        )}
-                        <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                          @ Rs. {item.unitPrice.toLocaleString()}
+                      {/* Row 1: Full-width Product Name, Variant Badge, Unit Rate, and Delete Trash Icon */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <h5 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white leading-tight break-words">
+                            {item.name}
+                          </h5>
+                          <div className="flex items-center flex-wrap gap-1.5">
+                            {variantDesc && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-200/70 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300">
+                                {variantDesc}
+                              </span>
+                            )}
+                            <span className="text-[11px] text-slate-500 dark:text-zinc-400 font-mono">
+                              @ Rs. {item.unitPrice.toLocaleString()}
+                            </span>
+                          </div>
                         </div>
-                      </div>
 
-                      {/* Stepper with 44px min touch target */}
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => updateQty(idx, -1)}
-                          className="size-9 min-h-[44px] min-w-[44px] rounded-lg bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors cursor-pointer select-none active:scale-95"
-                          title="Decrease quantity"
-                        >
-                          <Minus className="size-3.5" />
-                        </button>
-
-                        {editingQtyIndex === idx ? (
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            autoFocus
-                            value={tempQtyInput}
-                            onChange={(e) => {
-                              const val = e.target.value.replace(/[^0-9.]/g, '');
-                              const parts = val.split('.');
-                              const cleanVal = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join('')}` : val;
-                              setTempQtyInput(cleanVal);
-                            }}
-                            onFocus={(e) => e.target.select()}
-                            onBlur={() => handleApplyDirectQty(idx)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                handleApplyDirectQty(idx);
-                              } else if (e.key === 'Escape') {
-                                setEditingQtyIndex(null);
-                              }
-                            }}
-                            className="w-12 h-9 min-h-[44px] text-center font-mono text-xs font-bold bg-white dark:bg-zinc-900 border border-emerald-500 rounded text-emerald-600 dark:text-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                          />
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingQtyIndex(idx);
-                              setTempQtyInput(String(item.quantity));
-                            }}
-                            className="min-w-9 h-9 min-h-[44px] px-1.5 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/60 font-mono text-xs font-bold text-slate-800 dark:text-zinc-200 flex items-center justify-center cursor-pointer transition-colors border border-transparent select-none"
-                            title="Click to type quantity directly"
-                          >
-                            {item.quantity}
-                          </button>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={() => updateQty(idx, 1)}
-                          className="size-9 min-h-[44px] min-w-[44px] rounded-lg bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors cursor-pointer select-none active:scale-95"
-                          title="Increase quantity"
-                        >
-                          <Plus className="size-3.5" />
-                        </button>
-                      </div>
-
-                      {/* Line total & remove */}
-                      <div className="flex items-center gap-1.5 shrink-0 pl-1">
-                        <span className="font-mono font-bold text-xs text-right text-slate-900 dark:text-white min-w-[55px]">
-                          Rs. {(item.unitPrice * item.quantity).toLocaleString()}
-                        </span>
+                        {/* Top-Right Delete Trash Icon */}
                         <button
                           type="button"
                           onClick={() => removeFromCart(idx)}
-                          className="text-slate-400 hover:text-rose-500 p-2 rounded-lg transition-all cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
+                          className="text-slate-400 hover:text-rose-500 dark:text-zinc-500 dark:hover:text-rose-400 p-1.5 rounded-lg transition-colors cursor-pointer shrink-0 -mt-0.5 -mr-0.5"
                           title="Remove item"
                         >
                           <Trash2 className="size-4" />
                         </button>
+                      </div>
+
+                      {/* Row 2: Compact Quantity Stepper (slim 28px/h-7) on left, Line Total on right */}
+                      <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-zinc-800/40">
+                        {/* Compact Stepper */}
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => updateQty(idx, -1)}
+                            className="size-7 h-7 w-7 rounded-lg bg-slate-200/70 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200 hover:bg-slate-300 dark:hover:bg-zinc-700 transition-colors cursor-pointer select-none active:scale-95"
+                            title="Decrease quantity"
+                          >
+                            <Minus className="size-3" />
+                          </button>
+
+                          {editingQtyIndex === idx ? (
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              autoFocus
+                              value={tempQtyInput}
+                              onChange={(e) => {
+                                const val = e.target.value.replace(/[^0-9.]/g, '');
+                                const parts = val.split('.');
+                                const cleanVal = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join('')}` : val;
+                                setTempQtyInput(cleanVal);
+                              }}
+                              onFocus={(e) => e.target.select()}
+                              onBlur={() => handleApplyDirectQty(idx)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleApplyDirectQty(idx);
+                                } else if (e.key === 'Escape') {
+                                  setEditingQtyIndex(null);
+                                }
+                              }}
+                              className="w-12 h-7 text-center font-mono text-xs font-bold bg-white dark:bg-zinc-900 border border-emerald-500 rounded text-emerald-600 dark:text-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingQtyIndex(idx);
+                                setTempQtyInput(String(item.quantity));
+                              }}
+                              className="min-w-8 h-7 px-1.5 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/60 font-mono text-xs font-bold text-slate-800 dark:text-zinc-200 flex items-center justify-center cursor-pointer transition-colors border border-transparent select-none"
+                              title="Click to type quantity directly"
+                            >
+                              {item.quantity}
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => updateQty(idx, 1)}
+                            className="size-7 h-7 w-7 rounded-lg bg-slate-200/70 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200 hover:bg-slate-300 dark:hover:bg-zinc-700 transition-colors cursor-pointer select-none active:scale-95"
+                            title="Increase quantity"
+                          >
+                            <Plus className="size-3" />
+                          </button>
+                        </div>
+
+                        {/* Line Total */}
+                        <div className="flex items-center gap-1.5 text-right">
+                          <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-400 dark:text-zinc-500">
+                            Total:
+                          </span>
+                          <span className="font-mono font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
+                            Rs. {(item.unitPrice * item.quantity).toLocaleString()}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   );

@@ -455,63 +455,92 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain py-3 px-1 space-y-3 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-zinc-700">
           {/* Quick Full-Balance Settlement Confirmation Modal */}
           <Dialog open={showQuickPayForm} onOpenChange={setShowQuickPayForm}>
-            <DialogContent className="w-[90vw] sm:max-w-md bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-3xl p-5 shadow-2xl z-[70] overflow-visible">
+            <DialogContent className="w-full max-w-md max-h-[90vh] overflow-y-auto p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-2xl z-[70]">
               <DialogHeader className="pb-2 border-b border-slate-100 dark:border-zinc-800">
                 <div className="flex items-center gap-2">
                   <Banknote className="size-5 text-emerald-600 dark:text-emerald-400" />
-                  <DialogTitle className="text-base font-bold text-slate-900 dark:text-white">
-                    Settle Full Balance
+                  <DialogTitle className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+                    Settle Due Balance
                   </DialogTitle>
                 </div>
                 <DialogDescription className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
-                  Clear total outstanding credit for <strong>{customerName || 'Customer'}</strong>.
+                  Clear outstanding credit balance for <strong>{customerName || 'Customer'}</strong>.
                 </DialogDescription>
               </DialogHeader>
 
-              <form onSubmit={handleQuickSettleSubmit} className="space-y-3.5 pt-2 overflow-visible">
-                <div className="bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-2xl p-3.5 flex items-center justify-between">
-                  <div>
-                    <span className="text-[10px] uppercase font-bold text-emerald-800 dark:text-emerald-400 block leading-tight">
-                      Full Settlement Amount
+              <form onSubmit={handleQuickSettleSubmit} className="space-y-4 pt-1">
+                {/* Header Card: Wrap customer meta with proper vertical padding and distinct pills */}
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/70 border border-slate-200/80 dark:border-zinc-800/80 space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-500 dark:text-zinc-400 font-medium">Customer Name:</span>
+                    <span className="font-bold text-slate-800 dark:text-zinc-200 px-2 py-0.5 rounded-md bg-white dark:bg-zinc-800 border border-slate-200/60 dark:border-zinc-700/60">
+                      {customerName || 'Customer'}
                     </span>
-                    <span className="text-base sm:text-lg font-extrabold font-mono text-emerald-700 dark:text-emerald-300">
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-slate-500 dark:text-zinc-400 font-medium">Total Balance:</span>
+                    <span className="font-mono font-bold text-slate-800 dark:text-zinc-200 px-2 py-0.5 rounded-md bg-white dark:bg-zinc-800 border border-slate-200/60 dark:border-zinc-700/60">
                       Rs. {totalOutstanding.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
                     </span>
                   </div>
-                  <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 text-xs font-bold">
-                    100% Settle
-                  </span>
+                  <div className="flex items-center justify-between border-t border-slate-200/70 dark:border-zinc-800/70 pt-1.5 text-xs">
+                    <span className="text-slate-600 dark:text-zinc-300 font-semibold">Remaining Due Balance:</span>
+                    <span className="font-mono font-extrabold text-rose-600 dark:text-rose-400 text-sm px-2.5 py-0.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-200/80 dark:border-rose-900/50">
+                      Rs. {totalOutstanding.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
                 </div>
 
-                {/* Payment Date & Time Input */}
-                <div className="space-y-1 relative z-50">
-                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
-                    Payment Date & Time *
-                  </label>
-                  <DateTimePicker
-                    value={quickPayDateTime}
-                    onChange={setQuickPayDateTime}
-                    className="w-full"
-                  />
+                {/* Inputs Grid: Convert Amount and Payment Method into a responsive 2-column grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                      Amount (Rs.) *
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      required
+                      max={totalOutstanding}
+                      value={quickPayAmount}
+                      onChange={(e) => setQuickPayAmount(e.target.value)}
+                      placeholder="0.00"
+                      className="h-10 font-mono font-bold text-sm bg-white dark:bg-zinc-900 rounded-xl"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                      Payment Method *
+                    </label>
+                    <SearchableSelect
+                      value={quickPayMethod}
+                      onValueChange={(val) => setQuickPayMethod(val)}
+                      options={PAYMENT_METHOD_OPTIONS}
+                      placeholder="Select Method"
+                      searchPlaceholder="Search method..."
+                      dark={dark}
+                      className="h-10 rounded-xl"
+                    />
+                  </div>
                 </div>
 
-                <div className="space-y-1 relative z-30">
-                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
-                    Payment Method *
+                {/* Payment Timestamp Row: Ensure date picker and time inputs fit inside container boundaries without horizontal overflow */}
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                    Payment Date &amp; Timestamp *
                   </label>
-                  <SearchableSelect
-                    value={quickPayMethod}
-                    onValueChange={(val) => setQuickPayMethod(val)}
-                    options={PAYMENT_METHOD_OPTIONS}
-                    placeholder="Select Method"
-                    searchPlaceholder="Search method..."
-                    dark={dark}
-                    className="h-8 py-0 rounded-xl"
-                  />
+                  <div className="flex flex-col sm:flex-row gap-2.5 w-full">
+                    <DateTimePicker
+                      value={quickPayDateTime}
+                      onChange={setQuickPayDateTime}
+                      className="w-full"
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
                     Payment Reference / Note (Optional)
                   </label>
                   <Input
@@ -519,28 +548,27 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                     value={quickPayRef}
                     onChange={(e) => setQuickPayRef(e.target.value)}
                     placeholder="Cheque No / Slip No / Note"
-                    className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl"
+                    className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl"
                   />
                 </div>
 
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800">
+                {/* Action Footer: Add clear spacing (pt-2 space-y-2) */}
+                <div className="pt-2 space-y-2">
+                  <Button
+                    type="submit"
+                    disabled={isSubmittingQuickPay}
+                    className="h-11 w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-sm active:scale-[0.98] transition-all cursor-pointer inline-flex items-center justify-center gap-2"
+                  >
+                    {isSubmittingQuickPay ? <Loader2 className="size-4 animate-spin" /> : <Banknote className="size-4" />}
+                    {isSubmittingQuickPay ? 'Processing...' : 'Confirm Payment'}
+                  </Button>
                   <Button
                     type="button"
                     variant="outline"
-                    size="sm"
                     onClick={() => setShowQuickPayForm(false)}
-                    className="h-8 text-xs font-semibold rounded-xl"
+                    className="h-10 w-full border border-slate-300 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors font-medium text-xs sm:text-sm"
                   >
                     Cancel
-                  </Button>
-                  <Button
-                    type="submit"
-                    size="sm"
-                    disabled={isSubmittingQuickPay}
-                    className="h-8 text-xs font-semibold px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl gap-1.5 shadow-sm transition-all cursor-pointer"
-                  >
-                    {isSubmittingQuickPay ? <Loader2 className="size-3 animate-spin" /> : <Banknote className="size-3.5" />}
-                    {isSubmittingQuickPay ? 'Settling...' : 'Confirm & Settle Balance'}
                   </Button>
                 </div>
               </form>
