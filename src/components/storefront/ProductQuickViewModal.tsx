@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { ProductItem, VariantItem } from '../../types/product';
 import { formatCurrency, getProductImageUrl, FALLBACK_IMAGE } from '../../lib/utils';
+import { openWhatsAppChat } from '../../utils/whatsapp';
 import {
   X,
   Phone,
@@ -68,10 +69,8 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
       : FALLBACK_IMAGE;
 
   const handleWhatsAppInquiry = () => {
-    const text = encodeURIComponent(
-      `Hello Reliance Atelier,\n\nI am interested in acquiring:\n- Garment: ${product.name}\n- SKU/Ref: ${sku}\n- Size: ${selectedVariant?.size || 'Unspecified'}\n- Color: ${selectedVariant?.color || 'Standard'}\n- Retail Price: ${formatCurrency(activePrice)}\n\nPlease advise on current availability and bespoke fittings.`
-    );
-    window.open(`https://wa.me/94711350123?text=${text}`, '_blank');
+    const rawMessage = `Hello Reliance Atelier,\n\nI am interested in acquiring:\n- Garment: ${product.name}\n- SKU/Ref: ${sku}\n- Size: ${selectedVariant?.size || 'Unspecified'}\n- Color: ${selectedVariant?.color || 'Standard'}\n- Retail Price: ${formatCurrency(activePrice)}\n\nPlease advise on current availability and bespoke fittings.`;
+    openWhatsAppChat('94711350123', rawMessage);
   };
 
   return (

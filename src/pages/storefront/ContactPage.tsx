@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useTheme } from '../../contexts/ThemeContext';
 import { FALLBACK_IMAGE } from '../../lib/utils';
+import { openWhatsAppChat } from '../../utils/whatsapp';
 import {
   MapPin,
   Phone,
@@ -72,10 +73,8 @@ export const ContactPage: React.FC = () => {
   };
 
   const handleWhatsAppDirect = () => {
-    const text = encodeURIComponent(
-      `Hello Reliance Atelier,\n\nName: ${name || 'Prospective Client'}\nPhone: ${phone || 'Not provided'}\nSubject: ${subject}\nMessage: ${message || 'I would like to inquire about Reliance menswear collections.'}`
-    );
-    window.open(`https://wa.me/94711350123?text=${text}`, '_blank');
+    const rawMessage = `Hello Reliance Atelier,\n\nName: ${name || 'Prospective Client'}\nPhone: ${phone || 'Not provided'}\nSubject: ${subject}\nMessage: ${message || 'I would like to inquire about Reliance menswear collections.'}`;
+    openWhatsAppChat('94711350123', rawMessage);
   };
 
   return (

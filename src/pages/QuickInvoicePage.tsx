@@ -49,6 +49,7 @@ import {
   X,
   Layers,
   FileDown,
+  MessageSquare,
 } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../utils/whatsapp';
@@ -1100,9 +1101,9 @@ export const QuickInvoicePage: React.FC = () => {
    * - Mobile / Tablet Viewports (<1024px): Primary action defaults to 'SAVE_AND_PDF' (touch-first direct binary PDF streaming download).
    *   Secondary action is 'SAVE_ONLY', Tertiary action is 'SAVE_AND_PRINT' preview.
    * 
-   * @param mode - 'SAVE_ONLY' | 'SAVE_AND_PDF' | 'SAVE_AND_PRINT'
+   * @param mode - 'SAVE_ONLY' | 'SAVE_AND_PDF' | 'SAVE_AND_PRINT' | 'SAVE_AND_WHATSAPP'
    */
-  const handleCheckout = async (mode: 'SAVE_ONLY' | 'SAVE_AND_PDF' | 'SAVE_AND_PRINT' = 'SAVE_ONLY') => {
+  const handleCheckout = async (mode: 'SAVE_ONLY' | 'SAVE_AND_PDF' | 'SAVE_AND_PRINT' | 'SAVE_AND_WHATSAPP' = 'SAVE_ONLY') => {
     if (cart.length === 0) {
       toast.error('Cart is empty');
       return;
@@ -1306,6 +1307,56 @@ export const QuickInvoicePage: React.FC = () => {
         });
         setInvoiceOpen(true);
         setMobileCartOpen(false);
+      } else if (mode === 'SAVE_AND_WHATSAPP') {
+        const targetCustomer = customers.find((c) => String(c.id) === String(selectedCustomerId));
+        const updatedCustomerBal = resultOrder?.customer?.outstandingBalance !== undefined
+          ? Number(resultOrder.customer.outstandingBalance)
+          : Math.max(0, (targetCustomer?.outstandingBalance || 0) + (isEditing ? 0 : creditDue) - finalSettledDue);
+
+        const completeOrderObj = {
+          ...resultOrder,
+          items: (resultOrder?.items || []).map((ri: any, rIdx: number) => ({
+            ...ri,
+            size: checkoutCartSnapshot[rIdx]?.size || ri.size || ri.variant?.size,
+            color: checkoutCartSnapshot[rIdx]?.color || ri.color || ri.variant?.color,
+            selectedSize: checkoutCartSnapshot[rIdx]?.size || ri.size || ri.variant?.size,
+            selectedColor: checkoutCartSnapshot[rIdx]?.color || ri.color || ri.variant?.color,
+          })),
+          customer: resultOrder.customer || (targetCustomer ? {
+            id: targetCustomer.id,
+            name: targetCustomer.name,
+            phone: targetCustomer.phone,
+            address: targetCustomer.address,
+            outstandingBalance: updatedCustomerBal,
+          } : undefined),
+          notes: payload.notes || resultOrder.notes,
+          tenderedAmount: resolvedTendered,
+          paidAmount: resolvedPaid,
+          settledDueAmount: finalSettledDue,
+          discount: discountAmount,
+          discountAmount: discountAmount,
+          discountType,
+          discountRate: discountType === 'PERCENT' ? (discountInput > 0 ? discountInput : undefined) : undefined,
+        };
+
+        const custPhone = resultOrder?.customerPhone || completeOrderObj.customer?.phone;
+        const waMsg = generateCustomerInvoiceWhatsAppMessage(completeOrderObj);
+
+        if (custPhone) {
+          openWhatsAppChat(custPhone, waMsg);
+        } else {
+          const manualPhone = window.prompt('Enter customer mobile number for WhatsApp receipt:');
+          if (manualPhone && manualPhone.trim()) {
+            openWhatsAppChat(manualPhone.trim(), waMsg);
+          }
+        }
+
+        setMobileCartOpen(false);
+        if (isEditing) {
+          navigate('/system/invoices');
+        } else {
+          bootstrapPos();
+        }
       } else {
         // 'SAVE_ONLY': Reset cart for next sale and redirect if editing
         setMobileCartOpen(false);
@@ -2167,13 +2218,24 @@ export const QuickInvoicePage: React.FC = () => {
               <span>Save &amp; Print</span>
             </Button>
           </div>
-          {/* Direct PDF Download Fallback Trigger for Desktop */}
-          <div className="flex justify-center pt-0.5">
+          {/* Direct WhatsApp Share & PDF Download Triggers for Desktop */}
+          <div className="flex items-center justify-center gap-3 pt-1">
+            <button
+              type="button"
+              disabled={cart.length === 0 || submitting}
+              onClick={() => handleCheckout('SAVE_AND_WHATSAPP')}
+              className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[32px] sm:min-h-0"
+              title="Save Invoice & Share Receipt on WhatsApp"
+            >
+              <MessageSquare className="size-3" />
+              <span>Save &amp; WhatsApp</span>
+            </button>
+            <span className="text-slate-300 dark:text-zinc-700 text-xs">|</span>
             <button
               type="button"
               disabled={cart.length === 0 || submitting}
               onClick={() => handleCheckout('SAVE_AND_PDF')}
-              className="text-[11px] font-semibold text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[36px] sm:min-h-0"
+              className="text-[11px] font-semibold text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[32px] sm:min-h-0"
             >
               <FileDown className="size-3" />
               <span>Or Save &amp; Download PDF</span>
@@ -2846,7 +2908,17 @@ export const QuickInvoicePage: React.FC = () => {
                   <span>Download PDF</span>
                 </Button>
               </div>
-              <div className="flex justify-center pt-0.5 pb-0.5">
+              <div className="flex items-center justify-center gap-3 pt-1 pb-0.5">
+                <button
+                  type="button"
+                  disabled={cart.length === 0 || submitting}
+                  onClick={() => handleCheckout('SAVE_AND_WHATSAPP')}
+                  className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[26px] py-0.5"
+                >
+                  <MessageSquare className="size-3" />
+                  <span>Save &amp; WhatsApp</span>
+                </button>
+                <span className="text-slate-300 dark:text-zinc-700 text-xs">|</span>
                 <button
                   type="button"
                   disabled={cart.length === 0 || submitting}
@@ -2854,7 +2926,7 @@ export const QuickInvoicePage: React.FC = () => {
                   className="text-[11px] font-semibold text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[26px] py-0.5"
                 >
                   <Printer className="size-3" />
-                  <span>Or Save &amp; Print Preview</span>
+                  <span>Print Preview</span>
                 </button>
               </div>
             </div>

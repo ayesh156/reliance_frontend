@@ -3,6 +3,7 @@ import { get } from '../../lib/api';
 import type { ProductItem } from '../../types/product';
 import { formatCurrency, getProductImageUrl, FALLBACK_IMAGE } from '../../lib/utils';
 import { ProductQuickViewModal } from '../../components/storefront/ProductQuickViewModal';
+import { openWhatsAppChat } from '../../utils/whatsapp';
 import {
   Search,
   SlidersHorizontal,
@@ -433,10 +434,8 @@ export const ShopPage: React.FC = () => {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        const text = encodeURIComponent(
-                          `Hello Reliance, I'm interested in: ${product.name} (${formatCurrency(price)})`
-                        );
-                        window.open(`https://wa.me/94711350123?text=${text}`, '_blank');
+                        const text = `Hello Reliance, I'm interested in: ${product.name} (${formatCurrency(price)})`;
+                        openWhatsAppChat('94711350123', text);
                       }}
                       className="absolute bottom-2 right-2 sm:hidden p-2 bg-emerald-600 text-white rounded-full shadow-lg active:scale-95 transition-transform"
                       aria-label="Inquire on WhatsApp"

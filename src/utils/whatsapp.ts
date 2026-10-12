@@ -18,8 +18,20 @@ export const sanitizeWhatsAppPhone = (phone?: string | null): string | null => {
 };
 
 /**
- * Dispatches WhatsApp messaging using native deep-link URI on mobile devices
- * (with automatic fallback to Web/API) and desktop Web WhatsApp.
+ * Dispatches WhatsApp messaging using native deep-link URI on both Desktop and Mobile devices.
+ *
+ * - On Desktop (Windows/macOS/Linux):
+ *   1. Directly triggers the native protocol: `whatsapp://send?phone=${cleanPhone}&text=${encodedMessage}`
+ *   2. Attaches a window blur listener (`window.addEventListener('blur', ...)`).
+ *      - If the operating system launches the native WhatsApp Desktop application, the browser window
+ *        loses focus (blurs) and any fallback is aborted.
+ *      - If after 1800ms the browser window remains focused and active (indicating the Desktop App is not
+ *        installed or registered for `whatsapp://`), it gracefully falls back to opening
+ *        `https://web.whatsapp.com/send?phone=...` in a new tab.
+ *
+ * - On Mobile (Android/iOS):
+ *   Directly attempts `whatsapp://` URI scheme targeting installed WhatsApp / WhatsApp Business,
+ *   with an automatic 1500ms fallback to `https://api.whatsapp.com/send?phone=...` if the document is still active.
  *
  * @param phone Target customer mobile/WhatsApp number
  * @param message Prepared text payload (encoded for transport)
@@ -27,14 +39,17 @@ export const sanitizeWhatsAppPhone = (phone?: string | null): string | null => {
 export const openWhatsAppChat = (phone: string, message: string) => {
   const cleanPhone = sanitizeWhatsAppPhone(phone) || '';
   const encodedMessage = encodeURIComponent(message);
-  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(
+    typeof navigator !== 'undefined' ? navigator.userAgent : ''
+  );
+
+  const nativeUri = `whatsapp://send?phone=${cleanPhone}&text=${encodedMessage}`;
 
   if (isMobile) {
     // Native application URI scheme targeting installed WhatsApp / WhatsApp Business
-    const nativeUri = `whatsapp://send?phone=${cleanPhone}&text=${encodedMessage}`;
     const webFallbackUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodedMessage}`;
-
     const startTime = Date.now();
+
     window.location.href = nativeUri;
 
     // Provide automatic timeout fallback: if custom scheme doesn't open within 1.5 seconds, redirect to web API
@@ -46,9 +61,34 @@ export const openWhatsAppChat = (phone: string, message: string) => {
       window.location.href = webFallbackUrl;
     }, 1500);
   } else {
-    // On Desktop: Open web.whatsapp.com in a new tab
-    const desktopUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodedMessage}`;
-    window.open(desktopUrl, '_blank', 'noopener,noreferrer');
+    // Desktop (Windows / macOS / Linux)
+    const desktopFallbackUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodedMessage}`;
+    let hasBlurred = false;
+
+    const cleanup = () => {
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('pagehide', onBlur);
+    };
+
+    const onBlur = () => {
+      hasBlurred = true;
+      cleanup();
+    };
+
+    window.addEventListener('blur', onBlur, { once: true });
+    window.addEventListener('pagehide', onBlur, { once: true });
+
+    // Directly attempt native protocol scheme
+    window.location.href = nativeUri;
+
+    // Blur detector fallback: if window remains focused and active after 1800ms, open Web WhatsApp in new tab
+    setTimeout(() => {
+      cleanup();
+      const isStillFocused = !hasBlurred && !document.hidden && (typeof document.hasFocus === 'function' ? document.hasFocus() : true);
+      if (isStillFocused) {
+        window.open(desktopFallbackUrl, '_blank', 'noopener,noreferrer');
+      }
+    }, 1800);
   }
 };
 

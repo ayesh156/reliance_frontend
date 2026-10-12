@@ -7,8 +7,9 @@ import {
   DialogDescription,
 } from '../ui/dialog';
 import { Button } from '../ui/button';
-import { Printer, FileDown, X, FileText, Loader2 } from 'lucide-react';
+import { Printer, FileDown, X, FileText, Loader2, MessageSquare } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../../utils/whatsapp';
 
 interface InvoiceModalProps {
   open: boolean;
@@ -824,6 +825,20 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
     }
   };
 
+  const handleWhatsAppShare = () => {
+    const phone = order?.customerPhone || order?.customer?.phone;
+    if (phone) {
+      const waMsg = generateCustomerInvoiceWhatsAppMessage(order);
+      openWhatsAppChat(phone, waMsg);
+    } else {
+      const manualPhone = window.prompt('Enter customer mobile number for WhatsApp receipt:');
+      if (manualPhone && manualPhone.trim()) {
+        const waMsg = generateCustomerInvoiceWhatsAppMessage(order);
+        openWhatsAppChat(manualPhone.trim(), waMsg);
+      }
+    }
+  };
+
   // Safe single-trigger autoPrint handler when opened
   useEffect(() => {
     if (!open || !order || !autoPrint || isPrintingRef.current) return;
@@ -877,6 +892,18 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
                 <span className="sm:hidden">PDF</span>
               </Button>
 
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleWhatsAppShare}
+                className="h-9 px-3 sm:px-3.5 border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 font-bold rounded-xl gap-1.5 shadow-sm active:scale-[0.98] transition-all cursor-pointer inline-flex items-center"
+                title="Send receipt to customer via WhatsApp"
+              >
+                <MessageSquare className="size-4 text-emerald-600 dark:text-emerald-400" />
+                <span className="hidden sm:inline">WhatsApp</span>
+              </Button>
+
               <button
                 type="button"
                 onClick={onClose}
@@ -912,6 +939,15 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
           >
             <X className="size-3.5 mr-1" />
             Close
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleWhatsAppShare}
+            className="h-10 flex-1 border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 rounded-xl font-bold text-xs"
+          >
+            <MessageSquare className="size-3.5 text-emerald-600 mr-1" />
+            WhatsApp
           </Button>
           <Button
             type="button"

@@ -28,7 +28,9 @@ import {
   Pencil,
   Trash2,
   AlertTriangle,
+  MessageSquare,
 } from 'lucide-react';
+import { openWhatsAppChat, generateCustomerDebtSummaryWhatsAppMessage } from '../../utils/whatsapp';
 // Enterprise Shadcn SearchableSelect Component
 
 import { useTheme } from '../../contexts/ThemeContext';
@@ -108,6 +110,7 @@ interface CustomerDueSettlementModalProps {
   onClose: () => void;
   customerId: number | null;
   customerName?: string;
+  customerPhone?: string;
   onPaymentSuccess?: () => void;
 }
 
@@ -116,6 +119,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
   onClose,
   customerId,
   customerName,
+  customerPhone,
   onPaymentSuccess,
 }) => {
   const { resolvedTheme } = useTheme();
@@ -124,6 +128,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
   const [loading, setLoading] = useState(false);
   const [bills, setBills] = useState<DueBill[]>([]);
   const [totalOutstanding, setTotalOutstanding] = useState(0);
+  const [customerPhoneState, setCustomerPhoneState] = useState<string | null>(null);
   const [expandedBillId, setExpandedBillId] = useState<number | null>(null);
 
   // Payment Processing State with DateTime
@@ -161,13 +166,16 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
     try {
       const res = await get<{
         success: boolean;
-        customer: { outstandingBalance: number; computedTotalDue: number };
+        customer: { id?: number; name?: string; phone?: string; outstandingBalance: number; computedTotalDue: number };
         bills: DueBill[];
       }>(`/credit/customers/${customerId}/due-bills`);
 
       if (res && res.bills) {
         setBills(res.bills);
         setTotalOutstanding(res.customer.computedTotalDue || 0);
+        if (res.customer.phone) {
+          setCustomerPhoneState(res.customer.phone);
+        }
       }
     } catch (err: any) {
       toast.error(err.message || 'Failed to load customer pending bills');
@@ -436,6 +444,56 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                 >
                   <Download className="size-3.5 text-emerald-600" />
                   <span><span className="hidden sm:inline">Download </span>Statement</span>
+                </button>
+
+                {/* Send Statement / Due Breakdown on WhatsApp */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const activePhone = customerPhone || customerPhoneState;
+                    if (!activePhone) {
+                      const manual = window.prompt('Enter customer mobile number for WhatsApp statement:');
+                      if (!manual?.trim()) return;
+                      const waMsg = generateCustomerDebtSummaryWhatsAppMessage(
+                        {
+                          name: customerName || 'Customer',
+                          outstandingBalance: totalOutstanding,
+                          phone: manual.trim(),
+                        },
+                        bills.map((b) => ({
+                          invoiceNo: b.invoiceNumber,
+                          date: b.createdAt,
+                          totalAmount: b.totalAmount,
+                          paidAmount: b.paidAmount,
+                          dueAmount: b.dueAmount,
+                          source: b.source,
+                        }))
+                      );
+                      openWhatsAppChat(manual.trim(), waMsg);
+                      return;
+                    }
+                    const waMsg = generateCustomerDebtSummaryWhatsAppMessage(
+                      {
+                        name: customerName || 'Customer',
+                        outstandingBalance: totalOutstanding,
+                        phone: activePhone,
+                      },
+                      bills.map((b) => ({
+                        invoiceNo: b.invoiceNumber,
+                        date: b.createdAt,
+                        totalAmount: b.totalAmount,
+                        paidAmount: b.paidAmount,
+                        dueAmount: b.dueAmount,
+                        source: b.source,
+                      }))
+                    );
+                    openWhatsAppChat(activePhone, waMsg);
+                  }}
+                  className="h-9 px-3 sm:px-4 py-2 text-xs font-semibold rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 shadow-sm transition-colors shrink-0 inline-flex items-center gap-1.5 cursor-pointer"
+                  title="Send Outstanding Statement via WhatsApp"
+                >
+                  <MessageSquare className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span><span className="hidden sm:inline">WhatsApp </span>Statement</span>
                 </button>
               </div>
 

@@ -4,6 +4,7 @@ import { get } from '../../lib/api';
 import type { ProductItem } from '../../types/product';
 import { formatCurrency, getProductImageUrl, FALLBACK_IMAGE } from '../../lib/utils';
 import { ProductQuickViewModal } from '../../components/storefront/ProductQuickViewModal';
+import { openWhatsAppChat } from '../../utils/whatsapp';
 import {
   ArrowRight,
   Sparkles,
@@ -293,10 +294,8 @@ export const HomePage: React.FC = () => {
 
                       <button
                         onClick={() => {
-                          const text = encodeURIComponent(
-                            `Hello Reliance Atelier,\nI am interested in:\n- ${product.name} (${product.searchKey || 'SKU'})\n- Price: ${formatCurrency(price)}\nPlease confirm availability.`
-                          );
-                          window.open(`https://wa.me/94711350123?text=${text}`, '_blank');
+                          const text = `Hello Reliance Atelier,\nI am interested in:\n- ${product.name} (${product.searchKey || 'SKU'})\n- Price: ${formatCurrency(price)}\nPlease confirm availability.`;
+                          openWhatsAppChat('94711350123', text);
                         }}
                         className="p-1.5 sm:p-2 text-zinc-700 dark:text-zinc-300 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded-sm transition-colors"
                         title="Inquire via WhatsApp"

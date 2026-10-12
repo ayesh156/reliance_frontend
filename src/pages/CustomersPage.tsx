@@ -1059,6 +1059,7 @@ export const CustomersPage: React.FC = () => {
         }}
         customerId={selectedSettlementCustomer?.id || null}
         customerName={selectedSettlementCustomer?.name}
+        customerPhone={selectedSettlementCustomer?.phone}
         onPaymentSuccess={() => {
           fetchCustomers(); // ගෙවීම් වාර්තා වූ සැණින් Customers table එක auto-sync වේ
         }}
