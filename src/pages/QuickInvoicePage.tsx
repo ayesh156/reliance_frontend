@@ -107,6 +107,13 @@ export interface ChequeEntry {
   amount: string;
 }
 
+/**
+ * Quick Invoice POS Terminal Page
+ * Provides dual retail/wholesale invoicing with instant catalog search, barcode scanning,
+ * customer credit ledger settlement, dynamic discounts, and device-adaptive checkout.
+ * On mobile/tablet (<1024px), features an expanded 97vh bottom-sheet drawer with 46vh
+ * cart line-item capacity, compact p-2 financial breakdown, and ultra-sleek h-7 payment pills.
+ */
 export const QuickInvoicePage: React.FC = () => {
   const { resolvedTheme } = useTheme();
   const { user, isRep } = useAuth();
@@ -2277,7 +2284,7 @@ export const QuickInvoicePage: React.FC = () => {
 
       {/* Touch-Friendly Bottom Sheet Drawer for Mobile/Tablet (< 1024px) */}
       <Drawer open={mobileCartOpen} onOpenChange={setMobileCartOpen}>
-        <DrawerContent className="h-[92vh] max-h-[92vh] flex flex-col overflow-hidden p-3.5 sm:p-4">
+        <DrawerContent className="h-[97vh] max-h-[97vh] flex flex-col overflow-hidden p-3.5 sm:p-4">
           <div className="flex-1 min-h-0 flex flex-col justify-between overflow-y-auto">
             {/* Drawer Header */}
             <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 dark:border-zinc-800/80 shrink-0">
@@ -2457,7 +2464,7 @@ export const QuickInvoicePage: React.FC = () => {
             </div>
 
             {/* Cart Line Items in Mobile Drawer */}
-            <div className="flex-1 min-h-[140px] max-h-[38vh] overflow-y-auto space-y-2.5 my-2 pr-1">
+            <div className="flex-1 min-h-[140px] max-h-[46vh] overflow-y-auto space-y-2 my-2 pr-1">
               {cart.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center gap-1 text-slate-400 dark:text-zinc-500 text-xs py-6">
                   <ShoppingCart className="size-8 opacity-25" />
@@ -2475,7 +2482,7 @@ export const QuickInvoicePage: React.FC = () => {
                   return (
                     <div
                       key={`mob_${item.itemKey || `${item.variantId}_${idx}`}`}
-                      className="py-2.5 px-2.5 rounded-xl border border-slate-100 dark:border-zinc-800/80 bg-slate-50/50 dark:bg-zinc-900/40 hover:bg-slate-100/60 dark:hover:bg-zinc-800/40 transition-colors flex flex-col gap-2"
+                      className="py-2 px-2.5 rounded-xl border border-slate-100 dark:border-zinc-800/80 bg-slate-50/50 dark:bg-zinc-900/40 hover:bg-slate-100/60 dark:hover:bg-zinc-800/40 transition-colors flex flex-col gap-1.5"
                     >
                       {/* Row 1: Full-width Product Name, Variant Badge, Unit Rate, and Delete Trash Icon */}
                       <div className="flex items-start justify-between gap-2">
@@ -2665,7 +2672,7 @@ export const QuickInvoicePage: React.FC = () => {
               </div>
 
               {/* Financial Ledger Breakdown */}
-              <div className="space-y-1 bg-slate-50/80 dark:bg-zinc-950/60 rounded-xl p-2.5 border border-slate-200/80 dark:border-zinc-800/80 text-xs">
+              <div className="space-y-0.5 bg-slate-50/80 dark:bg-zinc-950/60 rounded-xl p-2 border border-slate-200/80 dark:border-zinc-800/80 text-xs">
                 <div className="flex items-center justify-between">
                   <span className="w-[58%] text-slate-600 dark:text-zinc-400 font-medium">Paid for Current Bill:</span>
                   <span className="w-[42%] text-right font-mono font-bold text-slate-900 dark:text-white">
@@ -2832,57 +2839,57 @@ export const QuickInvoicePage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => handleSelectPaymentMethod('CASH')}
-                    className={`flex items-center justify-center gap-1 py-1.5 min-h-[44px] rounded-lg border text-[11px] font-semibold transition-all cursor-pointer ${
+                    className={`flex items-center justify-center gap-1 h-7 min-h-[30px] sm:min-h-0 py-1 px-1 text-[10px] rounded-lg border font-semibold transition-all cursor-pointer ${
                       paymentMethod === 'CASH' && splitPayments.length === 0
                         ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold shadow-xs'
                         : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
                     }`}
                   >
-                    <Banknote className="size-3.5" /> <span>Cash</span>
+                    <Banknote className="size-3" /> <span>Cash</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => handleSelectPaymentMethod('CARD')}
-                    className={`flex items-center justify-center gap-1 py-1.5 min-h-[44px] rounded-lg border text-[11px] font-semibold transition-all cursor-pointer ${
+                    className={`flex items-center justify-center gap-1 h-7 min-h-[30px] sm:min-h-0 py-1 px-1 text-[10px] rounded-lg border font-semibold transition-all cursor-pointer ${
                       paymentMethod === 'CARD' && splitPayments.length === 0
                         ? 'border-purple-500 bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold shadow-xs'
                         : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
                     }`}
                   >
-                    <CreditCard className="size-3.5" /> <span>Card</span>
+                    <CreditCard className="size-3" /> <span>Card</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => handleSelectPaymentMethod('BANK_TRANSFER')}
-                    className={`flex items-center justify-center gap-1 py-1.5 min-h-[44px] rounded-lg border text-[11px] font-semibold transition-all cursor-pointer ${
+                    className={`flex items-center justify-center gap-1 h-7 min-h-[30px] sm:min-h-0 py-1 px-1 text-[10px] rounded-lg border font-semibold transition-all cursor-pointer ${
                       paymentMethod === 'BANK_TRANSFER' && splitPayments.length === 0
                         ? 'border-blue-500 bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold shadow-xs'
                         : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
                     }`}
                   >
-                    <Landmark className="size-3.5" /> <span>Bank</span>
+                    <Landmark className="size-3" /> <span>Bank</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => handleSelectPaymentMethod('CHEQUE')}
-                    className={`flex items-center justify-center gap-1 py-1.5 min-h-[44px] rounded-lg border text-[11px] font-semibold transition-all cursor-pointer ${
+                    className={`flex items-center justify-center gap-1 h-7 min-h-[30px] sm:min-h-0 py-1 px-1 text-[10px] rounded-lg border font-semibold transition-all cursor-pointer ${
                       paymentMethod === 'CHEQUE' && splitPayments.length === 0
                         ? 'border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold shadow-xs'
                         : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
                     }`}
                   >
-                    <FileText className="size-3.5" /> <span>Cheque</span>
+                    <FileText className="size-3" /> <span>Cheque</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => handleSelectPaymentMethod('CREDIT')}
-                    className={`flex items-center justify-center gap-1 py-1.5 min-h-[44px] rounded-lg border text-[11px] font-semibold transition-all cursor-pointer ${
+                    className={`flex items-center justify-center gap-1 h-7 min-h-[30px] sm:min-h-0 py-1 px-1 text-[10px] rounded-lg border font-semibold transition-all cursor-pointer ${
                       paymentMethod === 'CREDIT'
                         ? 'border-rose-500 bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold shadow-xs'
                         : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
                     }`}
                   >
-                    <Building className="size-3.5" /> <span>Credit</span>
+                    <Building className="size-3" /> <span>Credit</span>
                   </button>
                 </div>
               </div>

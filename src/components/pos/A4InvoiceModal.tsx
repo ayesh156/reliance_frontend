@@ -35,6 +35,8 @@ const formatReturnDateTime = formatReturnDate;
 
 /**
  * Generates official A4 invoice HTML document for printing and preview iframe rendering.
+ * Enforces responsive viewport styles and fixed table layouts for mobile screens (<=640px)
+ * ensuring zero layout shifts, zero clipping, and 100% fit on mobile screens.
  */
 export const generatePrintableInvoiceHtml = (order: any): string => {
   if (!order) return '';
@@ -227,6 +229,13 @@ export const generatePrintableInvoiceHtml = (order: any): string => {
             font-size: 11.5px;
             line-height: 1.3;
             height: auto !important; /* Prevents stretching to full A4 page */
+            width: 100%;
+            overflow-x: hidden;
+          }
+          table {
+            table-layout: fixed;
+            width: 100%;
+            word-break: break-word;
           }
           .invoice-container {
             width: 100%;
@@ -492,6 +501,57 @@ export const generatePrintableInvoiceHtml = (order: any): string => {
             font-size: 10px;
             color: #222;
           }
+
+          /* Responsive Mobile Overrides (Screen width <= 640px) */
+          @media screen and (max-width: 640px) {
+            body {
+              padding: 10px !important;
+              font-size: 11px !important;
+            }
+            .invoice-container {
+              padding: 0 !important;
+              max-width: 100% !important;
+            }
+            .invoice-header-title,
+            .invoice-title {
+              font-size: 18px !important;
+            }
+            table {
+              font-size: 10px !important;
+              table-layout: fixed !important;
+              width: 100% !important;
+              word-break: break-word !important;
+            }
+            th, td {
+              padding: 4px 2px !important;
+            }
+            .brand-name {
+              font-size: 20px !important;
+            }
+            .brand-subtitle {
+              font-size: 8px !important;
+            }
+            .contact-info {
+              font-size: 9px !important;
+            }
+            .logo {
+              width: 50px !important;
+              height: 50px !important;
+            }
+            .summary-table {
+              width: 100% !important;
+            }
+            .summary-container {
+              width: 100% !important;
+            }
+            .signatures {
+              gap: 8px !important;
+              margin-top: 25px !important;
+            }
+            .sig-line {
+              font-size: 8px !important;
+            }
+          }
         </style>
       </head>
       <body>
@@ -514,7 +574,7 @@ export const generatePrintableInvoiceHtml = (order: any): string => {
             
             <!-- Header Invoice Details with Dynamic Wholesale Mode Flag -->
             <div class="invoice-title-area">
-              <div class="invoice-title" style="${isWholesale ? 'font-size: 22px; font-weight: 800;' : ''}">
+              <div class="invoice-title invoice-header-title" style="${isWholesale ? 'font-size: 22px; font-weight: 800;' : ''}">
                 ${invoiceHeading}
               </div>
               <table class="meta-table">
@@ -759,8 +819,9 @@ export const generatePrintableInvoiceHtml = (order: any): string => {
 /**
  * Responsive A4 Invoice Preview Modal
  * Renders an adaptive A4 preview paper with headless iframe sandbox,
- * touch-friendly scrolling on mobile, sticky action controls (Print, Download PDF, Close),
- * and automatic PDF download / print orchestration.
+ * 100% fluid responsive container (eliminating legacy transform-scaling artifacts and horizontal over-scroll drift),
+ * clean non-crowded modal header (title & close only), and a single sticky action bar
+ * (Close, WhatsApp, PDF, Print) eliminating redundant duplicate controls.
  */
 export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, order, autoPrint = false }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -849,123 +910,135 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
     return () => clearTimeout(timer);
   }, [open, autoPrint, order?.id]);
 
+  const [iframeHeight, setIframeHeight] = useState<number>(1050);
+
+  /**
+   * Dynamically measures and sets the full internal scroll height of the printable invoice iframe.
+   * Traverses body.scrollHeight, documentElement.scrollHeight, and offset heights to guarantee
+   * footers, signatures, and payment summaries are never clipped vertically across all screen viewports.
+   */
+  const handleIframeLoad = () => {
+    try {
+      const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document;
+      if (doc) {
+        const fullHeight = Math.max(
+          doc.body.scrollHeight,
+          doc.documentElement.scrollHeight,
+          doc.body.offsetHeight
+        );
+        setIframeHeight(fullHeight + 40); // Add breathing padding at bottom
+      }
+    } catch {
+      // Fallback
+    }
+  };
+
+  useEffect(() => {
+    const handleResize = () => {
+      handleIframeLoad();
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   if (!open || !order) return null;
 
   return (
     <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
-      <DialogContent className="w-full max-w-full sm:max-w-4xl max-h-[92vh] flex flex-col p-2 sm:p-6 rounded-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 shadow-2xl">
-        {/* Sticky Mobile Actions Header */}
-        <DialogHeader className="pb-2.5 border-b border-slate-100 dark:border-zinc-800 shrink-0">
+      <DialogContent className="w-full max-w-full sm:max-w-4xl max-h-[92vh] flex flex-col p-2 sm:p-6 rounded-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 shadow-2xl overflow-x-hidden">
+        {/* Compact Modal Header: Clean Title & Close Icon Only */}
+        <DialogHeader className="pb-2 sm:pb-3 border-b border-slate-100 dark:border-zinc-800 shrink-0">
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <FileText className="size-5 text-indigo-600 dark:text-indigo-400" />
-              <DialogTitle className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+            <div className="flex items-center gap-2 min-w-0">
+              <FileText className="size-4 sm:size-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+              <DialogTitle className="text-sm sm:text-base font-bold text-slate-900 dark:text-white truncate">
                 Invoice Preview — #{order?.id ? `INV${order.id}` : 'NEW'}
               </DialogTitle>
             </div>
-
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                onClick={handlePrint}
-                className="h-9 px-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl gap-1.5 shadow-sm active:scale-[0.98] transition-all cursor-pointer inline-flex items-center"
-              >
-                <Printer className="size-4" />
-                <span>Print</span>
-              </Button>
-
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={isDownloadingPdf}
-                onClick={handleDownloadPdf}
-                className="h-9 px-3.5 border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800 font-bold rounded-xl gap-1.5 shadow-sm active:scale-[0.98] transition-all cursor-pointer inline-flex items-center"
-              >
-                {isDownloadingPdf ? (
-                  <Loader2 className="size-4 animate-spin text-emerald-600" />
-                ) : (
-                  <FileDown className="size-4 text-emerald-600" />
-                )}
-                <span className="hidden sm:inline">Download PDF</span>
-                <span className="sm:hidden">PDF</span>
-              </Button>
-
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={handleWhatsAppShare}
-                className="h-9 px-3 sm:px-3.5 border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 font-bold rounded-xl gap-1.5 shadow-sm active:scale-[0.98] transition-all cursor-pointer inline-flex items-center"
-                title="Send receipt to customer via WhatsApp"
-              >
-                <MessageSquare className="size-4 text-emerald-600 dark:text-emerald-400" />
-                <span className="hidden sm:inline">WhatsApp</span>
-              </Button>
-
-              <button
-                type="button"
-                onClick={onClose}
-                className="size-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
-                aria-label="Close"
-              >
-                <X className="size-5" />
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="size-8 sm:size-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer shrink-0"
+              aria-label="Close"
+            >
+              <X className="size-4 sm:size-5" />
+            </button>
           </div>
-          <DialogDescription className="text-xs text-slate-500 dark:text-zinc-400">
+          <DialogDescription className="text-xs text-slate-500 dark:text-zinc-400 hidden sm:block">
             A4 format preview. Print directly to thermal/laser printer or download as PDF.
           </DialogDescription>
         </DialogHeader>
 
-        {/* Iframe / Paper Container: Responsive scaling or touch-friendly scrolling */}
-        <div className="overflow-y-auto flex-1 w-full bg-slate-100 dark:bg-zinc-900 rounded-xl p-2 flex justify-center items-start min-h-[360px]">
-          <iframe
-            ref={iframeRef}
-            srcDoc={printableDoc}
-            title={`Invoice-${order?.id || ''}`}
-            className="w-full h-full min-h-[60vh] sm:min-h-[70vh] border-0 rounded-lg shadow-sm bg-white"
-          />
+        {/* Modal Body: Scrollable Document Canvas with Full Touch Passthrough */}
+        <div 
+          className="w-full flex-1 min-h-0 overflow-y-auto overflow-x-hidden touch-pan-y overscroll-contain p-2 sm:p-4 bg-slate-900/60 rounded-xl"
+          style={{ WebkitOverflowScrolling: 'touch' }}
+        >
+          <div 
+            id="invoice-capture-area" 
+            className="w-full max-w-[794px] bg-white text-black shadow-2xl rounded-sm mx-auto overflow-hidden pb-6"
+          >
+            <iframe
+              ref={iframeRef}
+              srcDoc={printableDoc}
+              onLoad={handleIframeLoad}
+              style={{ 
+                height: `${iframeHeight ? Math.max(iframeHeight, 950) : 1100}px`,
+                minHeight: '900px'
+              }}
+              scrolling="no"
+              title={`Invoice-${order?.id || ''}`}
+              className="w-full border-0 bg-white block pointer-events-auto"
+            />
+          </div>
         </div>
 
-        {/* Sticky Mobile Actions Footer */}
-        <div className="pt-2.5 border-t border-slate-100 dark:border-zinc-800 flex sm:hidden items-center justify-between gap-2 shrink-0">
+        {/* Sticky Action Bar (Unified for Mobile & Desktop - No Duplicates) */}
+        <div className="pt-2.5 sm:pt-3 border-t border-slate-100 dark:border-zinc-800 flex items-center justify-end gap-1.5 sm:gap-2 shrink-0 z-20">
           <Button
             type="button"
             variant="outline"
             onClick={onClose}
-            className="h-10 flex-1 border-slate-300 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 rounded-xl font-bold text-xs"
+            className="h-9 px-3 sm:px-4 border-slate-300 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 rounded-xl font-bold text-xs sm:text-sm hover:bg-slate-50 dark:hover:bg-zinc-800 flex-1 sm:flex-initial justify-center cursor-pointer"
           >
-            <X className="size-3.5 mr-1" />
-            Close
+            <X className="size-3.5 sm:size-4 mr-1 sm:mr-1.5" />
+            <span>Close</span>
           </Button>
+
           <Button
             type="button"
             variant="outline"
             onClick={handleWhatsAppShare}
-            className="h-10 flex-1 border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 rounded-xl font-bold text-xs"
+            className="h-9 px-3 sm:px-4 border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 font-bold rounded-xl text-xs sm:text-sm gap-1.5 shadow-sm active:scale-[0.98] transition-all cursor-pointer flex-1 sm:flex-initial justify-center inline-flex items-center"
+            title="Send receipt to customer via WhatsApp"
           >
-            <MessageSquare className="size-3.5 text-emerald-600 mr-1" />
-            WhatsApp
+            <MessageSquare className="size-3.5 sm:size-4 text-emerald-600 dark:text-emerald-400" />
+            <span>WhatsApp</span>
           </Button>
+
           <Button
             type="button"
             variant="outline"
             disabled={isDownloadingPdf}
             onClick={handleDownloadPdf}
-            className="h-10 flex-1 border-slate-300 dark:border-zinc-700 text-slate-800 dark:text-zinc-200 rounded-xl font-bold text-xs"
+            className="h-9 px-3 sm:px-4 border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800 font-bold rounded-xl text-xs sm:text-sm gap-1.5 shadow-sm active:scale-[0.98] transition-all cursor-pointer flex-1 sm:flex-initial justify-center inline-flex items-center"
           >
-            <FileDown className="size-3.5 text-emerald-600 mr-1" />
-            PDF
+            {isDownloadingPdf ? (
+              <Loader2 className="size-3.5 sm:size-4 animate-spin text-emerald-600" />
+            ) : (
+              <FileDown className="size-3.5 sm:size-4 text-emerald-600" />
+            )}
+            <span className="hidden sm:inline">Download PDF</span>
+            <span className="sm:hidden">PDF</span>
           </Button>
+
           <Button
             type="button"
             onClick={handlePrint}
-            className="h-10 flex-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-xs"
+            className="h-9 px-3.5 sm:px-5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs sm:text-sm gap-1.5 shadow-sm active:scale-[0.98] transition-all cursor-pointer flex-1 sm:flex-initial justify-center inline-flex items-center"
           >
-            <Printer className="size-3.5 mr-1" />
-            Print
+            <Printer className="size-3.5 sm:size-4" />
+            <span>Print</span>
           </Button>
         </div>
       </DialogContent>

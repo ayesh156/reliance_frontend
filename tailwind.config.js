@@ -10,6 +10,9 @@ export default {
         display: ["'Playfair Display'", "Georgia", "serif"],
       },
       colors: {
+        slate: {
+          150: '#eef2f6',
+        },
         brand: {
           50: '#fafafa',
           100: '#f5f5f5',
