@@ -702,7 +702,7 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
     <>
       <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
         <DialogContent
-          className="w-full max-w-lg sm:max-w-3xl lg:max-w-4xl max-h-[92vh] flex flex-col p-0 overflow-hidden rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 shadow-2xl"
+          className="w-full max-w-lg sm:max-w-3xl lg:max-w-4xl max-h-[94vh] flex flex-col p-0 overflow-hidden rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 shadow-2xl"
         >
           {/* Compressed Top Profile Header & Micro KPI Strip (Maximized Mobile Viewport) */}
           <div className="p-2.5 sm:p-4 border-b border-slate-100 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-900/70 shrink-0 space-y-2">
@@ -1299,7 +1299,7 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
               {isChequesExpanded && (
                 <div
                   data-vaul-no-drag=""
-                  className="w-full max-h-[220px] sm:max-h-[260px] overflow-y-auto overscroll-contain p-2 space-y-2 border-t border-amber-500/20 bg-zinc-950/95"
+                  className="w-full max-h-[38vh] overflow-y-auto overscroll-contain p-2 space-y-2.5 border-t border-amber-500/20 bg-zinc-950/95"
                   style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
                 >
                   {customerCheques.map((chq, i) => {
@@ -1312,8 +1312,8 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                         key={chq.paymentId || `${chq.chequeNumber}-${i}`}
                         className="p-2.5 rounded-xl bg-zinc-900 border border-amber-500/20 text-xs shadow-2xs hover:border-amber-500/40 transition-colors space-y-2"
                       >
-                        {/* Top row: Cheque #, Bank Name, Invoice reference, Due badge, Status */}
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                        {/* Top row: Cheque #, Bank Name, Invoice reference & Status Badges */}
+                        <div className="flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
                           <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                             <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
                               #{chq.chequeNumber}
@@ -1328,8 +1328,8 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                             )}
                           </div>
 
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            {/* Due Badge */}
+                          <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                            {/* Due / Maturity Alert Badge */}
                             {isPending && (
                               <span
                                 className={`font-semibold text-[10px] px-1.5 py-0.5 rounded border ${
@@ -1362,20 +1362,20 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                           </div>
                         </div>
 
-                        {/* Bottom row: Maturity Date, Amount & Touch-friendly Action Buttons */}
-                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-zinc-800/80 flex-wrap">
+                        {/* Bottom row: Maturity Date, Currency Amount & Realization Actions */}
+                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-zinc-800/80 flex-wrap sm:flex-nowrap">
                           <div className="flex items-center gap-2 text-[11px] text-zinc-400 font-mono">
-                            <Calendar className="size-3 text-zinc-500" />
+                            <Calendar className="size-3 text-zinc-500 shrink-0" />
                             <span>Maturity: <strong className="text-zinc-200">{chq.chequeDate}</strong></span>
                           </div>
 
-                          <div className="flex items-center gap-2 shrink-0 ml-auto">
+                          <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto flex-wrap sm:flex-nowrap shrink-0">
                             <span className="font-mono font-bold text-white text-sm">
                               Rs. {chq.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                             </span>
 
                             {chq.paymentId && isPending && (
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap">
                                 <button
                                   type="button"
                                   onClick={() => handleUpdateChequeStatus(chq.paymentId!, 'CLEARED')}

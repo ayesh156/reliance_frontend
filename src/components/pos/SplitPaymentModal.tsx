@@ -739,100 +739,103 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
               </div>
             </div>
 
-            <div className="space-y-1">
+            {/* Date & Time Row */}
+            <div className="w-full mb-3 space-y-1">
               <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Date & Time *</label>
               <DateTimePicker
                 value={editDate}
                 onChange={setEditDate}
-                className="h-8 text-xs font-mono rounded-xl bg-white dark:bg-zinc-900"
+                className="w-full"
               />
             </div>
 
             {editMethod === 'CHEQUE' && (
-              <div className="space-y-2 pt-1 border-t border-slate-100 dark:border-zinc-800">
-                <div className="space-y-1">
+              <div className="w-full mb-3 mt-1 pt-1.5 border-t border-slate-100 dark:border-zinc-800">
+                <div className="w-full mb-3 space-y-1">
                   <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Cheque Number *</label>
                   <Input
                     type="text"
                     value={editChequeNumber}
                     onChange={(e) => setEditChequeNumber(e.target.value)}
                     placeholder="e.g. CHQ-994821"
-                    className="h-8 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl"
+                    className="h-8 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl w-full"
                   />
                 </div>
-                <div className="space-y-1">
+                <div className="w-full mb-3 space-y-1">
                   <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Bank Name / Branch</label>
                   <Input
                     type="text"
                     value={editBankName}
                     onChange={(e) => setEditBankName(e.target.value)}
                     placeholder="e.g. Commercial Bank"
-                    className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl"
+                    className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl w-full"
                   />
                 </div>
               </div>
             )}
 
             {editMethod === 'BANK_TRANSFER' && (
-              <div className="space-y-2 pt-1 border-t border-slate-100 dark:border-zinc-800">
-                <div className="space-y-1">
+              <div className="w-full mb-3 mt-1 pt-1.5 border-t border-slate-100 dark:border-zinc-800">
+                <div className="w-full mb-3 space-y-1">
                   <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Bank Name</label>
                   <Input
                     type="text"
                     value={editBankName}
                     onChange={(e) => setEditBankName(e.target.value)}
                     placeholder="e.g. Sampath Bank"
-                    className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl"
+                    className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl w-full"
                   />
                 </div>
-                <div className="space-y-1">
+                <div className="w-full mb-3 space-y-1">
                   <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Transfer Ref / Slip No</label>
                   <Input
                     type="text"
                     value={editReference}
                     onChange={(e) => setEditReference(e.target.value)}
                     placeholder="e.g. REF-88129"
-                    className="h-8 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl"
+                    className="h-8 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl w-full"
                   />
                 </div>
               </div>
             )}
 
             {editMethod === 'CARD' && (
-              <div className="space-y-2 pt-1 border-t border-slate-100 dark:border-zinc-800">
-                <div className="space-y-1">
+              <div className="w-full mb-3 mt-1 pt-1.5 border-t border-slate-100 dark:border-zinc-800">
+                <div className="w-full mb-3 space-y-1">
                   <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Approval Code / Ref</label>
                   <Input
                     type="text"
                     value={editReference}
                     onChange={(e) => setEditReference(e.target.value)}
                     placeholder="e.g. AUTH-4491"
-                    className="h-8 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl"
+                    className="h-8 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl w-full"
                   />
                 </div>
-                <div className="space-y-1">
+                <div className="w-full mb-3 space-y-1">
                   <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Card Type / Bank</label>
                   <Input
                     type="text"
                     value={editBankName}
                     onChange={(e) => setEditBankName(e.target.value)}
                     placeholder="e.g. Visa / Master"
-                    className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl"
+                    className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl w-full"
                   />
                 </div>
               </div>
             )}
 
             {editMethod === 'CASH' && (
-              <div className="space-y-1 pt-1 border-t border-slate-100 dark:border-zinc-800">
-                <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Reference / Note</label>
-                <Input
-                  type="text"
-                  value={editReference}
-                  onChange={(e) => setEditReference(e.target.value)}
-                  placeholder="Optional reference note"
-                  className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl"
-                />
+              <div className="w-full mb-3 mt-1 pt-1.5 border-t border-slate-100 dark:border-zinc-800">
+                <div className="w-full mb-3 space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Reference / Note</label>
+                  <Input
+                    type="text"
+                    value={editReference}
+                    onChange={(e) => setEditReference(e.target.value)}
+                    placeholder="Optional reference note"
+                    className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl w-full"
+                  />
+                </div>
               </div>
             )}
 
