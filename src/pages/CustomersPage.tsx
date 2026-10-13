@@ -62,6 +62,8 @@ import {
 import { openWhatsAppChat, generateCustomerDebtSummaryWhatsAppMessage } from '../utils/whatsapp';
 // Enterprise Customer Itemized Due Settlement Modal
 import { CustomerDueSettlementModal } from '../components/customers/CustomerDueSettlementModal';
+// Universal Customer Bill History Modal
+import { CustomerBillHistoryModal } from '../components/customers/CustomerBillHistoryModal';
 
 interface CustomerItem {
   id: number;
@@ -96,11 +98,6 @@ export const CustomersPage: React.FC = () => {
   const [editingCustomer, setEditingCustomer] = useState<CustomerItem | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Customer Details & Due History Modal States
-  const [detailCustomer, setDetailCustomer] = useState<CustomerItem | null>(null);
-  const [detailInvoices, setDetailInvoices] = useState<any[]>([]);
-  const [loadingDetailInvoices, setLoadingDetailInvoices] = useState<boolean>(false);
-
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [type, setType] = useState<'RETAIL' | 'WHOLESALE'>('RETAIL');
@@ -114,21 +111,19 @@ export const CustomersPage: React.FC = () => {
   const [isDueSettlementOpen, setIsDueSettlementOpen] = useState(false);
   const [selectedSettlementCustomer, setSelectedSettlementCustomer] = useState<CustomerItem | null>(null);
 
+  // Universal Customer Bill History & Profile Modal States
+  const [isBillHistoryOpen, setIsBillHistoryOpen] = useState(false);
+  const [selectedBillHistoryCustomer, setSelectedBillHistoryCustomer] = useState<CustomerItem | null>(null);
+
   /**
-   * Fetch customer details and unpaid ledger history
+   * Opens the Unified Customer Bill History & Profile modal for any customer account,
+   * allowing complete inspection of customer metadata, shortcuts, metrics, and ledger records.
+   *
+   * @param cust - Selected customer item
    */
-  const handleOpenCustomerDetail = async (cust: CustomerItem) => {
-    setDetailCustomer(cust);
-    setLoadingDetailInvoices(true);
-    try {
-      const invs = await get<any[]>(`/orders/customers/${cust.id}/pending-invoices`);
-      setDetailInvoices(Array.isArray(invs) ? invs : []);
-    } catch (err) {
-      console.warn('Failed to fetch customer pending invoices:', err);
-      setDetailInvoices([]);
-    } finally {
-      setLoadingDetailInvoices(false);
-    }
+  const handleOpenCustomerBillHistory = (cust: CustomerItem) => {
+    setSelectedBillHistoryCustomer(cust);
+    setIsBillHistoryOpen(true);
   };
 
   /**
@@ -460,13 +455,16 @@ export const CustomersPage: React.FC = () => {
                 return (
                   <div
                     key={cust.id}
-                    onClick={() => handleOpenCustomerDetail(cust)}
-                    className="p-3 sm:p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 shadow-xs hover:border-emerald-500/50 dark:hover:border-emerald-500/40 transition-all cursor-pointer flex flex-col justify-between gap-2.5 sm:gap-3 active:scale-[0.99] select-none group w-full"
+                    className="p-3 sm:p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 shadow-xs hover:border-slate-300 dark:hover:border-zinc-700 transition-all flex flex-col justify-between gap-2.5 sm:gap-3 w-full"
                   >
-                    {/* Top Row: Name, Phone, Badge */}
-                    <div className="flex items-start justify-between gap-2">
+                    {/* Top Row: Name, Phone, Badge (Clickable for Unified Bill History & Profile) */}
+                    <div
+                      onClick={() => handleOpenCustomerBillHistory(cust)}
+                      className="flex items-start justify-between gap-2 cursor-pointer group/card select-none"
+                      title="Click to view customer bill history & profile"
+                    >
                       <div className="min-w-0">
-                        <h3 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-zinc-100 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors truncate">
+                        <h3 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-zinc-100 group-hover/card:text-emerald-600 dark:group-hover/card:text-emerald-400 transition-colors truncate">
                           {cust.name}
                         </h3>
                         <div className="flex items-center gap-1.5 mt-0.5">
@@ -514,14 +512,113 @@ export const CustomersPage: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Footer Action Hint */}
-                    <div className="flex items-center justify-between pt-1 text-[10px]">
-                      <span className="text-slate-400 dark:text-zinc-500 truncate max-w-[150px]">
-                        {cust.city || cust.address || 'No address'}
-                      </span>
-                      <span className="font-semibold text-emerald-600 dark:text-emerald-400 group-hover:underline shrink-0">
-                        View Details &amp; Due →
-                      </span>
+                    {/* Mobile Card Action Bar with Minimum 44x44px Accessible Touch Targets */}
+                    <div className="flex items-center gap-1.5 pt-2 border-t border-slate-100 dark:border-zinc-800/80">
+                      {/* Unified Bill History & Profile Action Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenCustomerBillHistory(cust)}
+                        className="flex-1 min-h-[44px] px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-800 dark:text-zinc-200 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer select-none active:scale-[0.98]"
+                        title="View customer bill history and profile"
+                      >
+                        <FileText className="size-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                        <span>Bill History &amp; Profile</span>
+                      </button>
+
+                      {/* Settle Due Action Button (shown when debt exists) */}
+                      {hasDebt && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedSettlementCustomer(cust);
+                            setIsDueSettlementOpen(true);
+                          }}
+                          className="min-h-[44px] px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer select-none active:scale-[0.98]"
+                          title="Settle Due Bills"
+                        >
+                          <Receipt className="size-4 shrink-0" />
+                          <span>Settle</span>
+                        </button>
+                      )}
+
+                      {/* Complete 3-Dots Dropdown Menu for Mobile Parity */}
+                      <DropdownMenu modal={false}>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            className="min-h-[44px] min-w-[44px] px-2 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-600 dark:text-zinc-300 flex items-center justify-center transition-colors cursor-pointer select-none"
+                            title="More Customer Options"
+                          >
+                            <MoreVertical className="size-4" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-52 text-xs font-medium">
+                          <DropdownMenuItem
+                            onClick={() => handleOpenCustomerBillHistory(cust)}
+                            className="gap-2 cursor-pointer font-semibold text-slate-900 dark:text-zinc-100 py-2"
+                          >
+                            <FileText className="size-3.5 text-blue-600 dark:text-blue-400" />
+                            Bill History &amp; Profile
+                          </DropdownMenuItem>
+
+                          {hasDebt && (
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setSelectedSettlementCustomer(cust);
+                                setIsDueSettlementOpen(true);
+                              }}
+                              className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-700 font-semibold py-2"
+                            >
+                              <Receipt className="size-3.5 text-emerald-600" />
+                              Settle Due Bills
+                            </DropdownMenuItem>
+                          )}
+
+                          <DropdownMenuItem
+                            onClick={() => handleDownloadCustomerStatement(cust)}
+                            className="gap-2 cursor-pointer text-slate-700 dark:text-zinc-300 py-2"
+                          >
+                            <Download className="size-3.5 text-slate-500" />
+                            Download Statement PDF
+                          </DropdownMenuItem>
+
+                          {cust.phone && (
+                            <DropdownMenuItem
+                              onClick={() => handleSendCustomerDebtWhatsApp(cust)}
+                              className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-700 py-2"
+                            >
+                              <MessageSquare className="size-3.5 text-emerald-600" />
+                              WhatsApp Due Statement
+                            </DropdownMenuItem>
+                          )}
+
+                          {!isRep && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => openModal(cust)}
+                                className="gap-2 cursor-pointer text-slate-700 dark:text-zinc-300 py-2"
+                              >
+                                <Edit2 className="size-3.5 text-slate-500" />
+                                Edit Profile
+                              </DropdownMenuItem>
+                            </>
+                          )}
+
+                          {isAdmin && !isRep && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => setDeleteTarget(cust)}
+                                className="gap-2 cursor-pointer text-rose-600 focus:text-rose-700 focus:bg-rose-50 dark:focus:bg-rose-950/30 py-2 font-semibold"
+                              >
+                                <Trash2 className="size-3.5 text-rose-600" />
+                                Delete Account
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </div>
                 );
@@ -561,11 +658,11 @@ export const CustomersPage: React.FC = () => {
                 filteredCustomers.map(cust => (
                   <TableRow key={cust.id}>
                     <TableCell>
-                      {/* Interactive Clickable Target: Opens Customer Detail Modal */}
+                      {/* Interactive Clickable Target: Opens Unified Customer Bill History & Profile Modal */}
                       <div 
-                        onClick={() => handleOpenCustomerDetail(cust)}
+                        onClick={() => handleOpenCustomerBillHistory(cust)}
                         className="cursor-pointer group/cust select-none inline-block"
-                        title="Click to view customer details & due history"
+                        title="Click to view customer bill history & profile"
                       >
                         <div className="font-semibold text-xs text-slate-900 dark:text-white group-hover/cust:text-emerald-600 dark:group-hover/cust:text-emerald-400 group-hover/cust:underline transition-colors">
                           {cust.name}
@@ -612,54 +709,56 @@ export const CustomersPage: React.FC = () => {
                             <MoreVertical className="size-4" />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-44 text-xs font-medium">
+                        <DropdownMenuContent align="end" className="w-48 text-xs font-medium">
+                          {/* Unified Bill History & Profile Option */}
                           <DropdownMenuItem
-                            onClick={() => handleOpenCustomerDetail(cust)}
-                            className="gap-2 cursor-pointer font-semibold text-slate-800 dark:text-zinc-200"
+                            onClick={() => handleOpenCustomerBillHistory(cust)}
+                            className="gap-2 cursor-pointer font-semibold text-slate-900 dark:text-zinc-100 py-1.5"
                           >
-                            <Building className="size-3.5 text-slate-500" />
-                            View Profile &amp; Due
+                            <FileText className="size-3.5 text-blue-600 dark:text-blue-400" />
+                            Bill History &amp; Profile
                           </DropdownMenuItem>
 
-                          {/* Itemized Due Bills Settlement Modal Action */}
+                          {/* Itemized Due Bills Settlement Modal Action (Shown when debt exists) */}
                           {Number(cust.outstandingBalance || 0) > 0 && (
-                            <>
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  setSelectedSettlementCustomer(cust);
-                                  setIsDueSettlementOpen(true);
-                                }}
-                                className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-700 font-semibold"
-                              >
-                                <Receipt className="size-3.5 text-emerald-600" />
-                                Settle Due Bills
-                              </DropdownMenuItem>
-
-                              {/* Direct WhatsApp Debt Notice Action */}
-                              <DropdownMenuItem
-                                onClick={() => handleSendCustomerDebtWhatsApp(cust)}
-                                className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-700 font-medium"
-                              >
-                                <MessageSquare className="size-3.5 text-emerald-600" />
-                                WhatsApp Due Statement
-                              </DropdownMenuItem>
-
-                              {/* Download Statement PDF Action */}
-                              <DropdownMenuItem
-                                onClick={() => handleDownloadCustomerStatement(cust)}
-                                className="gap-2 cursor-pointer text-slate-700 dark:text-zinc-300 font-medium"
-                              >
-                                <FileText className="size-3.5 text-slate-500" />
-                                Download Statement PDF
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                            </>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setSelectedSettlementCustomer(cust);
+                                setIsDueSettlementOpen(true);
+                              }}
+                              className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-700 font-semibold py-1.5"
+                            >
+                              <Receipt className="size-3.5 text-emerald-600" />
+                              Settle Due Bills
+                            </DropdownMenuItem>
                           )}
+
+                          {/* Download Statement PDF Action */}
+                          <DropdownMenuItem
+                            onClick={() => handleDownloadCustomerStatement(cust)}
+                            className="gap-2 cursor-pointer text-slate-700 dark:text-zinc-300 font-medium py-1.5"
+                          >
+                            <Download className="size-3.5 text-slate-500" />
+                            Download Statement PDF
+                          </DropdownMenuItem>
+
+                          {/* Direct WhatsApp Debt Notice Action */}
+                          {cust.phone && (
+                            <DropdownMenuItem
+                              onClick={() => handleSendCustomerDebtWhatsApp(cust)}
+                              className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-700 font-medium py-1.5"
+                            >
+                              <MessageSquare className="size-3.5 text-emerald-600" />
+                              WhatsApp Due Statement
+                            </DropdownMenuItem>
+                          )}
+
+                          <DropdownMenuSeparator />
 
                           {!isRep && (
                             <DropdownMenuItem
                               onClick={() => openModal(cust)}
-                              className="gap-2 cursor-pointer text-slate-700 dark:text-zinc-300"
+                              className="gap-2 cursor-pointer text-slate-700 dark:text-zinc-300 py-1.5"
                             >
                               <Edit2 className="size-3.5 text-slate-500" />
                               Edit Profile
@@ -671,7 +770,7 @@ export const CustomersPage: React.FC = () => {
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 onClick={() => setDeleteTarget(cust)}
-                                className="gap-2 cursor-pointer text-rose-600 focus:text-rose-700 focus:bg-rose-50 dark:focus:bg-rose-950/30"
+                                className="gap-2 cursor-pointer text-rose-600 focus:text-rose-700 focus:bg-rose-50 dark:focus:bg-rose-950/30 py-1.5 font-semibold"
                               >
                                 <Trash2 className="size-3.5 text-rose-600" />
                                 Delete Account
@@ -832,224 +931,6 @@ export const CustomersPage: React.FC = () => {
         </AlertDialog>
       )}
 
-      {/* Responsive Customer Detail & Due History Dialog Modal */}
-      <Dialog open={!!detailCustomer} onOpenChange={(open) => !open && setDetailCustomer(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-3.5 sm:p-6">
-          {detailCustomer && (
-            <div className="space-y-4">
-              <DialogHeader>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Badge
-                        variant="outline"
-                        className={
-                          detailCustomer.type === 'WHOLESALE'
-                            ? 'border-blue-500/30 text-blue-600 bg-blue-500/10'
-                            : 'border-emerald-500/30 text-emerald-600 bg-emerald-500/10'
-                        }
-                      >
-                        {detailCustomer.type}
-                      </Badge>
-                      {isRep && <Badge variant="outline" className="text-amber-500 border-amber-500/30">Sales Rep Access</Badge>}
-                    </div>
-                    <DialogTitle className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
-                      {detailCustomer.name}
-                    </DialogTitle>
-                    {detailCustomer.nic && (
-                      <p className="text-xs text-slate-400 dark:text-zinc-500 font-mono">
-                        NIC / Reg: {detailCustomer.nic}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </DialogHeader>
-
-              {/* Financial Balance Summary Banner */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-zinc-950/60 border border-slate-200 dark:border-zinc-800">
-                  <span className="text-[11px] font-medium text-slate-400 dark:text-zinc-500 block">
-                    Credit Limit
-                  </span>
-                  <span className="text-base sm:text-lg font-bold font-mono text-slate-900 dark:text-zinc-100">
-                    Rs. {Number(detailCustomer.creditLimit || 0).toLocaleString()}
-                  </span>
-                </div>
-
-                <div className={`p-3.5 rounded-2xl border ${
-                  Number(detailCustomer.outstandingBalance || 0) > 0
-                    ? 'bg-rose-50/60 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900/60'
-                    : 'bg-emerald-50/60 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/60'
-                }`}>
-                  <span className="text-[11px] font-medium text-slate-400 dark:text-zinc-500 block">
-                    Accumulated Due Debt (Outstanding)
-                  </span>
-                  <span className={`text-base sm:text-lg font-black font-mono ${
-                    Number(detailCustomer.outstandingBalance || 0) > 0
-                      ? 'text-rose-600 dark:text-rose-400'
-                      : 'text-emerald-600 dark:text-emerald-400'
-                  }`}>
-                    Rs. {Number(detailCustomer.outstandingBalance || 0).toLocaleString()}
-                  </span>
-                </div>
-              </div>
-
-              {/* Contact, Address & Notes Info */}
-              <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 space-y-2.5 text-xs">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-zinc-800">
-                  <div className="flex items-center gap-2">
-                    <Phone className="size-3.5 text-slate-400" />
-                    <span className="font-semibold text-slate-700 dark:text-zinc-300">Contact Phone:</span>
-                    <span className="font-mono font-bold text-slate-900 dark:text-white">{detailCustomer.phone}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-[11px] gap-1 px-2 text-emerald-600"
-                      onClick={() => handleSendCustomerDebtWhatsApp(detailCustomer)}
-                    >
-                      <MessageSquare className="size-3" /> WhatsApp
-                    </Button>
-                    <a
-                      href={`tel:${detailCustomer.phone}`}
-                      className="h-7 px-2.5 text-[11px] rounded-lg border border-slate-200 dark:border-zinc-700 inline-flex items-center gap-1 font-medium hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300"
-                    >
-                      <Phone className="size-3" /> Call
-                    </a>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-2">
-                  <MapPin className="size-3.5 text-slate-400 mt-0.5 shrink-0" />
-                  <span className="font-semibold text-slate-700 dark:text-zinc-300 shrink-0">Address:</span>
-                  <span className="text-slate-600 dark:text-zinc-400">
-                    {detailCustomer.address || detailCustomer.city ? `${detailCustomer.address || ''}${detailCustomer.city ? `, ${detailCustomer.city}` : ''}` : 'No address provided'}
-                  </span>
-                </div>
-
-                {detailCustomer.notes && (
-                  <div className="pt-2 border-t border-slate-100 dark:border-zinc-800">
-                    <span className="font-semibold text-slate-700 dark:text-zinc-300 block mb-0.5">Profile Notes:</span>
-                    <p className="text-slate-600 dark:text-zinc-400 italic">{detailCustomer.notes}</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Billing History & Outstanding Due Bills Matrix */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                    <Clock className="size-3.5 text-emerald-500" />
-                    Pending Due Invoices Ledger ({detailInvoices.length})
-                  </span>
-                  {Number(detailCustomer.outstandingBalance || 0) > 0 && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleDownloadCustomerStatement(detailCustomer)}
-                      className="h-7 text-xs gap-1 text-slate-600 dark:text-zinc-300 hover:text-emerald-600"
-                    >
-                      <Download className="size-3" /> Statement PDF
-                    </Button>
-                  )}
-                </div>
-
-                {loadingDetailInvoices ? (
-                  <div className="py-6 text-center">
-                    <Loader2 className="size-5 animate-spin mx-auto text-emerald-500" />
-                    <span className="text-xs text-slate-400 mt-1 block">Loading due invoices...</span>
-                  </div>
-                ) : detailInvoices.length === 0 ? (
-                  <div className="p-4 rounded-xl border border-dashed border-slate-200 dark:border-zinc-800 text-center text-xs text-slate-400">
-                    {Number(detailCustomer.outstandingBalance || 0) > 0
-                      ? 'No itemized unpaid invoices found (Opening balance record).'
-                      : 'Account is fully settled. No pending debt invoices.'}
-                  </div>
-                ) : (
-                  <div className="border rounded-xl border-slate-200 dark:border-zinc-800 overflow-hidden text-xs">
-                    <div className="overflow-x-auto max-h-48 overflow-y-auto">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="border-b bg-slate-50 dark:bg-zinc-900/80 text-slate-500 dark:text-zinc-400 font-semibold text-[11px]">
-                            <th className="p-2">Invoice #</th>
-                            <th className="p-2">Date</th>
-                            <th className="p-2 text-right">Bill Total</th>
-                            <th className="p-2 text-right">Paid</th>
-                            <th className="p-2 text-right">Balance Due</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60">
-                          {detailInvoices.map((inv) => {
-                            const unp = Math.max(0, Number(inv.totalAmount || 0) - Number(inv.paidAmount || 0));
-                            return (
-                              <tr key={inv.id} className="hover:bg-slate-50/50 dark:hover:bg-zinc-900/40">
-                                <td className="p-2 font-mono font-bold text-blue-600 dark:text-blue-400">
-                                  #{inv.id}
-                                </td>
-                                <td className="p-2 text-slate-500">
-                                  {inv.createdAt?.split('T')[0] || '-'}
-                                </td>
-                                <td className="p-2 text-right font-mono">
-                                  Rs. {Number(inv.totalAmount || 0).toLocaleString()}
-                                </td>
-                                <td className="p-2 text-right font-mono text-emerald-600">
-                                  Rs. {Number(inv.paidAmount || 0).toLocaleString()}
-                                </td>
-                                <td className="p-2 text-right font-mono font-bold text-rose-600 dark:text-rose-400">
-                                  Rs. {unp.toLocaleString()}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Modal Footer Controls (Scoping: destructive delete hidden from REP) */}
-              <div className="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-zinc-800">
-                <Button variant="outline" size="sm" onClick={() => setDetailCustomer(null)}>
-                  Close
-                </Button>
-                <div className="flex items-center gap-2">
-                  {Number(detailCustomer.outstandingBalance || 0) > 0 && (
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        const target = detailCustomer;
-                        setDetailCustomer(null);
-                        setSelectedSettlementCustomer(target);
-                        setIsDueSettlementOpen(true);
-                      }}
-                      className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
-                    >
-                      <Receipt className="size-3.5" /> Settle Due Bills
-                    </Button>
-                  )}
-                  {!isRep && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        const target = detailCustomer;
-                        setDetailCustomer(null);
-                        openModal(target);
-                      }}
-                      className="gap-1"
-                    >
-                      <Edit2 className="size-3.5" /> Edit
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
       {/* Enterprise-Grade Itemized Customer Due Settlement Modal */}
       <CustomerDueSettlementModal
         isOpen={isDueSettlementOpen}
@@ -1062,6 +943,24 @@ export const CustomersPage: React.FC = () => {
         customerPhone={selectedSettlementCustomer?.phone}
         onPaymentSuccess={() => {
           fetchCustomers(); // ගෙවීම් වාර්තා වූ සැණින් Customers table එක auto-sync වේ
+        }}
+      />
+
+      {/* Universal Customer Bill History & Profile Modal */}
+      <CustomerBillHistoryModal
+        isOpen={isBillHistoryOpen}
+        onClose={() => {
+          setIsBillHistoryOpen(false);
+          setSelectedBillHistoryCustomer(null);
+        }}
+        customer={selectedBillHistoryCustomer}
+        onOpenSettlement={(cust) => {
+          setSelectedSettlementCustomer(cust as CustomerItem);
+          setIsDueSettlementOpen(true);
+        }}
+        onEditProfile={(cust) => {
+          setIsBillHistoryOpen(false);
+          openModal(cust as CustomerItem);
         }}
       />
       

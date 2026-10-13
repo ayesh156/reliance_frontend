@@ -369,154 +369,167 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
     }
   };
 
+  // Direct Backend Statement PDF Downloader
+  const handleDownloadStatement = async () => {
+    try {
+      toast.info('Generating Account Statement PDF...');
+      const apiHost = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      const token = localStorage.getItem('token') || localStorage.getItem('auth_token') || sessionStorage.getItem('token');
+
+      const response = await fetch(`${apiHost}/credit/customers/${customerId}/statement-pdf`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+
+      if (!response.ok) throw new Error('Failed to generate statement PDF');
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Statement-${(customerName || 'Customer').replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('Statement PDF downloaded successfully!');
+    } catch (err: any) {
+      toast.error(err.message || 'Download failed');
+    }
+  };
+
+  // Send Statement / Due Breakdown on WhatsApp
+  const handleSendWhatsAppStatement = () => {
+    const activePhone = customerPhone || customerPhoneState;
+    if (!activePhone) {
+      const manual = window.prompt('Enter customer mobile number for WhatsApp statement:');
+      if (!manual?.trim()) return;
+      const waMsg = generateCustomerDebtSummaryWhatsAppMessage(
+        {
+          name: customerName || 'Customer',
+          outstandingBalance: totalOutstanding,
+          phone: manual.trim(),
+        },
+        bills.map((b) => ({
+          invoiceNo: b.invoiceNumber,
+          date: b.createdAt,
+          totalAmount: b.totalAmount,
+          paidAmount: b.paidAmount,
+          dueAmount: b.dueAmount,
+          source: b.source,
+        }))
+      );
+      openWhatsAppChat(manual.trim(), waMsg);
+      return;
+    }
+    const waMsg = generateCustomerDebtSummaryWhatsAppMessage(
+      {
+        name: customerName || 'Customer',
+        outstandingBalance: totalOutstanding,
+        phone: activePhone,
+      },
+      bills.map((b) => ({
+        invoiceNo: b.invoiceNumber,
+        date: b.createdAt,
+        totalAmount: b.totalAmount,
+        paidAmount: b.paidAmount,
+        dueAmount: b.dueAmount,
+        source: b.source,
+      }))
+    );
+    openWhatsAppChat(activePhone, waMsg);
+  };
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="w-[95vw] sm:max-w-3xl md:max-w-4xl min-w-0 sm:min-w-[640px] max-h-[90vh] flex flex-col bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-3xl p-4 sm:p-6 shadow-2xl">
+      <DialogContent className="w-full max-w-lg sm:max-w-2xl max-h-[92vh] flex flex-col p-3 sm:p-5 overflow-hidden bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl sm:rounded-3xl shadow-2xl">
         {/* Header */}
-        <DialogHeader className="pb-3 border-b shrink-0 border-slate-100 dark:border-zinc-800">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="flex items-center gap-2">
-                <Receipt className="size-5 text-emerald-500" />
-                <DialogTitle className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
-                  {customerName ? `${customerName} - Pending Invoices` : 'Customer Due Invoices'}
-                </DialogTitle>
-              </div>
-              <DialogDescription className="text-xs text-slate-500 dark:text-zinc-400 mt-1">
-                Review bill dates, item breakdown, and settle dues individually.
-              </DialogDescription>
+        <DialogHeader className="pb-3 border-b shrink-0 border-slate-100 dark:border-zinc-800 space-y-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <Receipt className="size-5 text-emerald-500 shrink-0" />
+              <DialogTitle className="text-base sm:text-lg font-bold text-slate-900 dark:text-white truncate">
+                {customerName ? `${customerName} - Pending Invoices` : 'Customer Due Invoices'}
+              </DialogTitle>
             </div>
-            <div className="flex items-center gap-2">
-              {/* Action Buttons Container */}
-              <div className="flex items-center gap-2 shrink-0">
-                {/* Pay Full Balance Button */}
-                {totalOutstanding > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setQuickPayAmount(totalOutstanding.toFixed(2));
-                      setQuickPayMethod('CASH');
-                      setQuickPayRef('');
-                      setQuickPayDateTime(new Date().toISOString());
-                      setShowQuickPayForm(true);
-                    }}
-                    className="h-9 px-4 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white shadow-sm transition-all shrink-0 inline-flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Banknote className="size-3.5" />
-                    <span>Pay Full</span>
-                  </button>
-                )}
+          </div>
+          <DialogDescription className="text-xs text-slate-500 dark:text-zinc-400 -mt-1 text-left">
+            Review bill dates, item breakdown, and settle dues individually.
+          </DialogDescription>
 
-                {/* Direct Backend Statement PDF Downloader */}
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      toast.info('Generating Account Statement PDF...');
-                      const apiHost = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-                      const token = localStorage.getItem('token') || localStorage.getItem('auth_token') || sessionStorage.getItem('token');
-
-                      const response = await fetch(`${apiHost}/credit/customers/${customerId}/statement-pdf`, {
-                        method: 'GET',
-                        credentials: 'include',
-                        headers: {
-                          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                        },
-                      });
-
-                      if (!response.ok) throw new Error('Failed to generate statement PDF');
-
-                      const blob = await response.blob();
-                      const url = window.URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = `Statement-${(customerName || 'Customer').replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
-                      document.body.appendChild(a);
-                      a.click();
-                      a.remove();
-                      window.URL.revokeObjectURL(url);
-                      toast.success('Statement PDF downloaded successfully!');
-                    } catch (err: any) {
-                      toast.error(err.message || 'Download failed');
-                    }
-                  }}
-                  className="h-9 px-4 py-2 text-xs font-semibold rounded-lg border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-200 shadow-sm transition-colors shrink-0 inline-flex items-center gap-1.5"
-                >
-                  <Download className="size-3.5 text-emerald-600" />
-                  <span><span className="hidden sm:inline">Download </span>Statement</span>
-                </button>
-
-                {/* Send Statement / Due Breakdown on WhatsApp */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    const activePhone = customerPhone || customerPhoneState;
-                    if (!activePhone) {
-                      const manual = window.prompt('Enter customer mobile number for WhatsApp statement:');
-                      if (!manual?.trim()) return;
-                      const waMsg = generateCustomerDebtSummaryWhatsAppMessage(
-                        {
-                          name: customerName || 'Customer',
-                          outstandingBalance: totalOutstanding,
-                          phone: manual.trim(),
-                        },
-                        bills.map((b) => ({
-                          invoiceNo: b.invoiceNumber,
-                          date: b.createdAt,
-                          totalAmount: b.totalAmount,
-                          paidAmount: b.paidAmount,
-                          dueAmount: b.dueAmount,
-                          source: b.source,
-                        }))
-                      );
-                      openWhatsAppChat(manual.trim(), waMsg);
-                      return;
-                    }
-                    const waMsg = generateCustomerDebtSummaryWhatsAppMessage(
-                      {
-                        name: customerName || 'Customer',
-                        outstandingBalance: totalOutstanding,
-                        phone: activePhone,
-                      },
-                      bills.map((b) => ({
-                        invoiceNo: b.invoiceNumber,
-                        date: b.createdAt,
-                        totalAmount: b.totalAmount,
-                        paidAmount: b.paidAmount,
-                        dueAmount: b.dueAmount,
-                        source: b.source,
-                      }))
-                    );
-                    openWhatsAppChat(activePhone, waMsg);
-                  }}
-                  className="h-9 px-3 sm:px-4 py-2 text-xs font-semibold rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 shadow-sm transition-colors shrink-0 inline-flex items-center gap-1.5 cursor-pointer"
-                  title="Send Outstanding Statement via WhatsApp"
-                >
-                  <MessageSquare className="size-3.5 text-emerald-600 dark:text-emerald-400" />
-                  <span><span className="hidden sm:inline">WhatsApp </span>Statement</span>
-                </button>
+          {/* Full-width Responsive Outstanding Balance / Summary Card Banner */}
+          <div className="w-full rounded-xl p-3 mb-3 bg-rose-50/90 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 flex items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="p-2 rounded-lg bg-rose-100 dark:bg-rose-900/50 text-rose-600 dark:text-rose-400 shrink-0">
+                <AlertCircle className="size-4" />
               </div>
-
-              <div className="text-right bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 px-3 py-1.5 rounded-xl">
-                <span className="text-[10px] uppercase font-bold text-rose-600 dark:text-rose-400 block leading-tight">
-                  Total Due
+              <div className="min-w-0 text-left">
+                <span className="text-[10px] uppercase font-bold text-rose-600 dark:text-rose-400 block leading-tight tracking-wider">
+                  Total Due Balance
                 </span>
-                <span className="text-sm sm:text-base font-extrabold font-mono text-rose-700 dark:text-rose-300">
-                  Rs. {totalOutstanding.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                <span className="text-xs text-slate-500 dark:text-zinc-400 truncate block">
+                  {bills.length} pending bill{bills.length !== 1 ? 's' : ''}
                 </span>
               </div>
             </div>
+            <div className="text-right shrink-0">
+              <span className="text-base sm:text-lg font-extrabold font-mono text-rose-700 dark:text-rose-300">
+                Rs. {totalOutstanding.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+          </div>
+
+          {/* Responsive Header Action Buttons */}
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 w-full mb-3">
+            {totalOutstanding > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuickPayAmount(totalOutstanding.toFixed(2));
+                  setQuickPayMethod('CASH');
+                  setQuickPayRef('');
+                  setQuickPayDateTime(new Date().toISOString());
+                  setShowQuickPayForm(true);
+                }}
+                className="flex-1 min-w-[100px] text-xs h-9 justify-center font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white shadow-sm transition-all inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <Banknote className="size-3.5 shrink-0" />
+                <span>Pay Full</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={handleDownloadStatement}
+              className="flex-1 min-w-[100px] text-xs h-9 justify-center font-semibold rounded-lg border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-200 shadow-sm transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+            >
+              <Download className="size-3.5 text-emerald-600 shrink-0" />
+              <span>Statement PDF</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleSendWhatsAppStatement}
+              className="flex-1 min-w-[100px] text-xs h-9 justify-center font-semibold rounded-lg border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 shadow-sm transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+              title="Send Outstanding Statement via WhatsApp"
+            >
+              <MessageSquare className="size-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span>WhatsApp</span>
+            </button>
           </div>
         </DialogHeader>
 
-        {/* Body Viewport */}
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain py-3 px-1 space-y-3 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-zinc-700">
+        {/* Invoice Items & Payment Ledger Scroll Container */}
+        <div className="w-full flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1 space-y-3 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-zinc-700">
           {/* Quick Full-Balance Settlement Confirmation Modal */}
           <Dialog open={showQuickPayForm} onOpenChange={setShowQuickPayForm}>
             <DialogContent className="w-full max-w-md max-h-[90vh] overflow-y-auto p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-2xl z-[70]">
               <DialogHeader className="pb-2 border-b border-slate-100 dark:border-zinc-800">
                 <div className="flex items-center gap-2">
-                  <Banknote className="size-5 text-emerald-600 dark:text-emerald-400" />
+                  <Banknote className="size-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                   <DialogTitle className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
                     Settle Due Balance
                   </DialogTitle>
@@ -527,7 +540,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
               </DialogHeader>
 
               <form onSubmit={handleQuickSettleSubmit} className="space-y-4 pt-1">
-                {/* Header Card: Wrap customer meta with proper vertical padding and distinct pills */}
+                {/* Header Card: Customer meta */}
                 <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/70 border border-slate-200/80 dark:border-zinc-800/80 space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-slate-500 dark:text-zinc-400 font-medium">Customer Name:</span>
@@ -544,7 +557,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                   <div className="flex items-center justify-between border-t border-slate-200/70 dark:border-zinc-800/70 pt-1.5 text-xs">
                     <span className="text-slate-600 dark:text-zinc-300 font-semibold">Remaining Due Balance:</span>
                     <span className="font-mono font-extrabold text-rose-600 dark:text-rose-400 text-sm px-2.5 py-0.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-200/80 dark:border-rose-900/50">
-                      Rs. {totalOutstanding.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                      Rs. {Math.max(0, totalOutstanding - (parseFloat(quickPayAmount) || 0)).toLocaleString('en-LK', { minimumFractionDigits: 2 })}
                     </span>
                   </div>
                 </div>
@@ -583,7 +596,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                   </div>
                 </div>
 
-                {/* Payment Timestamp Row: Ensure date picker and time inputs fit inside container boundaries without horizontal overflow */}
+                {/* Payment Timestamp Row */}
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
                     Payment Date &amp; Timestamp *
@@ -610,7 +623,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                   />
                 </div>
 
-                {/* Action Footer: Add clear spacing (pt-2 space-y-2) */}
+                {/* Action Footer */}
                 <div className="pt-2 space-y-2">
                   <Button
                     type="submit"
@@ -665,7 +678,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
               return (
                 <div
                   key={bill.orderId}
-                  className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/40 p-3.5 sm:p-4 transition-all shadow-xs hover:border-slate-300 dark:hover:border-zinc-700"
+                  className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/40 p-3.5 sm:p-4 transition-all shadow-xs hover:border-slate-300 dark:hover:border-zinc-700 w-full overflow-hidden"
                 >
                   {/* Top Bar of Bill Card */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -734,17 +747,17 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                     </div>
                   </div>
 
-                  {/* Inline Payment Form elevated to float cleanly over card items */}
+                  {/* Inline Payment Form */}
                   {isPayingThis && (
-                    <div className="mt-3.5 pt-3 border-t border-emerald-500/20 bg-emerald-50/50 dark:bg-emerald-950/20 p-3 rounded-xl space-y-3 overflow-visible relative z-30">
+                    <div className="mt-3.5 pt-3 border-t border-emerald-500/20 bg-emerald-50/50 dark:bg-emerald-950/20 p-3 rounded-xl space-y-3 overflow-visible relative z-30 w-full">
                       <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-800 dark:text-emerald-300">
-                        <DollarSign className="size-4" />
-                        Settle Payment for Invoice #{bill.invoiceNumber}
+                        <DollarSign className="size-4 shrink-0" />
+                        <span>Settle Payment for Invoice #{bill.invoiceNumber}</span>
                       </div>
 
-                      <div className="flex flex-wrap sm:flex-nowrap items-end gap-2 w-full overflow-visible relative z-40">
-                        <div className="w-32 shrink-0 space-y-1">
-                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block whitespace-nowrap">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 w-full overflow-visible relative z-40">
+                        <div className="w-full space-y-1">
+                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
                             Paying Amount *
                           </label>
                           <Input
@@ -756,26 +769,14 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                             onFocus={(e) => e.target.select()}
                             onClick={(e) => (e.target as HTMLInputElement).select()}
                             placeholder="0.00"
-                            className="h-9 text-xs font-mono font-bold bg-white dark:bg-zinc-900 rounded-lg"
+                            className="h-9 text-xs font-mono font-bold bg-white dark:bg-zinc-900 rounded-lg w-full"
                           />
                         </div>
 
-                        <div className="shrink-0 space-y-1 relative z-50">
-                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block whitespace-nowrap">
-                            Payment Date & Time *
-                          </label>
-                          <DateTimePicker
-                            value={payDate}
-                            onChange={setPayDate}
-                            className="h-9"
-                          />
-                        </div>
-
-                        <div className="w-32 shrink-0 space-y-1 relative z-40">
-                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block whitespace-nowrap">
+                        <div className="w-full space-y-1 relative z-50">
+                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
                             Payment Method *
                           </label>
-                          {/* Modern Shadcn SearchableSelect integration with icons */}
                           <SearchableSelect
                             value={payMethod}
                             onValueChange={(val) => setPayMethod(val)}
@@ -783,48 +784,59 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                             placeholder="Select Method"
                             searchPlaceholder="Search method..."
                             dark={dark}
-                            className="h-9 py-0 rounded-lg text-xs"
+                            className="h-9 py-0 rounded-lg text-xs w-full"
                           />
                         </div>
 
-                        <div className="flex-1 min-w-[120px] space-y-1">
-                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block whitespace-nowrap">
-                            Reference / Note
+                        <div className="w-full sm:col-span-2 lg:col-span-2 relative z-45">
+                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
+                            Payment Date & Time *
+                          </label>
+                          <DateTimePicker
+                            value={payDate}
+                            onChange={setPayDate}
+                            className="w-full"
+                          />
+                        </div>
+
+                        <div className="w-full sm:col-span-2 lg:col-span-4 space-y-1">
+                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
+                            Reference / Note (Optional)
                           </label>
                           <Input
                             type="text"
                             value={payReference}
                             onChange={(e) => setPayReference(e.target.value)}
                             placeholder="Cheque No / Slip No"
-                            className="h-9 text-xs bg-white dark:bg-zinc-900 rounded-lg"
+                            className="h-9 text-xs bg-white dark:bg-zinc-900 rounded-lg w-full"
                           />
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between pt-1">
-                        <div className="text-[10px] text-slate-500">
-                          Remaining Due: <strong className="font-mono">
+                      {/* Responsive Payment Settlement Row */}
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 p-3 rounded-xl bg-slate-100/90 dark:bg-zinc-900/90 border border-slate-200 dark:border-zinc-800">
+                        <div className="text-xs text-slate-600 dark:text-zinc-300 font-medium flex items-center justify-between sm:justify-start gap-2">
+                          <span>Remaining Due:</span>
+                          <strong className="font-mono text-rose-600 dark:text-rose-400 font-bold">
                             Rs. {Math.max(0, bill.dueAmount - (parseFloat(payAmount) || 0)).toFixed(2)}
                           </strong>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 justify-end">
                           <Button
                             type="button"
                             variant="ghost"
-                            size="sm"
                             onClick={() => setPayingOrderId(null)}
-                            className="h-7 text-xs"
+                            className="h-9 text-xs px-3 text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white"
                           >
                             Cancel
                           </Button>
                           <Button
                             type="button"
-                            size="sm"
                             disabled={isSubmitting}
                             onClick={() => handleSettleSubmit(bill)}
-                            className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-1"
+                            className="h-9 text-xs px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold gap-1.5 flex-1 sm:flex-none justify-center shadow-xs"
                           >
-                            {isSubmitting ? <Loader2 className="size-3 animate-spin" /> : <Banknote className="size-3" />}
+                            {isSubmitting ? <Loader2 className="size-3.5 animate-spin" /> : <Banknote className="size-3.5" />}
                             {isSubmitting ? 'Processing...' : 'Confirm Payment'}
                           </Button>
                         </div>
@@ -833,30 +845,30 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                   )}
 
                   {isExpanded && (
-                    <div className="mt-3 pt-3 border-t border-slate-200 dark:border-zinc-800 space-y-3">
+                    <div className="mt-3 pt-3 border-t border-slate-200 dark:border-zinc-800 space-y-3 w-full overflow-hidden">
                       <div>
                         <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">
                           Invoice Items ({bill.items.length})
                         </span>
-                        <div className="rounded-xl border border-slate-200 dark:border-zinc-800 overflow-hidden bg-white dark:bg-zinc-950">
-                          <table className="w-full text-left text-xs">
+                        <div className="w-full overflow-hidden rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
+                          <table className="w-full text-left text-xs table-fixed">
                             <thead className="bg-slate-50 dark:bg-zinc-900 text-slate-500 text-[10px] uppercase font-semibold">
                               <tr>
-                                <th className="p-2">Item</th>
-                                <th className="p-2">Size / Color</th>
-                                <th className="p-2 text-center">Qty</th>
-                                <th className="p-2 text-right">Price</th>
+                                <th className="p-2 w-5/12">Item</th>
+                                <th className="p-2 w-3/12">Size / Color</th>
+                                <th className="p-2 w-2/12 text-center">Qty</th>
+                                <th className="p-2 w-2/12 text-right">Price</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 dark:divide-zinc-800">
                               {bill.items.map((it, idx) => (
                                 <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-zinc-900/50">
-                                  <td className="p-2 font-medium">{it.name}</td>
-                                  <td className="p-2 text-slate-500">
+                                  <td className="p-2 font-medium truncate" title={it.name}>{it.name}</td>
+                                  <td className="p-2 text-slate-500 truncate" title={`${it.size || 'FREE'} ${it.color ? `/ ${it.color}` : ''}`}>
                                     {it.size || 'FREE'} {it.color ? `/ ${it.color}` : ''}
                                   </td>
                                   <td className="p-2 text-center font-mono">{it.quantity}</td>
-                                  <td className="p-2 text-right font-mono font-medium">
+                                  <td className="p-2 text-right font-mono font-medium whitespace-nowrap">
                                     රු. {it.price.toFixed(2)}
                                   </td>
                                 </tr>
@@ -868,67 +880,66 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
 
                       {/* Payment History for this bill */}
                       {bill.paymentHistory.length > 0 && (
-                        <div>
+                        <div className="w-full overflow-hidden">
                           <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">
                             Payment Ledger History ({bill.paymentHistory.length})
                           </span>
-                          <div className="space-y-1">
-                            {bill.paymentHistory.map((ph) => (
-                              <div
-                                key={ph.id}
-                                className="flex items-center justify-between text-[11px] p-2 rounded-lg bg-white dark:bg-zinc-950 border border-slate-100 dark:border-zinc-800 group hover:border-slate-300 dark:hover:border-zinc-700 transition-colors"
-                              >
-                                <div className="flex items-center gap-2 flex-wrap min-w-0">
-                                  <CheckCircle2 className="size-3 text-emerald-500 shrink-0" />
-                                  <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                                    රු. {ph.amount.toFixed(2)}
-                                  </span>
-                                  <span className="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-zinc-800 text-[9px] font-semibold">
-                                    {formatPaymentMethod(ph.method)}
-                                  </span>
-                                  {ph.reference && (
-                                    <span className="text-slate-400 text-[10px] truncate max-w-[140px] sm:max-w-[200px]" title={ph.reference}>
-                                      ({ph.reference})
+                          <div className="space-y-1.5 w-full">
+                            {bill.paymentHistory.map((ph) => {
+                              const d = new Date(ph.createdAt);
+                              const yyyy = d.getFullYear();
+                              const mm = String(d.getMonth() + 1).padStart(2, '0');
+                              const dd = String(d.getDate()).padStart(2, '0');
+                              const formattedDate = `${yyyy}-${mm}-${dd}`;
+                              const formattedTime = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+                              return (
+                                <div
+                                  key={ph.id}
+                                  className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-1.5 text-[11px] p-2 rounded-lg bg-white dark:bg-zinc-950 border border-slate-100 dark:border-zinc-800 group hover:border-slate-300 dark:hover:border-zinc-700 transition-colors w-full overflow-hidden"
+                                >
+                                  <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                    <CheckCircle2 className="size-3 text-emerald-500 shrink-0" />
+                                    <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                                      රු. {ph.amount.toFixed(2)}
                                     </span>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-2 shrink-0">
-                                  <div className="flex items-center gap-1.5 text-slate-500 dark:text-zinc-400 text-[11px] font-mono font-medium">
-                                    <span>
-                                      {(() => {
-                                        const d = new Date(ph.createdAt);
-                                        const yyyy = d.getFullYear();
-                                        const mm = String(d.getMonth() + 1).padStart(2, '0');
-                                        const dd = String(d.getDate()).padStart(2, '0');
-                                        return `${yyyy}-${mm}-${dd}`;
-                                      })()}
+                                    <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 text-[9px] font-semibold whitespace-nowrap">
+                                      {formatPaymentMethod(ph.method)}
                                     </span>
-                                    <span className="text-slate-400 text-[10px] hidden sm:inline">
-                                      {new Date(ph.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}
-                                    </span>
+                                    {ph.reference && (
+                                      <span className="text-slate-400 text-[10px] truncate max-w-[120px] sm:max-w-[180px]" title={ph.reference}>
+                                        ({ph.reference})
+                                      </span>
+                                    )}
                                   </div>
-                                  {/* Action Buttons: Edit & Delete (Void) */}
-                                  <div className="flex items-center gap-1 ml-1 border-l border-slate-200 dark:border-zinc-800 pl-1.5">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleInitiateEditPayment(ph)}
-                                      className="p-1 rounded text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors cursor-pointer"
-                                      title="Edit Payment"
-                                    >
-                                      <Pencil className="size-3" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setDeletingPayment(ph)}
-                                      className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
-                                      title="Void / Delete Payment"
-                                    >
-                                      <Trash2 className="size-3" />
-                                    </button>
+                                  <div className="flex items-center gap-2 shrink-0 ml-auto">
+                                    <div className="flex items-center gap-1 text-slate-500 dark:text-zinc-400 text-[10px] sm:text-[11px] font-mono font-medium whitespace-nowrap">
+                                      <span>{formattedDate}</span>
+                                      <span className="text-slate-400 text-[9px] hidden sm:inline">{formattedTime}</span>
+                                    </div>
+                                    {/* Action Buttons: Edit & Delete (Void) */}
+                                    <div className="flex items-center gap-1 ml-1 border-l border-slate-200 dark:border-zinc-800 pl-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleInitiateEditPayment(ph)}
+                                        className="p-1 rounded text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors cursor-pointer"
+                                        title="Edit Payment"
+                                      >
+                                        <Pencil className="size-3" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setDeletingPayment(ph)}
+                                        className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                                        title="Void / Delete Payment"
+                                      >
+                                        <Trash2 className="size-3" />
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
                       )}

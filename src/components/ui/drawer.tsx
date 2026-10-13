@@ -31,6 +31,8 @@ const DrawerContent = React.forwardRef<
     <DrawerOverlay />
     <DialogPrimitive.Content
       ref={ref}
+      // Prevent focus trap from intercepting focus on portaled inputs/popovers
+      onFocusOutside={(e) => e.preventDefault()}
       className={cn(
         "fixed inset-x-0 bottom-0 z-50 flex max-h-[92vh] flex-col rounded-t-3xl border-t border-slate-200 bg-white shadow-2xl duration-300 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom dark:border-zinc-800 dark:bg-zinc-950 text-slate-900 dark:text-zinc-100",
         className

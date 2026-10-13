@@ -8,6 +8,7 @@ import { Badge } from '../components/ui/badge';
 import { DateRangePicker, type DateRange } from '../components/ui/date-range-picker';
 import { SearchableSelect, type SearchableSelectOption } from '../components/ui/searchable-select';
 import { toast } from 'react-toastify';
+import { FinancialAuditModal, type FinancialMetricFocus } from '../components/reports/FinancialAuditModal';
 import {
   Download,
   Loader2,
@@ -27,6 +28,8 @@ import {
   Printer,
   ChevronLeft,
   ChevronRight,
+  FileText,
+  FileSpreadsheet,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -48,7 +51,8 @@ type ModuleKey =
   | 'materials'
   | 'production'
   | 'suppliers'
-  | 'audit';
+  | 'audit'
+  | 'cheques';
 
 type PresetKey = 'daily' | 'monthly' | 'yearly' | 'custom';
 
@@ -61,6 +65,7 @@ interface TabItem {
 
 const MODULE_TABS: TabItem[] = [
   { key: 'sales', label: 'Sales & Invoices', icon: Receipt, description: 'Revenue, payment splits, discounts, and customer credit accumulation' },
+  { key: 'cheques', label: 'Cheque Ledger & Forecast', icon: FileText, description: 'Received & realized cheques, upcoming maturities, realization alerts, and bounce rates' },
   { key: 'returns', label: 'Returns & Restock', icon: RotateCcw, description: 'Restocked quantities, refund reasons, cash vs credit adjustments' },
   { key: 'inventory', label: 'Inventory & Valuation', icon: Boxes, description: 'Warehouse stock levels, cost vs retail valuation, low-stock warnings' },
   { key: 'products', label: 'Products & SKUs', icon: ShoppingBag, description: 'Fast/slow moving garment SKUs and category sales distribution' },
@@ -85,6 +90,16 @@ export const ReportsPage: React.FC = () => {
   const [downloadingActivePdf, setDownloadingActivePdf] = useState<boolean>(false);
   const [downloadingConsolidatedPdf, setDownloadingConsolidatedPdf] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [activeChequeTab, setActiveChequeTab] = useState<'PENDING' | 'REALIZED' | 'BOUNCED' | 'ALL'>('PENDING');
+
+  // ⭐ Interactive Financial Breakdown Audit Modal State
+  const [auditModalOpen, setAuditModalOpen] = useState<boolean>(false);
+  const [auditFocusMetric, setAuditFocusMetric] = useState<FinancialMetricFocus>('grossRevenue');
+
+  const handleOpenAudit = (metric: FinancialMetricFocus) => {
+    setAuditFocusMetric(metric);
+    setAuditModalOpen(true);
+  };
 
   const visibleTabs = useMemo(() => {
     if (isRep) {
@@ -177,6 +192,7 @@ export const ReportsPage: React.FC = () => {
     return visibleTabs.map((t) => {
       let emoji = '📊';
       if (t.key === 'returns') emoji = '🔄';
+      else if (t.key === 'cheques') emoji = '📑';
       else if (t.key === 'inventory') emoji = '📦';
       else if (t.key === 'products') emoji = '🏷️';
       else if (t.key === 'materials') emoji = '🧵';
@@ -232,7 +248,53 @@ export const ReportsPage: React.FC = () => {
   };
 
   const summary = reportData?.summary || {};
-  const allRows: any[] = reportData?.tableItems || [];
+  const allRows: any[] = useMemo(() => {
+    if (activeModule === 'cheques' && reportData) {
+      if (activeChequeTab === 'PENDING') return reportData.pendingCheques || [];
+      if (activeChequeTab === 'REALIZED') return reportData.realizedCheques || [];
+      if (activeChequeTab === 'BOUNCED') return reportData.bouncedCheques || [];
+      return reportData.tableItems || [];
+    }
+    return reportData?.tableItems || [];
+  }, [reportData, activeModule, activeChequeTab]);
+
+  const handleExportChequesCsv = () => {
+    if (!reportData) return;
+    const items = activeModule === 'cheques'
+      ? (activeChequeTab === 'PENDING'
+          ? (reportData.pendingCheques || [])
+          : activeChequeTab === 'REALIZED'
+          ? (reportData.realizedCheques || [])
+          : activeChequeTab === 'BOUNCED'
+          ? (reportData.bouncedCheques || [])
+          : (reportData.tableItems || []))
+      : (reportData.tableItems || []);
+
+    const headers = ['Cheque Number', 'Bank', 'Maturity Date', 'Invoice', 'Customer', 'Phone', 'Amount (Rs.)', 'Status', 'Maturity Alert'];
+    const rows = items.map((r: any) => [
+      `"${r.chequeNumber || ''}"`,
+      `"${r.bankName || ''}"`,
+      `"${r.chequeDate || ''}"`,
+      `"${r.invoiceNumber || ''}"`,
+      `"${r.customerName || ''}"`,
+      `"${r.customerPhone || ''}"`,
+      r.amount || 0,
+      `"${r.statusLabel || r.status || ''}"`,
+      `"${r.maturityAlert || ''}"`,
+    ]);
+
+    const csvContent = [headers.join(','), ...rows.map((row: any[]) => row.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `cheque-ledger-${activeChequeTab.toLowerCase()}-${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success('Cheque ledger exported to CSV successfully!');
+  };
 
   // Client-side search within table
   const filteredRows = useMemo(() => {
@@ -323,6 +385,14 @@ export const ReportsPage: React.FC = () => {
         name: cashier,
         value: count,
       }));
+    }
+
+    if (activeModule === 'cheques') {
+      return [
+        { name: 'Pending', value: summary.totalPendingAmount || 0, count: summary.pendingCount || 0 },
+        { name: 'Realized', value: summary.totalRealizedAmount || 0, count: summary.realizedCount || 0 },
+        { name: 'Bounced', value: summary.totalBouncedAmount || 0, count: summary.bounceCount || 0 },
+      ];
     }
 
     return [];
@@ -529,23 +599,82 @@ export const ReportsPage: React.FC = () => {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3.5 md:gap-4">
             {activeModule === 'sales' && (
               <>
-                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
-                  <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Gross Revenue</p>
+                {/* 1. GROSS REVENUE KPI CARD */}
+                <div
+                  onClick={() => handleOpenAudit('grossRevenue')}
+                  className={`p-3 sm:p-4 rounded-2xl border cursor-pointer hover:border-emerald-500/50 hover:shadow-md transition-all group/kpi select-none ${
+                    dark
+                      ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
+                      : 'bg-white border-slate-200 shadow-sm hover:bg-emerald-50/20'
+                  }`}
+                  title="Click to view Gross Revenue mathematical formula & audit breakdown"
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Gross Revenue</p>
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
+                      Audit ↗
+                    </span>
+                  </div>
                   <p className="text-lg md:text-xl font-bold mt-1 text-slate-900 dark:text-zinc-100">{formatRs(summary.grossRevenue)}</p>
                   <p className="text-[11px] text-slate-400 mt-1">{summary.orderCount || 0} Orders Recorded</p>
                 </div>
-                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
-                  <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Net Sales</p>
+
+                {/* 2. NET SALES KPI CARD */}
+                <div
+                  onClick={() => handleOpenAudit('netSales')}
+                  className={`p-3 sm:p-4 rounded-2xl border cursor-pointer hover:border-emerald-500/50 hover:shadow-md transition-all group/kpi select-none ${
+                    dark
+                      ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
+                      : 'bg-white border-slate-200 shadow-sm hover:bg-emerald-50/20'
+                  }`}
+                  title="Click to view Net Sales formula & deductions audit"
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Net Sales</p>
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
+                      Audit ↗
+                    </span>
+                  </div>
                   <p className="text-lg md:text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400">{formatRs(summary.netSales)}</p>
                   <p className="text-[11px] text-slate-400 mt-1">Discounts: {formatRs(summary.totalDiscount)}</p>
                 </div>
-                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
-                  <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Collected / Paid</p>
+
+                {/* 3. COLLECTED / PAID KPI CARD */}
+                <div
+                  onClick={() => handleOpenAudit('totalPaid')}
+                  className={`p-3 sm:p-4 rounded-2xl border cursor-pointer hover:border-emerald-500/50 hover:shadow-md transition-all group/kpi select-none ${
+                    dark
+                      ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
+                      : 'bg-white border-slate-200 shadow-sm hover:bg-emerald-50/20'
+                  }`}
+                  title="Click to view Collections, Cash & Cheque liquidity audit"
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Collected / Paid</p>
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
+                      Audit ↗
+                    </span>
+                  </div>
                   <p className="text-lg md:text-xl font-bold mt-1 text-blue-600 dark:text-blue-400">{formatRs(summary.totalPaid)}</p>
                   <p className="text-[11px] text-slate-400 mt-1">Avg Order: {formatRs(summary.averageOrderValue)}</p>
                 </div>
-                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
-                  <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Outstanding Credit Due</p>
+
+                {/* 4. OUTSTANDING CREDIT DUE KPI CARD */}
+                <div
+                  onClick={() => handleOpenAudit('totalDue')}
+                  className={`p-3 sm:p-4 rounded-2xl border cursor-pointer hover:border-emerald-500/50 hover:shadow-md transition-all group/kpi select-none ${
+                    dark
+                      ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
+                      : 'bg-white border-slate-200 shadow-sm hover:bg-rose-50/20'
+                  }`}
+                  title="Click to view Outstanding Customer Credit Debt audit"
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Outstanding Credit Due</p>
+                    <span className="text-[10px] text-rose-600 dark:text-rose-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
+                      Audit ↗
+                    </span>
+                  </div>
                   <p className="text-lg md:text-xl font-bold mt-1 text-rose-600 dark:text-rose-400">{formatRs(summary.totalDue)}</p>
                   <p className="text-[11px] text-rose-500/80 mt-1">Pending Customer Debt</p>
                 </div>
@@ -728,6 +857,31 @@ export const ReportsPage: React.FC = () => {
                 </div>
               </>
             )}
+
+            {activeModule === 'cheques' && (
+              <>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                  <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Pending Receivables</p>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-amber-600 dark:text-amber-400">{formatRs(summary.totalPendingAmount)}</p>
+                  <p className="text-[11px] text-slate-400 mt-1">{summary.pendingCount || 0} Cheques Awaiting Clearance</p>
+                </div>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                  <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Cleared / Realized</p>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400">{formatRs(summary.totalRealizedAmount)}</p>
+                  <p className="text-[11px] text-slate-400 mt-1">{summary.realizedCount || 0} Cleared Inflow Cheques</p>
+                </div>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                  <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Bounced / Returned</p>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-rose-600 dark:text-rose-400">{summary.bounceCount || 0} Cheques</p>
+                  <p className="text-[11px] text-rose-500 mt-1">{formatRs(summary.totalBouncedAmount)} Bounced Value</p>
+                </div>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                  <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Overdue Maturities</p>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-purple-600 dark:text-purple-400">{formatRs(summary.overdueAmount)}</p>
+                  <p className="text-[11px] text-purple-500 mt-1">{summary.overdueCount || 0} Overdue Cheques</p>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Analytical Charts Block */}
@@ -737,6 +891,7 @@ export const ReportsPage: React.FC = () => {
                 <div>
                   <h3 className="text-sm font-bold tracking-tight">
                     {activeModule === 'sales' && 'Payment Method Breakdown (Rs.)'}
+                    {activeModule === 'cheques' && 'Cheque Portfolio Realization Status (Rs.)'}
                     {activeModule === 'returns' && 'Return Reasons Distribution (Refund Rs.)'}
                     {activeModule === 'products' && 'Top Performing SKUs by Revenue (Rs.)'}
                     {activeModule === 'production' && 'Target vs Completed Units per Batch'}
@@ -801,6 +956,103 @@ export const ReportsPage: React.FC = () => {
 
           {/* Interactive Data Preview Table with Stable Explicit Width Allocations & No Text Collapse */}
           <div className={`rounded-2xl border overflow-hidden ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+            {/* Cheque Portfolio Categorized Tabs & Quick CSV Export Bar */}
+            {activeModule === 'cheques' && (
+              <div className="p-3 border-b border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-950/40 flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveChequeTab('PENDING');
+                      setCurrentPage(1);
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                      activeChequeTab === 'PENDING'
+                        ? 'bg-amber-500 text-white shadow-xs'
+                        : 'bg-white dark:bg-zinc-900 text-slate-600 dark:text-zinc-400 border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800'
+                    }`}
+                  >
+                    <span>Upcoming / Pending</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                      activeChequeTab === 'PENDING' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300'
+                    }`}>
+                      {summary.pendingCount || 0}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveChequeTab('REALIZED');
+                      setCurrentPage(1);
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                      activeChequeTab === 'REALIZED'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-white dark:bg-zinc-900 text-slate-600 dark:text-zinc-400 border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800'
+                    }`}
+                  >
+                    <span>Cleared / Realized</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                      activeChequeTab === 'REALIZED' ? 'bg-emerald-700 text-white' : 'bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300'
+                    }`}>
+                      {summary.realizedCount || 0}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveChequeTab('BOUNCED');
+                      setCurrentPage(1);
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                      activeChequeTab === 'BOUNCED'
+                        ? 'bg-rose-600 text-white shadow-xs'
+                        : 'bg-white dark:bg-zinc-900 text-slate-600 dark:text-zinc-400 border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800'
+                    }`}
+                  >
+                    <span>Bounced / Returned</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                      activeChequeTab === 'BOUNCED' ? 'bg-rose-700 text-white' : 'bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300'
+                    }`}>
+                      {summary.bounceCount || 0}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveChequeTab('ALL');
+                      setCurrentPage(1);
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                      activeChequeTab === 'ALL'
+                        ? 'bg-slate-800 dark:bg-zinc-200 text-white dark:text-zinc-900 shadow-xs'
+                        : 'bg-white dark:bg-zinc-900 text-slate-600 dark:text-zinc-400 border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800'
+                    }`}
+                  >
+                    <span>All Cheques</span>
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                      activeChequeTab === 'ALL' ? 'bg-slate-900 dark:bg-zinc-300 text-white dark:text-zinc-900' : 'bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300'
+                    }`}>
+                      {summary.totalChequesCount || 0}
+                    </span>
+                  </button>
+                </div>
+
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleExportChequesCsv}
+                  className="h-8 text-xs gap-1.5 border-amber-500/30 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 cursor-pointer"
+                >
+                  <FileSpreadsheet className="size-3.5 text-amber-600 dark:text-amber-400" />
+                  Export Cheques CSV
+                </Button>
+              </div>
+            )}
+
             {/* Table Search & Meta Header */}
             <div className="p-4 border-b border-slate-200 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-2">
@@ -844,6 +1096,71 @@ export const ReportsPage: React.FC = () => {
                 </div>
               ) : (
                 paginatedRows.map((row, idx) => {
+                  if (activeModule === 'cheques') {
+                    const st = row.statusLabel || row.status || 'PENDING';
+                    return (
+                      <div
+                        key={row.id || `${row.chequeNumber}-${idx}`}
+                        className="p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 shadow-xs space-y-2.5 text-xs select-none"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="font-mono font-bold text-xs text-amber-600 dark:text-amber-400 truncate">
+                              #{row.chequeNumber || 'CHQ-N/A'}
+                            </span>
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] px-1.5 py-0 font-semibold ${
+                                st === 'REALIZED' || st === 'CLEARED'
+                                  ? 'border-emerald-500 text-emerald-600 bg-emerald-500/10'
+                                  : st === 'BOUNCED'
+                                  ? 'border-rose-500 text-rose-600 bg-rose-500/10'
+                                  : 'border-amber-500 text-amber-600 bg-amber-500/10'
+                              }`}
+                            >
+                              {st}
+                            </Badge>
+                            {row.maturityAlert && (
+                              <span
+                                className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                                  row.maturityAlert === 'OVERDUE'
+                                    ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
+                                    : row.maturityAlert === 'DUE_THIS_WEEK'
+                                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                                    : 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+                                }`}
+                              >
+                                {row.maturityAlert === 'OVERDUE' ? 'Overdue' : row.maturityAlert === 'DUE_THIS_WEEK' ? 'Due This Week' : 'Upcoming'}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 text-[11px] text-slate-400 font-mono shrink-0">
+                            <Calendar className="size-3" />
+                            <span>{row.chequeDate || '-'}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <span className="font-bold text-slate-900 dark:text-zinc-100 text-xs sm:text-sm truncate block">
+                              {row.customerName || 'General Customer'}
+                            </span>
+                            <span className="text-[10px] text-slate-400 dark:text-zinc-500 block truncate">
+                              {row.bankName !== '-' ? `${row.bankName} Bank` : 'Cheque'} • Inv {row.invoiceNumber}
+                              {row.customerPhone ? ` • ${row.customerPhone}` : ''}
+                            </span>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="text-[10px] text-slate-400 dark:text-zinc-500 block">Amount</span>
+                            <span className="font-mono font-bold text-slate-900 dark:text-zinc-100 text-sm">
+                              {formatRs(row.amount)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+
                   // Unified card field resolution across all report modules
                   const recordId = row.invoiceNumber || (row.id ? `#${row.id}` : row.batchNumber || row.sku || `REC-${startIndex + idx + 1}`);
                   const recordDate = (row.date || row.createdAt || row.updatedAt || row.orderDate || '')?.split('T')[0] || '-';
@@ -1043,6 +1360,19 @@ export const ReportsPage: React.FC = () => {
                         <th className="py-2.5 px-3 font-semibold min-w-[180px]">Notes</th>
                       </>
                     )}
+
+                    {activeModule === 'cheques' && (
+                      <>
+                        <th className="py-2.5 px-3 font-semibold w-28 min-w-[100px]">Cheque #</th>
+                        <th className="py-2.5 px-3 font-semibold min-w-[140px]">Bank Name</th>
+                        <th className="py-2.5 px-3 font-semibold w-28 min-w-[100px]">Maturity Date</th>
+                        <th className="py-2.5 px-3 font-semibold w-28 min-w-[100px]">Invoice #</th>
+                        <th className="py-2.5 px-3 font-semibold min-w-[160px]">Customer</th>
+                        <th className="py-2.5 px-3 font-semibold text-right w-32 min-w-[110px]">Amount</th>
+                        <th className="py-2.5 px-3 font-semibold text-center w-28 min-w-[90px]">Status</th>
+                        <th className="py-2.5 px-3 font-semibold text-center w-28 min-w-[100px]">Maturity Alert</th>
+                      </>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60">
@@ -1235,6 +1565,61 @@ export const ReportsPage: React.FC = () => {
                               <td className="py-2.5 px-3 text-slate-600 dark:text-zinc-400 break-words whitespace-normal">{row.userNotes}</td>
                             </>
                           )}
+
+                          {activeModule === 'cheques' && (
+                            <>
+                              <td className="py-2.5 px-3 font-mono font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">
+                                #{row.chequeNumber || 'N/A'}
+                              </td>
+                              <td className="py-2.5 px-3 font-medium text-slate-800 dark:text-zinc-200 break-words whitespace-normal">
+                                {row.bankName !== '-' ? row.bankName : '-'}
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-500 font-mono whitespace-nowrap">
+                                {row.chequeDate || '-'}
+                              </td>
+                              <td className="py-2.5 px-3 font-mono font-medium text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                                {row.invoiceNumber || '-'}
+                              </td>
+                              <td className="py-2.5 px-3 break-words whitespace-normal">
+                                <div className="font-medium text-slate-800 dark:text-zinc-200">{row.customerName}</div>
+                                {row.customerPhone && <div className="text-[10px] text-slate-400 font-mono">{row.customerPhone}</div>}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900 dark:text-zinc-100 whitespace-nowrap">
+                                {formatRs(row.amount)}
+                              </td>
+                              <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                <Badge
+                                  variant="outline"
+                                  className={`text-[10px] font-bold uppercase ${
+                                    (row.statusLabel || row.status) === 'REALIZED' || (row.statusLabel || row.status) === 'CLEARED'
+                                      ? 'text-emerald-600 border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/20'
+                                      : (row.statusLabel || row.status) === 'BOUNCED'
+                                      ? 'text-rose-600 border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/20'
+                                      : 'text-amber-600 border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20'
+                                  }`}
+                                >
+                                  {row.statusLabel || row.status || 'PENDING'}
+                                </Badge>
+                              </td>
+                              <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                {row.maturityAlert ? (
+                                  <span
+                                    className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                      row.maturityAlert === 'OVERDUE'
+                                        ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                                        : row.maturityAlert === 'DUE_THIS_WEEK'
+                                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                                        : 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
+                                    }`}
+                                  >
+                                    {row.maturityAlert === 'OVERDUE' ? 'Overdue' : row.maturityAlert === 'DUE_THIS_WEEK' ? 'Due This Week' : 'Upcoming'}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 text-[10px]">-</span>
+                                )}
+                              </td>
+                            </>
+                          )}
                         </tr>
                       );
                     })
@@ -1275,6 +1660,26 @@ export const ReportsPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ⭐ FINANCIAL AUDIT BREAKDOWN MODAL */}
+      <FinancialAuditModal
+        isOpen={auditModalOpen}
+        onClose={() => setAuditModalOpen(false)}
+        activeMetric={auditFocusMetric}
+        data={{
+          grossRevenue: summary.grossRevenue || 0,
+          totalDiscount: summary.totalDiscount || 0,
+          totalReturns: summary.totalReturns || 0,
+          netSales: summary.netSales || 0,
+          totalPaid: summary.totalPaid || 0,
+          totalDue: summary.totalDue || 0,
+          orderCount: summary.orderCount || 0,
+          averageOrderValue: summary.averageOrderValue || 0,
+          paymentSplit: summary.paymentSplit || {},
+          dateLabel: formattedSelectedBadge,
+        }}
+        onSelectMetric={(m) => setAuditFocusMetric(m)}
+      />
     </div>
   );
 };

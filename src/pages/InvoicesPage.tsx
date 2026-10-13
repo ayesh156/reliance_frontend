@@ -11,6 +11,7 @@ import { Badge } from '../components/ui/badge';
 import { SearchableSelect } from '../components/ui/searchable-select';
 import { A4InvoiceModal } from '../components/pos/A4InvoiceModal';
 import { ReturnOrderModal } from '../components/invoices/ReturnOrderModal';
+import { InvoiceDetailModal } from '../components/invoices/InvoiceDetailModal';
 import {
   Dialog,
   DialogContent,
@@ -53,9 +54,11 @@ import {
   MessageCircle,
   Pencil,
   ArrowUpDown,
+  ReceiptText,
 } from 'lucide-react';
 import { DateRangePicker } from '../components/ui/date-range-picker';
 import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../utils/whatsapp';
+import { getInvoiceAgeInfo } from '../utils/invoiceAge';
 
 const PAYMENT_METHOD_OPTIONS = [
   { value: 'ALL', label: 'All Payment Methods' },
@@ -69,6 +72,8 @@ const PAYMENT_METHOD_OPTIONS = [
 const SORT_OPTIONS = [
   { value: 'newest', label: 'Newest First' },
   { value: 'oldest', label: 'Oldest First' },
+  { value: 'most_overdue', label: 'Most Overdue First (Oldest Due)' },
+  { value: 'least_overdue', label: 'Least Overdue First (Recent Due)' },
   { value: 'highest_amount', label: 'Highest Amount' },
   { value: 'lowest_amount', label: 'Lowest Amount' },
   { value: 'highest_due', label: 'Highest Due' },
@@ -97,6 +102,94 @@ interface InvoiceRecord {
   returns?: any[];
   originalTotalAmount?: number;
   userNotes?: string;
+  payments?: any[];
+  cheques?: any[];
+  splitPayments?: any[];
+}
+
+interface InvoiceChequeInfo {
+  chequeNumber: string;
+  bankName: string;
+  chequeDate?: string;
+  amount?: number;
+  status: 'PENDING' | 'CLEARED' | 'BOUNCED' | string;
+  statusLabel: 'PENDING' | 'REALIZED' | 'BOUNCED';
+}
+
+function getInvoiceChequeList(inv: InvoiceRecord): InvoiceChequeInfo[] {
+  const result: InvoiceChequeInfo[] = [];
+
+  // 1. From relational payments array
+  if (Array.isArray(inv.payments)) {
+    inv.payments.forEach((p: any) => {
+      if (String(p.method).toUpperCase() === 'CHEQUE') {
+        let chqNum = '-';
+        let bName = '-';
+        if (p.reference) {
+          const matchNum = /Cheque\s*#?([^\s(]+)/i.exec(p.reference);
+          if (matchNum) chqNum = matchNum[1];
+          else chqNum = p.reference.replace(/\s*\[Edit:.*?\]$/, '').slice(0, 20);
+          const matchBank = /\(([^)]+)\)/.exec(p.reference);
+          if (matchBank) bName = matchBank[1];
+        }
+        const st = p.chequeStatus || 'PENDING';
+        result.push({
+          chequeNumber: chqNum,
+          bankName: bName,
+          chequeDate: p.chequeDate ? String(p.chequeDate).split('T')[0] : (p.createdAt ? String(p.createdAt).split('T')[0] : undefined),
+          amount: p.amount,
+          status: st,
+          statusLabel: st === 'CLEARED' ? 'REALIZED' : (st === 'BOUNCED' ? 'BOUNCED' : 'PENDING'),
+        });
+      }
+    });
+  }
+
+  // 2. From parsed cheques
+  if (result.length === 0 && Array.isArray(inv.cheques)) {
+    inv.cheques.forEach((c: any) => {
+      const st = c.status || 'PENDING';
+      result.push({
+        chequeNumber: c.chequeNumber || '-',
+        bankName: c.bankName || '-',
+        chequeDate: c.chequeDate ? String(c.chequeDate).split('T')[0] : undefined,
+        amount: Number(c.amount) || 0,
+        status: st,
+        statusLabel: (st === 'CLEARED' || st === 'REALIZED') ? 'REALIZED' : (st === 'BOUNCED' ? 'BOUNCED' : 'PENDING'),
+      });
+    });
+  }
+
+  // 3. From splitPayments
+  if (result.length === 0 && Array.isArray(inv.splitPayments)) {
+    inv.splitPayments.forEach((s: any) => {
+      if (String(s.method).toUpperCase() === 'CHEQUE') {
+        const st = s.status || 'PENDING';
+        result.push({
+          chequeNumber: s.chequeNumber || '-',
+          bankName: s.bankName || '-',
+          chequeDate: s.date ? String(s.date).split('T')[0] : undefined,
+          amount: Number(s.amount) || 0,
+          status: st,
+          statusLabel: (st === 'CLEARED' || st === 'REALIZED') ? 'REALIZED' : (st === 'BOUNCED' ? 'BOUNCED' : 'PENDING'),
+        });
+      }
+    });
+  }
+
+  // 4. Fallback if paymentMethod is CHEQUE
+  if (result.length === 0 && String(inv.paymentMethod).toUpperCase() === 'CHEQUE') {
+    result.push({
+      chequeNumber: 'Registered',
+      bankName: '-',
+      chequeDate: inv.createdAt ? String(inv.createdAt).split('T')[0] : undefined,
+      amount: inv.paidAmount,
+      status: 'PENDING',
+      statusLabel: 'PENDING',
+    });
+  }
+
+  return result;
 }
 
 export const InvoicesPage: React.FC = () => {
@@ -172,6 +265,9 @@ export const InvoicesPage: React.FC = () => {
   // ⭐ In-Store Return & Stock Restoration Dialog State
   const [returnInvoice, setReturnInvoice] = useState<InvoiceRecord | null>(null);
   const [returnModalOpen, setReturnModalOpen] = useState(false);
+
+  // ⭐ Invoice Summary & Cheque Lifecycle Management Modal State
+  const [summaryModalInvoice, setSummaryModalInvoice] = useState<InvoiceRecord | null>(null);
 
   const handleOpenReturnModal = (inv: InvoiceRecord) => {
     setReturnInvoice(inv);
@@ -297,7 +393,11 @@ export const InvoicesPage: React.FC = () => {
     setPage(1);
   };
 
-  // Single Unified Fetcher with race-condition protection
+  /**
+   * Single Unified Invoices Fetcher with race-condition protection.
+   * Dispatches intact query strings (e.g. #INV123, INV-123, digits, customer names/phones)
+   * without destructive client-side stripping to let backend order.service.ts normalize regex patterns.
+   */
   const fetchInvoices = async (targetPage = page) => {
     setLoading(true);
     try {
@@ -322,6 +422,14 @@ export const InvoicesPage: React.FC = () => {
           const dueB = Math.max(0, (Number(b.totalAmount) || 0) - (Number(b.paidAmount) || 0));
           return dueB - dueA;
         });
+      } else if (sortBy === 'most_overdue') {
+        list = [...list]
+          .filter((a) => Math.max(0, (Number(a.totalAmount) || 0) - (Number(a.paidAmount) || 0)) > 0)
+          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      } else if (sortBy === 'least_overdue') {
+        list = [...list]
+          .filter((a) => Math.max(0, (Number(a.totalAmount) || 0) - (Number(a.paidAmount) || 0)) > 0)
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       }
       setInvoices(list);
       setTotalPages(res.pagination?.totalPages || 1);
@@ -530,8 +638,10 @@ export const InvoicesPage: React.FC = () => {
         {/* Collapsible Expansion Tray */}
         {mobileFiltersOpen && (
           <div className="pt-2.5 border-t border-slate-100 dark:border-zinc-800/80 space-y-2.5 animate-in fade-in-0 slide-in-from-top-2 duration-150">
-            {/* 1. Customer Filter  */}
-              <div>
+            {/* Responsive 2-column grid inside collapsible filter tray */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
+              {/* 1. Customer Filter  */}
+              <div className="min-w-0">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
                   Customer Account
                 </label>
@@ -555,43 +665,25 @@ export const InvoicesPage: React.FC = () => {
                 />
               </div>
 
-            {/* 2. Unified Highlighted Date Range Picker */}
-            <div>
-              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                Invoice Date Range
-              </label>
-              <DateRangePicker
-                date={{ from: startDate, to: endDate }}
-                onDateChange={(range) => {
-                  setStartDate(range?.from);
-                  setEndDate(range?.to);
-                  if (page !== 1) setPage(1);
-                }}
-                placeholder="Pick date range..."
-                className="h-9 text-xs w-full"
-              />
-            </div>
+              {/* 2. Unified Highlighted Date Range Picker */}
+              <div className="min-w-0">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Invoice Date Range
+                </label>
+                <DateRangePicker
+                  date={{ from: startDate, to: endDate }}
+                  onDateChange={(range) => {
+                    setStartDate(range?.from);
+                    setEndDate(range?.to);
+                    if (page !== 1) setPage(1);
+                  }}
+                  placeholder="Pick date range..."
+                  className="h-9 text-xs w-full"
+                />
+              </div>
 
-            {/* 3. Sort Order Selector & Payment Method Combobox side-by-side in 2-column grid */}
-            <div className="grid grid-cols-2 gap-2 w-full">
-            <div>
-              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                Sort Order
-              </label>
-              <SearchableSelect
-                value={sortBy}
-                onValueChange={(val) => {
-                  setSortBy(val);
-                  if (page !== 1) setPage(1);
-                }}
-                options={SORT_OPTIONS}
-                placeholder="Sort Invoices..."
-                searchPlaceholder="Search sort order..."
-                dark={dark}
-                className="h-9 text-xs"
-              />
-            </div>
-            <div>
+              {/* 3. Payment Method */}
+              <div className="min-w-0">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
                   Payment Method
                 </label>
@@ -604,6 +696,25 @@ export const InvoicesPage: React.FC = () => {
                   options={PAYMENT_METHOD_OPTIONS}
                   placeholder="All Methods"
                   searchPlaceholder="Search method..."
+                  dark={dark}
+                  className="h-9 text-xs"
+                />
+              </div>
+
+              {/* 4. Sort Order */}
+              <div className="min-w-0">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Sort Order
+                </label>
+                <SearchableSelect
+                  value={sortBy}
+                  onValueChange={(val) => {
+                    setSortBy(val);
+                    if (page !== 1) setPage(1);
+                  }}
+                  options={SORT_OPTIONS}
+                  placeholder="Sort Invoices..."
+                  searchPlaceholder="Search sort order..."
                   dark={dark}
                   className="h-9 text-xs"
                 />
@@ -629,10 +740,10 @@ export const InvoicesPage: React.FC = () => {
         )}
       </div>
 
-      {/* ── Desktop View (≥ 1024px): Inline Executive Filter Matrix ── */}
-      <div className="hidden lg:grid lg:grid-cols-12 gap-2.5 bg-white dark:bg-zinc-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 items-center">
-        {/* Search Bar (col-span-3) */}
-        <div className="relative col-span-3">
+      {/* ── Desktop View (≥ 1024px): Inline Executive Filter Matrix with Primary Search Bar ── */}
+      <div className="hidden lg:flex items-center gap-2.5 bg-white dark:bg-zinc-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800">
+        {/* Search Bar (Priority flex-1 min-w-[260px]) */}
+        <div className="relative flex-1 min-w-[260px]">
           <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
           <Input
             value={searchQuery}
@@ -641,12 +752,12 @@ export const InvoicesPage: React.FC = () => {
               if (page !== 1) setPage(1);
             }}
             placeholder="Search invoice #, customer, phone..."
-            className="pl-9 h-9 text-xs"
+            className="pl-9 h-9 text-xs w-full"
           />
         </div>
 
-        {/* Customer Select (col-span-2) */}
-        <div className="col-span-2">
+        {/* Customer Select (w-44 xl:w-48) */}
+        <div className="w-44 xl:w-48 shrink-0">
           <SearchableSelect
             value={selectedCustomerId}
             onValueChange={(val) => {
@@ -666,8 +777,8 @@ export const InvoicesPage: React.FC = () => {
           />
         </div>
 
-        {/* Payment Method Selector (col-span-2) */}
-        <div className="col-span-2">
+        {/* Payment Method Selector (w-36 xl:w-40) */}
+        <div className="w-36 xl:w-40 shrink-0">
           <SearchableSelect
             value={selectedMethod}
             onValueChange={(val) => {
@@ -681,8 +792,8 @@ export const InvoicesPage: React.FC = () => {
           />
         </div>
 
-        {/* Unified Date Range Picker (col-span-3) */}
-        <div className="col-span-3">
+        {/* Unified Date Range Picker (w-44 xl:w-48) */}
+        <div className="w-44 xl:w-48 shrink-0">
           <DateRangePicker
             date={{ from: startDate, to: endDate }}
             onDateChange={(range) => {
@@ -695,8 +806,8 @@ export const InvoicesPage: React.FC = () => {
           />
         </div>
 
-        {/* Sort Selector & Clear All Shortcut (col-span-2) */}
-        <div className="col-span-2 flex items-center gap-1.5">
+        {/* Sort Selector & Clear All Shortcut (w-40 xl:w-44) */}
+        <div className="w-40 xl:w-44 shrink-0 flex items-center gap-1.5">
           <div className="flex-1 min-w-0">
             <SearchableSelect
               value={sortBy}
@@ -741,6 +852,7 @@ export const InvoicesPage: React.FC = () => {
             invoices.map((inv) => {
               const creditDue = Math.max(0, inv.totalAmount - inv.paidAmount);
               const isUnderpaid = creditDue > 0;
+              const ageInfo = getInvoiceAgeInfo(inv.createdAt);
               const subtotalAmt = Number(inv.subtotal ?? (inv.totalAmount + (inv.discount || 0)));
               const discountAmt = Number(inv.discount || 0);
               const customerBal = inv.customer?.outstandingBalance !== undefined
@@ -783,22 +895,28 @@ export const InvoicesPage: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-slate-500 font-mono">
-                        {new Date(inv.createdAt).toISOString().split('T')[0]}
-                      </span>
-                      <Badge
-                        variant="outline"
-                        className={`text-[10px] font-bold uppercase ${
-                          inv.paymentMethod === 'CHEQUE'
-                            ? 'border-amber-500 text-amber-600 bg-amber-500/10'
-                            : inv.paymentMethod === 'CREDIT' || isUnderpaid
-                            ? 'border-rose-500 text-rose-600 bg-rose-500/10'
-                            : 'border-emerald-500 text-emerald-600 bg-emerald-500/10'
-                        }`}
-                      >
-                        {inv.paymentMethod}
-                      </Badge>
+                    <div className="flex flex-col items-end gap-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-slate-500 font-mono">
+                          {new Date(inv.createdAt).toISOString().split('T')[0]}
+                        </span>
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] font-bold uppercase ${
+                            inv.paymentMethod === 'CHEQUE' || getInvoiceChequeList(inv).length > 0
+                              ? 'border-amber-500 text-amber-600 bg-amber-500/10'
+                              : inv.paymentMethod === 'CREDIT' || isUnderpaid
+                              ? 'border-rose-500 text-rose-600 bg-rose-500/10'
+                              : 'border-emerald-500 text-emerald-600 bg-emerald-500/10'
+                          }`}
+                        >
+                          {getInvoiceChequeList(inv).length > 1
+                            ? 'SPLIT'
+                            : (getInvoiceChequeList(inv).length === 1 && inv.paymentMethod !== 'SPLIT'
+                            ? 'CHEQUE'
+                            : inv.paymentMethod)}
+                        </Badge>
+                      </div>
                     </div>
                   </div>
 
@@ -851,9 +969,21 @@ export const InvoicesPage: React.FC = () => {
                     </div>
                     <div>
                       <span className="text-[10px] text-slate-400 block uppercase">Credit Due</span>
-                      <span className={`font-mono font-bold block ${creditDue > 0 ? 'text-rose-600' : 'text-slate-400'}`}>
-                        {creditDue > 0 ? `- Rs. ${creditDue.toLocaleString()}` : 'Rs. 0.00'}
-                      </span>
+                      {creditDue > 0 ? (
+                        <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                          <span className="font-mono font-bold text-rose-600 dark:text-rose-400">
+                            - Rs. {creditDue.toLocaleString()}
+                          </span>
+                          <span
+                            className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-tight ${ageInfo.badgeClassName}`}
+                            title={`Issued ${ageInfo.days} days ago (${new Date(inv.createdAt).toISOString().split('T')[0]})`}
+                          >
+                            {ageInfo.label}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="font-mono font-bold text-slate-400 block">Rs. 0.00</span>
+                      )}
                     </div>
                   </div>
 
@@ -904,6 +1034,15 @@ export const InvoicesPage: React.FC = () => {
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-56 text-xs font-medium">
+                        {/* Dedicated Invoice Summary & Cheques Action */}
+                        <DropdownMenuItem
+                          onClick={() => setSummaryModalInvoice(inv)}
+                          className="gap-2.5 cursor-pointer py-2 text-blue-600 focus:text-blue-700 font-semibold"
+                        >
+                          <ReceiptText className="size-4 text-blue-600" />
+                          <span>Invoice Summary &amp; Cheques</span>
+                        </DropdownMenuItem>
+
                         {/* 1. A4 Print Preview */}
                         <DropdownMenuItem
                           onClick={() => {
@@ -1023,6 +1162,7 @@ export const InvoicesPage: React.FC = () => {
                 invoices.map((inv) => {
                   const creditDue = Math.max(0, inv.totalAmount - inv.paidAmount);
                   const isUnderpaid = creditDue > 0;
+                  const ageInfo = getInvoiceAgeInfo(inv.createdAt);
                   const canDelete = canDeleteInvoice(inv);
 
                   return (
@@ -1077,14 +1217,18 @@ export const InvoicesPage: React.FC = () => {
                         <Badge
                           variant="outline"
                           className={`text-[10px] font-bold uppercase ${
-                            inv.paymentMethod === 'CHEQUE'
+                            inv.paymentMethod === 'CHEQUE' || getInvoiceChequeList(inv).length > 0
                               ? 'border-amber-500 text-amber-600 bg-amber-500/10'
                               : inv.paymentMethod === 'CREDIT' || isUnderpaid
                               ? 'border-rose-500 text-rose-600 bg-rose-500/10'
                               : 'border-emerald-500 text-emerald-600 bg-emerald-500/10'
                           }`}
                         >
-                          {inv.paymentMethod}
+                          {getInvoiceChequeList(inv).length > 1
+                            ? 'SPLIT'
+                            : (getInvoiceChequeList(inv).length === 1 && inv.paymentMethod !== 'SPLIT'
+                            ? 'CHEQUE'
+                            : inv.paymentMethod)}
                         </Badge>
                       </td>
                       <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 dark:text-white">
@@ -1093,11 +1237,21 @@ export const InvoicesPage: React.FC = () => {
                       <td className="py-3 px-4 text-right font-mono font-semibold text-emerald-600">
                         Rs. {Number(inv.paidAmount).toLocaleString()}
                       </td>
-                      <td className="py-3 px-4 text-right font-mono font-bold">
+                      <td className="py-3 px-4 text-right font-mono">
                         {creditDue > 0 ? (
-                          <span className="text-rose-600">- Rs. {creditDue.toLocaleString()}</span>
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span className="font-bold text-rose-600 dark:text-rose-400">
+                              - Rs. {creditDue.toLocaleString()}
+                            </span>
+                            <span
+                              className={`inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold tracking-tight ${ageInfo.badgeClassName}`}
+                              title={`Issued ${ageInfo.days} days ago on ${new Date(inv.createdAt).toISOString().split('T')[0]}`}
+                            >
+                              {ageInfo.label}
+                            </span>
+                          </div>
                         ) : (
-                          <span className="text-slate-400">Rs. 0.00</span>
+                          <span className="text-slate-400 dark:text-zinc-500 font-bold">Rs. 0.00</span>
                         )}
                       </td>
                       <td className="py-3 px-4 text-center">
@@ -1109,7 +1263,16 @@ export const InvoicesPage: React.FC = () => {
                                 <MoreVertical className="size-4" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-48 text-xs font-medium">
+                            <DropdownMenuContent align="end" className="w-52 text-xs font-medium">
+                              {/* Dedicated Invoice Summary & Cheques Action */}
+                              <DropdownMenuItem
+                                onClick={() => setSummaryModalInvoice(inv)}
+                                className="gap-2 cursor-pointer text-blue-600 focus:text-blue-700 font-semibold"
+                              >
+                                <ReceiptText className="size-3.5 text-blue-600" />
+                                Invoice Summary &amp; Cheques
+                              </DropdownMenuItem>
+
                               <DropdownMenuItem
                                 onClick={() => {
                                   setPrintInvoice(inv);
@@ -1463,6 +1626,29 @@ export const InvoicesPage: React.FC = () => {
         onReturnSuccess={() => {
           fetchInvoices(page);
         }}
+      />
+
+      {/* ⭐ COMPREHENSIVE INVOICE DETAILS & CHEQUE MANAGEMENT MODAL */}
+      <InvoiceDetailModal
+        isOpen={!!summaryModalInvoice}
+        onClose={() => setSummaryModalInvoice(null)}
+        invoice={summaryModalInvoice}
+        onInvoiceUpdated={() => {
+          fetchInvoices(page);
+          if (summaryModalInvoice) {
+            get<any>(`/orders/invoices/${summaryModalInvoice.id}`)
+              .then((res) => {
+                if (res) setSummaryModalInvoice(res);
+              })
+              .catch(() => {});
+          }
+        }}
+        onPrintPreview={(inv) => {
+          setPrintInvoice(inv);
+          setPrintModalOpen(true);
+        }}
+        onDownloadPdf={handleDownloadPdf}
+        onWhatsApp={handleInitiateWhatsApp}
       />
     </div>
   );

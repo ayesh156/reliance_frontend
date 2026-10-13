@@ -167,12 +167,16 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
   const remainingDue = Math.max(0, totalBill - totalTendered);
   const excessTendered = Math.max(0, totalTendered - totalBill);
 
+  const enteredAmount = parseFloat(entryAmount) || 0;
+  const currentMethodOption = METHOD_OPTIONS.find((m) => m.value === entryMethod);
+  const currentMethod = currentMethodOption?.label || entryMethod;
+
   // When splits change and entryAmount was empty or auto, update suggested amount if balance remains
   const handleFillEntryRemaining = () => {
     setEntryAmount(remainingDue > 0 ? String(remainingDue) : '0');
   };
 
-  const handleAddPaymentEntry = (e?: React.FormEvent) => {
+  const handleAddSplitEntry = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const num = parseFloat(entryAmount);
     if (isNaN(num) || num <= 0) {
@@ -204,6 +208,8 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
     setEntryReference('');
     toast.success(`Payment of Rs. ${num.toLocaleString()} added`);
   };
+
+  const handleAddPaymentEntry = handleAddSplitEntry;
 
   const handleRemoveSplit = (id: string) => {
     setSplits((prev) => prev.filter((s) => s.id !== id));
@@ -282,7 +288,7 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg w-full max-h-[90vh] overflow-y-auto px-4 py-3 p-0 border border-slate-200 dark:border-zinc-800 shadow-2xl rounded-2xl bg-white dark:bg-zinc-950 flex flex-col">
+      <DialogContent className="max-w-lg w-full max-h-[90vh] overflow-hidden p-0 border border-slate-200 dark:border-zinc-800 shadow-2xl rounded-2xl bg-white dark:bg-zinc-950 flex flex-col">
         {/* Header Bar */}
         <div className="p-4 pb-3 border-b border-slate-100 dark:border-zinc-800/80 bg-slate-50/50 dark:bg-zinc-900/40">
           <DialogHeader className="gap-1">
@@ -353,10 +359,10 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <div className="p-4 space-y-3.5 max-h-[60vh] overflow-y-auto">
+        <div className="max-h-[85vh] overflow-y-auto px-4 py-3 space-y-3">
           {/* Section 1: Dedicated Add Payment Entry Form */}
           <form
-            onSubmit={handleAddPaymentEntry}
+            onSubmit={handleAddSplitEntry}
             className="p-3 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-900/60 space-y-2.5"
           >
             <div className="flex items-center justify-between">
@@ -407,7 +413,7 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
-                        handleAddPaymentEntry(e);
+                        handleAddSplitEntry(e);
                       }
                     }}
                     onFocus={(e) => e.target.select()}
@@ -419,103 +425,119 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
               </div>
             </div>
 
-            {/* Row 2: Date & Time and Add Entry Button in a responsive stacked layout */}
-            <div className="flex flex-col sm:flex-row items-end gap-2 w-full">
-              <div className="w-full sm:flex-1 space-y-1">
+            {/* Row 2: Date & Time */}
+            <div className="flex flex-col sm:flex-row gap-2 w-full mb-2.5">
+              <div className="w-full space-y-1">
                 <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Date & Time *</label>
                 <DateTimePicker
                   value={entryDate}
                   onChange={setEntryDate}
-                  className="h-9 w-full"
+                  className="w-full"
                 />
-              </div>
-
-              <div className="w-full sm:w-auto shrink-0">
-                <Button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    handleAddPaymentEntry(e);
-                  }}
-                  disabled={!entryAmount || parseFloat(entryAmount) <= 0}
-                  title="Add Payment Entry"
-                  className="w-full sm:w-auto h-9 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white flex items-center justify-center gap-1.5 shadow-sm cursor-pointer font-semibold text-xs disabled:opacity-50 select-none"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>+ Add Entry</span>
-                </Button>
               </div>
             </div>
 
             {/* Contextual Extra Fields based on Method */}
             {entryMethod === 'CHEQUE' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-amber-200/40 dark:border-amber-900/40 animate-in fade-in duration-100">
-                <Input
-                  type="text"
-                  value={entryChequeNumber}
-                  onChange={(e) => setEntryChequeNumber(e.target.value)}
-                  placeholder="Cheque No (e.g. CHQ-994821) *"
-                  className="h-8 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl border-amber-200 dark:border-amber-800/60"
-                />
-                <Input
-                  type="text"
-                  value={entryBankName}
-                  onChange={(e) => setEntryBankName(e.target.value)}
-                  placeholder="Bank / Branch (e.g. Commercial Bank - Colombo)"
-                  className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl border-amber-200 dark:border-amber-800/60"
-                />
+              <div className="w-full pt-1 border-t border-amber-200/40 dark:border-amber-900/40 animate-in fade-in duration-100">
+                <div className="w-full mb-2.5 space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Cheque Number *</label>
+                  <Input
+                    type="text"
+                    value={entryChequeNumber}
+                    onChange={(e) => setEntryChequeNumber(e.target.value)}
+                    placeholder="Cheque No (e.g. CHQ-994821) *"
+                    className="h-8.5 sm:h-9 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl border-amber-200 dark:border-amber-800/60 w-full"
+                  />
+                </div>
+                <div className="w-full mb-2.5 space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Bank / Branch Name</label>
+                  <Input
+                    type="text"
+                    value={entryBankName}
+                    onChange={(e) => setEntryBankName(e.target.value)}
+                    placeholder="Bank / Branch (e.g. Commercial Bank - Colombo)"
+                    className="h-8.5 sm:h-9 text-xs bg-white dark:bg-zinc-900 rounded-xl border-amber-200 dark:border-amber-800/60 w-full"
+                  />
+                </div>
               </div>
             )}
 
             {entryMethod === 'BANK_TRANSFER' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-blue-200/40 dark:border-blue-900/40 animate-in fade-in duration-100">
-                <Input
-                  type="text"
-                  value={entryBankName}
-                  onChange={(e) => setEntryBankName(e.target.value)}
-                  placeholder="Bank Name (e.g. Sampath Bank / HNB)"
-                  className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl border-blue-200 dark:border-blue-800/60"
-                />
-                <Input
-                  type="text"
-                  value={entryReference}
-                  onChange={(e) => setEntryReference(e.target.value)}
-                  placeholder="Transfer Ref / Slip No / Narration"
-                  className="h-8 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl border-blue-200 dark:border-blue-800/60"
-                />
+              <div className="w-full pt-1 border-t border-blue-200/40 dark:border-blue-900/40 animate-in fade-in duration-100">
+                <div className="w-full mb-2.5 space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Bank Name</label>
+                  <Input
+                    type="text"
+                    value={entryBankName}
+                    onChange={(e) => setEntryBankName(e.target.value)}
+                    placeholder="Bank Name (e.g. Sampath Bank / HNB)"
+                    className="h-8.5 sm:h-9 text-xs bg-white dark:bg-zinc-900 rounded-xl border-blue-200 dark:border-blue-800/60 w-full"
+                  />
+                </div>
+                <div className="w-full mb-2.5 space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Transfer Ref / Slip No</label>
+                  <Input
+                    type="text"
+                    value={entryReference}
+                    onChange={(e) => setEntryReference(e.target.value)}
+                    placeholder="Transfer Ref / Slip No / Narration"
+                    className="h-8.5 sm:h-9 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl border-blue-200 dark:border-blue-800/60 w-full"
+                  />
+                </div>
               </div>
             )}
 
             {entryMethod === 'CARD' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-purple-200/40 dark:border-purple-900/40 animate-in fade-in duration-100">
-                <Input
-                  type="text"
-                  value={entryReference}
-                  onChange={(e) => setEntryReference(e.target.value)}
-                  placeholder="Card Approval Code / POS Ref No"
-                  className="h-8 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl border-purple-200 dark:border-purple-800/60"
-                />
-                <Input
-                  type="text"
-                  value={entryBankName}
-                  onChange={(e) => setEntryBankName(e.target.value)}
-                  placeholder="Card Type / Bank (e.g. Visa / Master)"
-                  className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl border-purple-200 dark:border-purple-800/60"
-                />
+              <div className="w-full pt-1 border-t border-purple-200/40 dark:border-purple-900/40 animate-in fade-in duration-100">
+                <div className="w-full mb-2.5 space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Approval Code / POS Ref</label>
+                  <Input
+                    type="text"
+                    value={entryReference}
+                    onChange={(e) => setEntryReference(e.target.value)}
+                    placeholder="Card Approval Code / POS Ref No"
+                    className="h-8.5 sm:h-9 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl border-purple-200 dark:border-purple-800/60 w-full"
+                  />
+                </div>
+                <div className="w-full mb-2.5 space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Card Type / Bank</label>
+                  <Input
+                    type="text"
+                    value={entryBankName}
+                    onChange={(e) => setEntryBankName(e.target.value)}
+                    placeholder="Card Type / Bank (e.g. Visa / Master)"
+                    className="h-8.5 sm:h-9 text-xs bg-white dark:bg-zinc-900 rounded-xl border-purple-200 dark:border-purple-800/60 w-full"
+                  />
+                </div>
               </div>
             )}
 
             {entryMethod === 'CASH' && (
-              <div className="pt-0.5">
-                <Input
-                  type="text"
-                  value={entryReference}
-                  onChange={(e) => setEntryReference(e.target.value)}
-                  placeholder="Optional reference / drawer note..."
-                  className="h-7 text-[11px] bg-white dark:bg-zinc-900 rounded-xl border-slate-200 dark:border-zinc-800"
-                />
+              <div className="w-full pt-0.5">
+                <div className="w-full mb-2.5 space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Drawer Note / Ref (Optional)</label>
+                  <Input
+                    type="text"
+                    value={entryReference}
+                    onChange={(e) => setEntryReference(e.target.value)}
+                    placeholder="Optional reference / drawer note..."
+                    className="h-8.5 sm:h-9 text-xs bg-white dark:bg-zinc-900 rounded-xl border-slate-200 dark:border-zinc-800 w-full"
+                  />
+                </div>
               </div>
             )}
+
+            {/* Dedicated Full-Width "+ Add to Split List" Action Button */}
+            <button
+              type="button"
+              onClick={handleAddSplitEntry}
+              disabled={!enteredAmount || enteredAmount <= 0}
+              className="w-full flex items-center justify-center gap-2 h-8 sm:h-9 py-1.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-semibold text-xs shadow-sm transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed select-none"
+            >
+              <Plus className="size-3.5 sm:size-4" />
+              Add to Split List ({currentMethod} - Rs. {enteredAmount.toLocaleString()})
+            </button>
           </form>
 
           {/* Section 2: Applied Payment Rows List (Rendered as single-line ledger rows with Edit & Delete) */}
@@ -540,7 +562,7 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
                 <Layers className="size-8 text-slate-300 dark:text-zinc-600 mx-auto mb-1.5" />
                 <p className="text-xs font-semibold text-slate-600 dark:text-zinc-400">No split payments added yet</p>
                 <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-0.5">
-                  Enter payment details above and click '+ Add' to record payments.
+                  Enter payment details above and click '+ Add to Split List' to record payments.
                 </p>
               </div>
             ) : (
@@ -627,8 +649,8 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
         </div>
 
         {/* Modal Footer */}
-        <DialogFooter className="p-4 border-t border-slate-100 dark:border-zinc-800/80 bg-slate-50/50 dark:bg-zinc-900/40 flex items-center justify-between sm:justify-between">
-          <div className="text-xs text-slate-500">
+        <DialogFooter className="p-3 sm:p-4 border-t border-slate-100 dark:border-zinc-800/80 bg-slate-50/50 dark:bg-zinc-900/40 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-2">
+          <div className="text-xs text-slate-500 text-center sm:text-left truncate">
             {remainingDue > 0 ? (
               <span className="text-amber-600 font-semibold">
                 Unallocated Due: Rs. {remainingDue.toLocaleString()}
@@ -640,13 +662,13 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-end gap-2 pt-2 sm:pt-0 space-y-1.5 sm:space-y-0">
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={() => onOpenChange(false)}
-              className="h-8 text-xs font-semibold rounded-xl"
+              className="h-8 text-xs font-semibold rounded-xl flex-1 sm:flex-initial"
             >
               Cancel
             </Button>
@@ -654,7 +676,8 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
               type="button"
               size="sm"
               onClick={handleApply}
-              className="h-8 text-xs font-bold px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl shadow-sm cursor-pointer"
+              disabled={splits.length === 0 && totalBill > 0}
+              className="h-8 text-xs font-bold px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex-1 sm:flex-initial"
             >
               Apply &amp; Save ({splits.length} splits)
             </Button>
