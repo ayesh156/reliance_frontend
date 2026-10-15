@@ -13,6 +13,7 @@ import { Input } from '../ui/input';
 import { DatePicker } from '../ui/date-picker';
 import { toast } from 'react-toastify';
 import { put, post } from '../../lib/api';
+import { ErrorBoundary } from '../common/ErrorBoundary';
 import {
   ReceiptText,
   Calendar,
@@ -84,7 +85,7 @@ interface InvoiceDetailModalProps {
   onWhatsApp?: (inv: InvoiceDetailData) => void;
 }
 
-export const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({
+const InvoiceDetailModalContent: React.FC<InvoiceDetailModalProps & { invoice: InvoiceDetailData }> = ({
   isOpen,
   onClose,
   invoice,
@@ -864,5 +865,22 @@ export const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = ({
         </Dialog>
       )}
     </>
+  );
+};
+
+/**
+ * Robust Enterprise InvoiceDetailModal Export
+ * Guarantees that hooks are never invoked with a null invoice and wraps the modal
+ * in an ErrorBoundary to prevent any rendering or hook exceptions from crashing the application.
+ */
+export const InvoiceDetailModal: React.FC<InvoiceDetailModalProps> = (props) => {
+  if (!props.isOpen || !props.invoice) {
+    return null;
+  }
+
+  return (
+    <ErrorBoundary resetKey={props.invoice?.id}>
+      <InvoiceDetailModalContent {...props} invoice={props.invoice} />
+    </ErrorBoundary>
   );
 };

@@ -56,6 +56,7 @@ import {
   ChevronRight,
   Shirt,
   Scissors,
+  SlidersHorizontal,
 } from 'lucide-react';
 
 interface ProductImageItem {
@@ -139,6 +140,23 @@ interface ProductionSummaryResponse {
   records: ProductionOrder[];
 }
 
+/** Production Batch Status Filter Options */
+const BATCH_STATUS_OPTIONS: SearchableSelectOption[] = [
+  { value: 'ALL', label: 'All Statuses' },
+  { value: 'COMPLETED', label: 'Completed' },
+  { value: 'IN_PROGRESS', label: 'In Progress' },
+  { value: 'PENDING', label: 'Pending' },
+  { value: 'CANCELLED', label: 'Cancelled' },
+];
+
+/** Production Sort Order Options */
+const PRODUCTION_SORT_OPTIONS: SearchableSelectOption[] = [
+  { value: 'newest', label: 'Newest First' },
+  { value: 'oldest', label: 'Oldest First' },
+  { value: 'highest_output', label: 'Highest Output' },
+  { value: 'most_material', label: 'Most Material Consumed' },
+];
+
 export const ProductionListPage: React.FC = () => {
   const navigate = useNavigate();
   const { resolvedTheme } = useTheme();
@@ -153,9 +171,12 @@ export const ProductionListPage: React.FC = () => {
     return { from: startOfMonth, to: endOfMonth };
   });
 
-  // Search & Product Filters
+  // Search & Context-Specific Filter States
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProductFilter, setSelectedProductFilter] = useState<string>('all');
+  const [batchStatus, setBatchStatus] = useState<string>('ALL');
+  const [sortBy, setSortBy] = useState<string>('newest');
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -259,12 +280,33 @@ export const ProductionListPage: React.FC = () => {
   const handleResetFilters = () => {
     setSearchQuery('');
     setSelectedProductFilter('all');
+    setBatchStatus('ALL');
+    setSortBy('newest');
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const endOfMonth = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     setDateRange({ from: startOfMonth, to: endOfMonth });
     setCurrentPage(1);
   };
+
+  // Count active non-default secondary filters for the mobile badge
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (selectedProductFilter !== 'all') count++;
+    if (batchStatus !== 'ALL') count++;
+    if (dateRange?.from || dateRange?.to) count++;
+    if (sortBy !== 'newest') count++;
+    return count;
+  }, [selectedProductFilter, batchStatus, dateRange, sortBy]);
+
+  // Overall active filter presence indicator for the clear button
+  const hasActiveFilters = Boolean(
+    searchQuery.trim() ||
+    selectedProductFilter !== 'all' ||
+    batchStatus !== 'ALL' ||
+    dateRange !== undefined ||
+    sortBy !== 'newest'
+  );
 
   // Product Combobox Options
   const productFilterOptions: SearchableSelectOption[] = useMemo(() => [
@@ -275,22 +317,63 @@ export const ProductionListPage: React.FC = () => {
     })),
   ], [productsList]);
 
-  // Client-side search filtering on records
+  // Client-side search and status filtering and sorting on records
   const filteredRecords = useMemo(() => {
     if (!summaryData?.records) return [];
-    if (!searchQuery.trim()) return summaryData.records;
 
-    const q = searchQuery.toLowerCase();
-    return summaryData.records.filter(
-      (r) =>
-        r.productionNo.toLowerCase().includes(q) ||
-        r.product.name.toLowerCase().includes(q) ||
-        (r.reason && r.reason.toLowerCase().includes(q)) ||
-        (r.variant?.sku && r.variant.sku.toLowerCase().includes(q)) ||
-        (r.variant?.size && r.variant.size.toLowerCase().includes(q)) ||
-        (r.variant?.color && r.variant.color.toLowerCase().includes(q))
-    );
-  }, [summaryData, searchQuery]);
+    let list = summaryData.records;
+
+    // Search query filter (batch #, product, reason, SKU, variant size/color)
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(
+        (r) =>
+          r.productionNo.toLowerCase().includes(q) ||
+          r.product.name.toLowerCase().includes(q) ||
+          (r.reason && r.reason.toLowerCase().includes(q)) ||
+          (r.variant?.sku && r.variant.sku.toLowerCase().includes(q)) ||
+          (r.variant?.size && r.variant.size.toLowerCase().includes(q)) ||
+          (r.variant?.color && r.variant.color.toLowerCase().includes(q))
+      );
+    }
+
+    // Batch status filter
+    if (batchStatus !== 'ALL') {
+      list = list.filter((r) => r.status?.toUpperCase() === batchStatus);
+    }
+
+    // Sort order
+    const sorted = [...list];
+    switch (sortBy) {
+      case 'oldest':
+        sorted.sort((a, b) => {
+          const dateA = new Date(a.productionDate || a.createdAt).getTime();
+          const dateB = new Date(b.productionDate || b.createdAt).getTime();
+          return dateA - dateB || a.id - b.id;
+        });
+        break;
+      case 'highest_output':
+        sorted.sort((a, b) => (b.completedQty || 0) - (a.completedQty || 0) || b.id - a.id);
+        break;
+      case 'most_material':
+        sorted.sort((a, b) => {
+          const matA = (a.materialUsages || []).reduce((acc, u) => acc + (u.netConsumedQty || 0), 0);
+          const matB = (b.materialUsages || []).reduce((acc, u) => acc + (u.netConsumedQty || 0), 0);
+          return matB - matA || b.id - a.id;
+        });
+        break;
+      case 'newest':
+      default:
+        sorted.sort((a, b) => {
+          const dateA = new Date(a.productionDate || a.createdAt).getTime();
+          const dateB = new Date(b.productionDate || b.createdAt).getTime();
+          return dateB - dateA || b.id - a.id;
+        });
+        break;
+    }
+
+    return sorted;
+  }, [summaryData, searchQuery, batchStatus, sortBy]);
 
   // Product-wise live output breakdown summary for widget & modal
   const productWiseBreakdown = useMemo(() => {
@@ -586,41 +669,67 @@ export const ProductionListPage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Responsive Filter & Search Toolbar (Streamlined without redundant tabs) ── */}
-      <div className="p-4 rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800">
-        <div className="flex flex-col md:flex-row items-center gap-3">
-          {/* Search Input: flex-1 w-full occupies all remaining horizontal space */}
-          <div className="relative flex-1 w-full flex items-center">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border bg-slate-50 dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 w-full focus-within:border-slate-400 dark:focus-within:border-zinc-600 transition-colors">
-              <Search className="size-4 text-zinc-400 shrink-0" />
-              <input
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
+      {/* ── Standardized Filter Bar Architecture ── */}
+
+      {/* 1. Mobile & Tablet Collapsible Filter Bar (< 1024px) */}
+      <div className="block lg:hidden rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 p-3 shadow-xs space-y-3">
+        {/* Top Row: Search Input + Filter Toggle Button */}
+        <div className="flex items-center gap-2">
+          <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border bg-slate-50 dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 focus-within:border-indigo-500 dark:focus-within:border-indigo-500 transition-colors">
+            <Search className="size-4 text-slate-400 shrink-0" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder="Search batch #, product, SKU..."
+              className="bg-transparent outline-none w-full text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
                   setCurrentPage(1);
                 }}
-                placeholder="Search by batch #, product, SKU, variant, reason..."
-                className="bg-transparent outline-none w-full text-xs text-slate-900 dark:text-zinc-100 placeholder:text-zinc-500"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchQuery('');
-                    setCurrentPage(1);
-                  }}
-                  className="p-1 rounded-full hover:bg-slate-200 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
-                >
-                  <X className="size-3.5" />
-                </button>
-              )}
-            </div>
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 transition-colors"
+                title="Clear search"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
           </div>
 
-          {/* Unified Date Range Picker & Searchable Product Combobox */}
-          <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
-            {/* Shadcn Date Range Picker */}
-            <div className="w-full sm:w-64">
+          {/* Collapsible Tray Toggle Button with Badge */}
+          <button
+            type="button"
+            onClick={() => setMobileFiltersOpen((prev) => !prev)}
+            className={`relative flex items-center gap-2 px-3.5 py-2 rounded-xl border text-xs font-semibold transition-all shrink-0 cursor-pointer ${
+              mobileFiltersOpen || activeFilterCount > 0
+                ? 'bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-950/50 dark:border-indigo-800 dark:text-indigo-300'
+                : 'bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800'
+            }`}
+          >
+            <SlidersHorizontal className="size-4" />
+            <span>Filters</span>
+            {activeFilterCount > 0 && (
+              <span className="flex items-center justify-center size-5 rounded-full bg-indigo-600 text-[10px] font-bold text-white shadow-xs">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Collapsible Filters Drawer */}
+        {mobileFiltersOpen && (
+          <div className="pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-2.5 animate-in fade-in-50 duration-150">
+            {/* Date Range Picker */}
+            <div className="w-full">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 block">
+                Production Date Range
+              </label>
               <DateRangePicker
                 date={dateRange}
                 onDateChange={handleDateRangeChange}
@@ -628,8 +737,11 @@ export const ProductionListPage: React.FC = () => {
               />
             </div>
 
-            {/* Searchable Product Combobox */}
-            <div className="w-full sm:w-56">
+            {/* Product Combobox */}
+            <div className="w-full">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 block">
+                Product
+              </label>
               <SearchableSelect
                 options={productFilterOptions}
                 value={selectedProductFilter}
@@ -643,20 +755,152 @@ export const ProductionListPage: React.FC = () => {
               />
             </div>
 
-            {/* Reset Filters Button */}
-            {(searchQuery || selectedProductFilter !== 'all' || dateRange !== undefined) && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleResetFilters}
-                className="h-9 px-2.5 text-xs text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 shrink-0 cursor-pointer"
-                title="Reset all filters"
-              >
-                <X className="size-3.5 mr-1" /> Reset
-              </Button>
+            {/* Batch Status */}
+            <div className="w-full">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 block">
+                Batch Status
+              </label>
+              <SearchableSelect
+                options={BATCH_STATUS_OPTIONS}
+                value={batchStatus}
+                onValueChange={(val) => {
+                  setBatchStatus(val);
+                  setCurrentPage(1);
+                }}
+                placeholder="All Statuses"
+                searchPlaceholder="Filter status..."
+                dark={dark}
+              />
+            </div>
+
+            {/* Sort Order */}
+            <div className="w-full">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 block">
+                Sort Order
+              </label>
+              <SearchableSelect
+                options={PRODUCTION_SORT_OPTIONS}
+                value={sortBy}
+                onValueChange={(val) => {
+                  setSortBy(val);
+                  setCurrentPage(1);
+                }}
+                placeholder="Sort batches..."
+                dark={dark}
+              />
+            </div>
+
+            {/* Clear All Filters Action */}
+            {hasActiveFilters && (
+              <div className="pt-1 flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleResetFilters}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors"
+                >
+                  <X className="size-3.5" />
+                  <span>Clear All Filters</span>
+                </button>
+              </div>
             )}
           </div>
+        )}
+      </div>
+
+      {/* 2. Desktop Inline Executive Filter Bar (>= 1024px) */}
+      <div className="hidden lg:flex items-center gap-2.5 p-3 rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs">
+        {/* Search Input (flex-1 expands) */}
+        <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border bg-slate-50 dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 focus-within:border-indigo-500 dark:focus-within:border-indigo-500 transition-colors">
+          <Search className="size-4 text-slate-400 shrink-0" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setCurrentPage(1);
+            }}
+            placeholder="Search by batch #, product, SKU, variant..."
+            className="bg-transparent outline-none w-full text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery('');
+                setCurrentPage(1);
+              }}
+              className="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 transition-colors"
+              title="Clear search"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
         </div>
+
+        {/* Date Range Picker */}
+        <div className="w-56 shrink-0">
+          <DateRangePicker
+            date={dateRange}
+            onDateChange={handleDateRangeChange}
+            placeholder="Production date..."
+          />
+        </div>
+
+        {/* Product Combobox */}
+        <div className="w-48 shrink-0">
+          <SearchableSelect
+            options={productFilterOptions}
+            value={selectedProductFilter}
+            onValueChange={(val) => {
+              setSelectedProductFilter(val);
+              setCurrentPage(1);
+            }}
+            placeholder="All Products"
+            searchPlaceholder="Search product..."
+            dark={dark}
+          />
+        </div>
+
+        {/* Batch Status */}
+        <div className="w-40 shrink-0">
+          <SearchableSelect
+            options={BATCH_STATUS_OPTIONS}
+            value={batchStatus}
+            onValueChange={(val) => {
+              setBatchStatus(val);
+              setCurrentPage(1);
+            }}
+            placeholder="All Statuses"
+            searchPlaceholder="Filter status..."
+            dark={dark}
+          />
+        </div>
+
+        {/* Sort Order */}
+        <div className="w-48 shrink-0">
+          <SearchableSelect
+            options={PRODUCTION_SORT_OPTIONS}
+            value={sortBy}
+            onValueChange={(val) => {
+              setSortBy(val);
+              setCurrentPage(1);
+            }}
+            placeholder="Sort by..."
+            dark={dark}
+          />
+        </div>
+
+        {/* Clear All Filters Button */}
+        {hasActiveFilters && (
+          <button
+            type="button"
+            onClick={handleResetFilters}
+            className="flex items-center justify-center p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors shrink-0 cursor-pointer"
+            title="Clear All Filters"
+          >
+            <X className="size-4" />
+          </button>
+        )}
       </div>
 
       {/* ── Production Ledger Table ── */}

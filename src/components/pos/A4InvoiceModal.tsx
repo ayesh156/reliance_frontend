@@ -460,33 +460,33 @@ export const generatePrintableInvoiceHtml = (order: any): string => {
             font-weight: 900;
           }
 
-          /* ⭐ Signatures: Generous 60px gap from totals, protected from sheet tears */
+          /* ⭐ Signatures: Generous vertical gap from totals and above signatures */
           .signatures {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
             gap: 18px;
             margin-top: 55px; /* Ample physical signing room */
-            margin-bottom: 14px;
+            margin-bottom: 22px;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
           }
           .sig-line {
             border-top: 1.2px solid #000;
             text-align: center;
-            padding-top: 5px;
+            padding-top: 6px;
             font-size: 9.5px;
             font-weight: bold;
             text-transform: uppercase;
             letter-spacing: 0.5px;
           }
 
-          /* Footer - Safe margin from bottom tear line */
+          /* Footer - Safe margin from bottom tear line and generous vertical spacing */
           .footer {
             text-align: center;
-            margin-top: 12px;
+            margin-top: 18px;
             border-top: 1.2px solid #000;
-            padding-top: 6px;
-            padding-bottom: 8mm; /* Safe clearance for dot matrix roll tear-off */
+            padding-top: 8px;
+            padding-bottom: 12mm; /* Safe clearance for sheet / dot matrix roll tear-off */
             page-break-inside: avoid !important;
             break-inside: avoid !important;
           }
@@ -687,6 +687,7 @@ export const generatePrintableInvoiceHtml = (order: any): string => {
                 const variantDesc = (itemSize || itemColor)
                   ? `Size: ${itemSize || 'FREE'} | Color: ${itemColor || 'Default'}`
                   : '';
+                const itemDiscount = Number(item.discount || 0);
                 return `
                 <tr>
                   <td class="text-center font-bold" style="color: #555;">${idx + 1}</td>
@@ -695,6 +696,11 @@ export const generatePrintableInvoiceHtml = (order: any): string => {
                     <span class="item-desc">${item.variant?.product?.name || item.name || 'Garment Item'}</span>
                     ${variantDesc ? `
                       <span class="item-meta">${variantDesc}</span>
+                    ` : ''}
+                    ${itemDiscount > 0 ? `
+                      <div style="font-size: 8.5px; color: #059669; font-weight: bold; margin-top: 1px;">
+                        (Item Disc: -Rs ${itemDiscount.toLocaleString('en-LK', { minimumFractionDigits: 2 })})
+                      </div>
                     ` : ''}
                   </td>
                   <td class="text-right nowrap" style="padding-right: 18px;">Rs ${Number(item.unitPrice).toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>

@@ -48,6 +48,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { openWhatsAppChat, generateSupplierStockInWhatsAppMessage } from '../utils/whatsapp';
+import { getCleanNotes } from './BuyRawMaterialsPage';
 
 interface RawMaterialShop {
   id: number;
@@ -183,19 +184,21 @@ export const BuyRawMaterialFormPage: React.FC = () => {
             setPaidAmount(orderData.paidAmount ?? '');
 
             // ⭐ Safely parse user note text and extract background payments & cheques ledger
-            let displayNote = '';
+            const displayNote = getCleanNotes(orderData.notes);
             let parsedLedger: any[] = [];
             let parsedCheques: any[] = [];
             if (orderData.notes) {
               try {
-                if (orderData.notes.startsWith('{')) {
-                  const parsed = JSON.parse(orderData.notes);
-                  displayNote = parsed.userNotes || '';
-                  parsedLedger = Array.isArray(parsed.payments) ? parsed.payments : [];
-                  if (Array.isArray(parsed.cheques) && parsed.cheques.length > 0) {
-                    parsedCheques = parsed.cheques;
+                let current: any = orderData.notes;
+                while (typeof current === 'string' && (current.trim().startsWith('{') || current.trim().startsWith('"'))) {
+                  current = JSON.parse(current.trim());
+                }
+                if (current && typeof current === 'object' && current !== null) {
+                  parsedLedger = Array.isArray(current.payments) ? current.payments : [];
+                  if (Array.isArray(current.cheques) && current.cheques.length > 0) {
+                    parsedCheques = current.cheques;
                     setCheques(
-                      parsed.cheques.map((c: any, idx: number) => ({
+                      current.cheques.map((c: any, idx: number) => ({
                         id: String(idx + 1),
                         chequeNumber: c.chequeNumber || '',
                         bankName: c.bankName || '',
@@ -204,11 +207,9 @@ export const BuyRawMaterialFormPage: React.FC = () => {
                       }))
                     );
                   }
-                } else {
-                  displayNote = orderData.notes;
                 }
               } catch {
-                displayNote = orderData.notes;
+                // Ignore parse errors for cheques ledger
               }
             }
             setNotes(displayNote);
@@ -675,25 +676,24 @@ export const BuyRawMaterialFormPage: React.FC = () => {
 
   return (
     <div className="space-y-6 w-full max-w-6xl mx-auto pb-20">
-      {/* Top Navigation */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      {/* Top Navigation: Mobile responsive layout with flex-wrap and responsive font sizes/button paddings */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
           <Button
             type="button"
             variant="outline"
             size="icon"
             onClick={() => navigate('/system/buy-raw-materials')}
-            className="size-9"
+            className="size-9 shrink-0"
           >
             <ArrowLeft className="size-4" />
           </Button>
-          {/* 🟢 Comment Update: Dynamic title based on isEditMode */}
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-              <ShoppingCart className="size-6 text-indigo-600 dark:text-indigo-400" />
-              {isEditMode ? `Edit Purchase Order #${id}` : 'New Material Purchase (Stock-In)'}
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
+              <ShoppingCart className="size-5 sm:size-6 text-indigo-600 dark:text-indigo-400 shrink-0" />
+              <span className="truncate">{isEditMode ? `Edit Purchase Order #${id}` : 'New Material Purchase (Stock-In)'}</span>
             </h1>
-            <p className="text-xs text-slate-500 dark:text-zinc-400">
+            <p className="text-[11px] sm:text-xs text-slate-500 dark:text-zinc-400 truncate sm:whitespace-normal">
               {isEditMode
                 ? 'Update supplier purchase order details and update stock accordingly.'
                 : 'Receive raw materials from suppliers, update stock inventory, and record payments.'}
@@ -701,24 +701,23 @@ export const BuyRawMaterialFormPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center flex-wrap sm:flex-nowrap gap-2 shrink-0">
           <Button
             type="button"
             variant="outline"
-            size="sm"
             onClick={() => navigate('/system/buy-raw-materials')}
+            className="h-9 px-3 text-xs font-semibold cursor-pointer"
           >
             Cancel
           </Button>
           <Button
             form="stock-in-form"
             type="submit"
-            size="sm"
             disabled={isSubmitting || loadingPrereqs}
-            className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold cursor-pointer shadow-xs"
+            className="h-9 px-3 text-xs gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold cursor-pointer shadow-xs"
           >
-            {isSubmitting ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-            {isEditMode ? 'Update Purchase Order' : 'Confirm Stock-In'}
+            {isSubmitting ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+            <span>{isEditMode ? 'Update Purchase' : 'Confirm Stock-In'}</span>
           </Button>
         </div>
       </div>
@@ -817,33 +816,11 @@ export const BuyRawMaterialFormPage: React.FC = () => {
 
         {/* Materials Table Card */}
         <div className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-zinc-300 flex items-center gap-2">
+          {/* Section Header: Full-width title without top action buttons */}
+          <div className="w-full flex items-center justify-between pb-2 border-b border-slate-100 dark:border-zinc-800">
+            <h3 className="w-full text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-zinc-300 flex items-center gap-2">
               <Receipt className="size-4 text-indigo-600" /> Materials Received (Line Items)
             </h3>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setActiveMaterialRowIndex(null);
-                  setIsMaterialModalOpen(true);
-                }}
-                className="gap-1.5 h-8 text-xs font-semibold border-indigo-200 dark:border-indigo-900/50 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
-              >
-                <Plus className="size-3.5" /> Register New Item
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleAddLineItem}
-                className="gap-1.5 h-8 text-xs font-semibold"
-              >
-                <PlusCircle className="size-3.5 text-indigo-600" /> Add Row
-              </Button>
-            </div>
           </div>
 
           {/* ── Mobile / Tablet Adaptive Purchase Item Cards (< 1024px) ── */}
@@ -1023,6 +1000,33 @@ export const BuyRawMaterialFormPage: React.FC = () => {
                 })}
               </TableBody>
             </Table>
+          </div>
+
+          {/* ⭐ Dual Bottom Action Bar: Inline '+ New Material' and '+ Add Row' actions exclusively at bottom of cards list */}
+          <div className="pt-2 flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setActiveMaterialRowIndex(null);
+                setIsMaterialModalOpen(true);
+              }}
+              className="flex-1 sm:flex-initial h-9 gap-1.5 text-xs font-semibold border-indigo-200 dark:border-indigo-900/50 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-xl cursor-pointer transition-colors"
+            >
+              <Plus className="size-3.5" />
+              <span>+ New Material</span>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleAddLineItem}
+              className="flex-1 sm:flex-initial h-9 gap-1.5 text-xs font-semibold border-dashed border-indigo-200 dark:border-indigo-900/60 text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800 rounded-xl cursor-pointer transition-colors"
+            >
+              <PlusCircle className="size-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>+ Add Row</span>
+            </Button>
           </div>
         </div>
 

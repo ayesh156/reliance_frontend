@@ -9,6 +9,7 @@ import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { TooltipProvider } from './components/ui/Tooltip';
 import { OfflineSentinel } from './components/common/OfflineSentinel';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { AttributesPage } from './pages/AttributesPage';
 
 // Active Pages (Phase 1 & Phase 2)
@@ -21,6 +22,8 @@ import { RawMaterialItemsPage } from './pages/RawMaterialItemsPage';
 import { CustomersPage } from './pages/CustomersPage';
 import { QuickInvoicePage } from './pages/QuickInvoicePage';
 import { InvoicesPage } from './pages/InvoicesPage';
+import { OrdersPage } from './pages/OrdersPage';
+import { OrderCreatePage } from './pages/OrderCreatePage';
 import { BuyRawMaterialsPage } from './pages/BuyRawMaterialsPage';
 import BuyRawMaterialFormPage from './pages/BuyRawMaterialFormPage';
 import { ProductionListPage } from './pages/ProductionListPage';
@@ -75,7 +78,8 @@ export function App() {
           <ThemedToastContainer />
           <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <ScrollToTop />
-            <Routes>
+            <ErrorBoundary>
+              <Routes>
               {/* ── Public Luxury Storefront Routes - Zero Auth Required ── */}
               <Route
                 path="/"
@@ -223,6 +227,34 @@ export function App() {
                 }
               />
 
+              {/* Presales Orders Management Route */}
+              <Route
+                path="/system/orders"
+                element={
+                  <ProtectedRoute>
+                    <AdminPage>
+                      <OrdersPage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Presales Order Creation Route */}
+              <Route
+                path="/system/orders/new"
+                element={
+                  <ProtectedRoute>
+                    <AdminPage>
+                      <OrderCreatePage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Direct Root Shortcuts for Orders */}
+              <Route path="/orders" element={<Navigate to="/system/orders" replace />} />
+              <Route path="/orders/new" element={<Navigate to="/system/orders/new" replace />} />
+
               {/* Garment Production & Material Consumption Routes */}
               <Route
                 path="/system/production"
@@ -356,6 +388,7 @@ export function App() {
               <Route path="/system/*" element={<Navigate to="/system/products" replace />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
+            </ErrorBoundary>
           </BrowserRouter>
         </TooltipProvider>
       </AuthProvider>

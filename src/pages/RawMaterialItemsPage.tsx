@@ -4,7 +4,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
 // Shadcn searchable combobox component
-import { SearchableSelect } from '../components/ui/searchable-select';
+import { SearchableSelect, type SearchableSelectOption } from '../components/ui/searchable-select';
 import { useTheme } from '../contexts/ThemeContext';
 import {
   Table,
@@ -56,7 +56,41 @@ import {
   Scissors,       // ⭐ Added for Production Deduction
   CornerDownLeft, // ⭐ Added for Scrap Return
   History,        // ⭐ Added for Stock Movement Ledger
+  SlidersHorizontal,
 } from 'lucide-react';
+
+/**
+ * Filter options for raw material stock alert status
+ */
+const STOCK_ALERT_OPTIONS: SearchableSelectOption[] = [
+  { value: 'ALL', label: 'All Stock' },
+  { value: 'LOW_STOCK', label: 'Low Stock Only' },
+  { value: 'OPTIMAL', label: 'Optimal Stock' },
+];
+
+/**
+ * Filter options for raw material unit types
+ */
+const UNIT_OPTIONS: SearchableSelectOption[] = [
+  { value: 'ALL', label: 'All Units' },
+  { value: 'METERS', label: 'METERS' },
+  { value: 'YARDS', label: 'YARDS' },
+  { value: 'KILOGRAMS', label: 'KG (Kilograms)' },
+  { value: 'PCS', label: 'PCS (Pieces)' },
+  { value: 'ROLLS', label: 'ROLLS' },
+  { value: 'CONES', label: 'CONES' },
+  { value: 'PACKS', label: 'PACKS' },
+];
+
+/**
+ * Sorting preferences for raw materials inventory
+ */
+const MATERIAL_SORT_OPTIONS: SearchableSelectOption[] = [
+  { value: 'newest', label: 'Newest First' },
+  { value: 'stock_asc', label: 'Stock: Low to High' },
+  { value: 'stock_desc', label: 'Stock: High to Low' },
+  { value: 'cost_desc', label: 'Avg Cost: High to Low' },
+];
 
 // ⭐ Import Material Modals
 import { MaterialStockActionModal } from '../components/materials/MaterialStockActionModal';
@@ -118,8 +152,12 @@ export const RawMaterialItemsPage: React.FC = () => {
   const [items, setItems] = useState<RawMaterialItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Filter & Sort States matching unified standard
+  const [stockAlertStatus, setStockAlertStatus] = useState<string>('ALL');
   const [selectedUnit, setSelectedUnit] = useState<string>('ALL');
-  const [lowStockFilter, setLowStockFilter] = useState<boolean>(false);
+  const [sortBy, setSortBy] = useState<string>('newest');
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState<boolean>(false);
 
   // Modal and form states
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -142,7 +180,7 @@ export const RawMaterialItemsPage: React.FC = () => {
     mode: 'DEDUCT',
   });
 
-  // ⭐ Material Movement History Log state
+  // ⭐ Material Movement History Modal state
   const [historyModal, setHistoryModal] = useState<{
     isOpen: boolean;
     material: RawMaterialItem | null;
@@ -152,18 +190,33 @@ export const RawMaterialItemsPage: React.FC = () => {
   });
 
   /**
-   * Load raw material items from backend API with debounced filters
+   * Count of active non-default secondary filters for badge indicator
    */
-  const fetchItems = async (query = '', unit = 'ALL', lowStock = false) => {
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (stockAlertStatus !== 'ALL') count++;
+    if (selectedUnit !== 'ALL') count++;
+    if (sortBy !== 'newest') count++;
+    return count;
+  }, [stockAlertStatus, selectedUnit, sortBy]);
+
+  /**
+   * Reset all secondary filters and search query back to default view
+   */
+  const handleClearAllFilters = () => {
+    setStockAlertStatus('ALL');
+    setSelectedUnit('ALL');
+    setSortBy('newest');
+    setSearchQuery('');
+  };
+
+  /**
+   * Load raw material items from backend API
+   */
+  const fetchItems = async () => {
     try {
       setLoading(true);
-      const params = new URLSearchParams();
-      if (query.trim()) params.append('search', query.trim());
-      if (unit !== 'ALL') params.append('unit', unit);
-      if (lowStock) params.append('lowStockOnly', 'true');
-
-      const queryString = params.toString() ? `?${params.toString()}` : '';
-      const data = await get<RawMaterialItem[]>(`/raw-material-items${queryString}`);
+      const data = await get<RawMaterialItem[]>('/raw-material-items');
       setItems(Array.isArray(data) ? data : []);
     } catch (err: any) {
       toast.error(err.message || 'Failed to load raw material items');
@@ -173,12 +226,55 @@ export const RawMaterialItemsPage: React.FC = () => {
   };
 
   useEffect(() => {
-    const handler = setTimeout(() => {
-      fetchItems(searchQuery, selectedUnit, lowStockFilter);
-    }, 300);
+    fetchItems();
+  }, []);
 
-    return () => clearTimeout(handler);
-  }, [searchQuery, selectedUnit, lowStockFilter]);
+  /**
+   * Reactive client-side filtering and sorting for raw materials
+   */
+  const filteredItems = useMemo(() => {
+    return items
+      .filter((item) => {
+        // 1. Search Query (name, code, description)
+        const q = searchQuery.toLowerCase().trim();
+        const matchesSearch =
+          !q ||
+          item.name.toLowerCase().includes(q) ||
+          (item.code && item.code.toLowerCase().includes(q)) ||
+          (item.description && item.description.toLowerCase().includes(q));
+
+        // 2. Stock Alert Status
+        const isLow = item.currentStock <= item.alertThreshold;
+        let matchesAlert = true;
+        if (stockAlertStatus === 'LOW_STOCK') {
+          matchesAlert = isLow;
+        } else if (stockAlertStatus === 'OPTIMAL') {
+          matchesAlert = !isLow;
+        }
+
+        // 3. Unit Type
+        const matchesUnit =
+          selectedUnit === 'ALL' || item.unit === selectedUnit;
+
+        return matchesSearch && matchesAlert && matchesUnit;
+      })
+      .sort((a, b) => {
+        if (sortBy === 'stock_asc') {
+          return a.currentStock - b.currentStock;
+        }
+        if (sortBy === 'stock_desc') {
+          return b.currentStock - a.currentStock;
+        }
+        if (sortBy === 'cost_desc') {
+          return (Number(b.unitCostAverage) || 0) - (Number(a.unitCostAverage) || 0);
+        }
+        // Default: newest first
+        return (
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() ||
+          b.id - a.id
+        );
+      });
+  }, [items, searchQuery, stockAlertStatus, selectedUnit, sortBy]);
 
   const [generatingCode, setGeneratingCode] = useState<boolean>(false);
 
@@ -323,53 +419,189 @@ export const RawMaterialItemsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Filter and Search Bar */}
-      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3.5 top-3 size-4 text-slate-400" />
+      {/* ── Mobile View (< 1024px): Search Bar + Collapsible Filters Drawer ── */}
+      <div className="block lg:hidden bg-white dark:bg-zinc-900/60 p-3 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-2.5">
+        <div className="flex items-center gap-2">
+          {/* Primary Search Bar */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search name, code, description..."
+              className="pl-9 pr-8 h-9 text-xs"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
+              >
+                <X className="size-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Sleek Filters Toggle Button with Active Badge */}
+          <button
+            type="button"
+            onClick={() => setMobileFiltersOpen((prev) => !prev)}
+            className={`h-9 px-3 rounded-xl border flex items-center gap-1.5 text-xs font-semibold cursor-pointer transition-all shrink-0 select-none ${
+              mobileFiltersOpen || activeFiltersCount > 0
+                ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300'
+                : 'bg-slate-50 dark:bg-zinc-800/60 border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800'
+            }`}
+          >
+            <SlidersHorizontal className="size-3.5" />
+            <span>Filters</span>
+            {activeFiltersCount > 0 && (
+              <span className="size-4 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center ml-0.5">
+                {activeFiltersCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Collapsible Expansion Tray */}
+        {mobileFiltersOpen && (
+          <div className="pt-2.5 border-t border-slate-100 dark:border-zinc-800/80 space-y-2.5 animate-in fade-in-0 slide-in-from-top-2 duration-150">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 w-full">
+              {/* Stock Alert Status Filter */}
+              <div className="min-w-0">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Stock Alert Status
+                </label>
+                <SearchableSelect
+                  options={STOCK_ALERT_OPTIONS}
+                  value={stockAlertStatus}
+                  onValueChange={(val) => setStockAlertStatus(val)}
+                  placeholder="All Stock"
+                  searchPlaceholder="Filter stock status..."
+                  dark={dark}
+                  className="h-9 text-xs"
+                />
+              </div>
+
+              {/* Unit Type Filter */}
+              <div className="min-w-0">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Unit Type
+                </label>
+                <SearchableSelect
+                  options={UNIT_OPTIONS}
+                  value={selectedUnit}
+                  onValueChange={(val) => setSelectedUnit(val)}
+                  placeholder="All Units"
+                  searchPlaceholder="Filter unit type..."
+                  dark={dark}
+                  className="h-9 text-xs"
+                />
+              </div>
+
+              {/* Sort Order */}
+              <div className="min-w-0">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Sort Order
+                </label>
+                <SearchableSelect
+                  options={MATERIAL_SORT_OPTIONS}
+                  value={sortBy}
+                  onValueChange={(val) => setSortBy(val)}
+                  placeholder="Sort Materials..."
+                  searchPlaceholder="Search sort preference..."
+                  dark={dark}
+                  className="h-9 text-xs"
+                />
+              </div>
+            </div>
+
+            {/* Clear All Filters Shortcut */}
+            {(activeFiltersCount > 0 || searchQuery) && (
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs text-slate-500">
+                  {activeFiltersCount} active {activeFiltersCount === 1 ? 'filter' : 'filters'}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleClearAllFilters}
+                  className="text-xs font-semibold text-rose-500 hover:text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <X className="size-3.5" /> Clear All Filters
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Desktop View (≥ 1024px): Inline Executive Filter Matrix ── */}
+      <div className="hidden lg:flex items-center gap-2.5 bg-white dark:bg-zinc-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800">
+        {/* Search Bar */}
+        <div className="relative flex-1 min-w-[240px]">
+          <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
           <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search material by name, item code, or description..."
-            className="pl-10 pr-9 h-10 text-xs w-full rounded-xl bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-sm"
+            className="pl-9 pr-8 h-9 text-xs w-full"
           />
           {searchQuery && (
             <button
               type="button"
               onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
+              className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
             >
               <X className="size-4" />
             </button>
           )}
         </div>
 
-        {/* Low Stock Toggle Pill matching CustomersPage filter design */}
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800">
-            <button
-              type="button"
-              onClick={() => setLowStockFilter(false)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                !lowStockFilter
-                  ? 'bg-white dark:bg-zinc-800 text-slate-900 dark:text-white shadow-sm'
-                  : 'text-slate-500'
-              }`}
-            >
-              All Stock
-            </button>
-            <button
-              type="button"
-              onClick={() => setLowStockFilter(true)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                lowStockFilter
-                  ? 'bg-amber-600 text-white shadow-sm'
-                  : 'text-slate-500 hover:text-amber-600'
-              }`}
-            >
-              Low Stock Only
-            </button>
+        {/* Stock Alert Status Selector */}
+        <div className="w-48 xl:w-52 shrink-0">
+          <SearchableSelect
+            options={STOCK_ALERT_OPTIONS}
+            value={stockAlertStatus}
+            onValueChange={(val) => setStockAlertStatus(val)}
+            placeholder="All Stock"
+            searchPlaceholder="Filter alert status..."
+            dark={dark}
+          />
+        </div>
+
+        {/* Unit Type Selector */}
+        <div className="w-44 xl:w-48 shrink-0">
+          <SearchableSelect
+            options={UNIT_OPTIONS}
+            value={selectedUnit}
+            onValueChange={(val) => setSelectedUnit(val)}
+            placeholder="All Units"
+            searchPlaceholder="Filter unit..."
+            dark={dark}
+          />
+        </div>
+
+        {/* Sort Selector & Clear All Shortcut */}
+        <div className="w-48 xl:w-52 shrink-0 flex items-center gap-1.5">
+          <div className="flex-1 min-w-0">
+            <SearchableSelect
+              options={MATERIAL_SORT_OPTIONS}
+              value={sortBy}
+              onValueChange={(val) => setSortBy(val)}
+              placeholder="Sort Materials..."
+              searchPlaceholder="Sort by..."
+              dark={dark}
+            />
           </div>
+          {(activeFiltersCount > 0 || searchQuery) && (
+            <button
+              type="button"
+              onClick={handleClearAllFilters}
+              className="size-9 rounded-xl border border-slate-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-800 text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 hover:border-rose-300 dark:hover:border-rose-800 flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+              title="Clear All Filters"
+            >
+              <X className="size-4" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -378,7 +610,7 @@ export const RawMaterialItemsPage: React.FC = () => {
           <Loader2 className="size-6 animate-spin mx-auto text-indigo-500" />
           <span className="text-xs text-slate-400 mt-2 block">Loading materials...</span>
         </div>
-      ) : items.length === 0 ? (
+      ) : filteredItems.length === 0 ? (
         <div className="rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 p-12 text-center text-slate-400 text-xs">
           No raw material items found matching criteria.
         </div>
@@ -386,7 +618,7 @@ export const RawMaterialItemsPage: React.FC = () => {
         <>
           {/* ── Mobile & Tablet Touch Cards (< 1024px) ── */}
           <div className="block lg:hidden space-y-3">
-            {items.map((item) => {
+            {filteredItems.map((item) => {
               const isLow = item.currentStock <= item.alertThreshold;
               const totalValuation = item.currentStock * item.unitCostAverage;
 
@@ -573,7 +805,7 @@ export const RawMaterialItemsPage: React.FC = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {items.map((item) => {
+                {filteredItems.map((item) => {
                   const isLow = item.currentStock <= item.alertThreshold;
                   return (
                     <TableRow key={item.id}>
@@ -860,7 +1092,7 @@ export const RawMaterialItemsPage: React.FC = () => {
         onClose={() => setStockActionModal((prev) => ({ ...prev, isOpen: false }))}
         material={stockActionModal.material}
         mode={stockActionModal.mode}
-        onSuccess={() => fetchItems(searchQuery, selectedUnit, lowStockFilter)}
+        onSuccess={() => fetchItems()}
       />
 
       {/* ⭐ Stock Movement & Audit History Ledger Modal with Instant Live Sync */}
@@ -870,7 +1102,7 @@ export const RawMaterialItemsPage: React.FC = () => {
         material={historyModal.material}
         onSuccess={async () => {
           // 1. Fetch and update full materials catalog in real-time
-          await fetchItems(searchQuery, selectedUnit, lowStockFilter);
+          await fetchItems();
 
           // 2. Also keep the active modal's material state synchronized
           if (historyModal.material) {

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { SearchableSelect } from '../components/ui/searchable-select';
+import { SearchableSelect, type SearchableSelectOption } from '../components/ui/searchable-select';
 import {
   Table,
   TableHeader,
@@ -58,7 +58,35 @@ import {
   CreditCard,
   Clock,
   Download,
+  SlidersHorizontal,
 } from 'lucide-react';
+
+/**
+ * Filter options for customer account types
+ */
+const ACCOUNT_TYPE_OPTIONS: SearchableSelectOption[] = [
+  { value: 'ALL', label: 'All Accounts' },
+  { value: 'RETAIL', label: 'Retail' },
+  { value: 'WHOLESALE', label: 'Wholesale' },
+];
+
+/**
+ * Filter options for customer balance & debt status
+ */
+const BALANCE_STATUS_OPTIONS: SearchableSelectOption[] = [
+  { value: 'ALL', label: 'All Balances' },
+  { value: 'HAS_DEBT', label: 'With Due Debt' },
+  { value: 'CLEAR', label: 'Settled / No Due' },
+];
+
+/**
+ * Sorting preferences for customers directory
+ */
+const CUSTOMER_SORT_OPTIONS: SearchableSelectOption[] = [
+  { value: 'NEWEST', label: 'Newest First' },
+  { value: 'DEBT_DESC', label: 'Highest Due Debt' },
+  { value: 'NAME_ASC', label: 'Name A-Z' },
+];
 import { openWhatsAppChat, generateCustomerDebtSummaryWhatsAppMessage } from '../utils/whatsapp';
 // Enterprise Customer Itemized Due Settlement Modal
 import { CustomerDueSettlementModal } from '../components/customers/CustomerDueSettlementModal';
@@ -92,6 +120,28 @@ export const CustomersPage: React.FC = () => {
   const [debtFilter, setDebtFilter] = useState<'ALL' | 'HAS_DEBT' | 'CLEAR'>('ALL');
   // Sorting preference state
   const [sortBy, setSortBy] = useState<'NEWEST' | 'DEBT_DESC' | 'NAME_ASC'>('NEWEST');
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState<boolean>(false);
+
+  /**
+   * Count of active non-default secondary filters for badge indicator
+   */
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (selectedType !== 'ALL') count++;
+    if (debtFilter !== 'ALL') count++;
+    if (sortBy !== 'NEWEST') count++;
+    return count;
+  }, [selectedType, debtFilter, sortBy]);
+
+  /**
+   * Reset all secondary filters and search query back to default view
+   */
+  const handleClearAllFilters = () => {
+    setSelectedType('ALL');
+    setDebtFilter('ALL');
+    setSortBy('NEWEST');
+    setSearchQuery('');
+  };
 
   // Modal and Form States
   const [modalOpen, setModalOpen] = useState(false);
@@ -370,68 +420,189 @@ export const CustomersPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Full-Width Search Bar & Multi-Dimensional Filters */}
-      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-        {/* Full size responsive search bar */}
-        <div className="relative flex-1">
-          <Search className="absolute left-3.5 top-3 size-4 text-slate-400" />
+      {/* ── Mobile View (< 1024px): Search Bar + Collapsible Filters Drawer ── */}
+      <div className="block lg:hidden bg-white dark:bg-zinc-900/60 p-3 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-2.5">
+        <div className="flex items-center gap-2">
+          {/* Primary Search Bar */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search customer by name, phone, or NIC..."
+              className="pl-9 pr-8 h-9 text-xs"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
+              >
+                <X className="size-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Sleek Filters Toggle Button with Active Badge */}
+          <button
+            type="button"
+            onClick={() => setMobileFiltersOpen((prev) => !prev)}
+            className={`h-9 px-3 rounded-xl border flex items-center gap-1.5 text-xs font-semibold cursor-pointer transition-all shrink-0 select-none ${
+              mobileFiltersOpen || activeFiltersCount > 0
+                ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300'
+                : 'bg-slate-50 dark:bg-zinc-800/60 border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800'
+            }`}
+          >
+            <SlidersHorizontal className="size-3.5" />
+            <span>Filters</span>
+            {activeFiltersCount > 0 && (
+              <span className="size-4 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center ml-0.5">
+                {activeFiltersCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Collapsible Expansion Tray */}
+        {mobileFiltersOpen && (
+          <div className="pt-2.5 border-t border-slate-100 dark:border-zinc-800/80 space-y-2.5 animate-in fade-in-0 slide-in-from-top-2 duration-150">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 w-full">
+              {/* Account Type Filter */}
+              <div className="min-w-0">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Account Type
+                </label>
+                <SearchableSelect
+                  options={ACCOUNT_TYPE_OPTIONS}
+                  value={selectedType}
+                  onValueChange={(val) => setSelectedType(val as any)}
+                  placeholder="All Accounts"
+                  searchPlaceholder="Search account type..."
+                  dark={dark}
+                  className="h-9 text-xs"
+                />
+              </div>
+
+              {/* Balance Status Filter */}
+              <div className="min-w-0">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Balance Status
+                </label>
+                <SearchableSelect
+                  options={BALANCE_STATUS_OPTIONS}
+                  value={debtFilter}
+                  onValueChange={(val) => setDebtFilter(val as any)}
+                  placeholder="All Balances"
+                  searchPlaceholder="Search balance status..."
+                  dark={dark}
+                  className="h-9 text-xs"
+                />
+              </div>
+
+              {/* Sort Order */}
+              <div className="min-w-0">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Sort Order
+                </label>
+                <SearchableSelect
+                  options={CUSTOMER_SORT_OPTIONS}
+                  value={sortBy}
+                  onValueChange={(val) => setSortBy(val as any)}
+                  placeholder="Sort Customers..."
+                  searchPlaceholder="Search sort preference..."
+                  dark={dark}
+                  className="h-9 text-xs"
+                />
+              </div>
+            </div>
+
+            {/* Clear All Filters Shortcut */}
+            {(activeFiltersCount > 0 || searchQuery) && (
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs text-slate-500">
+                  {activeFiltersCount} active {activeFiltersCount === 1 ? 'filter' : 'filters'}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleClearAllFilters}
+                  className="text-xs font-semibold text-rose-500 hover:text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <X className="size-3.5" /> Clear All Filters
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Desktop View (≥ 1024px): Inline Executive Filter Matrix ── */}
+      <div className="hidden lg:flex items-center gap-2.5 bg-white dark:bg-zinc-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800">
+        {/* Search Bar */}
+        <div className="relative flex-1 min-w-[240px]">
+          <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
           <Input
             value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
+            onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search customer by name, contact phone number, or NIC..."
-            className="pl-10 pr-9 h-10 text-xs w-full rounded-xl bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-sm"
+            className="pl-9 pr-8 h-9 text-xs w-full"
           />
           {searchQuery && (
             <button
               type="button"
               onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
+              className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
             >
               <X className="size-4" />
             </button>
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Account Type Pills */}
-          <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800">
-            {(['ALL', 'RETAIL', 'WHOLESALE'] as const).map(t => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setSelectedType(t)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  selectedType === t
-                    ? 'bg-white dark:bg-zinc-800 text-slate-900 dark:text-white shadow-sm'
-                    : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
-                }`}
-              >
-                {t === 'ALL' ? 'All Accounts' : t === 'RETAIL' ? 'Retail' : 'Wholesale'}
-              </button>
-            ))}
-          </div>
+        {/* Account Type Selector */}
+        <div className="w-44 xl:w-48 shrink-0">
+          <SearchableSelect
+            options={ACCOUNT_TYPE_OPTIONS}
+            value={selectedType}
+            onValueChange={(val) => setSelectedType(val as any)}
+            placeholder="All Accounts"
+            searchPlaceholder="Filter account type..."
+            dark={dark}
+          />
+        </div>
 
-          {/* Outstanding Balance Filter Pill */}
-          <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800">
-            <button
-              type="button"
-              onClick={() => setDebtFilter('ALL')}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold ${
-                debtFilter === 'ALL' ? 'bg-white dark:bg-zinc-800 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500'
-              }`}
-            >
-              All Balances
-            </button>
-            <button
-              type="button"
-              onClick={() => setDebtFilter('HAS_DEBT')}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold ${
-                debtFilter === 'HAS_DEBT' ? 'bg-rose-500 text-white shadow-sm' : 'text-slate-500 hover:text-rose-500'
-              }`}
-            >
-              With Due Debt
-            </button>
+        {/* Balance Status Selector */}
+        <div className="w-48 xl:w-52 shrink-0">
+          <SearchableSelect
+            options={BALANCE_STATUS_OPTIONS}
+            value={debtFilter}
+            onValueChange={(val) => setDebtFilter(val as any)}
+            placeholder="All Balances"
+            searchPlaceholder="Filter debt balance..."
+            dark={dark}
+          />
+        </div>
+
+        {/* Sort Selector & Clear All Shortcut */}
+        <div className="w-48 xl:w-52 shrink-0 flex items-center gap-1.5">
+          <div className="flex-1 min-w-0">
+            <SearchableSelect
+              options={CUSTOMER_SORT_OPTIONS}
+              value={sortBy}
+              onValueChange={(val) => setSortBy(val as any)}
+              placeholder="Sort Customers..."
+              searchPlaceholder="Sort by..."
+              dark={dark}
+            />
           </div>
+          {(activeFiltersCount > 0 || searchQuery) && (
+            <button
+              type="button"
+              onClick={handleClearAllFilters}
+              className="size-9 rounded-xl border border-slate-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-800 text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 hover:border-rose-300 dark:hover:border-rose-800 flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+              title="Clear All Filters"
+            >
+              <X className="size-4" />
+            </button>
+          )}
         </div>
       </div>
 

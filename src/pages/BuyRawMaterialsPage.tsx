@@ -3,8 +3,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { SearchableSelect } from '../components/ui/searchable-select';
+import { SearchableSelect, type SearchableSelectOption } from '../components/ui/searchable-select';
 import { DateTimePicker } from '../components/ui/date-time-picker';
+import { DateRangePicker, type DateRange } from '../components/ui/date-range-picker';
 import { MaterialCombobox } from '../components/materials/MaterialCombobox';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -62,8 +63,29 @@ import {
   Download,
   Wallet,
   Edit2, // ⭐ Edit icon එක එකතු කිරීම
+  SlidersHorizontal,
 } from 'lucide-react';
 import { openWhatsAppChat, generateSupplierStockInWhatsAppMessage } from '../utils/whatsapp';
+
+/**
+ * Payment status filter options for raw material purchases
+ */
+const PURCHASE_PAYMENT_STATUS_OPTIONS: SearchableSelectOption[] = [
+  { value: 'ALL', label: 'All Statuses' },
+  { value: 'PAID', label: 'PAID' },
+  { value: 'PARTIAL', label: 'PARTIAL' },
+  { value: 'UNPAID', label: 'UNPAID' },
+];
+
+/**
+ * Sorting options for stock purchases ledger
+ */
+const PURCHASE_SORT_OPTIONS: SearchableSelectOption[] = [
+  { value: 'newest', label: 'Newest First' },
+  { value: 'oldest', label: 'Oldest First' },
+  { value: 'highest_bill', label: 'Highest Bill' },
+  { value: 'highest_due', label: 'Highest Due' },
+];
 
 
 interface RawMaterialShop {
@@ -132,6 +154,52 @@ interface PurchaseRecord {
 
 const PAYMENT_METHODS = ['CASH', 'CREDIT', 'CHEQUE', 'BANK_TRANSFER'];
 
+export const getCleanNotes = (rawNotes: any): string => {
+  if (!rawNotes) return '';
+
+  // 1. If already an object (e.g. parsed payload)
+  if (typeof rawNotes === 'object' && rawNotes !== null) {
+    if ('userNotes' in rawNotes) {
+      return String(rawNotes.userNotes || '').trim();
+    }
+    return '';
+  }
+
+  let text = String(rawNotes).trim();
+  if (text === '[object Object]') return '';
+  
+  try {
+    // Repeatedly unwrap if double/triple stringified
+    while ((text.startsWith('{') && text.endsWith('}')) || (text.startsWith('"') && text.endsWith('"'))) {
+      const parsed = JSON.parse(text);
+      if (typeof parsed === 'object' && parsed !== null) {
+        if ('userNotes' in parsed) {
+          text = String(parsed.userNotes || '').trim();
+        } else {
+          return ''; // It's a JSON object but has no userNotes (e.g., only cheques), so hide it
+        }
+      } else if (typeof parsed === 'string') {
+        text = parsed.trim();
+      } else {
+        break;
+      }
+    }
+  } catch (e) {
+    // If parsing fails but it still looks like a raw JSON string, suppress it completely
+    if (text.startsWith('{"') || text.startsWith('"{') || text.includes('"cheques":') || text.includes('cheques') || text.includes('userNotes')) return '';
+  }
+
+  // Safety guard: If still looks like a raw JSON string or internal metadata, suppress completely
+  if (text.startsWith('{') || text.startsWith('"{') || text.includes('"cheques"') || text.includes('"userNotes"') || (text.includes('cheques') && text.includes(':'))) {
+    return '';
+  }
+  
+  return text;
+};
+
+// Backwards compatibility alias
+export const extractUserNotes = getCleanNotes;
+
 export const BuyRawMaterialsPage: React.FC = () => {
   const { resolvedTheme } = useTheme();
   const { isAdmin } = useAuth();
@@ -144,6 +212,42 @@ export const BuyRawMaterialsPage: React.FC = () => {
   const [materialItems, setMaterialItems] = useState<RawMaterialItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>(() => searchParams.get('search') || '');
+
+  // Filter States matching unified standard
+  const [selectedSupplierId, setSelectedSupplierId] = useState<string>('all');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>('ALL');
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [sortBy, setSortBy] = useState<string>('newest');
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState<boolean>(false);
+
+  // Supplier options for SearchableSelect
+  const supplierOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: 'all', label: 'All Suppliers' },
+    ...shops.map((s) => ({ value: String(s.id), label: s.name })),
+  ], [shops]);
+
+  /**
+   * Count of active non-default secondary filters for badge indicator
+   */
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (selectedSupplierId !== 'all') count++;
+    if (paymentStatusFilter !== 'ALL') count++;
+    if (dateRange?.from || dateRange?.to) count++;
+    if (sortBy !== 'newest') count++;
+    return count;
+  }, [selectedSupplierId, paymentStatusFilter, dateRange, sortBy]);
+
+  /**
+   * Reset all secondary filters and search query back to default view
+   */
+  const handleClearAllFilters = () => {
+    setSelectedSupplierId('all');
+    setPaymentStatusFilter('ALL');
+    setDateRange(undefined);
+    setSortBy('newest');
+    setSearchQuery('');
+  };
 
   // Modal States
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -295,6 +399,83 @@ export const BuyRawMaterialsPage: React.FC = () => {
       return sum + Math.max(0, due);
     }, 0);
   }, [purchases]);
+
+  /**
+   * Reactive client-side filtering and sorting for raw material purchases
+   */
+  const filteredPurchases = useMemo(() => {
+    return purchases
+      .filter((p) => {
+        // 1. Search Query (invoice # / supplier / notes)
+        const q = searchQuery.toLowerCase().trim();
+        const matchesSearch =
+          !q ||
+          (p.invoiceNumber && p.invoiceNumber.toLowerCase().includes(q)) ||
+          `po-${p.id}`.includes(q) ||
+          (p.shop?.name && p.shop.name.toLowerCase().includes(q)) ||
+          (p.notes && p.notes.toLowerCase().includes(q));
+
+        // 2. Supplier Shop filter
+        const matchesShop =
+          selectedSupplierId === 'all' || String(p.shop?.id) === selectedSupplierId;
+
+        // 3. Payment Status filter
+        const due = (Number(p.totalAmount) || 0) - (Number(p.paidAmount) || 0);
+        let matchesPayment = true;
+        if (paymentStatusFilter === 'PAID') {
+          matchesPayment = p.paymentStatus === 'PAID' || due <= 0;
+        } else if (paymentStatusFilter === 'PARTIAL') {
+          matchesPayment =
+            p.paymentStatus === 'PARTIAL' ||
+            (p.paidAmount > 0 && due > 0);
+        } else if (paymentStatusFilter === 'UNPAID') {
+          matchesPayment =
+            p.paymentStatus === 'DUE' ||
+            p.paymentStatus === 'PENDING' ||
+            (p.paymentStatus as string) === 'UNPAID' ||
+            (due > 0 && Number(p.paidAmount || 0) === 0);
+        }
+
+        // 4. Date Range filter
+        let matchesDate = true;
+        if (dateRange?.from) {
+          const pDate = new Date(p.purchaseDate);
+          pDate.setHours(0, 0, 0, 0);
+          const fromDate = new Date(dateRange.from);
+          fromDate.setHours(0, 0, 0, 0);
+          if (pDate < fromDate) matchesDate = false;
+
+          if (dateRange.to) {
+            const toDate = new Date(dateRange.to);
+            toDate.setHours(23, 59, 59, 999);
+            if (pDate > toDate) matchesDate = false;
+          }
+        }
+
+        return matchesSearch && matchesShop && matchesPayment && matchesDate;
+      })
+      .sort((a, b) => {
+        if (sortBy === 'oldest') {
+          return (
+            new Date(a.purchaseDate).getTime() - new Date(b.purchaseDate).getTime() ||
+            a.id - b.id
+          );
+        }
+        if (sortBy === 'highest_bill') {
+          return (Number(b.totalAmount) || 0) - (Number(a.totalAmount) || 0);
+        }
+        if (sortBy === 'highest_due') {
+          const dueA = (Number(a.totalAmount) || 0) - (Number(a.paidAmount) || 0);
+          const dueB = (Number(b.totalAmount) || 0) - (Number(b.paidAmount) || 0);
+          return dueB - dueA;
+        }
+        // Default: newest first
+        return (
+          new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime() ||
+          b.id - a.id
+        );
+      });
+  }, [purchases, searchQuery, selectedSupplierId, paymentStatusFilter, dateRange, sortBy]);
 
   const [generatingInvoice, setGeneratingInvoice] = useState<boolean>(false);
 
@@ -550,24 +731,213 @@ export const BuyRawMaterialsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Search Bar */}
-      <div className="relative flex-1">
-        <Search className="absolute left-3.5 top-3 size-4 text-slate-400" />
-        <Input
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search by supplier name or invoice number..."
-          className="pl-10 pr-9 h-10 text-xs w-full rounded-xl bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-sm"
-        />
-        {searchQuery && (
+      {/* ── Mobile View (< 1024px): Search Bar + Collapsible Filters Drawer ── */}
+      <div className="block lg:hidden bg-white dark:bg-zinc-900/60 p-3 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-2.5">
+        <div className="flex items-center gap-2">
+          {/* Primary Search Bar */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search invoice #, supplier name, notes..."
+              className="pl-9 pr-8 h-9 text-xs"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
+              >
+                <X className="size-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Sleek Filters Toggle Button with Active Badge */}
           <button
             type="button"
-            onClick={() => setSearchQuery('')}
-            className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
+            onClick={() => setMobileFiltersOpen((prev) => !prev)}
+            className={`h-9 px-3 rounded-xl border flex items-center gap-1.5 text-xs font-semibold cursor-pointer transition-all shrink-0 select-none ${
+              mobileFiltersOpen || activeFiltersCount > 0
+                ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300'
+                : 'bg-slate-50 dark:bg-zinc-800/60 border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800'
+            }`}
           >
-            <X className="size-4" />
+            <SlidersHorizontal className="size-3.5" />
+            <span>Filters</span>
+            {activeFiltersCount > 0 && (
+              <span className="size-4 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center ml-0.5">
+                {activeFiltersCount}
+              </span>
+            )}
           </button>
+        </div>
+
+        {/* Collapsible Expansion Tray */}
+        {mobileFiltersOpen && (
+          <div className="pt-2.5 border-t border-slate-100 dark:border-zinc-800/80 space-y-2.5 animate-in fade-in-0 slide-in-from-top-2 duration-150">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
+              {/* Supplier Shop Filter */}
+              <div className="min-w-0">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Supplier Shop
+                </label>
+                <SearchableSelect
+                  options={supplierOptions}
+                  value={selectedSupplierId}
+                  onValueChange={(val) => setSelectedSupplierId(val)}
+                  placeholder="All Suppliers"
+                  searchPlaceholder="Search supplier..."
+                  dark={dark}
+                  className="h-9 text-xs"
+                />
+              </div>
+
+              {/* Payment Status Filter */}
+              <div className="min-w-0">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Payment Status
+                </label>
+                <SearchableSelect
+                  options={PURCHASE_PAYMENT_STATUS_OPTIONS}
+                  value={paymentStatusFilter}
+                  onValueChange={(val) => setPaymentStatusFilter(val)}
+                  placeholder="All Statuses"
+                  searchPlaceholder="Search payment status..."
+                  dark={dark}
+                  className="h-9 text-xs"
+                />
+              </div>
+
+              {/* Purchase Date Range */}
+              <div className="min-w-0">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Purchase Date Range
+                </label>
+                <DateRangePicker
+                  date={dateRange}
+                  onDateChange={setDateRange}
+                  placeholder="Pick date range..."
+                  className="h-9 text-xs w-full"
+                />
+              </div>
+
+              {/* Sort Order */}
+              <div className="min-w-0">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Sort Order
+                </label>
+                <SearchableSelect
+                  options={PURCHASE_SORT_OPTIONS}
+                  value={sortBy}
+                  onValueChange={(val) => setSortBy(val)}
+                  placeholder="Sort Purchases..."
+                  searchPlaceholder="Search sort preference..."
+                  dark={dark}
+                  className="h-9 text-xs"
+                />
+              </div>
+            </div>
+
+            {/* Clear All Filters Shortcut */}
+            {(activeFiltersCount > 0 || searchQuery) && (
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs text-slate-500">
+                  {activeFiltersCount} active {activeFiltersCount === 1 ? 'filter' : 'filters'}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleClearAllFilters}
+                  className="text-xs font-semibold text-rose-500 hover:text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <X className="size-3.5" /> Clear All Filters
+                </button>
+              </div>
+            )}
+          </div>
         )}
+      </div>
+
+      {/* ── Desktop View (≥ 1024px): Inline Executive Filter Matrix ── */}
+      <div className="hidden lg:flex items-center gap-2.5 bg-white dark:bg-zinc-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800">
+        {/* Search Bar */}
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
+          <Input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search invoice #, supplier name, notes..."
+            className="pl-9 pr-8 h-9 text-xs w-full"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
+            >
+              <X className="size-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Supplier Shop Selector */}
+        <div className="w-44 xl:w-48 shrink-0">
+          <SearchableSelect
+            options={supplierOptions}
+            value={selectedSupplierId}
+            onValueChange={(val) => setSelectedSupplierId(val)}
+            placeholder="All Suppliers"
+            searchPlaceholder="Filter supplier..."
+            dark={dark}
+          />
+        </div>
+
+        {/* Payment Status Selector */}
+        <div className="w-36 xl:w-40 shrink-0">
+          <SearchableSelect
+            options={PURCHASE_PAYMENT_STATUS_OPTIONS}
+            value={paymentStatusFilter}
+            onValueChange={(val) => setPaymentStatusFilter(val)}
+            placeholder="All Statuses"
+            searchPlaceholder="Filter status..."
+            dark={dark}
+          />
+        </div>
+
+        {/* Purchase Date Range Picker */}
+        <div className="w-44 xl:w-48 shrink-0">
+          <DateRangePicker
+            date={dateRange}
+            onDateChange={setDateRange}
+            placeholder="Select Date Range..."
+            className="h-9 text-xs w-full"
+          />
+        </div>
+
+        {/* Sort Selector & Clear All Shortcut */}
+        <div className="w-40 xl:w-44 shrink-0 flex items-center gap-1.5">
+          <div className="flex-1 min-w-0">
+            <SearchableSelect
+              options={PURCHASE_SORT_OPTIONS}
+              value={sortBy}
+              onValueChange={(val) => setSortBy(val)}
+              placeholder="Sort Purchases..."
+              searchPlaceholder="Sort by..."
+              dark={dark}
+            />
+          </div>
+          {(activeFiltersCount > 0 || searchQuery) && (
+            <button
+              type="button"
+              onClick={handleClearAllFilters}
+              className="size-9 rounded-xl border border-slate-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-800 text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 hover:border-rose-300 dark:hover:border-rose-800 flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+              title="Clear All Filters"
+            >
+              <X className="size-4" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Purchases Table (Desktop Viewport >= 1024px) */}
@@ -592,14 +962,14 @@ export const BuyRawMaterialsPage: React.FC = () => {
                   <span className="text-xs text-slate-400 mt-2 block">Loading purchase records...</span>
                 </TableCell>
               </TableRow>
-            ) : purchases.length === 0 ? (
+            ) : filteredPurchases.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="text-center py-12 text-slate-400 text-xs">
                   No stock purchase records found.
                 </TableCell>
               </TableRow>
             ) : (
-              purchases.map((purchase) => {
+              filteredPurchases.map((purchase) => {
                 const due = purchase.totalAmount - purchase.paidAmount;
                 return (
                   <TableRow key={purchase.id}>
@@ -778,12 +1148,12 @@ export const BuyRawMaterialsPage: React.FC = () => {
             <Loader2 className="size-6 animate-spin mx-auto text-indigo-500 mb-2" />
             <span className="text-xs text-slate-400 block font-medium">Loading purchase records...</span>
           </div>
-        ) : purchases.length === 0 ? (
+        ) : filteredPurchases.length === 0 ? (
           <div className="rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 p-8 text-center text-slate-400 text-xs">
             No stock purchase records found.
           </div>
         ) : (
-          purchases.map((purchase) => {
+          filteredPurchases.map((purchase) => {
             const due = purchase.totalAmount - purchase.paidAmount;
             const formattedDate = (() => {
               const d = new Date(purchase.purchaseDate);
@@ -889,11 +1259,16 @@ export const BuyRawMaterialsPage: React.FC = () => {
                   </div>
                 </div>
 
-                {purchase.notes && (
-                  <p className="text-[11px] text-slate-500 dark:text-zinc-400 italic bg-slate-50/50 dark:bg-zinc-950/30 p-2 rounded-lg border border-slate-100 dark:border-zinc-800/50 line-clamp-2">
-                    "{purchase.notes}"
-                  </p>
-                )}
+                {/* Safely render userNotes: only renders non-empty userNotes; suppresses container if empty, missing, or malformed JSON */}
+                {(() => {
+                  const displayNote = getCleanNotes(purchase.notes);
+                  if (!displayNote) return null;
+                  return (
+                    <p className="text-[11px] text-slate-500 dark:text-zinc-400 italic bg-slate-50/50 dark:bg-zinc-950/30 p-2 rounded-lg border border-slate-100 dark:border-zinc-800/50 line-clamp-2">
+                      "{displayNote}"
+                    </p>
+                  );
+                })()}
 
                 {/* ── Touch Action Bar: Payment History, Add Payment, View Items, Admin-only Delete ── */}
                 <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 flex items-center justify-between gap-1.5 flex-wrap">
@@ -1421,6 +1796,20 @@ export const BuyRawMaterialsPage: React.FC = () => {
                 <span>Total Amount: Rs. {viewingPurchase.totalAmount.toLocaleString()}</span>
                 <span className="text-emerald-600">Paid: Rs. {viewingPurchase.paidAmount.toLocaleString()}</span>
               </div>
+
+              {/* Optional User Notes Display: Safely extracted from serialized metadata */}
+              {(() => {
+                const modalNote = getCleanNotes(viewingPurchase.notes);
+                if (!modalNote) return null;
+                return (
+                  <div className="text-xs bg-slate-50 dark:bg-zinc-900/50 p-2.5 rounded-xl border border-slate-200/60 dark:border-zinc-800 space-y-1">
+                    <span className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider block">
+                      Notes / Remarks
+                    </span>
+                    <p className="italic text-slate-600 dark:text-zinc-300">"{modalNote}"</p>
+                  </div>
+                );
+              })()}
 
               <DialogFooter className="sticky bottom-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm pt-3 pb-1 border-t border-slate-100 dark:border-zinc-800 mt-2 flex items-center justify-end gap-2">
                 <Button

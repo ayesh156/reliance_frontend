@@ -89,6 +89,11 @@ interface InvoiceRecord {
   paymentMethod: string;
   createdAt: string;
   userId?: number;
+  user?: {
+    id: number;
+    name: string;
+    role?: string;
+  };
   subtotal?: number;
   discount?: number;
   customer?: {
@@ -884,6 +889,12 @@ export const InvoicesPage: React.FC = () => {
                           Retail
                         </span>
                       )}
+                      {/* Creator Role Badge inline with Invoice Type */}
+                      {inv.user?.role && (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700">
+                          {inv.user.role}
+                        </span>
+                      )}
                       {inv.returns && inv.returns.length > 0 && (
                         <span
                           onClick={() => handleOpenReturnModal(inv)}
@@ -1167,7 +1178,7 @@ export const InvoicesPage: React.FC = () => {
 
                   return (
                     <tr key={inv.id} className="hover:bg-slate-50/70 dark:hover:bg-zinc-800/30 transition-colors">
-                      {/* Interactive Clickable Invoice ID with Wholesale / Retail Badge */}
+                      {/* Invoice ID, Type & Role Badge - Clickable to POS edit (matching OrdersPage layout) */}
                       <td 
                         onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}`)}
                         className="py-3 px-4 font-mono font-bold text-slate-900 dark:text-white cursor-pointer hover:text-emerald-600 dark:hover:text-emerald-400 hover:underline select-none"
@@ -1182,6 +1193,12 @@ export const InvoicesPage: React.FC = () => {
                           ) : (
                             <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
                               RET
+                            </span>
+                          )}
+                          {/* Creator Role Badge inline next to Invoice Type */}
+                          {inv.user?.role && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700">
+                              {inv.user.role}
                             </span>
                           )}
                           {inv.returns && inv.returns.length > 0 && (

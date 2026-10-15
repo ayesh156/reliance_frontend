@@ -9,6 +9,7 @@ import { toast } from 'react-toastify';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '../components/ui/table';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -52,6 +53,27 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 
+/**
+ * Stock level filter options matching unified executive filter standard
+ */
+const STOCK_OPTIONS: SearchableSelectOption[] = [
+  { value: 'all', label: 'All Stock Levels' },
+  { value: 'in_stock', label: 'In Stock' },
+  { value: 'low_stock', label: 'Low Stock' },
+  { value: 'out_of_stock', label: 'Out of Stock' },
+];
+
+/**
+ * Sorting options for products catalog
+ */
+const SORT_OPTIONS: SearchableSelectOption[] = [
+  { value: 'newest', label: 'Newest First' },
+  { value: 'name_asc', label: 'Name A-Z' },
+  { value: 'price_desc', label: 'Price: High to Low' },
+  { value: 'price_asc', label: 'Price: Low to High' },
+  { value: 'stock_asc', label: 'Stock: Low to High' },
+];
+
 export const Products: React.FC = () => {
   const navigate = useNavigate();
   const { resolvedTheme } = useTheme();
@@ -62,6 +84,8 @@ export const Products: React.FC = () => {
   const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedStockStatus, setSelectedStockStatus] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<string>('newest');
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -107,32 +131,85 @@ const fetchAll = useCallback(async () => {
     { value: 'out_of_stock', label: 'Out of Stock (0)' },
   ], []);
 
+  /**
+   * Count of active non-default secondary filters for badge indicator
+   */
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (selectedCategory !== 'all') count++;
+    if (selectedStockStatus !== 'all') count++;
+    if (sortBy !== 'newest') count++;
+    return count;
+  }, [selectedCategory, selectedStockStatus, sortBy]);
+
+  /**
+   * Reset all secondary filters and search query back to default view
+   */
+  const handleClearAllFilters = () => {
+    setSelectedCategory('all');
+    setSelectedStockStatus('all');
+    setSortBy('newest');
+    setSearchQuery('');
+    setCurrentPage(1);
+  };
+
+  /**
+   * Filter and sort products reactively across search, category, stock level, and sort preference
+   */
   const filteredProducts = useMemo(() => {
-    return products.filter(p => {
-      // 1. Search Query Filter
-      const q = searchQuery.toLowerCase().trim();
-      const matchesSearch = !q || (
-        p.name.toLowerCase().includes(q) ||
-        p.searchKey?.toLowerCase().includes(q) ||
-        p.variants?.some(v => v.sku.toLowerCase().includes(q) || v.barcode?.toLowerCase().includes(q))
-      );
+    return products
+      .filter((p) => {
+        // 1. Search Query Filter
+        const q = searchQuery.toLowerCase().trim();
+        const matchesSearch =
+          !q ||
+          p.name.toLowerCase().includes(q) ||
+          p.searchKey?.toLowerCase().includes(q) ||
+          p.variants?.some(
+            (v) => v.sku.toLowerCase().includes(q) || v.barcode?.toLowerCase().includes(q)
+          );
 
-      // 2. Category Filter
-      const matchesCategory =
-        selectedCategory === 'all' ||
-        String(p.categoryId || p.category?.id) === selectedCategory;
+        // 2. Category Filter
+        const matchesCategory =
+          selectedCategory === 'all' ||
+          String(p.categoryId || p.category?.id) === selectedCategory;
 
-      // 3. Stock Status Filter
-      const totalStock = (p.variants || []).reduce((acc, cur) => acc + (cur.stock || 0), 0);
-      const matchesStock =
-        selectedStockStatus === 'all' ||
-        (selectedStockStatus === 'in_stock' && totalStock > 0) ||
-        (selectedStockStatus === 'low_stock' && totalStock > 0 && totalStock <= 5) ||
-        (selectedStockStatus === 'out_of_stock' && totalStock === 0);
+        // 3. Stock Status Filter
+        const totalStock = (p.variants || []).reduce((acc, cur) => acc + (cur.stock || 0), 0);
+        const matchesStock =
+          selectedStockStatus === 'all' ||
+          (selectedStockStatus === 'in_stock' && totalStock > 0) ||
+          (selectedStockStatus === 'low_stock' && totalStock > 0 && totalStock <= 5) ||
+          (selectedStockStatus === 'out_of_stock' && totalStock === 0);
 
-      return matchesSearch && matchesCategory && matchesStock;
-    });
-  }, [products, searchQuery, selectedCategory, selectedStockStatus]);
+        return matchesSearch && matchesCategory && matchesStock;
+      })
+      .sort((a, b) => {
+        if (sortBy === 'name_asc') {
+          return a.name.localeCompare(b.name);
+        }
+        if (sortBy === 'price_desc') {
+          const priceA = a.variants?.[0]?.retailPrice || 0;
+          const priceB = b.variants?.[0]?.retailPrice || 0;
+          return priceB - priceA;
+        }
+        if (sortBy === 'price_asc') {
+          const priceA = a.variants?.[0]?.retailPrice || 0;
+          const priceB = b.variants?.[0]?.retailPrice || 0;
+          return priceA - priceB;
+        }
+        if (sortBy === 'stock_asc') {
+          const stockA = (a.variants || []).reduce((acc, cur) => acc + (cur.stock || 0), 0);
+          const stockB = (b.variants || []).reduce((acc, cur) => acc + (cur.stock || 0), 0);
+          return stockA - stockB;
+        }
+        // Default: newest first
+        return (
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() ||
+          b.id - a.id
+        );
+      });
+  }, [products, searchQuery, selectedCategory, selectedStockStatus, sortBy]);
 
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage) || 1;
   const paginated = filteredProducts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -213,71 +290,218 @@ const fetchAll = useCallback(async () => {
         </div>
       </div>
 
-      <div className="p-3 sm:p-4 rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 flex flex-col md:flex-row items-center gap-2.5 sm:gap-3">
-        {/* Search Input with Instant Clear (X) */}
-        <div className="relative flex-1 w-full flex items-center">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border bg-slate-50 dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 w-full focus-within:border-emerald-500 transition-colors">
-            <Search className="size-4 text-zinc-400 shrink-0" />
-            <input
+      {/* ── Mobile View (< 1024px): Search Bar + Collapsible Filters Drawer ── */}
+      <div className="block lg:hidden bg-white dark:bg-zinc-900/60 p-3 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-2.5">
+        <div className="flex items-center gap-2">
+          {/* Primary Search Bar */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
+            <Input
               value={searchQuery}
-              onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                if (currentPage !== 1) setCurrentPage(1);
+              }}
               placeholder="Search by name, tags, SKU, barcode..."
-              className="bg-transparent outline-none w-full text-xs text-slate-900 dark:text-zinc-100 placeholder:text-zinc-500"
+              className="pl-9 pr-8 h-9 text-xs"
             />
             {searchQuery && (
               <button
                 type="button"
-                onClick={() => { setSearchQuery(''); setCurrentPage(1); }}
-                className="p-1 rounded-full hover:bg-slate-200 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
+                onClick={() => {
+                  setSearchQuery('');
+                  if (currentPage !== 1) setCurrentPage(1);
+                }}
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
               >
-                <X className="size-3.5" />
+                <X className="size-4" />
               </button>
             )}
           </div>
+
+          {/* Sleek Filters Toggle Button with Active Badge */}
+          <button
+            type="button"
+            onClick={() => setMobileFiltersOpen((prev) => !prev)}
+            className={`h-9 px-3 rounded-xl border flex items-center gap-1.5 text-xs font-semibold cursor-pointer transition-all shrink-0 select-none ${
+              mobileFiltersOpen || activeFiltersCount > 0
+                ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300'
+                : 'bg-slate-50 dark:bg-zinc-800/60 border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800'
+            }`}
+          >
+            <SlidersHorizontal className="size-3.5" />
+            <span>Filters</span>
+            {activeFiltersCount > 0 && (
+              <span className="size-4 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center ml-0.5">
+                {activeFiltersCount}
+              </span>
+            )}
+          </button>
         </div>
 
-        {/* Category & Stock Filter Controls */}
-        <div className="flex items-center gap-2 w-full md:w-auto">
-          {/* Category Searchable Select */}
-          <div className="w-full md:w-48">
-            <SearchableSelect
-              options={categoryOptions}
-              value={selectedCategory}
-              onValueChange={val => { setSelectedCategory(val); setCurrentPage(1); }}
-              placeholder="Category..."
-              searchPlaceholder="Search category..."
-              dark={dark}
-            />
-          </div>
+        {/* Collapsible Expansion Tray */}
+        {mobileFiltersOpen && (
+          <div className="pt-2.5 border-t border-slate-100 dark:border-zinc-800/80 space-y-2.5 animate-in fade-in-0 slide-in-from-top-2 duration-150">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 w-full">
+              {/* Category Filter */}
+              <div className="min-w-0">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Category
+                </label>
+                <SearchableSelect
+                  options={categoryOptions}
+                  value={selectedCategory}
+                  onValueChange={(val) => {
+                    setSelectedCategory(val);
+                    if (currentPage !== 1) setCurrentPage(1);
+                  }}
+                  placeholder="All Categories"
+                  searchPlaceholder="Search category..."
+                  dark={dark}
+                  className="h-9 text-xs"
+                />
+              </div>
 
-          {/* Stock Searchable Select */}
-          <div className="w-full md:w-44">
-            <SearchableSelect
-              options={stockOptions}
-              value={selectedStockStatus}
-              onValueChange={val => { setSelectedStockStatus(val); setCurrentPage(1); }}
-              placeholder="Stock level..."
-              searchPlaceholder="Filter stock..."
-              dark={dark}
-            />
-          </div>
+              {/* Stock Status Filter */}
+              <div className="min-w-0">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Stock Level
+                </label>
+                <SearchableSelect
+                  options={STOCK_OPTIONS}
+                  value={selectedStockStatus}
+                  onValueChange={(val) => {
+                    setSelectedStockStatus(val);
+                    if (currentPage !== 1) setCurrentPage(1);
+                  }}
+                  placeholder="All Stock Levels"
+                  searchPlaceholder="Filter stock..."
+                  dark={dark}
+                  className="h-9 text-xs"
+                />
+              </div>
 
-          {/* Reset Filters Shortcut (Visible if any filter is active) */}
-          {(searchQuery || selectedCategory !== 'all' || selectedStockStatus !== 'all') && (
-            <Button
-              variant="ghost"
-              size="sm"
+              {/* Sort Order */}
+              <div className="min-w-0">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Sort Order
+                </label>
+                <SearchableSelect
+                  options={SORT_OPTIONS}
+                  value={sortBy}
+                  onValueChange={(val) => {
+                    setSortBy(val);
+                    if (currentPage !== 1) setCurrentPage(1);
+                  }}
+                  placeholder="Sort Products..."
+                  searchPlaceholder="Search sort order..."
+                  dark={dark}
+                  className="h-9 text-xs"
+                />
+              </div>
+            </div>
+
+            {/* Clear All Filters Shortcut */}
+            {(activeFiltersCount > 0 || searchQuery) && (
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs text-slate-500">
+                  {activeFiltersCount} active {activeFiltersCount === 1 ? 'filter' : 'filters'}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleClearAllFilters}
+                  className="text-xs font-semibold text-rose-500 hover:text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <X className="size-3.5" /> Clear All Filters
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Desktop View (≥ 1024px): Inline Executive Filter Matrix ── */}
+      <div className="hidden lg:flex items-center gap-2.5 bg-white dark:bg-zinc-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800">
+        {/* Search Bar */}
+        <div className="relative flex-1 min-w-[240px]">
+          <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
+          <Input
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              if (currentPage !== 1) setCurrentPage(1);
+            }}
+            placeholder="Search by name, tags, SKU, barcode..."
+            className="pl-9 pr-8 h-9 text-xs w-full"
+          />
+          {searchQuery && (
+            <button
+              type="button"
               onClick={() => {
                 setSearchQuery('');
-                setSelectedCategory('all');
-                setSelectedStockStatus('all');
-                setCurrentPage(1);
+                if (currentPage !== 1) setCurrentPage(1);
               }}
-              className="h-9 px-2 text-xs text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 shrink-0"
-              title="Clear all filters"
+              className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
             >
-              <X className="size-3.5 mr-1" /> Reset
-            </Button>
+              <X className="size-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Category Selector */}
+        <div className="w-48 xl:w-52 shrink-0">
+          <SearchableSelect
+            options={categoryOptions}
+            value={selectedCategory}
+            onValueChange={(val) => {
+              setSelectedCategory(val);
+              if (currentPage !== 1) setCurrentPage(1);
+            }}
+            placeholder="All Categories"
+            searchPlaceholder="Filter category..."
+            dark={dark}
+          />
+        </div>
+
+        {/* Stock Level Selector */}
+        <div className="w-44 xl:w-48 shrink-0">
+          <SearchableSelect
+            options={STOCK_OPTIONS}
+            value={selectedStockStatus}
+            onValueChange={(val) => {
+              setSelectedStockStatus(val);
+              if (currentPage !== 1) setCurrentPage(1);
+            }}
+            placeholder="All Stock Levels"
+            searchPlaceholder="Filter stock..."
+            dark={dark}
+          />
+        </div>
+
+        {/* Sort Selector & Clear All Shortcut */}
+        <div className="w-44 xl:w-48 shrink-0 flex items-center gap-1.5">
+          <div className="flex-1 min-w-0">
+            <SearchableSelect
+              options={SORT_OPTIONS}
+              value={sortBy}
+              onValueChange={(val) => {
+                setSortBy(val);
+                if (currentPage !== 1) setCurrentPage(1);
+              }}
+              placeholder="Sort Products..."
+              searchPlaceholder="Sort by..."
+              dark={dark}
+            />
+          </div>
+          {(activeFiltersCount > 0 || searchQuery) && (
+            <button
+              type="button"
+              onClick={handleClearAllFilters}
+              className="size-9 rounded-xl border border-slate-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-800 text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 hover:border-rose-300 dark:hover:border-rose-800 flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+              title="Clear All Filters"
+            >
+              <X className="size-4" />
+            </button>
           )}
         </div>
       </div>
@@ -690,3 +914,7 @@ const fetchAll = useCallback(async () => {
     </div>
   );
 };
+
+// Backwards compatibility and standard module exports
+export const ProductsPage = Products;
+export default Products;

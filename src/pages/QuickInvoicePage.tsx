@@ -17,7 +17,7 @@ import {
 } from '../components/ui/drawer';
 import { get, post, put } from '../lib/api';
 import { toast } from 'react-toastify';
-import { A4InvoiceModal } from '../components/pos/A4InvoiceModal';
+import { printInvoiceDirectly } from '../utils/print';
 import { SplitPaymentModal, type SplitPaymentItem } from '../components/pos/SplitPaymentModal';
 import { isValidSriLankanNIC, isValidSriLankanPhone } from '../utils/validators';
 import { useTheme } from '../contexts/ThemeContext';
@@ -50,8 +50,9 @@ import {
   Layers,
   FileDown,
   MessageSquare,
+  Percent,
 } from 'lucide-react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../utils/whatsapp';
 import { resolveImageUrl } from '../utils/imageUrl';
 
@@ -75,7 +76,9 @@ interface CatalogVariant {
 }
 
 interface CartItem {
+  id?: number | string;
   variantId: number;
+  productId?: number;
   name: string;
   size: string;
   color: string;
@@ -84,9 +87,16 @@ interface CartItem {
   sku: string;
   imageUrl?: string;
   unitPrice: number;
+  sellingPrice?: number;
   quantity: number;
+  qty?: number;
   maxStock: number;
   itemKey?: string;
+  // ⭐ Item-wise discount support
+  discount?: number;
+  discountInput?: number | '';
+  discountType?: 'FIXED' | 'PERCENT';
+  showDiscount?: boolean;
 }
 
 interface PosCustomer {
@@ -164,11 +174,15 @@ export const QuickInvoicePage: React.FC = () => {
 
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const editInvoiceId = searchParams.get('editInvoiceId');
+  const convertOrderId = searchParams.get('convertOrderId');
 
   // Dual-mode Discount: Default to Percentage (%), with Fixed Price (Rs) fallback
   const [discountType, setDiscountType] = useState<'FIXED' | 'PERCENT'>('PERCENT');
   const [discountInput, setDiscountInput] = useState<number>(0);
+  // ⭐ Raw string state for auto-detecting discount input type (% vs pure number)
+  const [discountRawInput, setDiscountRawInput] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
 
   // Edit Mode state tracking
@@ -189,9 +203,6 @@ export const QuickInvoicePage: React.FC = () => {
   const [tempPrevDueInput, setTempPrevDueInput] = useState('');
   const [updatingPrevDue, setUpdatingPrevDue] = useState(false);
 
-  // A4 Invoice preview state
-  const [completedOrder, setCompletedOrder] = useState<any>(null);
-  const [invoiceOpen, setInvoiceOpen] = useState(false);
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
 
   const barcodeInputRef = useRef<HTMLInputElement>(null);
@@ -561,8 +572,9 @@ export const QuickInvoicePage: React.FC = () => {
         // Pre-fill Cash Tendered
         setClientGivenCash(String(inv.paidAmount !== undefined ? inv.paidAmount : ''));
 
-        // Pre-fill Cart items
+        // Pre-fill Cart items with complete line-item discount state hydration
         if (Array.isArray(inv.items)) {
+          let parsedNotes: any = null;
           let parsedItemVariants: any[] = [];
           if (inv.notes) {
             try {
@@ -570,8 +582,11 @@ export const QuickInvoicePage: React.FC = () => {
               while (typeof current === 'string' && current.trim().startsWith('{')) {
                 current = JSON.parse(current);
               }
-              if (typeof current === 'object' && current !== null && Array.isArray(current.itemVariants)) {
-                parsedItemVariants = current.itemVariants;
+              if (typeof current === 'object' && current !== null) {
+                parsedNotes = current;
+                if (Array.isArray(current.itemVariants)) {
+                  parsedItemVariants = current.itemVariants;
+                }
               }
             } catch {}
           }
@@ -580,6 +595,46 @@ export const QuickInvoicePage: React.FC = () => {
             inv.items.map((i: any, idx: number) => {
               const chosenSize = i.size || i.selectedSize || parsedItemVariants[idx]?.size || i.variant?.size || 'FREE';
               const chosenColor = i.color || i.selectedColor || parsedItemVariants[idx]?.color || i.variant?.color || 'Default';
+              const lineDisc = Number(i.discount || 0);
+              const gross = (Number(i.unitPrice) || 0) * (Number(i.quantity) || 0);
+
+              /**
+               * Line-Item Discount Hydration Specification:
+               * 1. Inspect direct item properties (`discountType`, `discountInput`), fallback to
+               *    invoice-level structured notes metadata (`parsedNotes.itemDiscounts[idx]`).
+               * 2. If discountType is 'PERCENT', compute or hydrate the exact percentage rate (0-100%).
+               * 3. If discountType is 'FIXED', preserve the flat currency discount amount without rounding artifacts.
+               * 4. For legacy records where only `lineDisc` exists, default to 'FIXED' to maintain 100% numerical parity.
+               */
+              const metaDisc = parsedNotes?.itemDiscounts?.[idx] || (inv.itemDiscounts && inv.itemDiscounts[idx]);
+              let itemDiscType: 'PERCENT' | 'FIXED' = 'FIXED';
+              let itemDiscInput: number | '' = '';
+
+              const candidateType = (i.discountType || metaDisc?.discountType)?.toUpperCase();
+              if (candidateType === 'PERCENT') {
+                itemDiscType = 'PERCENT';
+                if (metaDisc?.discountInput !== undefined && metaDisc?.discountInput !== '') {
+                  itemDiscInput = Number(metaDisc.discountInput);
+                } else if (i.discountInput !== undefined && i.discountInput !== '') {
+                  itemDiscInput = Number(i.discountInput);
+                } else if (gross > 0 && lineDisc > 0) {
+                  itemDiscInput = parseFloat(((lineDisc / gross) * 100).toFixed(1));
+                }
+              } else if (candidateType === 'FIXED') {
+                itemDiscType = 'FIXED';
+                if (metaDisc?.discountInput !== undefined && metaDisc?.discountInput !== '') {
+                  itemDiscInput = Number(metaDisc.discountInput);
+                } else if (i.discountInput !== undefined && i.discountInput !== '') {
+                  itemDiscInput = Number(i.discountInput);
+                } else if (lineDisc > 0) {
+                  itemDiscInput = lineDisc;
+                }
+              } else if (lineDisc > 0) {
+                // Fallback for legacy invoice lines without explicit discount mode
+                itemDiscType = 'FIXED';
+                itemDiscInput = lineDisc;
+              }
+
               return {
                 variantId: i.variantId,
                 name: i.variant?.product?.name || 'Garment Item',
@@ -593,23 +648,81 @@ export const QuickInvoicePage: React.FC = () => {
                 quantity: Number(i.quantity),
                 maxStock: Number((i.variant?.stock || 0) + i.quantity), // Add back currently allocated units so validation succeeds
                 itemKey: `${i.variantId}_${chosenSize}_${chosenColor}_${idx}`,
+                discount: lineDisc,
+                discountInput: itemDiscInput,
+                discountType: itemDiscType,
+                showDiscount: lineDisc > 0 || (itemDiscInput !== '' && Number(itemDiscInput) > 0),
               };
             })
           );
         }
 
-        // Pre-fill Discount: Preserve default PERCENT (%) mode and calculate effective discount rate dynamically
+        /**
+         * Overall Order Discount Hydration Specification:
+         * 1. Inspect structured notes or invoice root for saved discount mode (`discountType`: 'PERCENT' | 'FIXED').
+         * 2. If 'PERCENT': hydrate percentage rate (`discountInput` & `${effectivePercent}%` in `discountRawInput`),
+         *    preventing it from defaulting to fixed Rs or causing calculation mismatches.
+         * 3. If 'FIXED': preserve flat currency discount amount without artificial % conversion or fractional drift.
+         * 4. For legacy records without stored discount mode: check if explicit `discountRate` exists; otherwise default
+         *    to 'FIXED' with exact `invDiscountAmt` so the customer bill matches the original down to the cent.
+         */
         const invDiscountAmt = Number((inv as any).discountAmount ?? inv.discount ?? 0);
         const invSubtotalAmt = Number(inv.subtotal ?? (Number(inv.totalAmount || 0) + invDiscountAmt));
-        if (invDiscountAmt > 0 && invSubtotalAmt > 0) {
+
+        let loadedNotes: any = null;
+        if (inv.notes) {
+          try {
+            let cur = inv.notes;
+            while (typeof cur === 'string' && cur.trim().startsWith('{')) {
+              cur = JSON.parse(cur);
+            }
+            if (typeof cur === 'object' && cur !== null) {
+              loadedNotes = cur;
+            }
+          } catch {}
+        }
+
+        const savedDiscType: 'FIXED' | 'PERCENT' | undefined =
+          loadedNotes?.discountType ||
+          (inv as any).discountType ||
+          ((inv as any).discountRate !== undefined && Number((inv as any).discountRate) > 0 ? 'PERCENT' : undefined);
+
+        const savedDiscInput = loadedNotes?.discountInput ?? (inv as any).discountInput;
+
+        if (savedDiscType === 'PERCENT') {
           setDiscountType('PERCENT');
-          const effectivePercent = (inv as any).discountRate !== undefined && Number((inv as any).discountRate) > 0
-            ? Number((inv as any).discountRate)
-            : parseFloat(((invDiscountAmt / invSubtotalAmt) * 100).toFixed(1));
+          let effectivePercent = 0;
+          if (savedDiscInput !== undefined && savedDiscInput !== '' && !isNaN(Number(savedDiscInput))) {
+            effectivePercent = Number(savedDiscInput);
+          } else if ((inv as any).discountRate !== undefined && Number((inv as any).discountRate) > 0) {
+            effectivePercent = Number((inv as any).discountRate);
+          } else if (invDiscountAmt > 0 && invSubtotalAmt > 0) {
+            effectivePercent = parseFloat(((invDiscountAmt / invSubtotalAmt) * 100).toFixed(1));
+          }
           setDiscountInput(effectivePercent);
+          setDiscountRawInput(effectivePercent > 0 ? `${effectivePercent}%` : '');
+        } else if (savedDiscType === 'FIXED') {
+          setDiscountType('FIXED');
+          const fixedVal = savedDiscInput !== undefined && savedDiscInput !== '' && !isNaN(Number(savedDiscInput))
+            ? Number(savedDiscInput)
+            : invDiscountAmt;
+          setDiscountInput(fixedVal);
+          setDiscountRawInput(fixedVal > 0 ? String(fixedVal) : '');
+        } else if (invDiscountAmt > 0) {
+          if ((inv as any).discountRate !== undefined && Number((inv as any).discountRate) > 0) {
+            const pct = Number((inv as any).discountRate);
+            setDiscountType('PERCENT');
+            setDiscountInput(pct);
+            setDiscountRawInput(`${pct}%`);
+          } else {
+            setDiscountType('FIXED');
+            setDiscountInput(invDiscountAmt);
+            setDiscountRawInput(String(invDiscountAmt));
+          }
         } else {
           setDiscountType('PERCENT');
           setDiscountInput(0);
+          setDiscountRawInput('');
         }
 
         // Trigger toast only once per invoice load session
@@ -626,6 +739,213 @@ export const QuickInvoicePage: React.FC = () => {
 
     loadEditInvoice();
   }, [editInvoiceId]);
+
+  /**
+   * Convert Presales Order to Quick Invoice Flow:
+   * Automatically sets mode to WHOLESALE, maps order line items (preserving net rate/discounts),
+   * Convert Presales Order to Quick Invoice Flow:
+   * Sets mode to WHOLESALE, hydrates customer, and fully preserves item-wise discounts
+   * (amount, input, discountType) and order-level discount for 100% financial fidelity.
+   */
+  useEffect(() => {
+    const rawConvertId = convertOrderId ? String(convertOrderId).trim() : null;
+    const convertOrderData = (location.state as any)?.convertOrder;
+
+    if (!rawConvertId && !convertOrderData) return;
+
+    const loadConvertOrder = async () => {
+      setLoading(true);
+      try {
+        let order = convertOrderData;
+        if (!order && rawConvertId) {
+          order = await get<any>(`/sales-orders/${rawConvertId}`);
+        }
+        if (!order) return;
+
+        // 1. Set Wholesale mode
+        setPricingMode('WHOLESALE');
+
+        // 2. Hydrate Customer: Preserve customer if present in order
+        if (order.customerId) {
+          const custIdStr = String(order.customerId);
+          setSelectedCustomerId(custIdStr);
+
+          // If customer object exists on order, ensure it's in customers list
+          if (order.customer) {
+            setCustomers((prev) => {
+              const exists = prev.some((c) => c.id === order.customer.id);
+              if (!exists) {
+                return [
+                  {
+                    id: order.customer.id,
+                    name: order.customer.name,
+                    phone: order.customer.phone || '',
+                    address: order.customer.address || '',
+                    city: order.customer.city || '',
+                    creditLimit: Number(order.customer.creditLimit) || 0,
+                    outstandingBalance: Number(order.customer.outstandingBalance) || 0,
+                  },
+                  ...prev,
+                ];
+              }
+              return prev;
+            });
+          }
+        } else {
+          setSelectedCustomerId('walk-in');
+        }
+
+        // 3. Hydrate Notes & Structured Metadata
+        let parsedNotes: any = null;
+        let plainUserNote = order.notes || '';
+        if (typeof order.notes === 'string' && order.notes.trim().startsWith('{')) {
+          try {
+            parsedNotes = JSON.parse(order.notes);
+            plainUserNote = parsedNotes.userNotes || '';
+          } catch {}
+        } else if (typeof order.notes === 'object' && order.notes !== null) {
+          parsedNotes = order.notes;
+          plainUserNote = parsedNotes.userNotes || '';
+        }
+        setPaymentNote(plainUserNote);
+        setShowNoteInput(!!plainUserNote);
+
+        // Reset payment tenders for cashier settlement
+        setClientGivenCash('');
+        setSplitPayments([]);
+        setCheques([{ id: '1', chequeNumber: '', bankName: '', chequeDate: new Date().toISOString().split('T')[0], amount: '' }]);
+        setPaymentMethod('CREDIT');
+
+        // 4. Hydrate Line Items and their specific discount properties cleanly matching CartItem schema
+        let convertedCart: CartItem[] = [];
+        if (Array.isArray(order.items) && order.items.length > 0) {
+          convertedCart = order.items.map((i: any, idx: number) => {
+            const qty = Number(i.quantity ?? i.qty) || 1;
+            const rawRate = Number(i.unitPrice ?? i.sellingPrice ?? i.price) || 0;
+            const lineDiscount = Number(i.discount || 0);
+            const gross = qty * rawRate;
+
+            // Determine item discount mode and input from item or structured metadata
+            let itemDiscType: 'PERCENT' | 'FIXED' = (i.discountType as any) || 'FIXED';
+            let itemDiscInput: number | '' = i.discountInput !== undefined && i.discountInput !== '' ? i.discountInput : '';
+
+            // Check item-level notes JSON if available
+            if (i.notes) {
+              try {
+                const itemMeta = typeof i.notes === 'string' ? JSON.parse(i.notes) : i.notes;
+                if (itemMeta && typeof itemMeta === 'object') {
+                  if (itemMeta.discountType) itemDiscType = itemMeta.discountType;
+                  if (itemMeta.discountInput !== undefined) itemDiscInput = itemMeta.discountInput;
+                }
+              } catch {}
+            }
+
+            // Check order structured notes for per-item discounts
+            if (parsedNotes?.itemDiscounts && Array.isArray(parsedNotes.itemDiscounts)) {
+              const metaDisc = parsedNotes.itemDiscounts[idx];
+              if (metaDisc) {
+                if (metaDisc.discountType) itemDiscType = metaDisc.discountType;
+                if (metaDisc.discountInput !== undefined) itemDiscInput = metaDisc.discountInput;
+              }
+            }
+
+            // Fallback: If input is still empty but line discount exists
+            if (itemDiscInput === '' && lineDiscount > 0) {
+              if (itemDiscType === 'PERCENT' && gross > 0) {
+                itemDiscInput = parseFloat(((lineDiscount / gross) * 100).toFixed(1));
+              } else {
+                itemDiscType = 'FIXED';
+                itemDiscInput = lineDiscount;
+              }
+            }
+
+            const v = i.variant;
+            const productName = i.productName || v?.product?.name || i.name || 'Garment Item';
+            const size = i.size || i.selectedSize || i.variantName || v?.size || 'FREE';
+            const color = i.color || i.selectedColor || v?.color || 'Default';
+            const sku = i.sku || v?.sku || '';
+            const imageUrl = i.imageUrl || v?.product?.images?.[0]?.imageUrl || '';
+            const resolvedVariantId = Number(i.variantId || v?.id || i.id || 0);
+            const resolvedProductId = Number(i.productId || v?.productId || v?.product?.id || 0);
+            const resolvedItemId = i.id ? Number(i.id) : (resolvedVariantId || idx + 1);
+
+            return {
+              id: resolvedItemId,
+              variantId: resolvedVariantId,
+              productId: resolvedProductId,
+              name: productName,
+              size,
+              color,
+              selectedSize: size,
+              selectedColor: color,
+              sku,
+              imageUrl,
+              unitPrice: rawRate,
+              sellingPrice: rawRate,
+              quantity: qty,
+              qty: qty,
+              maxStock: Math.max(qty, Number(v?.stock || 0)),
+              itemKey: `convert_${resolvedVariantId}_${size}_${color}_${idx}`,
+              discount: lineDiscount,
+              discountInput: itemDiscInput,
+              discountType: itemDiscType,
+              showDiscount: lineDiscount > 0, // Expand discount line if pre-existing discount exists (matching editInvoiceId behavior)
+            };
+          });
+
+          setCart(convertedCart);
+        }
+
+        // 5. Hydrate Overall Order Discount into Bill Summary section
+        const orderDiscountAmt = Number(order.discount) || 0;
+        const cartSubtotal = convertedCart.reduce((sum, item) => {
+          return sum + Math.max(0, item.quantity * item.unitPrice - (Number(item.discount) || 0));
+        }, 0);
+        const effectiveSubtotal = cartSubtotal > 0 ? cartSubtotal : (Number(order.subtotal) || 0);
+
+        let orderDiscType: 'PERCENT' | 'FIXED' = (order.discountType as any) || parsedNotes?.discountType || 'FIXED';
+        let orderDiscInput: number = 0;
+        let rawInputStr = '';
+
+        if (orderDiscountAmt > 0) {
+          if (parsedNotes?.discountInput !== undefined && parsedNotes.discountInput !== '') {
+            orderDiscInput = Number(parsedNotes.discountInput);
+            orderDiscType = parsedNotes.discountType || 'FIXED';
+            rawInputStr = orderDiscType === 'PERCENT' ? `${orderDiscInput}%` : String(orderDiscInput);
+          } else if (orderDiscType === 'PERCENT') {
+            orderDiscInput = order.discountInput !== undefined && order.discountInput !== ''
+              ? Number(order.discountInput)
+              : (effectiveSubtotal > 0 ? parseFloat(((orderDiscountAmt / effectiveSubtotal) * 100).toFixed(1)) : 0);
+            rawInputStr = `${orderDiscInput}%`;
+          } else {
+            // FIXED mode default: preserve stored rupee discount as exact flat amount (never guess percentage)
+            orderDiscType = 'FIXED';
+            orderDiscInput = orderDiscountAmt;
+            rawInputStr = String(orderDiscountAmt);
+          }
+        } else {
+          orderDiscType = 'PERCENT';
+          orderDiscInput = 0;
+          rawInputStr = '';
+        }
+
+        setDiscountType(orderDiscType);
+        setDiscountInput(orderDiscInput);
+        setDiscountRawInput(rawInputStr);
+
+        toast.info(
+          `Loaded Presales Order #${order.orderNumber || order.id} into Wholesale Invoice. All discounts & line items preserved.`
+        );
+      } catch (err: any) {
+        console.error('Failed to convert order to invoice:', err);
+        toast.error(err.message || 'Failed to load presales order for conversion');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadConvertOrder();
+  }, [convertOrderId, location.state]);
 
   /**
    * Add specific variant item to current cashier cart with consolidated sizes & colors
@@ -708,7 +1028,216 @@ export const QuickInvoicePage: React.FC = () => {
   };
 
   /**
-   * Change item quantity in cart by index
+   * Calculate line discount based on unitPrice, quantity, mode (FIXED vs PERCENT), and input value
+   */
+  const calculateLineDiscount = (
+    unitPrice: number,
+    qty: number,
+    type: 'FIXED' | 'PERCENT' = 'FIXED',
+    discInput?: number | ''
+  ): number => {
+    const gross = unitPrice * qty;
+    const num = Number(discInput) || 0;
+    if (num <= 0 || gross <= 0) return 0;
+    if (type === 'PERCENT') {
+      const pct = Math.min(100, Math.max(0, num));
+      return Math.round((gross * pct) / 100);
+    }
+    return Math.min(gross, Math.max(0, num));
+  };
+
+  /**
+   * ⭐ Toggle inline discount visibility for an item in cart
+   */
+  const toggleItemDiscount = (itemIndex: number) => {
+    setCart((prev) =>
+      prev.map((item, idx) =>
+        idx === itemIndex ? { ...item, showDiscount: !item.showDiscount } : item
+      )
+    );
+  };
+
+  /**
+   * ⭐ Update item discount type (% vs Fixed Rs) with Bidirectional Recalculation:
+   * - When switching from FIXED (Rs) -> PERCENT (%): Calculates equivalent percentage based on line gross.
+   * - When switching from PERCENT (%) -> FIXED (Rs): Calculates equivalent currency discount in Rs.
+   * Guarantees zero value mismatch and keeps item subtotal and bill total completely synchronized.
+   */
+  const handleItemDiscountTypeChange = (itemIndex: number, nextType: 'PERCENT' | 'FIXED') => {
+    setCart((prev) => {
+      const next = [...prev];
+      const item = next[itemIndex];
+      if (!item) return prev;
+
+      const currentType = item.discountType || 'FIXED';
+      if (currentType === nextType) return prev;
+
+      const gross = (Number(item.unitPrice) || 0) * (Number(item.quantity) || 0);
+      const currentDisc = Number(item.discount) || 0;
+      const currentInput = item.discountInput !== undefined && item.discountInput !== '' ? Number(item.discountInput) : 0;
+
+      let convertedInput: number | '' = '';
+      let calculatedDisc = 0;
+
+      if (nextType === 'PERCENT') {
+        // Switching from FIXED -> PERCENT: compute percentage from current discount amount
+        if (gross > 0 && currentDisc > 0) {
+          const rawPct = (currentDisc / gross) * 100;
+          const roundedPct = parseFloat(rawPct.toFixed(1));
+          convertedInput = Math.min(100, Math.max(0, isNaN(roundedPct) ? 0 : roundedPct));
+          calculatedDisc = Math.round((gross * convertedInput) / 100);
+        } else {
+          convertedInput = '';
+          calculatedDisc = 0;
+        }
+      } else {
+        // Switching from PERCENT -> FIXED: compute exact Rs amount from current percentage or currentDisc
+        if (gross > 0 && (currentDisc > 0 || currentInput > 0)) {
+          const effectiveAmt = currentDisc > 0 ? currentDisc : Math.round((gross * Math.min(100, currentInput)) / 100);
+          const clampedAmt = Math.min(gross, Math.max(0, isNaN(effectiveAmt) ? 0 : effectiveAmt));
+          convertedInput = clampedAmt;
+          calculatedDisc = clampedAmt;
+        } else {
+          convertedInput = '';
+          calculatedDisc = 0;
+        }
+      }
+
+      next[itemIndex] = {
+        ...item,
+        discountType: nextType,
+        discountInput: convertedInput,
+        discount: calculatedDisc,
+      };
+      return next;
+    });
+  };
+
+  /**
+   * ⭐ Handle item discount input change with auto-detection of '%'
+   * Sanitizes numeric input and immediately updates line-item discount calculation.
+   */
+  const handleItemDiscountInputChange = (itemIndex: number, valStr: string) => {
+    setCart((prev) => {
+      const next = [...prev];
+      const item = next[itemIndex];
+      if (!item) return prev;
+
+      let type = item.discountType || 'FIXED';
+      let cleanStr = valStr.trim();
+      if (cleanStr.includes('%')) {
+        type = 'PERCENT';
+        cleanStr = cleanStr.replace(/%/g, '');
+      }
+
+      if (cleanStr === '') {
+        next[itemIndex] = {
+          ...item,
+          discountType: type,
+          discountInput: '',
+          discount: 0,
+        };
+        return next;
+      }
+
+      const num = parseFloat(cleanStr);
+      if (isNaN(num)) {
+        next[itemIndex] = {
+          ...item,
+          discountType: type,
+          discountInput: '',
+          discount: 0,
+        };
+        return next;
+      }
+
+      const sanitizedNum = type === 'PERCENT' ? Math.min(100, Math.max(0, num)) : Math.max(0, num);
+      const nextDisc = calculateLineDiscount(item.unitPrice, item.quantity, type, sanitizedNum);
+
+      next[itemIndex] = {
+        ...item,
+        discountType: type,
+        discountInput: sanitizedNum,
+        discount: nextDisc,
+      };
+      return next;
+    });
+  };
+
+  /**
+   * ⭐ Handle Total Order Discount input change:
+   * Auto-detects percentage if '%' is typed, while preserving active discountType
+   * if the user is typing pure numbers in either mode.
+   */
+  const handleTotalDiscountChange = (valStr: string) => {
+    setDiscountRawInput(valStr);
+    const trimmed = valStr.trim();
+    if (trimmed === '') {
+      setDiscountInput(0);
+      return;
+    }
+
+    let activeType = discountType;
+    let cleanStr = trimmed;
+    if (trimmed.includes('%')) {
+      activeType = 'PERCENT';
+      setDiscountType('PERCENT');
+      cleanStr = cleanStr.replace(/%/g, '');
+    }
+
+    const num = parseFloat(cleanStr);
+    if (isNaN(num)) {
+      setDiscountInput(0);
+      return;
+    }
+
+    if (activeType === 'PERCENT') {
+      const pct = Math.min(100, Math.max(0, num));
+      setDiscountInput(pct);
+    } else {
+      setDiscountInput(Math.max(0, num));
+    }
+  };
+
+  /**
+   * ⭐ Bidirectional Manual Toggle for Overall Order Discount Type (PERCENT vs FIXED):
+   * Converts existing discount value between % and Rs so Subtotal, Total Due,
+   * and Net Payable amounts update reactively without value mismatches or NaN issues.
+   */
+  const handleDiscountTypeToggle = (nextType: 'FIXED' | 'PERCENT') => {
+    if (discountType === nextType) return;
+
+    if (nextType === 'PERCENT') {
+      // Switching from FIXED (Rs) -> PERCENT (%): Convert rupee discount into percentage of subtotal
+      if (subtotal > 0 && discountAmount > 0) {
+        const rawPct = (discountAmount / subtotal) * 100;
+        const roundedPct = parseFloat(rawPct.toFixed(1));
+        const clampedPct = Math.min(100, Math.max(0, isNaN(roundedPct) ? 0 : roundedPct));
+        setDiscountType('PERCENT');
+        setDiscountInput(clampedPct);
+        setDiscountRawInput(`${clampedPct}%`);
+      } else {
+        setDiscountType('PERCENT');
+        setDiscountInput(0);
+        setDiscountRawInput('');
+      }
+    } else {
+      // Switching from PERCENT (%) -> FIXED (Rs): Convert percentage discount into fixed currency amount
+      if (subtotal > 0 && discountAmount > 0) {
+        const fixedAmt = Math.min(subtotal, Math.max(0, Math.round(discountAmount)));
+        setDiscountType('FIXED');
+        setDiscountInput(fixedAmt);
+        setDiscountRawInput(String(fixedAmt));
+      } else {
+        setDiscountType('FIXED');
+        setDiscountInput(0);
+        setDiscountRawInput('');
+      }
+    }
+  };
+
+  /**
+   * Change item quantity in cart by index with auto recalculation of item discount
    */
   const updateQty = (itemIndex: number, delta: number) => {
     setCart((prev) =>
@@ -724,7 +1253,11 @@ export const QuickInvoicePage: React.FC = () => {
               toast.error(`Only ${item.maxStock} in stock`);
               return item;
             }
-            return nextQty > 0 ? { ...item, quantity: nextQty } : null;
+            if (nextQty > 0) {
+              const updatedDisc = calculateLineDiscount(item.unitPrice, nextQty, item.discountType, item.discountInput);
+              return { ...item, quantity: nextQty, discount: updatedDisc };
+            }
+            return null;
           }
           return item;
         })
@@ -763,14 +1296,16 @@ export const QuickInvoicePage: React.FC = () => {
       if (otherTotal + rawVal > targetItem.maxStock) {
         toast.error(`Only ${targetItem.maxStock} available in stock`);
         const allowed = Math.max(1, targetItem.maxStock - otherTotal);
+        const updatedDisc = calculateLineDiscount(targetItem.unitPrice, allowed, targetItem.discountType, targetItem.discountInput);
         setCart((prev) =>
-          prev.map((i, idx) => (idx === itemIndex ? { ...i, quantity: allowed } : i))
+          prev.map((i, idx) => (idx === itemIndex ? { ...i, quantity: allowed, discount: updatedDisc } : i))
         );
       } else {
         // Round to maximum 2 decimal places to avoid floating point issues
         const roundedQty = Math.round(rawVal * 100) / 100;
+        const updatedDisc = calculateLineDiscount(targetItem.unitPrice, roundedQty, targetItem.discountType, targetItem.discountInput);
         setCart((prev) =>
-          prev.map((i, idx) => (idx === itemIndex ? { ...i, quantity: roundedQty } : i))
+          prev.map((i, idx) => (idx === itemIndex ? { ...i, quantity: roundedQty, discount: updatedDisc } : i))
         );
       }
     }
@@ -826,9 +1361,14 @@ export const QuickInvoicePage: React.FC = () => {
   }, [cheques, paymentMethod, splitPayments]);
 
   // Subtotal and Net Payable Total calculation
-  const subtotal = useMemo(() => cart.reduce((acc, curr) => acc + curr.unitPrice * curr.quantity, 0), [cart]);
+  // Gross Subtotal (sum of unitPrice * quantity across all items)
+  const grossSubtotal = useMemo(() => cart.reduce((acc, curr) => acc + curr.unitPrice * curr.quantity, 0), [cart]);
+  // Total Item-level discounts
+  const totalItemDiscounts = useMemo(() => cart.reduce((acc, curr) => acc + (Number(curr.discount) || 0), 0), [cart]);
+  // Net Subtotal after deducting item-level discounts
+  const subtotal = Math.max(0, grossSubtotal - totalItemDiscounts);
 
-  // Compute final discount value in Rs based on selected mode (FIXED or PERCENT)
+  // Compute final order discount value in Rs based on selected mode (FIXED or PERCENT)
   const discountAmount = useMemo(() => {
     if (!discountInput || discountInput <= 0) return 0;
     if (discountType === 'PERCENT') {
@@ -1103,10 +1643,12 @@ export const QuickInvoicePage: React.FC = () => {
    * Device-Adaptive POS checkout execution engine:
    * 
    * Viewport Execution Matrix:
-   * - Desktop Viewports (≥1024px): Primary action defaults to 'SAVE_AND_PRINT' (saves order via api.post('/orders/pos'),
-   *   immediately mounts A4InvoiceModal sandbox and triggers window.print()). Secondary action is 'SAVE_ONLY'.
+   * - Desktop Viewports (≥1024px): Primary action defaults to 'SAVE_AND_PRINT' ('Pay Now & Print' / 'Update & Print').
+   *   Saves/updates order via api.post('/orders/pos') or api.put('/orders/invoices/:id') and immediately
+   *   triggers native browser printing via headless hidden iframe helper, completely eliminating any intermediate preview modal popup.
+   *   Secondary action is 'SAVE_ONLY'.
    * - Mobile / Tablet Viewports (<1024px): Primary action defaults to 'SAVE_AND_PDF' (touch-first direct binary PDF streaming download).
-   *   Secondary action is 'SAVE_ONLY', Tertiary action is 'SAVE_AND_PRINT' preview.
+   *   Secondary action is 'SAVE_ONLY', Tertiary action is 'SAVE_AND_PRINT' (Pay Now & Print / Update & Print).
    * 
    * @param mode - 'SAVE_ONLY' | 'SAVE_AND_PDF' | 'SAVE_AND_PRINT' | 'SAVE_AND_WHATSAPP'
    */
@@ -1203,7 +1745,10 @@ export const QuickInvoicePage: React.FC = () => {
           variantId: i.variantId,
           quantity: i.quantity,
           unitPrice: i.unitPrice,
-          price: i.unitPrice * i.quantity,
+          discount: i.discount || 0,
+          discountType: i.discountType || 'FIXED',
+          discountInput: i.discountInput !== undefined && i.discountInput !== '' ? Number(i.discountInput) : 0,
+          price: Math.max(0, (i.unitPrice * i.quantity) - (i.discount || 0)),
           size: i.size,
           color: i.color,
           selectedSize: i.size,
@@ -1212,6 +1757,8 @@ export const QuickInvoicePage: React.FC = () => {
         subtotal,
         discount: discountAmount,
         discountType,
+        discountInput,
+        discountRate: discountType === 'PERCENT' ? (discountInput > 0 ? discountInput : undefined) : undefined,
         totalAmount: total,
         paidAmount: resolvedPaid,
         settledDueAmount: finalSettledDue,
@@ -1240,6 +1787,7 @@ export const QuickInvoicePage: React.FC = () => {
 
       setCart([]);
       setDiscountInput(0);
+      setDiscountRawInput('');
       setClientGivenCash('');
       setExcessMode('CHANGE');
       setPaymentNote('');
@@ -1281,16 +1829,20 @@ export const QuickInvoicePage: React.FC = () => {
           navigate('/system/invoices');
         }
       } else if (mode === 'SAVE_AND_PRINT') {
-        // Accurately pass resolved customer with updated outstandingBalance to A4InvoiceModal
+        // Accurately resolve updated customer balance and construct fully hydrated complete order entity
         const targetCustomer = customers.find((c) => String(c.id) === String(selectedCustomerId));
         const updatedCustomerBal = resultOrder?.customer?.outstandingBalance !== undefined
           ? Number(resultOrder.customer.outstandingBalance)
           : Math.max(0, (targetCustomer?.outstandingBalance || 0) + (isEditing ? 0 : creditDue) - finalSettledDue);
 
-        setCompletedOrder({
+        const completeOrderObj = {
           ...resultOrder,
           items: (resultOrder?.items || []).map((ri: any, rIdx: number) => ({
             ...ri,
+            discount: checkoutCartSnapshot[rIdx]?.discount !== undefined ? checkoutCartSnapshot[rIdx]?.discount : (ri.discount || 0),
+            discountType: checkoutCartSnapshot[rIdx]?.discountType || ri.discountType,
+            discountInput: checkoutCartSnapshot[rIdx]?.discountInput,
+            price: checkoutCartSnapshot[rIdx]?.unitPrice ? Math.max(0, (checkoutCartSnapshot[rIdx].unitPrice * checkoutCartSnapshot[rIdx].quantity) - (checkoutCartSnapshot[rIdx].discount || 0)) : ri.price,
             size: checkoutCartSnapshot[rIdx]?.size || ri.size || ri.variant?.size,
             color: checkoutCartSnapshot[rIdx]?.color || ri.color || ri.variant?.color,
             selectedSize: checkoutCartSnapshot[rIdx]?.size || ri.size || ri.variant?.size,
@@ -1311,9 +1863,20 @@ export const QuickInvoicePage: React.FC = () => {
           discountAmount: discountAmount,
           discountType,
           discountRate: discountType === 'PERCENT' ? (discountInput > 0 ? discountInput : undefined) : undefined,
-        });
-        setInvoiceOpen(true);
+        };
+
         setMobileCartOpen(false);
+
+        // Technical Print Trigger: Immediately open native browser print dialogue via headless hidden iframe.
+        // Bypasses intermediate preview modal popup, providing an immediate Pay Now & Print / Update & Print experience.
+        // Upon print completion or dismissal, safely redirects back to invoices list or resets the POS state.
+        printInvoiceDirectly(completeOrderObj, () => {
+          if (isEditing) {
+            navigate('/system/invoices');
+          } else {
+            bootstrapPos();
+          }
+        });
       } else if (mode === 'SAVE_AND_WHATSAPP') {
         const targetCustomer = customers.find((c) => String(c.id) === String(selectedCustomerId));
         const updatedCustomerBal = resultOrder?.customer?.outstandingBalance !== undefined
@@ -1324,6 +1887,10 @@ export const QuickInvoicePage: React.FC = () => {
           ...resultOrder,
           items: (resultOrder?.items || []).map((ri: any, rIdx: number) => ({
             ...ri,
+            discount: checkoutCartSnapshot[rIdx]?.discount !== undefined ? checkoutCartSnapshot[rIdx]?.discount : (ri.discount || 0),
+            discountType: checkoutCartSnapshot[rIdx]?.discountType || ri.discountType,
+            discountInput: checkoutCartSnapshot[rIdx]?.discountInput,
+            price: checkoutCartSnapshot[rIdx]?.unitPrice ? Math.max(0, (checkoutCartSnapshot[rIdx].unitPrice * checkoutCartSnapshot[rIdx].quantity) - (checkoutCartSnapshot[rIdx].discount || 0)) : ri.price,
             size: checkoutCartSnapshot[rIdx]?.size || ri.size || ri.variant?.size,
             color: checkoutCartSnapshot[rIdx]?.color || ri.color || ri.variant?.color,
             selectedSize: checkoutCartSnapshot[rIdx]?.size || ri.size || ri.variant?.size,
@@ -1379,9 +1946,9 @@ export const QuickInvoicePage: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4 h-[calc(100vh-5rem)] pb-20 lg:pb-0 overflow-y-auto lg:overflow-hidden">
+    <div className="flex flex-col lg:flex-row gap-2.5 sm:gap-3 h-[calc(100vh-64px)] max-h-[calc(100vh-64px)] -mx-2 -my-3 sm:-mx-4 sm:-my-4 lg:-mx-8 lg:-my-8 p-2 sm:p-2.5 lg:p-3 overflow-hidden pb-16 lg:pb-0">
       {/* Left Column: Catalog Browser & Quick Scanner */}
-      <div className="flex-1 flex flex-col gap-3 min-w-0 bg-white dark:bg-zinc-900/60 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-zinc-800">
+      <div className="flex-1 flex flex-col gap-2 min-w-0 bg-white dark:bg-zinc-900/60 p-2.5 sm:p-3 rounded-2xl border border-slate-200 dark:border-zinc-800 overflow-hidden">
         {/* Top Controls: Search, Barcode & Pricing Mode */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Barcode Quick Scanner Form */}
@@ -1600,97 +2167,104 @@ export const QuickInvoicePage: React.FC = () => {
         )}
       </div>
 
-      {/* Right Column: Checkout Cart & A4 Billing (Desktop Layout) */}
-      <div className="hidden lg:flex lg:w-[380px] xl:w-[410px] h-full flex-col justify-between overflow-hidden bg-white dark:bg-zinc-900/70 p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 shrink-0 shadow-sm">
-        {/* Top Header */}
-        <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 dark:border-zinc-800/80 shrink-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className={`p-1.5 rounded-lg ${isEditing ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'}`}>
-              <ShoppingCart className="size-4" />
+      {/* Right Column: Checkout Cart & A4 Billing (Desktop Layout - Viewport Locked 3-Zone Architecture) */}
+      <div className="hidden lg:flex lg:w-[380px] xl:w-[410px] h-full flex-col overflow-hidden bg-white dark:bg-zinc-900/70 rounded-2xl border border-slate-200 dark:border-zinc-800 shrink-0 shadow-sm">
+        {/* Zone 1: Top Sticky Header (shrink-0) - Order Title & Customer Selector */}
+        <div className="p-3 pb-2 border-b border-slate-100 dark:border-zinc-800/80 shrink-0 space-y-2">
+          {/* Order Title Row */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className={`p-1.5 rounded-lg ${isEditing ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'}`}>
+                <ShoppingCart className="size-4" />
+              </div>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white truncate">
+                  {isEditing ? `Edit #INV${originalInvoice?.id}` : 'Active Order'}
+                </h3>
+                <Badge variant="secondary" className="text-[10px] font-mono px-1.5 py-0 h-4 bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300">
+                  {cart.length} {cart.length === 1 ? 'item' : 'items'}
+                </Badge>
+              </div>
+              {isEditing && (
+                <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-blue-500 text-blue-600 bg-blue-50 dark:bg-blue-950/40">
+                  EDIT
+                </Badge>
+              )}
             </div>
-            <div className="flex items-center gap-1.5 min-w-0">
-              <h3 className="font-bold text-sm text-slate-900 dark:text-white truncate">
-                {isEditing ? `Edit #INV${originalInvoice?.id}` : 'Active Order'}
-              </h3>
-              <Badge variant="secondary" className="text-[10px] font-mono px-1.5 py-0 h-4 bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300">
-                {cart.length} {cart.length === 1 ? 'item' : 'items'}
-              </Badge>
-            </div>
-            {isEditing && (
-              <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-blue-500 text-blue-600 bg-blue-50 dark:bg-blue-950/40">
-                EDIT
-              </Badge>
+            {cart.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCart([]);
+                  if (isEditing) {
+                    navigate('/system/quick-invoice');
+                    setIsEditing(false);
+                    setOriginalInvoice(null);
+                  }
+                }}
+                className="text-xs font-semibold text-rose-500 hover:text-rose-600 dark:text-rose-400 hover:underline cursor-pointer transition-colors"
+              >
+                {isEditing ? 'Cancel' : 'Clear All'}
+              </button>
             )}
           </div>
-          {cart.length > 0 && (
-            <button
-              type="button"
-              onClick={() => {
-                setCart([]);
-                if (isEditing) {
-                  navigate('/system/quick-invoice');
-                  setIsEditing(false);
-                  setOriginalInvoice(null);
-                }
-              }}
-              className="text-xs font-semibold text-rose-500 hover:text-rose-600 dark:text-rose-400 hover:underline cursor-pointer transition-colors"
-            >
-              {isEditing ? 'Cancel' : 'Clear All'}
-            </button>
-          )}
+
+          {/* Customer Selection Row */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400">Customer / Account</label>
+              <button
+                type="button"
+                onClick={() => setCustomerModalOpen(true)}
+                className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer min-h-[30px] sm:min-h-0"
+              >
+                <UserPlus className="size-3.5" /> + Add Customer
+              </button>
+            </div>
+            <SearchableSelect
+              value={selectedCustomerId}
+              onValueChange={setSelectedCustomerId}
+              options={[
+                { value: 'walk-in', label: 'Walk-in Customer (General)' },
+                ...customers.map((c) => {
+                  const effectiveDue = computeCustomerPreviousDue(c, isEditing, originalInvoice);
+                  return {
+                    value: String(c.id),
+                    label: `${c.name} (${c.phone})${effectiveDue > 0 ? ` · Due: Rs. ${Number(effectiveDue).toLocaleString()}` : ''}`,
+                  };
+                }),
+              ]}
+              placeholder="Select customer..."
+              searchPlaceholder="Search by name or phone..."
+              dark={dark}
+            />
+          </div>
         </div>
 
-        {/* Customer Selection Row with Searchable Combobox & Streamlined Live Status */}
-        <div className="py-2 border-b border-slate-100 dark:border-zinc-800/80 shrink-0">
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Customer / Account</label>
-            <button
-              type="button"
-              onClick={() => setCustomerModalOpen(true)}
-              className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer min-h-[44px] sm:min-h-0"
-            >
-              <UserPlus className="size-3.5" /> + Add Customer
-            </button>
-          </div>
-          <SearchableSelect
-            value={selectedCustomerId}
-            onValueChange={setSelectedCustomerId}
-            options={[
-              { value: 'walk-in', label: 'Walk-in Customer (General)' },
-              ...customers.map((c) => {
-                const effectiveDue = computeCustomerPreviousDue(c, isEditing, originalInvoice);
-                return {
-                  value: String(c.id),
-                  label: `${c.name} (${c.phone})${effectiveDue > 0 ? ` · Due: Rs. ${Number(effectiveDue).toLocaleString()}` : ''}`,
-                };
-              }),
-            ]}
-            placeholder="Select customer..."
-            searchPlaceholder="Search by name or phone..."
-            dark={dark}
-          />
-
-          {/* Consolidated Customer Live Status Banner (Single Compact Pill) */}
+        {/* Zone 2: Middle Scrollable Workspace (flex-1 overflow-y-auto min-h-0 px-3 py-2 space-y-3) */}
+        {/* Unifies Previous Due banner, Cart items, Subtotal/Discounts, Ledger, and Payment Methods */}
+        <div className="flex-1 overflow-y-auto min-h-0 px-3 py-2 space-y-3 scrollbar-thin">
+          {/* Consolidated Customer Live Status Banner */}
           {selectedCustomer && (
-            <div className={`mt-1.5 px-2.5 py-1.5 rounded-xl border flex items-center justify-between gap-2 text-xs transition-all ${
+            <div className={`px-2 py-1.5 rounded-lg border flex items-center justify-between gap-1.5 text-xs transition-all ${
               previousDue > 0
                 ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/50 text-amber-900 dark:text-amber-200'
                 : 'bg-slate-50 dark:bg-zinc-950/60 border-slate-200 dark:border-zinc-800 text-slate-800 dark:text-zinc-200'
             }`}>
               <div className="flex items-center gap-1.5 min-w-0">
-                <div className={`size-5 rounded-full flex items-center justify-center shrink-0 ${
+                <div className={`size-4 rounded-full flex items-center justify-center shrink-0 ${
                   previousDue > 0 ? 'bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300' : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400'
                 }`}>
-                  <User className="size-3" />
+                  <User className="size-2.5" />
                 </div>
-                <div className="min-w-0">
-                  <span className={`font-semibold text-xs truncate block ${
+                <div className="min-w-0 leading-tight">
+                  <span className={`font-semibold text-[11px] truncate block ${
                     previousDue > 0 ? 'text-amber-950 dark:text-amber-100' : 'text-slate-900 dark:text-white'
                   }`}>
                     {selectedCustomer.name}
                   </span>
-                  <span className={`text-[10px] font-mono block leading-none truncate ${
-                    previousDue > 0 ? 'text-amber-700/80 dark:text-amber-300/70' : 'text-slate-500 dark:text-zinc-400'
+                  <span className={`text-[9.5px] font-mono block leading-none truncate opacity-80 ${
+                    previousDue > 0 ? 'text-amber-700 dark:text-amber-300' : 'text-slate-500 dark:text-zinc-400'
                   }`}>
                     {selectedCustomer.phone} {selectedCustomer.city ? `· ${selectedCustomer.city}` : ''}
                   </span>
@@ -1699,12 +2273,12 @@ export const QuickInvoicePage: React.FC = () => {
 
               <div className="text-right shrink-0">
                 <div className="flex items-center justify-end gap-1">
-                  <span className={`text-[9px] font-bold uppercase tracking-wider ${
+                  <span className={`text-[8.5px] font-bold uppercase tracking-wider ${
                     previousDue > 0 ? 'text-amber-800 dark:text-amber-400' : 'text-slate-400 dark:text-zinc-500'
                   }`}>
-                    Previous Due
+                    Prev Due
                   </span>
-                  {loadingCustomerBalance && <Loader2 className="size-2.5 animate-spin text-amber-500" />}
+                  {loadingCustomerBalance && <Loader2 className="size-2 animate-spin text-amber-500" />}
                   {!editingPrevDue && (
                     <button
                       type="button"
@@ -1721,8 +2295,8 @@ export const QuickInvoicePage: React.FC = () => {
                 </div>
 
                 {editingPrevDue ? (
-                  <div className="flex items-center gap-1.5 mt-1 justify-end">
-                    <span className="text-xs text-slate-500 font-mono">Rs.</span>
+                  <div className="flex items-center gap-1 mt-0.5 justify-end">
+                    <span className="text-[10px] text-slate-500 font-mono">Rs.</span>
                     <input
                       type="number"
                       step="any"
@@ -1731,25 +2305,25 @@ export const QuickInvoicePage: React.FC = () => {
                       onChange={(e) => setTempPrevDueInput(e.target.value)}
                       placeholder="0"
                       autoFocus
-                      className="w-24 h-8 px-2.5 text-sm font-semibold rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-zinc-100 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                      className="w-20 h-6 px-1.5 text-xs font-semibold rounded-md border border-amber-300 dark:border-amber-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-zinc-100 shadow-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
                     />
                     <button
                       type="button"
                       disabled={updatingPrevDue}
                       onClick={handleSaveInlinePreviousDue}
-                      className="w-7 h-7 flex items-center justify-center rounded-md bg-emerald-600 hover:bg-emerald-700 text-white transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+                      className="w-6 h-6 flex items-center justify-center rounded-md bg-emerald-600 hover:bg-emerald-700 text-white transition-all shadow-xs disabled:opacity-50 cursor-pointer"
                       title="Save"
                     >
-                      {updatingPrevDue ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+                      {updatingPrevDue ? <Loader2 className="size-3 animate-spin" /> : <Check className="size-3" />}
                     </button>
                     <button
                       type="button"
                       disabled={updatingPrevDue}
                       onClick={() => setEditingPrevDue(false)}
-                      className="w-7 h-7 flex items-center justify-center rounded-md bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-500 dark:text-zinc-400 transition-all cursor-pointer"
+                      className="w-6 h-6 flex items-center justify-center rounded-md bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-500 dark:text-zinc-400 transition-all cursor-pointer"
                       title="Cancel"
                     >
-                      <X className="size-3.5" />
+                      <X className="size-3" />
                     </button>
                   </div>
                 ) : (
@@ -1764,191 +2338,267 @@ export const QuickInvoicePage: React.FC = () => {
               </div>
             </div>
           )}
-        </div>
 
-        {/* Central Order Cart Items - Flexible Scrollable Container */}
-        <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-100 dark:divide-zinc-800/50 my-1.5 pr-1 space-y-0.5">
-          {cart.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center gap-1 text-slate-400 dark:text-zinc-500 text-xs py-4">
-              <ShoppingCart className="size-8 opacity-25" />
-              <span className="font-medium">Order cart is empty</span>
-              <span className="text-[10px] opacity-75">Click products or scan barcode to add</span>
-            </div>
-          ) : (
-            cart.map((item, idx) => {
-              const sizeVal = (item as any).sizes || item.size || '';
-              const colorVal = (item as any).colors || item.color || '';
-              const variantDesc = (sizeVal || colorVal)
-                ? `Size: ${sizeVal || 'FREE'} | Color: ${colorVal || 'Default'}`
-                : '';
+          {/* Cart Items List */}
+          <div className="divide-y divide-slate-100 dark:divide-zinc-800/50 space-y-0.5">
+            {cart.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-1 text-slate-400 dark:text-zinc-500 text-xs py-8">
+                <ShoppingCart className="size-8 opacity-25" />
+                <span className="font-medium">Order cart is empty</span>
+                <span className="text-[10px] opacity-75">Click products or scan barcode to add</span>
+              </div>
+            ) : (
+              cart.map((item, idx) => {
+                const sizeVal = (item as any).sizes || item.size || '';
+                const colorVal = (item as any).colors || item.color || '';
+                const variantDesc = (sizeVal || colorVal)
+                  ? `Size: ${sizeVal || 'FREE'} | Color: ${colorVal || 'Default'}`
+                  : '';
 
-              return (
-                <div
-                  key={item.itemKey || `${item.variantId}_${idx}`}
-                  className="py-1.5 flex items-center justify-between gap-2 group hover:bg-slate-50/60 dark:hover:bg-zinc-800/30 px-1 rounded-lg transition-colors"
-                >
-                  <div className="min-w-0 flex-1">
-                    <h5 className="font-semibold text-xs text-slate-900 dark:text-white truncate" title={item.name}>
-                      {item.name}
-                    </h5>
-                    {variantDesc && (
-                      <p
-                        className="truncate max-w-[180px] text-xs text-muted-foreground text-slate-500 dark:text-zinc-400 mt-0.5"
-                        title={variantDesc}
-                      >
-                        {variantDesc}
-                      </p>
-                    )}
-                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                      @ Rs. {item.unitPrice.toLocaleString()}
-                    </div>
-                  </div>
+                return (
+                  <div
+                    key={item.itemKey || `${item.variantId}_${idx}`}
+                    className="py-1.5 flex flex-col group hover:bg-slate-50/60 dark:hover:bg-zinc-800/30 px-1 rounded-lg transition-colors"
+                  >
+                    <div className="flex items-center justify-between gap-1.5">
+                      {/* Product Name & Variant Details */}
+                      <div className="min-w-0 flex-1 pr-1.5">
+                        <h5 className="font-semibold text-xs text-slate-900 dark:text-white leading-tight break-words line-clamp-2" title={item.name}>
+                          {item.name}
+                        </h5>
+                        {variantDesc && (
+                          <p
+                            className="truncate max-w-[170px] text-[11px] text-muted-foreground text-slate-500 dark:text-zinc-400 mt-0.5"
+                            title={variantDesc}
+                          >
+                            {variantDesc}
+                          </p>
+                        )}
+                        <div className="text-[10px] text-slate-400 font-mono mt-0.5 flex items-center flex-wrap gap-1">
+                          <span>@ Rs. {item.unitPrice.toLocaleString()}</span>
+                          {Number(item.discount || 0) > 0 && (
+                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold font-mono">
+                              (-Rs. {Number(item.discount).toLocaleString()})
+                            </span>
+                          )}
+                        </div>
+                      </div>
 
-                  {/* Qty Stepper with Decimal Click-to-Edit Input (min 44x44px Touch Targets) */}
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => updateQty(idx, -1)}
-                      className="size-8 sm:size-7 md:size-8 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 md:min-h-[44px] md:min-w-[44px] rounded-lg bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors cursor-pointer select-none active:scale-95"
-                      title="Decrease quantity"
-                    >
-                      <Minus className="size-3.5" />
-                    </button>
+                      {/* Compact Quantity Stepper */}
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => updateQty(idx, -1)}
+                          className="size-6 rounded-md bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-600 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors cursor-pointer select-none active:scale-95"
+                          title="Decrease quantity"
+                        >
+                          <Minus className="size-3" />
+                        </button>
 
-                    {/* Click-to-Edit Decimal Quantity Input Box */}
-                    {editingQtyIndex === idx ? (
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        autoFocus
-                        value={tempQtyInput}
-                        onChange={(e) => {
-                          const val = e.target.value.replace(/[^0-9.]/g, '');
-                          const parts = val.split('.');
-                          const cleanVal = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join('')}` : val;
-                          setTempQtyInput(cleanVal);
-                        }}
-                        onFocus={(e) => e.target.select()}
-                        onBlur={() => handleApplyDirectQty(idx)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleApplyDirectQty(idx);
-                          } else if (e.key === 'Escape') {
-                            setEditingQtyIndex(null);
-                          }
-                        }}
-                        className="w-12 h-8 sm:h-7 md:h-8 min-h-[44px] sm:min-h-0 md:min-h-[44px] text-center font-mono text-xs font-bold bg-white dark:bg-zinc-900 border border-emerald-500 rounded text-emerald-600 dark:text-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                      />
-                    ) : (
+                        {/* Direct Decimal Quantity Input */}
+                        {editingQtyIndex === idx ? (
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            autoFocus
+                            value={tempQtyInput}
+                            onChange={(e) => {
+                              const val = e.target.value.replace(/[^0-9.]/g, '');
+                              const parts = val.split('.');
+                              const cleanVal = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join('')}` : val;
+                              setTempQtyInput(cleanVal);
+                            }}
+                            onFocus={(e) => e.target.select()}
+                            onBlur={() => handleApplyDirectQty(idx)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleApplyDirectQty(idx);
+                              } else if (e.key === 'Escape') {
+                                setEditingQtyIndex(null);
+                              }
+                            }}
+                            className="w-10 h-6 text-center font-mono text-xs font-bold bg-white dark:bg-zinc-900 border border-emerald-500 rounded text-emerald-600 dark:text-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingQtyIndex(idx);
+                              setTempQtyInput(String(item.quantity));
+                            }}
+                            className="min-w-6 h-6 px-1 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/60 font-mono text-xs font-bold text-slate-800 dark:text-zinc-200 flex items-center justify-center cursor-pointer transition-colors border border-transparent hover:border-emerald-300 dark:hover:border-emerald-700 select-none"
+                            title="Click to type quantity directly"
+                          >
+                            {item.quantity}
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => updateQty(idx, 1)}
+                          className="size-6 rounded-md bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-600 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors cursor-pointer select-none active:scale-95"
+                          title="Increase quantity"
+                        >
+                          <Plus className="size-3" />
+                        </button>
+                      </div>
+
+                      {/* Small Minimal "Add Discount" Icon Button */}
                       <button
                         type="button"
-                        onClick={() => {
-                          setEditingQtyIndex(idx);
-                          setTempQtyInput(String(item.quantity));
-                        }}
-                        className="min-w-8 h-8 sm:h-7 md:h-8 min-h-[44px] sm:min-h-0 md:min-h-[44px] px-1.5 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/60 font-mono text-xs font-bold text-slate-800 dark:text-zinc-200 flex items-center justify-center cursor-pointer transition-colors border border-transparent hover:border-emerald-300 dark:hover:border-emerald-700 select-none"
-                        title="Click to type quantity directly"
+                        onClick={() => toggleItemDiscount(idx)}
+                        className={`size-6 rounded-md flex items-center justify-center transition-all cursor-pointer select-none shrink-0 ${
+                          item.discount && item.discount > 0
+                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 font-bold border border-emerald-300 dark:border-emerald-700 shadow-2xs'
+                            : item.showDiscount
+                            ? 'bg-slate-200 text-slate-800 dark:bg-zinc-700 dark:text-zinc-200'
+                            : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-zinc-800'
+                        }`}
+                        title={item.showDiscount ? "Hide discount input" : "Add / Edit item discount"}
                       >
-                        {item.quantity}
+                        <Percent className="size-3" />
                       </button>
+
+                      {/* Line Total & Remove button */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className="font-mono font-bold text-xs text-right text-slate-900 dark:text-white min-w-[50px]">
+                          Rs. {Math.max(0, (item.unitPrice * item.quantity) - (item.discount || 0)).toLocaleString()}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => removeFromCart(idx)}
+                          className="opacity-100 lg:opacity-0 lg:group-hover:opacity-100 text-slate-400 hover:text-rose-500 p-1 rounded-md transition-all cursor-pointer flex items-center justify-center"
+                          title="Remove item"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Smoothly expandable inline discount bar */}
+                    {item.showDiscount && (
+                      <div className="mt-1 pt-1.5 border-t border-dashed border-slate-200 dark:border-zinc-800 flex items-center justify-between gap-2 text-xs bg-slate-100/70 dark:bg-zinc-900/60 p-1.5 rounded-lg transition-all animate-in fade-in duration-150">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] font-semibold text-slate-500 dark:text-zinc-400">Item Disc:</span>
+                          <div className="inline-flex rounded border border-slate-200 dark:border-zinc-800 p-0.5 bg-white dark:bg-zinc-900">
+                            <button
+                              type="button"
+                              onClick={() => handleItemDiscountTypeChange(idx, 'PERCENT')}
+                              className={`px-1.5 py-0.5 text-[9px] font-bold rounded transition-colors ${
+                                (item.discountType || 'PERCENT') === 'PERCENT'
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
+                              }`}
+                            >
+                              %
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleItemDiscountTypeChange(idx, 'FIXED')}
+                              className={`px-1.5 py-0.5 text-[9px] font-bold rounded transition-colors ${
+                                item.discountType === 'FIXED'
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
+                              }`}
+                            >
+                              Rs
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {item.discountType === 'PERCENT' && Number(item.discount || 0) > 0 && (
+                            <span className="text-[10px] font-mono text-emerald-600 font-semibold">
+                              (-{Number(item.discount).toLocaleString()})
+                            </span>
+                          )}
+                          <Input
+                            type="text"
+                            value={item.discountInput !== undefined && item.discountInput !== '' ? String(item.discountInput) : ''}
+                            onChange={(e) => handleItemDiscountInputChange(idx, e.target.value)}
+                            placeholder="0"
+                            className="w-16 h-6 text-xs text-right font-mono p-1 bg-white dark:bg-zinc-900 border-slate-300 dark:border-zinc-700 focus:ring-1 focus:ring-emerald-500"
+                          />
+                        </div>
+                      </div>
                     )}
-
-                    <button
-                      type="button"
-                      onClick={() => updateQty(idx, 1)}
-                      className="size-8 sm:size-7 md:size-8 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 md:min-h-[44px] md:min-w-[44px] rounded-lg bg-slate-100 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors cursor-pointer select-none active:scale-95"
-                      title="Increase quantity"
-                    >
-                      <Plus className="size-3.5" />
-                    </button>
                   </div>
+                );
+              })
+            )}
+          </div>
 
-                  {/* Line Total & Remove button (Touch Friendly Min 44x44px target) */}
-                  <div className="flex items-center gap-1.5 shrink-0 pl-1">
-                    <span className="font-mono font-bold text-xs text-right text-slate-900 dark:text-white min-w-[55px]">
-                      Rs. {(item.unitPrice * item.quantity).toLocaleString()}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => removeFromCart(idx)}
-                      className="opacity-100 lg:opacity-0 lg:group-hover:opacity-100 text-slate-400 hover:text-rose-500 p-2 rounded-lg transition-all cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
-                      title="Remove item"
-                    >
-                      <Trash2 className="size-4" />
-                    </button>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        {/* Totals, Financial Status & Payment Method - Fixed Bottom Area */}
-        <div className="shrink-0 pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-2">
-          {/* Subtotal & Discount Row */}
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className="flex items-center justify-between text-slate-500 dark:text-zinc-400">
+          {/* Subtotal & Discount Breakdown */}
+          <div className="flex flex-col gap-1 text-xs bg-slate-50/60 dark:bg-zinc-950/40 p-2 rounded-lg border border-slate-100 dark:border-zinc-800">
+            {/* Sub Total */}
+            <div className="flex items-center justify-between text-slate-600 dark:text-zinc-400">
               <span className="font-semibold text-slate-700 dark:text-zinc-300">Sub Total:</span>
               <span className="font-mono font-bold text-slate-900 dark:text-white">Rs. {subtotal.toLocaleString()}</span>
             </div>
 
-            {/* Discount with Type Toggle */}
-            <div className="flex items-center justify-end gap-1">
-              <span className="text-slate-500 dark:text-zinc-400">Disc:</span>
-              <div className="inline-flex rounded border border-slate-200 dark:border-zinc-800 p-0.5 bg-slate-100 dark:bg-zinc-900">
-                <button
-                  type="button"
-                  onClick={() => setDiscountType('PERCENT')}
-                  className={`px-1 py-0.2 text-[9px] font-bold rounded ${
-                    discountType === 'PERCENT'
-                      ? 'bg-emerald-600 text-white'
-                      : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
-                  }`}
+            {/* Order Discount Controls */}
+            <div className="flex flex-wrap items-center justify-between gap-1 pt-1 border-t border-slate-200/60 dark:border-zinc-800/60">
+              <div className="flex items-center gap-1">
+                <span className="text-slate-600 dark:text-zinc-400 font-medium text-[11px]">Disc:</span>
+                <div 
+                  className="inline-flex rounded border border-slate-200 dark:border-zinc-800 p-0.5 bg-slate-100 dark:bg-zinc-900 shrink-0"
+                  title={`Total Discount Mode: ${discountType === 'PERCENT' ? 'Percentage (%)' : 'Fixed Amount (Rs)'} (Auto-detected)`}
                 >
-                  %
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDiscountType('FIXED')}
-                  className={`px-1 py-0.2 text-[9px] font-bold rounded ${
-                    discountType === 'FIXED'
-                      ? 'bg-emerald-600 text-white'
-                      : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
-                  }`}
-                >
-                  Rs
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDiscountTypeToggle('PERCENT')}
+                    className={`px-1 py-0.2 text-[8.5px] font-bold rounded transition-colors cursor-pointer ${
+                      discountType === 'PERCENT'
+                        ? 'bg-emerald-600 text-white shadow-2xs'
+                        : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
+                    }`}
+                  >
+                    %
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDiscountTypeToggle('FIXED')}
+                    className={`px-1 py-0.2 text-[8.5px] font-bold rounded transition-colors cursor-pointer ${
+                      discountType === 'FIXED'
+                        ? 'bg-emerald-600 text-white shadow-2xs'
+                        : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
+                    }`}
+                  >
+                    Rs
+                  </button>
+                </div>
               </div>
-              {discountType === 'PERCENT' && discountAmount > 0 && (
-                <span className="text-[10px] font-mono text-emerald-600 font-semibold">
-                  (-{discountAmount.toLocaleString()})
-                </span>
-              )}
-              <Input
-                type="number"
-                min="0"
-                max={discountType === 'PERCENT' ? 100 : undefined}
-                value={discountInput || ''}
-                onChange={(e) => setDiscountInput(Number(e.target.value) || 0)}
-                placeholder="0"
-                className="w-14 h-6 text-xs text-right font-mono p-1"
-              />
+
+              <div className="flex items-center gap-1 ml-auto">
+                {discountType === 'PERCENT' && discountAmount > 0 && (
+                  <span className="text-[10px] font-mono text-emerald-600 font-bold whitespace-nowrap">
+                    (-Rs. {discountAmount.toLocaleString()})
+                  </span>
+                )}
+                <Input
+                  type="text"
+                  value={discountRawInput}
+                  onChange={(e) => handleTotalDiscountChange(e.target.value)}
+                  placeholder="0 or 10%"
+                  className="w-20 h-6 text-xs text-right font-mono p-1 bg-white dark:bg-zinc-900 border-slate-300 dark:border-zinc-700 focus:ring-1 focus:ring-emerald-500"
+                  title="Type a number for fixed Rs, or include '%' for percentage discount (e.g. 10%)"
+                />
+              </div>
             </div>
           </div>
 
           {/* Current Bill Total & Tendered Input */}
-          <div className="flex items-center justify-between py-1.5 px-2.5 rounded-xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800">
+          <div className="flex items-center justify-between py-1.5 px-2 rounded-lg bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800">
             <div>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block leading-tight">Total Due (Current Bill)</span>
-              <span className="font-mono text-base font-extrabold text-emerald-600 dark:text-emerald-400">
+              <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block leading-tight">Total Due (Current Bill)</span>
+              <span className="font-mono text-sm font-extrabold text-emerald-600 dark:text-emerald-400">
                 Rs. {total.toLocaleString()}
               </span>
             </div>
 
             <div className="text-right">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block leading-tight">
-                Customer Tendered ({paymentMethod})
+              <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block leading-tight">
+                Tendered ({paymentMethod})
               </span>
               <Input
                 type="number"
@@ -1958,7 +2608,7 @@ export const QuickInvoicePage: React.FC = () => {
                 onFocus={(e) => e.target.select()}
                 onClick={(e) => (e.target as HTMLInputElement).select()}
                 placeholder={String(total)}
-                className={`w-28 h-6 text-xs text-right font-mono font-bold mt-0.5 p-1 ${
+                className={`w-24 h-5.5 text-xs text-right font-mono font-bold mt-0.5 p-0.5 ${
                   isEditing
                     ? 'bg-slate-100 dark:bg-zinc-900 cursor-not-allowed !text-black dark:!text-white opacity-100 font-extrabold'
                     : 'text-emerald-600 dark:text-emerald-400'
@@ -1968,7 +2618,7 @@ export const QuickInvoicePage: React.FC = () => {
           </div>
 
           {/* Structured Financial Ledger Breakdown */}
-          <div className="space-y-1 bg-slate-50/80 dark:bg-zinc-950/60 rounded-xl p-2.5 border border-slate-200/80 dark:border-zinc-800/80 text-xs">
+          <div className="space-y-0.5 bg-slate-50/80 dark:bg-zinc-950/60 rounded-lg p-1.5 border border-slate-200/80 dark:border-zinc-800/80 text-[10.5px]">
             {/* Paid for Current Bill */}
             <div className="flex items-center justify-between">
               <span className="w-[58%] text-slate-600 dark:text-zinc-400 font-medium">Paid for Current Bill:</span>
@@ -1981,12 +2631,12 @@ export const QuickInvoicePage: React.FC = () => {
             {settledDueAmount > 0 && (
               <div className="flex items-center justify-between text-blue-600 dark:text-blue-400">
                 <div className="w-[58%] flex items-center gap-1 font-medium">
-                  <span>Due Settled from Tendered:</span>
+                  <span>Due Settled:</span>
                   {canSettleDue && (
                     <button
                       type="button"
                       onClick={() => setExcessMode('CHANGE')}
-                      className="inline-flex items-center gap-0.5 px-1.5 py-0.2 text-[9px] font-bold rounded-full bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 transition-colors cursor-pointer"
+                      className="inline-flex items-center gap-0.5 px-1 py-0.1 text-[8.5px] font-bold rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 transition-colors cursor-pointer"
                       title="Switch to return change to client"
                     >
                       <RotateCcw className="size-2" /> Change
@@ -2008,7 +2658,7 @@ export const QuickInvoicePage: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setExcessMode('SETTLE_DUE')}
-                      className="inline-flex items-center gap-0.5 px-1.5 py-0.2 text-[9px] font-bold rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 dark:border-blue-800 transition-colors cursor-pointer"
+                      className="inline-flex items-center gap-0.5 px-1 py-0.1 text-[8.5px] font-bold rounded bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 dark:border-blue-800 transition-colors cursor-pointer"
                       title="Settle customer outstanding balance with excess cash"
                     >
                       <RotateCcw className="size-2" /> Settle
@@ -2024,7 +2674,7 @@ export const QuickInvoicePage: React.FC = () => {
             {/* Previous Due (Old Bills) and Total Accumulated Credit Due */}
             {selectedCustomer && (
               <>
-                <div className="border-t border-dashed border-slate-200 dark:border-zinc-800 my-1 pt-1 flex items-center justify-between text-slate-600 dark:text-zinc-400">
+                <div className="border-t border-dashed border-slate-200 dark:border-zinc-800 my-0.5 pt-0.5 flex items-center justify-between text-slate-600 dark:text-zinc-400">
                   <span className="w-[58%] font-medium">Previous Due (Old Bills):</span>
                   <span className="w-[42%] text-right font-mono font-bold text-slate-900 dark:text-white">
                     Rs. {previousDue.toLocaleString()}
@@ -2032,8 +2682,8 @@ export const QuickInvoicePage: React.FC = () => {
                 </div>
 
                 <div className="flex items-center justify-between pt-0.5 text-amber-700 dark:text-amber-300 font-extrabold">
-                  <span className="w-[58%] text-[10.5px] uppercase tracking-wider font-bold">Total Accumulated Credit Due:</span>
-                  <span className="w-[42%] text-right font-mono text-xs font-black">
+                  <span className="w-[58%] text-[9.5px] uppercase tracking-wider font-bold">Total Accumulated Credit Due:</span>
+                  <span className="w-[42%] text-right font-mono text-[11px] font-black">
                     Rs. {totalAccumulatedDue.toLocaleString()}
                   </span>
                 </div>
@@ -2044,20 +2694,20 @@ export const QuickInvoicePage: React.FC = () => {
           {/* Payment Method Controls & Note / Cheque Field */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">
+              <label className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">
                 Payment Method
               </label>
               <button
                 type="button"
                 onClick={() => setShowNoteInput((prev) => !prev)}
-                className={`text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer ${
+                className={`text-[9.5px] font-semibold flex items-center gap-1 transition-colors cursor-pointer ${
                   showNoteInput || paymentNote.trim()
                     ? 'text-emerald-600 dark:text-emerald-400 font-bold'
                     : 'text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-300'
                 }`}
                 title={showNoteInput ? 'Collapse note field' : 'Add transaction note / reference'}
               >
-                <Pencil className="size-2.5" />
+                <Pencil className="size-2" />
                 <span>{paymentNote.trim() ? 'Edit Note' : showNoteInput ? 'Hide Note' : '+ Note'}</span>
               </button>
             </div>
@@ -2065,18 +2715,18 @@ export const QuickInvoicePage: React.FC = () => {
             {/* Optional General Note Field */}
             {showNoteInput && (
               <div className="relative flex items-center animate-in fade-in duration-150">
-                <FileText className="absolute left-2.5 size-3.5 text-slate-400 dark:text-zinc-500 pointer-events-none" />
+                <FileText className="absolute left-2 size-3 text-slate-400 dark:text-zinc-500 pointer-events-none" />
                 <Input
                   value={paymentNote}
                   onChange={(e) => setPaymentNote(e.target.value)}
                   placeholder="Payment note, ref no, or transaction details..."
-                  className="pl-8 pr-7 h-7 text-xs rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-black dark:text-white font-medium placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus-visible:ring-1 focus-visible:ring-emerald-500 transition-colors"
+                  className="pl-7 pr-6 h-6 text-xs rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-black dark:text-white font-medium placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus-visible:ring-1 focus-visible:ring-emerald-500 transition-colors"
                 />
                 {paymentNote && (
                   <button
                     type="button"
                     onClick={() => setPaymentNote('')}
-                    className="absolute right-2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 text-xs p-0.5 cursor-pointer"
+                    className="absolute right-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 text-xs p-0.5 cursor-pointer"
                     title="Clear note"
                   >
                     ×
@@ -2087,25 +2737,25 @@ export const QuickInvoicePage: React.FC = () => {
 
             {/* Split Payment Banner / Status */}
             {splitPayments.length > 0 ? (
-              <div className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-[11px] animate-in fade-in duration-150">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <Layers className="size-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+              <div className="flex items-center justify-between px-2 py-1 rounded-md bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-[10.5px] animate-in fade-in duration-150">
+                <div className="flex items-center gap-1 min-w-0">
+                  <Layers className="size-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
                   <div className="truncate">
                     <span className="font-bold text-indigo-900 dark:text-indigo-200">
-                      Split Active ({splitPayments.length} methods):{' '}
+                      Split ({splitPayments.length}):{' '}
                     </span>
                     <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
                       Rs. {totalSplitAmount.toLocaleString()}
                     </span>
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-center gap-1 shrink-0">
                   <button
                     type="button"
                     onClick={() => setSplitModalOpen(true)}
-                    className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 underline cursor-pointer"
+                    className="text-[9.5px] font-bold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 underline cursor-pointer"
                   >
-                    Edit Splits
+                    Edit
                   </button>
                   <span className="text-slate-300 dark:text-zinc-700">·</span>
                   <button
@@ -2116,7 +2766,7 @@ export const QuickInvoicePage: React.FC = () => {
                       setPaymentMethod('CASH');
                       setClientGivenCash(String(total));
                     }}
-                    className="text-[10px] font-bold text-rose-500 hover:text-rose-700 cursor-pointer"
+                    className="text-[9.5px] font-bold text-rose-500 hover:text-rose-700 cursor-pointer"
                     title="Clear split configuration"
                   >
                     Clear
@@ -2124,17 +2774,17 @@ export const QuickInvoicePage: React.FC = () => {
                 </div>
               </div>
             ) : (
-              <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-100/70 dark:bg-zinc-900/60 border border-slate-200/60 dark:border-zinc-800/60 text-[11px]">
-                <span className="text-slate-500 dark:text-zinc-400 text-[10px] sm:text-[11px]">
-                  Need split payment (Cash / Card / Cheque)?
+              <div className="flex items-center justify-between px-2 py-1 rounded-md bg-slate-100/70 dark:bg-zinc-900/60 border border-slate-200/60 dark:border-zinc-800/60 text-[10.5px]">
+                <span className="text-slate-500 dark:text-zinc-400 text-[10px]">
+                  Need split payment (Cash/Card/Cheque)?
                 </span>
                 <button
                   type="button"
                   onClick={() => setSplitModalOpen(true)}
-                  className="text-[10px] sm:text-[11px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 hover:underline cursor-pointer flex items-center gap-1"
+                  className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 hover:underline cursor-pointer flex items-center gap-0.5"
                 >
-                  <Layers className="size-3" />
-                  <span>Split Payment →</span>
+                  <Layers className="size-2.5" />
+                  <span>Split →</span>
                 </button>
               </div>
             )}
@@ -2144,97 +2794,101 @@ export const QuickInvoicePage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => handleSelectPaymentMethod('CASH')}
-                className={`flex items-center justify-center gap-1 py-1.5 min-h-[44px] sm:min-h-0 rounded-lg border text-[11px] font-semibold transition-all cursor-pointer ${
+                className={`flex items-center justify-center gap-1 h-7 min-h-[28px] py-1 px-1 rounded-md border text-[10px] font-semibold transition-all cursor-pointer ${
                   paymentMethod === 'CASH' && splitPayments.length === 0
-                    ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold shadow-xs'
+                    ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold shadow-2xs'
                     : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
                 }`}
                 title="Cash Payment"
               >
-                <Banknote className="size-3.5" /> <span className="hidden sm:inline">Cash</span>
+                <Banknote className="size-3" /> <span className="hidden sm:inline">Cash</span>
               </button>
               <button
                 type="button"
                 onClick={() => handleSelectPaymentMethod('CARD')}
-                className={`flex items-center justify-center gap-1 py-1.5 min-h-[44px] sm:min-h-0 rounded-lg border text-[11px] font-semibold transition-all cursor-pointer ${
+                className={`flex items-center justify-center gap-1 h-7 min-h-[28px] py-1 px-1 rounded-md border text-[10px] font-semibold transition-all cursor-pointer ${
                   paymentMethod === 'CARD' && splitPayments.length === 0
-                    ? 'border-purple-500 bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold shadow-xs'
+                    ? 'border-purple-500 bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold shadow-2xs'
                     : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
                 }`}
                 title="Credit/Debit Card POS Payment"
               >
-                <CreditCard className="size-3.5" /> <span className="hidden sm:inline">Card</span>
+                <CreditCard className="size-3" /> <span className="hidden sm:inline">Card</span>
               </button>
               <button
                 type="button"
                 onClick={() => handleSelectPaymentMethod('BANK_TRANSFER')}
-                className={`flex items-center justify-center gap-1 py-1.5 min-h-[44px] sm:min-h-0 rounded-lg border text-[11px] font-semibold transition-all cursor-pointer ${
+                className={`flex items-center justify-center gap-1 h-7 min-h-[28px] py-1 px-1 rounded-md border text-[10px] font-semibold transition-all cursor-pointer ${
                   paymentMethod === 'BANK_TRANSFER' && splitPayments.length === 0
-                    ? 'border-blue-500 bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold shadow-xs'
+                    ? 'border-blue-500 bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold shadow-2xs'
                     : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
                 }`}
                 title="Bank Transfer Payment"
               >
-                <Landmark className="size-3.5" /> <span className="hidden sm:inline">Bank</span>
+                <Landmark className="size-3" /> <span className="hidden sm:inline">Bank</span>
               </button>
               <button
                 type="button"
                 onClick={() => handleSelectPaymentMethod('CHEQUE')}
-                className={`flex items-center justify-center gap-1 py-1.5 min-h-[44px] sm:min-h-0 rounded-lg border text-[11px] font-semibold transition-all cursor-pointer ${
+                className={`flex items-center justify-center gap-1 h-7 min-h-[28px] py-1 px-1 rounded-md border text-[10px] font-semibold transition-all cursor-pointer ${
                   paymentMethod === 'CHEQUE' && splitPayments.length === 0
-                    ? 'border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold shadow-xs'
+                    ? 'border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold shadow-2xs'
                     : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
                 }`}
                 title="Cheque Payment"
               >
-                <FileText className="size-3.5" /> <span className="hidden sm:inline">Cheque</span>
+                <FileText className="size-3" /> <span className="hidden sm:inline">Cheque</span>
               </button>
               <button
                 type="button"
                 onClick={() => handleSelectPaymentMethod('CREDIT')}
-                className={`flex items-center justify-center gap-1 py-1.5 min-h-[44px] sm:min-h-0 rounded-lg border text-[11px] font-semibold transition-all cursor-pointer ${
+                className={`flex items-center justify-center gap-1 h-7 min-h-[28px] py-1 px-1 rounded-md border text-[10px] font-semibold transition-all cursor-pointer ${
                   paymentMethod === 'CREDIT'
-                    ? 'border-rose-500 bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold shadow-xs'
+                    ? 'border-rose-500 bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold shadow-2xs'
                     : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
                 }`}
                 title="Credit Account / Payable Later"
               >
-                <Building className="size-3.5" /> <span className="hidden sm:inline">Credit</span>
+                <Building className="size-3" /> <span className="hidden sm:inline">Credit</span>
               </button>
             </div>
           </div>
+        </div>
 
-          {/* Action Buttons: Desktop Adaptive Checkout Triggers (Primary: "Save & Print" vs Secondary: "Save Invoice Only") */}
-          <div className="flex flex-col sm:flex-row items-stretch gap-2 w-full pt-1">
+        {/* Zone 3: Bottom Sticky Action Bar (shrink-0 sticky bottom-0 bg-white dark:bg-zinc-900 border-t pt-2.5 pb-3 px-3 z-10 shadow-sm) */}
+        {/* Guaranteed 100% visible and anchored at the bottom limit of the panel at all times */}
+        <div className="shrink-0 sticky bottom-0 bg-white dark:bg-zinc-900 border-t border-slate-100 dark:border-zinc-800 pt-2.5 pb-3 px-3 z-10 shadow-sm space-y-1.5">
+          {/* Action Buttons: Desktop Adaptive Checkout Triggers (Compact h-9) */}
+          <div className="flex flex-col sm:flex-row items-stretch gap-1.5 w-full">
             <Button
               type="button"
               disabled={cart.length === 0 || submitting}
               onClick={() => handleCheckout('SAVE_ONLY')}
-              className="flex-1 min-h-[48px] h-12 gap-2 bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-100 dark:border-zinc-700 dark:border-zinc-750 font-bold text-xs sm:text-sm rounded-xl shadow-xs cursor-pointer transition-all active:scale-[0.98]"
+              className="flex-1 min-h-[36px] h-9 gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-100 dark:border-zinc-700 font-bold text-xs rounded-xl shadow-2xs cursor-pointer transition-all active:scale-[0.98]"
             >
-              {submitting ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4 text-slate-700 dark:text-zinc-300" />}
-              <span>{isEditing ? 'Save Changes Only' : 'Save Invoice Only'}</span>
+              {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5 text-slate-700 dark:text-zinc-300" />}
+              <span>{isEditing ? 'Save Changes' : 'Save Invoice Only'}</span>
             </Button>
             <Button
               type="button"
               disabled={cart.length === 0 || submitting}
               onClick={() => handleCheckout('SAVE_AND_PRINT')}
-              className="flex-1 min-h-[48px] h-12 gap-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm cursor-pointer transition-all active:scale-[0.98]"
+              className="flex-1 min-h-[36px] h-9 gap-1.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer transition-all active:scale-[0.98]"
             >
-              {submitting ? <Loader2 className="size-4 animate-spin" /> : <Printer className="size-4 text-white" />}
-              <span>Save &amp; Print</span>
+              {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <Printer className="size-3.5 text-white" />}
+              <span>{isEditing ? 'Update & Print' : 'Pay Now & Print'}</span>
             </Button>
           </div>
           {/* Direct WhatsApp Share & PDF Download Triggers for Desktop */}
-          <div className="flex items-center justify-center gap-3 pt-1">
+          <div className="flex items-center justify-center gap-2.5 pt-0.5">
             <button
               type="button"
               disabled={cart.length === 0 || submitting}
               onClick={() => handleCheckout('SAVE_AND_WHATSAPP')}
-              className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[32px] sm:min-h-0"
+              className="text-[10.5px] font-semibold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[22px]"
               title="Save Invoice & Share Receipt on WhatsApp"
             >
-              <MessageSquare className="size-3" />
+              <MessageSquare className="size-2.5" />
               <span>Save &amp; WhatsApp</span>
             </button>
             <span className="text-slate-300 dark:text-zinc-700 text-xs">|</span>
@@ -2242,10 +2896,10 @@ export const QuickInvoicePage: React.FC = () => {
               type="button"
               disabled={cart.length === 0 || submitting}
               onClick={() => handleCheckout('SAVE_AND_PDF')}
-              className="text-[11px] font-semibold text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[32px] sm:min-h-0"
+              className="text-[10.5px] font-semibold text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[22px]"
             >
-              <FileDown className="size-3" />
-              <span>Or Save &amp; Download PDF</span>
+              <FileDown className="size-2.5" />
+              <span>Save &amp; PDF</span>
             </button>
           </div>
         </div>
@@ -2284,10 +2938,10 @@ export const QuickInvoicePage: React.FC = () => {
 
       {/* Touch-Friendly Bottom Sheet Drawer for Mobile/Tablet (< 1024px) */}
       <Drawer open={mobileCartOpen} onOpenChange={setMobileCartOpen}>
-        <DrawerContent className="h-[97vh] max-h-[97vh] flex flex-col overflow-hidden p-3.5 sm:p-4">
-          <div className="flex-1 min-h-0 flex flex-col justify-between overflow-y-auto">
+        <DrawerContent className="h-[97vh] max-h-[97vh] flex flex-col overflow-hidden p-2.5 sm:p-3.5">
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             {/* Drawer Header */}
-            <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 dark:border-zinc-800/80 shrink-0">
+            <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-zinc-800/80 shrink-0">
               <div className="flex items-center gap-2 min-w-0">
                 <div className={`p-1.5 rounded-lg ${isEditing ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400' : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'}`}>
                   <ShoppingCart className="size-4" />
@@ -2327,7 +2981,7 @@ export const QuickInvoicePage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setMobileCartOpen(false)}
-                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 transition-colors cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 transition-colors cursor-pointer min-h-[36px] min-w-[36px] flex items-center justify-center"
                   title="Close Cart Drawer"
                 >
                   <X className="size-5" />
@@ -2336,15 +2990,15 @@ export const QuickInvoicePage: React.FC = () => {
             </div>
 
             {/* Customer Selection in Mobile Drawer */}
-            <div className="py-2 border-b border-slate-100 dark:border-zinc-800/80 shrink-0">
+            <div className="py-1.5 border-b border-slate-100 dark:border-zinc-800/80 shrink-0">
               <div className="flex items-center justify-between mb-1">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Customer / Account</label>
+                <label className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400">Customer / Account</label>
                 <button
                   type="button"
                   onClick={() => {
                     setCustomerModalOpen(true);
                   }}
-                  className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer min-h-[44px] sm:min-h-0"
+                  className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer min-h-[30px] sm:min-h-0"
                 >
                   <UserPlus className="size-3.5" /> + Add Customer
                 </button>
@@ -2366,28 +3020,31 @@ export const QuickInvoicePage: React.FC = () => {
                 searchPlaceholder="Search by name or phone..."
                 dark={dark}
               />
+            </div>
 
-              {/* Customer Live Status Banner */}
+            {/* Zone 2: Middle Scrollable Workspace (flex-1 overflow-y-auto min-h-0 px-3 py-2 space-y-3) */}
+            <div className="flex-1 overflow-y-auto min-h-0 px-3 py-2 space-y-3 scrollbar-thin">
+              {/* Customer Live Status Banner (Sleek Compact Pill) */}
               {selectedCustomer && (
-                <div className={`mt-1.5 px-2.5 py-1.5 rounded-xl border flex items-center justify-between gap-2 text-xs transition-all ${
+                <div className={`px-2 py-1 rounded-lg border flex items-center justify-between gap-1.5 text-xs transition-all shrink-0 ${
                   previousDue > 0
                     ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/50 text-amber-900 dark:text-amber-200'
                     : 'bg-slate-50 dark:bg-zinc-950/60 border-slate-200 dark:border-zinc-800 text-slate-800 dark:text-zinc-200'
                 }`}>
                   <div className="flex items-center gap-1.5 min-w-0">
-                    <div className={`size-5 rounded-full flex items-center justify-center shrink-0 ${
+                    <div className={`size-4 rounded-full flex items-center justify-center shrink-0 ${
                       previousDue > 0 ? 'bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300' : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400'
                     }`}>
-                      <User className="size-3" />
+                      <User className="size-2.5" />
                     </div>
-                    <div className="min-w-0">
-                      <span className={`font-semibold text-xs truncate block ${
+                    <div className="min-w-0 leading-tight">
+                      <span className={`font-semibold text-[11px] truncate block ${
                         previousDue > 0 ? 'text-amber-950 dark:text-amber-100' : 'text-slate-900 dark:text-white'
                       }`}>
                         {selectedCustomer.name}
                       </span>
-                      <span className={`text-[10px] font-mono block leading-none truncate ${
-                        previousDue > 0 ? 'text-amber-700/80 dark:text-amber-300/70' : 'text-slate-500 dark:text-zinc-400'
+                      <span className={`text-[9.5px] font-mono block leading-none truncate opacity-80 ${
+                        previousDue > 0 ? 'text-amber-700 dark:text-amber-300' : 'text-slate-500 dark:text-zinc-400'
                       }`}>
                         {selectedCustomer.phone} {selectedCustomer.city ? `· ${selectedCustomer.city}` : ''}
                       </span>
@@ -2396,12 +3053,12 @@ export const QuickInvoicePage: React.FC = () => {
 
                   <div className="text-right shrink-0">
                     <div className="flex items-center justify-end gap-1">
-                      <span className={`text-[9px] font-bold uppercase tracking-wider ${
+                      <span className={`text-[8.5px] font-bold uppercase tracking-wider ${
                         previousDue > 0 ? 'text-amber-800 dark:text-amber-400' : 'text-slate-400 dark:text-zinc-500'
                       }`}>
-                        Previous Due
+                        Prev Due
                       </span>
-                      {loadingCustomerBalance && <Loader2 className="size-2.5 animate-spin text-amber-500" />}
+                      {loadingCustomerBalance && <Loader2 className="size-2 animate-spin text-amber-500" />}
                       {!editingPrevDue && (
                         <button
                           type="button"
@@ -2418,8 +3075,8 @@ export const QuickInvoicePage: React.FC = () => {
                     </div>
 
                     {editingPrevDue ? (
-                      <div className="flex items-center gap-1.5 mt-1 justify-end">
-                        <span className="text-xs text-slate-500 font-mono">Rs.</span>
+                      <div className="flex items-center gap-1 mt-0.5 justify-end">
+                        <span className="text-[10px] text-slate-500 font-mono">Rs.</span>
                         <input
                           type="number"
                           step="any"
@@ -2428,25 +3085,25 @@ export const QuickInvoicePage: React.FC = () => {
                           onChange={(e) => setTempPrevDueInput(e.target.value)}
                           placeholder="0"
                           autoFocus
-                          className="w-24 h-8 px-2.5 text-sm font-semibold rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-zinc-100 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                          className="w-20 h-6 px-1.5 text-xs font-semibold rounded-md border border-amber-300 dark:border-amber-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-zinc-100 shadow-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
                         />
                         <button
                           type="button"
                           disabled={updatingPrevDue}
                           onClick={handleSaveInlinePreviousDue}
-                          className="w-7 h-7 flex items-center justify-center rounded-md bg-emerald-600 hover:bg-emerald-700 text-white transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+                          className="w-6 h-6 flex items-center justify-center rounded-md bg-emerald-600 hover:bg-emerald-700 text-white transition-all shadow-xs disabled:opacity-50 cursor-pointer"
                           title="Save"
                         >
-                          {updatingPrevDue ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+                          {updatingPrevDue ? <Loader2 className="size-3 animate-spin" /> : <Check className="size-3" />}
                         </button>
                         <button
                           type="button"
                           disabled={updatingPrevDue}
                           onClick={() => setEditingPrevDue(false)}
-                          className="w-7 h-7 flex items-center justify-center rounded-md bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-500 dark:text-zinc-400 transition-all cursor-pointer"
+                          className="w-6 h-6 flex items-center justify-center rounded-md bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-500 dark:text-zinc-400 transition-all cursor-pointer"
                           title="Cancel"
                         >
-                          <X className="size-3.5" />
+                          <X className="size-3" />
                         </button>
                       </div>
                     ) : (
@@ -2461,17 +3118,16 @@ export const QuickInvoicePage: React.FC = () => {
                   </div>
                 </div>
               )}
-            </div>
 
-            {/* Cart Line Items in Mobile Drawer */}
-            <div className="flex-1 min-h-[140px] max-h-[46vh] overflow-y-auto space-y-2 my-2 pr-1">
-              {cart.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center gap-1 text-slate-400 dark:text-zinc-500 text-xs py-6">
-                  <ShoppingCart className="size-8 opacity-25" />
-                  <span className="font-medium">Order cart is empty</span>
-                  <span className="text-[10px] opacity-75">Add products from catalog</span>
-                </div>
-              ) : (
+              {/* Cart Line Items in Mobile Drawer */}
+              <div className="space-y-1.5">
+                {cart.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center gap-1 text-slate-400 dark:text-zinc-500 text-xs py-6">
+                    <ShoppingCart className="size-8 opacity-25" />
+                    <span className="font-medium">Order cart is empty</span>
+                    <span className="text-[10px] opacity-75">Add products from catalog</span>
+                  </div>
+                ) : (
                 cart.map((item, idx) => {
                   const sizeVal = (item as any).sizes || item.size || '';
                   const colorVal = (item as any).colors || item.color || '';
@@ -2513,7 +3169,7 @@ export const QuickInvoicePage: React.FC = () => {
                         </button>
                       </div>
 
-                      {/* Row 2: Compact Quantity Stepper (slim 28px/h-7) on left, Line Total on right */}
+                      {/* Row 2: Compact Quantity Stepper, Item Discount Toggle Button, and Line Total */}
                       <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-zinc-800/40">
                         {/* Compact Stepper */}
                         <div className="flex items-center gap-1 shrink-0">
@@ -2574,85 +3230,159 @@ export const QuickInvoicePage: React.FC = () => {
                           </button>
                         </div>
 
-                        {/* Line Total */}
-                        <div className="flex items-center gap-1.5 text-right">
-                          <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-400 dark:text-zinc-500">
-                            Total:
-                          </span>
-                          <span className="font-mono font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
-                            Rs. {(item.unitPrice * item.quantity).toLocaleString()}
-                          </span>
+                        {/* Item Discount Toggle Button & Line Total */}
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => toggleItemDiscount(idx)}
+                            className={`size-7 h-7 w-7 rounded-lg flex items-center justify-center transition-all cursor-pointer select-none shrink-0 ${
+                              item.discount && item.discount > 0
+                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 font-bold border border-emerald-300 dark:border-emerald-700 shadow-2xs'
+                                : item.showDiscount
+                                ? 'bg-slate-300 text-slate-800 dark:bg-zinc-700 dark:text-zinc-200'
+                                : 'bg-slate-200/70 text-slate-500 dark:bg-zinc-800 dark:text-zinc-400 hover:text-emerald-600'
+                            }`}
+                            title={item.showDiscount ? "Hide item discount" : "Add item discount"}
+                          >
+                            <Percent className="size-3" />
+                          </button>
+
+                          <div className="flex items-center gap-1.5 text-right">
+                            <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-400 dark:text-zinc-500">
+                              Total:
+                            </span>
+                            <span className="font-mono font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
+                              Rs. {Math.max(0, (item.unitPrice * item.quantity) - (item.discount || 0)).toLocaleString()}
+                            </span>
+                          </div>
                         </div>
                       </div>
+
+                      {/* Mobile Inline Item Discount Bar */}
+                      {item.showDiscount && (
+                        <div className="pt-1.5 mt-1 border-t border-dashed border-slate-200 dark:border-zinc-800/80 flex items-center justify-between gap-2 text-xs bg-slate-100/60 dark:bg-zinc-900/60 p-1.5 rounded-lg animate-in fade-in duration-150">
+                          <div className="flex items-center gap-1">
+                            <span className="text-[11px] font-semibold text-slate-600 dark:text-zinc-300">Item Disc:</span>
+                            <div className="inline-flex rounded border border-slate-200 dark:border-zinc-800 p-0.5 bg-white dark:bg-zinc-900">
+                              <button
+                                type="button"
+                                onClick={() => handleItemDiscountTypeChange(idx, 'PERCENT')}
+                                className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${
+                                  (item.discountType || 'PERCENT') === 'PERCENT'
+                                    ? 'bg-emerald-600 text-white'
+                                    : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
+                                }`}
+                              >
+                                %
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleItemDiscountTypeChange(idx, 'FIXED')}
+                                className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${
+                                  item.discountType === 'FIXED'
+                                    ? 'bg-emerald-600 text-white'
+                                    : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
+                                }`}
+                              >
+                                Rs
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            {item.discountType === 'PERCENT' && Number(item.discount || 0) > 0 && (
+                              <span className="text-[10px] font-mono text-emerald-600 font-semibold">
+                                (-{Number(item.discount).toLocaleString()})
+                              </span>
+                            )}
+                            <Input
+                              type="text"
+                              value={item.discountInput !== undefined && item.discountInput !== '' ? String(item.discountInput) : ''}
+                              onChange={(e) => handleItemDiscountInputChange(idx, e.target.value)}
+                              placeholder="0"
+                              className="w-16 h-7 text-xs text-right font-mono p-1 bg-white dark:bg-zinc-900 border-slate-300 dark:border-zinc-700"
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })
               )}
             </div>
 
-            {/* Financial Ledger & Payment Method in Mobile Drawer */}
-            <div className="shrink-0 pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-2">
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="flex items-center justify-between text-slate-500 dark:text-zinc-400">
+            {/* Financial Ledger & Payment Method in Mobile Drawer (Zone 2 scrollable workspace) */}
+            <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-2">
+              {/* Subtotal & Discount Breakdown */}
+              <div className="flex flex-col gap-1 text-xs bg-slate-50/60 dark:bg-zinc-950/40 p-1.5 rounded-lg border border-slate-100 dark:border-zinc-800">
+                {/* Row 1: Sub Total */}
+                <div className="flex items-center justify-between text-slate-600 dark:text-zinc-400">
                   <span className="font-semibold text-slate-700 dark:text-zinc-300">Sub Total:</span>
                   <span className="font-mono font-bold text-slate-900 dark:text-white">Rs. {subtotal.toLocaleString()}</span>
                 </div>
 
-                <div className="flex items-center justify-end gap-1">
-                  <span className="text-slate-500 dark:text-zinc-400">Disc:</span>
-                  <div className="inline-flex rounded border border-slate-200 dark:border-zinc-800 p-0.5 bg-slate-100 dark:bg-zinc-900">
-                    <button
-                      type="button"
-                      onClick={() => setDiscountType('PERCENT')}
-                      className={`px-1 py-0.2 text-[9px] font-bold rounded ${
-                        discountType === 'PERCENT'
-                          ? 'bg-emerald-600 text-white'
-                          : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
-                      }`}
+                {/* Row 2: Order Discount Controls & Dynamic Badge in Mobile Drawer */}
+                <div className="flex flex-wrap items-center justify-between gap-1 pt-0.5 border-t border-slate-200/60 dark:border-zinc-800/60">
+                  <div className="flex items-center gap-1">
+                    <span className="text-slate-600 dark:text-zinc-400 font-medium text-[11px]">Disc:</span>
+                    <div 
+                      className="inline-flex rounded border border-slate-200 dark:border-zinc-800 p-0.5 bg-slate-100 dark:bg-zinc-900 shrink-0"
+                      title={`Total Discount Mode: ${discountType === 'PERCENT' ? 'Percentage (%)' : 'Fixed Amount (Rs)'} (Auto-detected)`}
                     >
-                      %
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDiscountType('FIXED')}
-                      className={`px-1 py-0.2 text-[9px] font-bold rounded ${
-                        discountType === 'FIXED'
-                          ? 'bg-emerald-600 text-white'
-                          : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
-                      }`}
-                    >
-                      Rs
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDiscountTypeToggle('PERCENT')}
+                        className={`px-1 py-0.2 text-[8.5px] font-bold rounded transition-colors cursor-pointer ${
+                          discountType === 'PERCENT'
+                            ? 'bg-emerald-600 text-white shadow-2xs'
+                            : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
+                        }`}
+                      >
+                        %
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDiscountTypeToggle('FIXED')}
+                        className={`px-1 py-0.2 text-[8.5px] font-bold rounded transition-colors cursor-pointer ${
+                          discountType === 'FIXED'
+                            ? 'bg-emerald-600 text-white shadow-2xs'
+                            : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
+                        }`}
+                      >
+                        Rs
+                      </button>
+                    </div>
                   </div>
-                  {discountType === 'PERCENT' && discountAmount > 0 && (
-                    <span className="text-[10px] font-mono text-emerald-600 font-semibold">
-                      (-{discountAmount.toLocaleString()})
-                    </span>
-                  )}
-                  <Input
-                    type="number"
-                    min="0"
-                    max={discountType === 'PERCENT' ? 100 : undefined}
-                    value={discountInput || ''}
-                    onChange={(e) => setDiscountInput(Number(e.target.value) || 0)}
-                    placeholder="0"
-                    className="w-14 h-6 text-xs text-right font-mono p-1"
-                  />
+
+                  <div className="flex items-center gap-1 ml-auto">
+                    {discountType === 'PERCENT' && discountAmount > 0 && (
+                      <span className="text-[10px] font-mono text-emerald-600 font-bold whitespace-nowrap">
+                        (-Rs. {discountAmount.toLocaleString()})
+                      </span>
+                    )}
+                    <Input
+                      type="text"
+                      value={discountRawInput}
+                      onChange={(e) => handleTotalDiscountChange(e.target.value)}
+                      placeholder="0 or 10%"
+                      className="w-20 h-6 text-xs text-right font-mono p-1 bg-white dark:bg-zinc-900 border-slate-300 dark:border-zinc-700 focus:ring-1 focus:ring-emerald-500"
+                      title="Type a number for fixed Rs, or include '%' for percentage discount (e.g. 10%)"
+                    />
+                  </div>
                 </div>
               </div>
 
               {/* Bill Total & Tendered Input */}
-              <div className="flex items-center justify-between py-1.5 px-2.5 rounded-xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800">
+              <div className="flex items-center justify-between py-1 px-2 rounded-lg bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800">
                 <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block leading-tight">Total Due (Current Bill)</span>
-                  <span className="font-mono text-base font-extrabold text-emerald-600 dark:text-emerald-400">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block leading-tight">Total Due (Current Bill)</span>
+                  <span className="font-mono text-sm font-extrabold text-emerald-600 dark:text-emerald-400">
                     Rs. {total.toLocaleString()}
                   </span>
                 </div>
 
                 <div className="text-right">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block leading-tight">
-                    Customer Tendered ({paymentMethod})
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block leading-tight">
+                    Tendered ({paymentMethod})
                   </span>
                   <Input
                     type="number"
@@ -2662,7 +3392,7 @@ export const QuickInvoicePage: React.FC = () => {
                     onFocus={(e) => e.target.select()}
                     onClick={(e) => (e.target as HTMLInputElement).select()}
                     placeholder={String(total)}
-                    className={`w-28 h-6 text-xs text-right font-mono font-bold mt-0.5 p-1 ${
+                    className={`w-24 h-5.5 text-xs text-right font-mono font-bold mt-0.5 p-0.5 ${
                       isEditing
                         ? 'bg-slate-100 dark:bg-zinc-900 cursor-not-allowed !text-black dark:!text-white opacity-100 font-extrabold'
                         : 'text-emerald-600 dark:text-emerald-400'
@@ -2672,7 +3402,7 @@ export const QuickInvoicePage: React.FC = () => {
               </div>
 
               {/* Financial Ledger Breakdown */}
-              <div className="space-y-0.5 bg-slate-50/80 dark:bg-zinc-950/60 rounded-xl p-2 border border-slate-200/80 dark:border-zinc-800/80 text-xs">
+              <div className="space-y-0.5 bg-slate-50/80 dark:bg-zinc-950/60 rounded-lg p-1.5 border border-slate-200/80 dark:border-zinc-800/80 text-[10.5px]">
                 <div className="flex items-center justify-between">
                   <span className="w-[58%] text-slate-600 dark:text-zinc-400 font-medium">Paid for Current Bill:</span>
                   <span className="w-[42%] text-right font-mono font-bold text-slate-900 dark:text-white">
@@ -2683,12 +3413,12 @@ export const QuickInvoicePage: React.FC = () => {
                 {settledDueAmount > 0 && (
                   <div className="flex items-center justify-between text-blue-600 dark:text-blue-400">
                     <div className="w-[58%] flex items-center gap-1 font-medium">
-                      <span>Due Settled from Tendered:</span>
+                      <span>Due Settled:</span>
                       {canSettleDue && (
                         <button
                           type="button"
                           onClick={() => setExcessMode('CHANGE')}
-                          className="inline-flex items-center gap-0.5 px-1.5 py-0.2 text-[9px] font-bold rounded-full bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 transition-colors cursor-pointer"
+                          className="inline-flex items-center gap-0.5 px-1 py-0.1 text-[8.5px] font-bold rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 transition-colors cursor-pointer"
                         >
                           <RotateCcw className="size-2" /> Change
                         </button>
@@ -2708,7 +3438,7 @@ export const QuickInvoicePage: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => setExcessMode('SETTLE_DUE')}
-                          className="inline-flex items-center gap-0.5 px-1.5 py-0.2 text-[9px] font-bold rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 dark:border-blue-800 transition-colors cursor-pointer"
+                          className="inline-flex items-center gap-0.5 px-1 py-0.1 text-[8.5px] font-bold rounded bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 dark:border-blue-800 transition-colors cursor-pointer"
                         >
                           <RotateCcw className="size-2" /> Settle
                         </button>
@@ -2722,7 +3452,7 @@ export const QuickInvoicePage: React.FC = () => {
 
                 {selectedCustomer && (
                   <>
-                    <div className="border-t border-dashed border-slate-200 dark:border-zinc-800 my-1 pt-1 flex items-center justify-between text-slate-600 dark:text-zinc-400">
+                    <div className="border-t border-dashed border-slate-200 dark:border-zinc-800 my-0.5 pt-0.5 flex items-center justify-between text-slate-600 dark:text-zinc-400">
                       <span className="w-[58%] font-medium">Previous Due (Old Bills):</span>
                       <span className="w-[42%] text-right font-mono font-bold text-slate-900 dark:text-white">
                         Rs. {previousDue.toLocaleString()}
@@ -2730,8 +3460,8 @@ export const QuickInvoicePage: React.FC = () => {
                     </div>
 
                     <div className="flex items-center justify-between pt-0.5 text-amber-700 dark:text-amber-300 font-extrabold">
-                      <span className="w-[58%] text-[10.5px] uppercase tracking-wider font-bold">Total Accumulated Credit Due:</span>
-                      <span className="w-[42%] text-right font-mono text-xs font-black">
+                      <span className="w-[58%] text-[9.5px] uppercase tracking-wider font-bold">Total Accumulated Credit Due:</span>
+                      <span className="w-[42%] text-right font-mono text-[11px] font-black">
                         Rs. {totalAccumulatedDue.toLocaleString()}
                       </span>
                     </div>
@@ -2740,39 +3470,39 @@ export const QuickInvoicePage: React.FC = () => {
               </div>
 
               {/* Payment Methods */}
-              <div className="space-y-1.5">
+              <div className="space-y-1">
                 <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">
+                  <label className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">
                     Payment Method
                   </label>
                   <button
                     type="button"
                     onClick={() => setShowNoteInput((prev) => !prev)}
-                    className={`text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer ${
+                    className={`text-[9.5px] font-semibold flex items-center gap-1 transition-colors cursor-pointer ${
                       showNoteInput || paymentNote.trim()
                         ? 'text-emerald-600 dark:text-emerald-400 font-bold'
                         : 'text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-300'
                     }`}
                   >
-                    <Pencil className="size-2.5" />
+                    <Pencil className="size-2" />
                     <span>{paymentNote.trim() ? 'Edit Note' : showNoteInput ? 'Hide Note' : '+ Note'}</span>
                   </button>
                 </div>
 
                 {showNoteInput && (
                   <div className="relative flex items-center animate-in fade-in duration-150">
-                    <FileText className="absolute left-2.5 size-3.5 text-slate-400 dark:text-zinc-500 pointer-events-none" />
+                    <FileText className="absolute left-2 size-3 text-slate-400 dark:text-zinc-500 pointer-events-none" />
                     <Input
                       value={paymentNote}
                       onChange={(e) => setPaymentNote(e.target.value)}
                       placeholder="Payment note, ref no, or transaction details..."
-                      className="pl-8 pr-7 h-7 text-xs rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-black dark:text-white font-medium placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus-visible:ring-1 focus-visible:ring-emerald-500 transition-colors"
+                      className="pl-7 pr-6 h-6 text-xs rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-black dark:text-white font-medium placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus-visible:ring-1 focus-visible:ring-emerald-500 transition-colors"
                     />
                     {paymentNote && (
                       <button
                         type="button"
                         onClick={() => setPaymentNote('')}
-                        className="absolute right-2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 text-xs p-0.5 cursor-pointer"
+                        className="absolute right-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 text-xs p-0.5 cursor-pointer"
                         title="Clear note"
                       >
                         ×
@@ -2782,25 +3512,25 @@ export const QuickInvoicePage: React.FC = () => {
                 )}
 
                 {splitPayments.length > 0 ? (
-                  <div className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-[11px]">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Layers className="size-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                  <div className="flex items-center justify-between px-2 py-1 rounded-md bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-[10.5px]">
+                    <div className="flex items-center gap-1 min-w-0">
+                      <Layers className="size-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
                       <div className="truncate">
                         <span className="font-bold text-indigo-900 dark:text-indigo-200">
-                          Split Active ({splitPayments.length} methods):{' '}
+                          Split ({splitPayments.length}):{' '}
                         </span>
                         <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
                           Rs. {totalSplitAmount.toLocaleString()}
                         </span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
                         onClick={() => setSplitModalOpen(true)}
-                        className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 underline cursor-pointer"
+                        className="text-[9.5px] font-bold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 underline cursor-pointer"
                       >
-                        Edit Splits
+                        Edit
                       </button>
                       <span className="text-slate-300 dark:text-zinc-700">·</span>
                       <button
@@ -2811,7 +3541,7 @@ export const QuickInvoicePage: React.FC = () => {
                           setPaymentMethod('CASH');
                           setClientGivenCash(String(total));
                         }}
-                        className="text-[10px] font-bold text-rose-500 hover:text-rose-700 cursor-pointer"
+                        className="text-[9.5px] font-bold text-rose-500 hover:text-rose-700 cursor-pointer"
                         title="Clear split configuration"
                       >
                         Clear
@@ -2819,17 +3549,17 @@ export const QuickInvoicePage: React.FC = () => {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-slate-100/70 dark:bg-zinc-900/60 border border-slate-200/60 dark:border-zinc-800/60 text-[11px]">
-                    <span className="text-slate-500 dark:text-zinc-400 text-[10px] sm:text-[11px]">
-                      Need split payment (Cash / Card / Cheque)?
+                  <div className="flex items-center justify-between px-2 py-1 rounded-md bg-slate-100/70 dark:bg-zinc-900/60 border border-slate-200/60 dark:border-zinc-800/60 text-[10.5px]">
+                    <span className="text-slate-500 dark:text-zinc-400 text-[10px]">
+                      Need split payment (Cash/Card/Cheque)?
                     </span>
                     <button
                       type="button"
                       onClick={() => setSplitModalOpen(true)}
-                      className="text-[10px] sm:text-[11px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 hover:underline cursor-pointer flex items-center gap-1"
+                      className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 hover:underline cursor-pointer flex items-center gap-0.5"
                     >
-                      <Layers className="size-3" />
-                      <span>Split Payment →</span>
+                      <Layers className="size-2.5" />
+                      <span>Split →</span>
                     </button>
                   </div>
                 )}
@@ -2839,9 +3569,9 @@ export const QuickInvoicePage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => handleSelectPaymentMethod('CASH')}
-                    className={`flex items-center justify-center gap-1 h-7 min-h-[30px] sm:min-h-0 py-1 px-1 text-[10px] rounded-lg border font-semibold transition-all cursor-pointer ${
+                    className={`flex items-center justify-center gap-1 h-7 min-h-[28px] py-1 px-1 text-[10px] rounded-md border font-semibold transition-all cursor-pointer ${
                       paymentMethod === 'CASH' && splitPayments.length === 0
-                        ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold shadow-xs'
+                        ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold shadow-2xs'
                         : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
                     }`}
                   >
@@ -2850,9 +3580,9 @@ export const QuickInvoicePage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => handleSelectPaymentMethod('CARD')}
-                    className={`flex items-center justify-center gap-1 h-7 min-h-[30px] sm:min-h-0 py-1 px-1 text-[10px] rounded-lg border font-semibold transition-all cursor-pointer ${
+                    className={`flex items-center justify-center gap-1 h-7 min-h-[28px] py-1 px-1 text-[10px] rounded-md border font-semibold transition-all cursor-pointer ${
                       paymentMethod === 'CARD' && splitPayments.length === 0
-                        ? 'border-purple-500 bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold shadow-xs'
+                        ? 'border-purple-500 bg-purple-500/10 text-purple-600 dark:text-purple-400 font-bold shadow-2xs'
                         : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
                     }`}
                   >
@@ -2861,9 +3591,9 @@ export const QuickInvoicePage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => handleSelectPaymentMethod('BANK_TRANSFER')}
-                    className={`flex items-center justify-center gap-1 h-7 min-h-[30px] sm:min-h-0 py-1 px-1 text-[10px] rounded-lg border font-semibold transition-all cursor-pointer ${
+                    className={`flex items-center justify-center gap-1 h-7 min-h-[28px] py-1 px-1 text-[10px] rounded-md border font-semibold transition-all cursor-pointer ${
                       paymentMethod === 'BANK_TRANSFER' && splitPayments.length === 0
-                        ? 'border-blue-500 bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold shadow-xs'
+                        ? 'border-blue-500 bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold shadow-2xs'
                         : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
                     }`}
                   >
@@ -2872,9 +3602,9 @@ export const QuickInvoicePage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => handleSelectPaymentMethod('CHEQUE')}
-                    className={`flex items-center justify-center gap-1 h-7 min-h-[30px] sm:min-h-0 py-1 px-1 text-[10px] rounded-lg border font-semibold transition-all cursor-pointer ${
+                    className={`flex items-center justify-center gap-1 h-7 min-h-[28px] py-1 px-1 text-[10px] rounded-md border font-semibold transition-all cursor-pointer ${
                       paymentMethod === 'CHEQUE' && splitPayments.length === 0
-                        ? 'border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold shadow-xs'
+                        ? 'border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold shadow-2xs'
                         : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
                     }`}
                   >
@@ -2883,9 +3613,9 @@ export const QuickInvoicePage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => handleSelectPaymentMethod('CREDIT')}
-                    className={`flex items-center justify-center gap-1 h-7 min-h-[30px] sm:min-h-0 py-1 px-1 text-[10px] rounded-lg border font-semibold transition-all cursor-pointer ${
+                    className={`flex items-center justify-center gap-1 h-7 min-h-[28px] py-1 px-1 text-[10px] rounded-md border font-semibold transition-all cursor-pointer ${
                       paymentMethod === 'CREDIT'
-                        ? 'border-rose-500 bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold shadow-xs'
+                        ? 'border-rose-500 bg-rose-500/10 text-rose-600 dark:text-rose-400 font-bold shadow-2xs'
                         : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
                     }`}
                   >
@@ -2893,36 +3623,40 @@ export const QuickInvoicePage: React.FC = () => {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
 
+          {/* Zone 3: Bottom Sticky Action Bar (shrink-0 sticky bottom-0 bg-white dark:bg-zinc-950 border-t pt-2.5 pb-3 px-3 z-10 shadow-sm) */}
+            <div className="shrink-0 sticky bottom-0 bg-white dark:bg-zinc-950 border-t border-slate-100 dark:border-zinc-800 pt-2.5 pb-3 px-3 z-10 shadow-sm space-y-1.5">
               {/* Action Buttons in Mobile Drawer (Compact 2-Column Grid) */}
-              <div className="grid grid-cols-2 gap-2 w-full pt-1">
+              <div className="grid grid-cols-2 gap-1.5 w-full">
                 <Button
                   type="button"
                   disabled={cart.length === 0 || submitting}
                   onClick={() => handleCheckout('SAVE_ONLY')}
-                  className="h-9 min-h-[38px] gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-100 dark:border-zinc-700 text-xs font-semibold rounded-xl shadow-xs cursor-pointer transition-all active:scale-[0.98]"
+                  className="h-9 min-h-[36px] gap-1 bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-100 dark:border-zinc-700 text-xs font-semibold rounded-lg shadow-2xs cursor-pointer transition-all active:scale-[0.98]"
                 >
-                  {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5 text-slate-700 dark:text-zinc-300" />}
+                  {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3 text-slate-700 dark:text-zinc-300" />}
                   <span>{isEditing ? 'Save Only' : 'Save Invoice'}</span>
                 </Button>
                 <Button
                   type="button"
                   disabled={cart.length === 0 || submitting}
                   onClick={() => handleCheckout('SAVE_AND_PDF')}
-                  className="h-9 min-h-[38px] gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer transition-all active:scale-[0.98]"
+                  className="h-9 min-h-[36px] gap-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-2xs cursor-pointer transition-all active:scale-[0.98]"
                 >
-                  {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <FileDown className="size-3.5 text-white" />}
+                  {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <FileDown className="size-3 text-white" />}
                   <span>Download PDF</span>
                 </Button>
               </div>
-              <div className="flex items-center justify-center gap-3 pt-1 pb-0.5">
+              <div className="flex items-center justify-center gap-2.5 pt-0.5 pb-0">
                 <button
                   type="button"
                   disabled={cart.length === 0 || submitting}
                   onClick={() => handleCheckout('SAVE_AND_WHATSAPP')}
-                  className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[26px] py-0.5"
+                  className="text-[10.5px] font-semibold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[22px] py-0"
                 >
-                  <MessageSquare className="size-3" />
+                  <MessageSquare className="size-2.5" />
                   <span>Save &amp; WhatsApp</span>
                 </button>
                 <span className="text-slate-300 dark:text-zinc-700 text-xs">|</span>
@@ -2930,10 +3664,11 @@ export const QuickInvoicePage: React.FC = () => {
                   type="button"
                   disabled={cart.length === 0 || submitting}
                   onClick={() => handleCheckout('SAVE_AND_PRINT')}
-                  className="text-[11px] font-semibold text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[26px] py-0.5"
+                  className="text-[10.5px] font-semibold text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[22px] py-0"
+                  title="Direct Native Print Receipt"
                 >
-                  <Printer className="size-3" />
-                  <span>Print Preview</span>
+                  <Printer className="size-2.5" />
+                  <span>{isEditing ? 'Update & Print' : 'Pay Now & Print'}</span>
                 </button>
               </div>
             </div>
@@ -3029,26 +3764,6 @@ export const QuickInvoicePage: React.FC = () => {
         onApply={handleApplySplitPayments}
         dark={dark}
       />
-
-
-      {/* Headless Direct A4 Browser Print Window Trigger (Conditional Mount Prevents Duplicate Preview Loop) */}
-      {invoiceOpen && completedOrder && (
-        <A4InvoiceModal
-          open={invoiceOpen}
-          onClose={() => {
-            setInvoiceOpen(false);
-            setCompletedOrder(null);
-            // ⭐ මුද්‍රණ සංවාද කවුළුව වැසුණු විගස ආරක්ෂිතව Invoices ලැයිස්තුවට යවයි
-            if (isEditing) {
-              navigate('/system/invoices');
-            } else {
-              bootstrapPos();
-            }
-          }}
-          order={completedOrder}
-          autoPrint={true}
-        />
-      )}
     </div>
   );
 };

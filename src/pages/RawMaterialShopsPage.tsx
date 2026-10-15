@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
+import { SearchableSelect, type SearchableSelectOption } from '../components/ui/searchable-select';
+import { useTheme } from '../contexts/ThemeContext';
 import { Badge } from '../components/ui/badge';
 import {
   Table,
@@ -54,11 +56,31 @@ import {
   MoreVertical,
   MessageSquare, // ⭐ WhatsApp Icon
   CreditCard,    // ⭐ Added for Pay Due action
+  SlidersHorizontal,
 } from 'lucide-react';
 import { openWhatsAppChat, generateSupplierCreditSummaryWhatsAppMessage } from '../utils/whatsapp';
 
 // ⭐ Import Supplier Due Settlement Modal
 import { SupplierDueSettlementModal } from '../components/materials/SupplierDueSettlementModal';
+
+/**
+ * Filter options for supplier debt status
+ */
+const SUPPLIER_DEBT_OPTIONS: SearchableSelectOption[] = [
+  { value: 'ALL', label: 'All Suppliers' },
+  { value: 'HAS_DEBT', label: 'With Outstanding Debt' },
+  { value: 'NO_DEBT', label: 'No Debt' },
+];
+
+/**
+ * Sorting preferences for suppliers & shops directory
+ */
+const SUPPLIER_SORT_OPTIONS: SearchableSelectOption[] = [
+  { value: 'newest', label: 'Newest First' },
+  { value: 'debt_desc', label: 'Highest Payable Debt' },
+  { value: 'purchases_desc', label: 'Most Purchases' },
+  { value: 'name_asc', label: 'Shop Name A-Z' },
+];
 
 // ============================================================================
 // TYPES & INTERFACES
@@ -98,9 +120,77 @@ const INITIAL_FORM_DATA: FormData = {
  */
 export const RawMaterialShopsPage: React.FC = () => {
   const navigate = useNavigate();
+  const { resolvedTheme } = useTheme();
+  const dark = resolvedTheme === 'dark';
+
   const [shops, setShops] = useState<RawMaterialShop[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Filter & Sort States matching unified standard
+  const [debtFilter, setDebtFilter] = useState<'ALL' | 'HAS_DEBT' | 'NO_DEBT'>('ALL');
+  const [sortBy, setSortBy] = useState<string>('newest');
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState<boolean>(false);
+
+  /**
+   * Count of active non-default secondary filters for badge indicator
+   */
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (debtFilter !== 'ALL') count++;
+    if (sortBy !== 'newest') count++;
+    return count;
+  }, [debtFilter, sortBy]);
+
+  /**
+   * Reset all secondary filters and search query back to default view
+   */
+  const handleClearAllFilters = () => {
+    setDebtFilter('ALL');
+    setSortBy('newest');
+    setSearchQuery('');
+  };
+
+  /**
+   * Filter and sort supplier shops reactively across keyword search, debt status, and sort preference
+   */
+  const filteredShops = useMemo(() => {
+    return shops
+      .filter((s) => {
+        // 1. Search Query (shop name, contact person, phone, address)
+        const q = searchQuery.toLowerCase().trim();
+        const matchesSearch =
+          !q ||
+          s.name.toLowerCase().includes(q) ||
+          (s.contactPerson && s.contactPerson.toLowerCase().includes(q)) ||
+          (s.phone && s.phone.includes(q)) ||
+          (s.address && s.address.toLowerCase().includes(q));
+
+        // 2. Debt Status Filter
+        const balance = Number(s.creditBalance || 0);
+        let matchesDebt = true;
+        if (debtFilter === 'HAS_DEBT') {
+          matchesDebt = balance > 0;
+        } else if (debtFilter === 'NO_DEBT') {
+          matchesDebt = balance <= 0;
+        }
+
+        return matchesSearch && matchesDebt;
+      })
+      .sort((a, b) => {
+        if (sortBy === 'debt_desc') {
+          return (Number(b.creditBalance) || 0) - (Number(a.creditBalance) || 0);
+        }
+        if (sortBy === 'purchases_desc') {
+          return (b._count?.purchases || 0) - (a._count?.purchases || 0);
+        }
+        if (sortBy === 'name_asc') {
+          return a.name.localeCompare(b.name);
+        }
+        // Default: newest first
+        return b.id - a.id;
+      });
+  }, [shops, searchQuery, debtFilter, sortBy]);
 
   // Dialog and form states
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -269,24 +359,162 @@ export const RawMaterialShopsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Full-Width Search Bar with X clear button matching CustomersPage */}
-      <div className="relative flex-1">
-        <Search className="absolute left-3.5 top-3 size-4 text-slate-400" />
-        <Input
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search supplier by shop name, contact person, phone number, or address..."
-          className="pl-10 pr-9 h-10 text-xs w-full rounded-xl bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-sm"
-        />
-        {searchQuery && (
+      {/* ── Mobile View (< 1024px): Search Bar + Collapsible Filters Drawer ── */}
+      <div className="block lg:hidden bg-white dark:bg-zinc-900/60 p-3 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-2.5">
+        <div className="flex items-center gap-2">
+          {/* Primary Search Bar */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search supplier, contact, phone, address..."
+              className="pl-9 pr-8 h-9 text-xs"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
+              >
+                <X className="size-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Sleek Filters Toggle Button with Active Badge */}
           <button
             type="button"
-            onClick={() => setSearchQuery('')}
-            className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
+            onClick={() => setMobileFiltersOpen((prev) => !prev)}
+            className={`h-9 px-3 rounded-xl border flex items-center gap-1.5 text-xs font-semibold cursor-pointer transition-all shrink-0 select-none ${
+              mobileFiltersOpen || activeFiltersCount > 0
+                ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300'
+                : 'bg-slate-50 dark:bg-zinc-800/60 border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800'
+            }`}
           >
-            <X className="size-4" />
+            <SlidersHorizontal className="size-3.5" />
+            <span>Filters</span>
+            {activeFiltersCount > 0 && (
+              <span className="size-4 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center ml-0.5">
+                {activeFiltersCount}
+              </span>
+            )}
           </button>
+        </div>
+
+        {/* Collapsible Expansion Tray */}
+        {mobileFiltersOpen && (
+          <div className="pt-2.5 border-t border-slate-100 dark:border-zinc-800/80 space-y-2.5 animate-in fade-in-0 slide-in-from-top-2 duration-150">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
+              {/* Debt Status Filter */}
+              <div className="min-w-0">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Debt Status
+                </label>
+                <SearchableSelect
+                  options={SUPPLIER_DEBT_OPTIONS}
+                  value={debtFilter}
+                  onValueChange={(val) => setDebtFilter(val as any)}
+                  placeholder="All Suppliers"
+                  searchPlaceholder="Filter debt status..."
+                  dark={dark}
+                  className="h-9 text-xs"
+                />
+              </div>
+
+              {/* Sort Order */}
+              <div className="min-w-0">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Sort Order
+                </label>
+                <SearchableSelect
+                  options={SUPPLIER_SORT_OPTIONS}
+                  value={sortBy}
+                  onValueChange={(val) => setSortBy(val)}
+                  placeholder="Sort Suppliers..."
+                  searchPlaceholder="Search sort preference..."
+                  dark={dark}
+                  className="h-9 text-xs"
+                />
+              </div>
+            </div>
+
+            {/* Clear All Filters Shortcut */}
+            {(activeFiltersCount > 0 || searchQuery) && (
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs text-slate-500">
+                  {activeFiltersCount} active {activeFiltersCount === 1 ? 'filter' : 'filters'}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleClearAllFilters}
+                  className="text-xs font-semibold text-rose-500 hover:text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <X className="size-3.5" /> Clear All Filters
+                </button>
+              </div>
+            )}
+          </div>
         )}
+      </div>
+
+      {/* ── Desktop View (≥ 1024px): Inline Executive Filter Matrix ── */}
+      <div className="hidden lg:flex items-center gap-2.5 bg-white dark:bg-zinc-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800">
+        {/* Search Bar */}
+        <div className="relative flex-1 min-w-[240px]">
+          <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
+          <Input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search supplier by shop name, contact person, phone number, or address..."
+            className="pl-9 pr-8 h-9 text-xs w-full"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
+            >
+              <X className="size-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Debt Status Selector */}
+        <div className="w-56 xl:w-60 shrink-0">
+          <SearchableSelect
+            options={SUPPLIER_DEBT_OPTIONS}
+            value={debtFilter}
+            onValueChange={(val) => setDebtFilter(val as any)}
+            placeholder="All Suppliers"
+            searchPlaceholder="Filter debt status..."
+            dark={dark}
+          />
+        </div>
+
+        {/* Sort Selector & Clear All Shortcut */}
+        <div className="w-52 xl:w-56 shrink-0 flex items-center gap-1.5">
+          <div className="flex-1 min-w-0">
+            <SearchableSelect
+              options={SUPPLIER_SORT_OPTIONS}
+              value={sortBy}
+              onValueChange={(val) => setSortBy(val)}
+              placeholder="Sort Suppliers..."
+              searchPlaceholder="Sort by..."
+              dark={dark}
+            />
+          </div>
+          {(activeFiltersCount > 0 || searchQuery) && (
+            <button
+              type="button"
+              onClick={handleClearAllFilters}
+              className="size-9 rounded-xl border border-slate-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-800 text-slate-500 hover:text-rose-500 dark:hover:text-rose-400 hover:border-rose-300 dark:hover:border-rose-800 flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+              title="Clear All Filters"
+            >
+              <X className="size-4" />
+            </button>
+          )}
+        </div>
       </div>
 
       {loading ? (
@@ -294,7 +522,7 @@ export const RawMaterialShopsPage: React.FC = () => {
           <Loader2 className="size-6 animate-spin mx-auto text-emerald-500" />
           <span className="text-xs text-slate-400 mt-2 block">Loading supplier records...</span>
         </div>
-      ) : shops.length === 0 ? (
+      ) : filteredShops.length === 0 ? (
         <div className="rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 p-12 text-center text-slate-400 text-xs">
           No suppliers found matching your query.
         </div>
@@ -302,7 +530,7 @@ export const RawMaterialShopsPage: React.FC = () => {
         <>
           {/* ── Mobile Supplier Cards Viewport (< 1024px) ── */}
           <div className="block lg:hidden space-y-3">
-            {shops.map((shop) => (
+            {filteredShops.map((shop) => (
               <div
                 key={shop.id}
                 className="rounded-2xl border bg-white dark:bg-zinc-900/70 border-slate-200 dark:border-zinc-800 p-4 shadow-xs space-y-3.5 transition-all"
@@ -479,7 +707,14 @@ export const RawMaterialShopsPage: React.FC = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {shops.map((shop) => (
+                {filteredShops.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-12 text-slate-400 text-xs">
+                      No suppliers found matching your query.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredShops.map((shop) => (
                   <TableRow key={shop.id}>
                     <TableCell>
                       {/* Interactive Clickable Target: Opens Edit Supplier Modal */}
@@ -610,7 +845,8 @@ export const RawMaterialShopsPage: React.FC = () => {
                       </DropdownMenu>
                     </TableCell>
                   </TableRow>
-                ))}
+                ))
+              )}
               </TableBody>
             </Table>
           </div>

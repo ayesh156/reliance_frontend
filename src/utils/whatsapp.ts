@@ -253,8 +253,10 @@ export const generateCustomerInvoiceWhatsAppMessage = (order: any): string => {
         const color = item.color || item.selectedColor || item.variant?.color || '';
         const meta = size || color ? ` (${size}/${color})` : '';
         const unitPrice = Number(item.unitPrice || (item.quantity ? item.price / item.quantity : 0)).toLocaleString('en-LK');
-        const lineTotal = Number(item.price || item.unitPrice * item.quantity).toLocaleString('en-LK');
-        return `${i + 1}. *${name}*${meta}\n   ${item.quantity} pcs x Rs. ${unitPrice} = *Rs. ${lineTotal}*`;
+        const itemDisc = Number(item.discount || 0);
+        const discText = itemDisc > 0 ? ` (Disc: -Rs. ${itemDisc.toLocaleString('en-LK')})` : '';
+        const lineTotal = Number(item.price || (Number(item.unitPrice || 0) * Number(item.quantity || 1) - itemDisc)).toLocaleString('en-LK');
+        return `${i + 1}. *${name}*${meta}\n   ${item.quantity} pcs x Rs. ${unitPrice}${discText} = *Rs. ${lineTotal}*`;
       })
       .join('\n');
   }
@@ -430,3 +432,75 @@ export const generateSupplierCreditSummaryWhatsAppMessage = (
 
   return text;
 };
+
+/**
+ * 5. Build Formatted Presales Order Summary for Customer WhatsApp Dispatch
+ */
+export const generateSalesOrderWhatsAppMessage = (order: any): string => {
+  const createdDate = order.createdAt ? new Date(order.createdAt) : new Date();
+  const yyyy = createdDate.getFullYear();
+  const mm = String(createdDate.getMonth() + 1).padStart(2, '0');
+  const dd = String(createdDate.getDate()).padStart(2, '0');
+  const formattedDate = `${yyyy}-${mm}-${dd}`;
+  const formattedTime = createdDate.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+
+  const orderNo = order.orderNumber || `ORD-${order.id || ''}`;
+  const custName = order.customerName || order.customer?.name || 'Valued Customer';
+  const subtotal = Number(order.subtotal || 0);
+  const discount = Number(order.discount || 0);
+  const total = Number(order.totalAmount || (subtotal - discount) || 0);
+  const status = String(order.status || 'PENDING').toUpperCase();
+
+  let itemsList = '';
+  if (Array.isArray(order.items)) {
+    itemsList = order.items
+      .map((item: any, i: number) => {
+        const name = item.productName || item.variant?.product?.name || 'Garment Item';
+        const meta = item.variantName ? ` (${item.variantName})` : (item.sku ? ` (${item.sku})` : '');
+        const unitPrice = Number(item.unitPrice || 0).toLocaleString('en-LK');
+        const qty = Number(item.quantity || 1);
+        const itemDisc = Number(item.discount || 0);
+        const discText = itemDisc > 0 ? ` (Disc: -Rs. ${itemDisc.toLocaleString('en-LK')})` : '';
+        const lineTotal = Number(item.totalPrice || (qty * (Number(item.unitPrice) || 0) - itemDisc)).toLocaleString('en-LK');
+        return `${i + 1}. *${name}*${meta}\n   ${qty} pcs x Rs. ${unitPrice}${discText} = *Rs. ${lineTotal}*`;
+      })
+      .join('\n');
+  }
+
+  let text = `*RELIANCE CLOTHING - PRESALES ORDER*\n`;
+  text += `-------------------------------------------\n`;
+  text += `*Order No:* #${orderNo}\n`;
+  text += `*Date:* ${formattedDate} (${formattedTime})\n`;
+  text += `*Status:* ${status}\n`;
+  text += `*Customer:* ${custName}\n`;
+  if (order.customerPhone || order.customer?.phone) {
+    text += `*Contact:* ${order.customerPhone || order.customer?.phone}\n`;
+  }
+  if (order.user?.name) {
+    text += `*Sales Rep:* ${order.user.name}\n`;
+  }
+  text += `-------------------------------------------\n\n`;
+  text += `*BOOKED ORDER ITEMS:*\n${itemsList || '- No items recorded -'}\n\n`;
+  text += `-------------------------------------------\n`;
+
+  if (discount > 0) {
+    text += `*Subtotal:* Rs. ${subtotal.toLocaleString('en-LK')}\n`;
+    text += `*Discount:* - Rs. ${discount.toLocaleString('en-LK')}\n`;
+  }
+  text += `*Total Order Value:* *Rs. ${total.toLocaleString('en-LK')}*\n`;
+
+  if (order.notes) {
+    text += `*Notes:* ${order.notes}\n`;
+  }
+
+  text += `-------------------------------------------\n`;
+  text += `*Reliance Clothing*, Makandura, Matara.\n`;
+  text += `*Tel:* 041-2268739 / 071-1350123\n`;
+  text += `_Thank you for your order! This booking will be processed and dispatched soon._`;
+
+  return text;
+};

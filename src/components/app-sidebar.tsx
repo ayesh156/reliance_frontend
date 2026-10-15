@@ -7,6 +7,7 @@ import {
   Users,
   MonitorSmartphone,
   FileText,
+  ClipboardList,
   Building2,
   Boxes,
   ShoppingCart,
@@ -34,6 +35,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: "Quick Invoice", path: "/system/quick-invoice", icon: MonitorSmartphone }, 
   { label: "Invoices", path: "/system/invoices", icon: FileText },
+  { label: "Orders", path: "/system/orders", icon: ClipboardList },
   { label: "Products", path: "/system/products", icon: ShoppingBag },
   { label: "Attributes", path: "/system/attributes", icon: Tags, roles: ["ADMIN", "STAFF"] },
   { label: "Customers", path: "/system/customers", icon: Users },
