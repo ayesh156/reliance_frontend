@@ -10,6 +10,23 @@ import { SearchableSelect, type SearchableSelectOption } from '../components/ui/
 import { toast } from 'react-toastify';
 import { FinancialAuditModal, type FinancialMetricFocus } from '../components/reports/FinancialAuditModal';
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '../components/ui/dialog';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
+} from '../components/ui/table';
+import { getProductImageUrl } from '../lib/utils';
+import { BatchActivityTimeline } from './ProductionListPage';
+import {
   Download,
   Loader2,
   Search,
@@ -30,6 +47,14 @@ import {
   ChevronRight,
   FileText,
   FileSpreadsheet,
+  Scissors,
+  Shirt,
+  Package,
+  Clock,
+  CheckCircle2,
+  ArrowRight,
+  Eye,
+  Check,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -95,6 +120,10 @@ export const ReportsPage: React.FC = () => {
   // ⭐ Interactive Financial Breakdown Audit Modal State
   const [auditModalOpen, setAuditModalOpen] = useState<boolean>(false);
   const [auditFocusMetric, setAuditFocusMetric] = useState<FinancialMetricFocus>('grossRevenue');
+
+  // ⭐ Interactive Production Batch Summary Modal State
+  const [selectedProductionBatch, setSelectedProductionBatch] = useState<any | null>(null);
+  const [isProductionBatchModalOpen, setIsProductionBatchModalOpen] = useState<boolean>(false);
 
   const handleOpenAudit = (metric: FinancialMetricFocus) => {
     setAuditFocusMetric(metric);
@@ -364,10 +393,18 @@ export const ReportsPage: React.FC = () => {
     }
 
     if (activeModule === 'production') {
-      return (reportData.tableItems || []).slice(0, 6).map((item: any) => ({
+      const daily = summary?.dailyTrends;
+      if (Array.isArray(daily) && daily.length > 0) {
+        return daily.slice(0, 10).map((d: any) => ({
+          name: d.date ? d.date.slice(5) : 'Date',
+          cutQty: Math.round((d.cutQty || 0) * 10) / 10,
+          finishedQty: d.finishedQty || 0,
+        })).reverse();
+      }
+      return (reportData.tableItems || []).slice(0, 8).map((item: any) => ({
         name: item.productionNo,
-        target: item.targetQuantity || 0,
-        completed: item.completedQty || 0,
+        cutQty: item.totalCutUnits || 0,
+        finishedQty: item.completedQty || 0,
       }));
     }
 
@@ -596,7 +633,9 @@ export const ReportsPage: React.FC = () => {
       ) : (
         <div className="space-y-6">
           {/* Quick Summary Metric Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3.5 md:gap-4">
+          <div className={`grid gap-2.5 sm:gap-3.5 md:gap-4 ${
+            activeModule === 'production' ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5' : 'grid-cols-2 md:grid-cols-4'
+          }`}>
             {activeModule === 'sales' && (
               <>
                 {/* 1. GROSS REVENUE KPI CARD */}
@@ -785,25 +824,64 @@ export const ReportsPage: React.FC = () => {
 
             {activeModule === 'production' && (
               <>
+                {/* 1. Materials Cut */}
                 <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
-                  <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Production Batches</p>
-                  <p className="text-lg md:text-xl font-bold mt-1 text-slate-900 dark:text-zinc-100">{summary.totalBatches || 0} Runs</p>
-                  <p className="text-[11px] text-slate-400 mt-1">Cut & Sew Operations</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Materials Cut</p>
+                    <Scissors className="w-3.5 h-3.5 text-amber-500" />
+                  </div>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-amber-600 dark:text-amber-400 font-mono">
+                    {(summary.totalMaterialsCut ?? summary.completedQuantity ?? 0).toLocaleString()} <span className="text-xs font-medium text-slate-500">Units</span>
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-1">{summary.totalBatches || 0} Batches Started</p>
                 </div>
+
+                {/* 2. Scrap Returned */}
                 <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
-                  <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Completed Garments</p>
-                  <p className="text-lg md:text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400">{summary.completedQuantity || 0} Pcs</p>
-                  <p className="text-[11px] text-slate-400 mt-1">Target: {summary.targetQuantity || 0} Pcs</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Scrap Returned</p>
+                    <RotateCcw className="w-3.5 h-3.5 text-teal-500" />
+                  </div>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-teal-600 dark:text-teal-400 font-mono">
+                    {(summary.totalScrapReturned ?? summary.scrapVariance ?? 0).toLocaleString()} <span className="text-xs font-medium text-slate-500">Units</span>
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-1">Restored to warehouse stock</p>
                 </div>
+
+                {/* 3. Garments Finished */}
                 <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
-                  <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Overall Efficiency Yield</p>
-                  <p className="text-lg md:text-xl font-bold mt-1 text-blue-600 dark:text-blue-400">{summary.overallYieldPercentage || 0}%</p>
-                  <p className="text-[11px] text-slate-400 mt-1">Yield Efficiency Rate</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Garments Finished</p>
+                    <Shirt className="w-3.5 h-3.5 text-emerald-500" />
+                  </div>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400 font-mono">
+                    {(summary.completedQuantity || 0).toLocaleString()} <span className="text-xs font-medium text-slate-500">Pcs</span>
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-1">Yield: {summary.overallYieldPercentage || 0}% · WIP: {summary.currentWip || 0} Pcs</p>
                 </div>
+
+                {/* 4. Pending Stock Sync */}
                 <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
-                  <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Raw Material Cost</p>
-                  <p className="text-lg md:text-xl font-bold mt-1 text-amber-600 dark:text-amber-400">{formatRs(summary.totalMaterialCost)}</p>
-                  <p className="text-[11px] text-slate-400 mt-1">Returned: {summary.scrapVariance || 0} Units</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Pending Stock Sync</p>
+                    <Clock className="w-3.5 h-3.5 text-purple-500" />
+                  </div>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-purple-600 dark:text-purple-400 font-mono">
+                    {(summary.pendingStockSync || 0).toLocaleString()} <span className="text-xs font-medium text-slate-500">Pcs</span>
+                  </p>
+                  <p className="text-[11px] text-purple-500/80 mt-1">Awaiting sync confirmation</p>
+                </div>
+
+                {/* 5. Synced to Inventory */}
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Synced to Inventory</p>
+                    <Package className="w-3.5 h-3.5 text-blue-500" />
+                  </div>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-blue-600 dark:text-blue-400 font-mono">
+                    {(summary.syncedToInventory || 0).toLocaleString()} <span className="text-xs font-medium text-slate-500">Pcs</span>
+                  </p>
+                  <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1">Active in sellable stock</p>
                 </div>
               </>
             )}
@@ -894,7 +972,7 @@ export const ReportsPage: React.FC = () => {
                     {activeModule === 'cheques' && 'Cheque Portfolio Realization Status (Rs.)'}
                     {activeModule === 'returns' && 'Return Reasons Distribution (Refund Rs.)'}
                     {activeModule === 'products' && 'Top Performing SKUs by Revenue (Rs.)'}
-                    {activeModule === 'production' && 'Target vs Completed Units per Batch'}
+                    {activeModule === 'production' && 'Cutting vs Finishing Output Trends (Date / Batch)'}
                     {activeModule === 'suppliers' && 'Supplier Volume & Outstanding Debt'}
                     {activeModule === 'audit' && 'Cashier Revisions Frequency'}
                   </h3>
@@ -926,8 +1004,8 @@ export const ReportsPage: React.FC = () => {
                       <XAxis dataKey="name" stroke={dark ? '#71717a' : '#94a3b8'} fontSize={11} />
                       <YAxis stroke={dark ? '#71717a' : '#94a3b8'} fontSize={11} />
                       <RechartsTooltip />
-                      <Bar dataKey="target" name="Target Qty" fill="#94a3b8" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="completed" name="Completed Output" fill="#10b981" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="cutQty" name="Materials Cut" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="finishedQty" name="Garments Finished" fill="#10b981" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   ) : activeModule === 'suppliers' ? (
                     <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -1176,7 +1254,17 @@ export const ReportsPage: React.FC = () => {
                   return (
                     <div
                       key={row.id || `${recordId}-${idx}`}
-                      className="p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 shadow-xs space-y-2.5 text-xs select-none"
+                      onClick={() => {
+                        if (activeModule === 'production') {
+                          setSelectedProductionBatch(row);
+                          setIsProductionBatchModalOpen(true);
+                        }
+                      }}
+                      className={`p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 shadow-xs space-y-2.5 text-xs select-none transition-all ${
+                        activeModule === 'production'
+                          ? 'cursor-pointer hover:border-indigo-400 dark:hover:border-indigo-600 hover:bg-slate-50/80 dark:hover:bg-zinc-850 hover:shadow-sm'
+                          : ''
+                      }`}
                     >
                       {/* Top Row: Transaction/Batch ID, Status, Date */}
                       <div className="flex items-center justify-between gap-2">
@@ -1328,7 +1416,9 @@ export const ReportsPage: React.FC = () => {
                         <th className="py-2.5 px-3 font-semibold min-w-[180px]">Garment Style</th>
                         <th className="py-2.5 px-3 font-semibold w-28 min-w-[90px]">Size / Color</th>
                         <th className="py-2.5 px-3 font-semibold text-center w-20 min-w-[60px]">Target</th>
-                        <th className="py-2.5 px-3 font-semibold text-center w-20 min-w-[60px]">Done</th>
+                        <th className="py-2.5 px-3 font-semibold text-center w-24 min-w-[70px]">Cut Units</th>
+                        <th className="py-2.5 px-3 font-semibold text-center w-24 min-w-[70px]">Finished</th>
+                        <th className="py-2.5 px-3 font-semibold text-center w-24 min-w-[70px]">WIP Units</th>
                         <th className="py-2.5 px-3 font-semibold text-center w-20 min-w-[60px]">Yield %</th>
                         <th className="py-2.5 px-3 font-semibold text-right w-28 min-w-[100px]">Material Cost</th>
                         <th className="py-2.5 px-3 font-semibold text-right w-28 min-w-[90px]">Scrap Returned</th>
@@ -1388,7 +1478,17 @@ export const ReportsPage: React.FC = () => {
                       return (
                         <tr
                           key={idx}
-                          className={`transition-colors hover:bg-blue-50/50 dark:hover:bg-zinc-800/50 ${
+                          onClick={() => {
+                            if (activeModule === 'production') {
+                              setSelectedProductionBatch(row);
+                              setIsProductionBatchModalOpen(true);
+                            }
+                          }}
+                          className={`transition-colors ${
+                            activeModule === 'production'
+                              ? 'cursor-pointer hover:bg-slate-100/90 dark:hover:bg-zinc-800/90 group/prod'
+                              : 'hover:bg-blue-50/50 dark:hover:bg-zinc-800/50'
+                          } ${
                             isStripe ? (dark ? 'bg-zinc-900/30' : 'bg-slate-50/50') : ''
                           }`}
                         >
@@ -1515,17 +1615,68 @@ export const ReportsPage: React.FC = () => {
 
                           {activeModule === 'production' && (
                             <>
-                              <td className="py-2.5 px-3 font-mono font-medium text-blue-600 dark:text-blue-400 whitespace-nowrap">{row.productionNo}</td>
-                              <td className="py-2.5 px-3 font-medium text-slate-800 dark:text-zinc-200 break-words whitespace-normal">{row.productName}</td>
+                              <td className="py-2.5 px-3 font-mono font-medium text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                                <div className="flex items-center gap-1.5">
+                                  <span>{row.productionNo}</span>
+                                  <span className="text-[10px] text-slate-400 opacity-60 group-hover/prod:opacity-100 group-hover/prod:text-blue-600 transition-opacity">↗</span>
+                                </div>
+                              </td>
+                              <td className="py-2.5 px-3 font-medium text-slate-800 dark:text-zinc-200 break-words whitespace-normal">
+                                <div className="flex items-center gap-2">
+                                  {row.productImage ? (
+                                    <img
+                                      src={getProductImageUrl(row.productImage)}
+                                      alt=""
+                                      className="size-7 rounded-md object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
+                                    />
+                                  ) : (
+                                    <div className="size-7 rounded-md bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 flex items-center justify-center text-slate-400 shrink-0">
+                                      <Package className="size-3.5" />
+                                    </div>
+                                  )}
+                                  <span className="font-semibold text-slate-900 dark:text-white">{row.productName}</span>
+                                </div>
+                              </td>
                               <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">{row.variant}</td>
                               <td className="py-2.5 px-3 text-center whitespace-nowrap">{row.targetQuantity}</td>
-                              <td className="py-2.5 px-3 text-center font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">{row.completedQty}</td>
-                              <td className="py-2.5 px-3 text-center font-semibold text-blue-600 dark:text-blue-400 whitespace-nowrap">{row.yieldPercentage}%</td>
-                              <td className="py-2.5 px-3 text-right whitespace-nowrap">{formatRs(row.materialCost)}</td>
-                              <td className="py-2.5 px-3 text-right text-slate-400 whitespace-nowrap">{row.scrapReturned}</td>
+                              <td className="py-2.5 px-3 text-center font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">
+                                {row.totalCutUnits ?? row.completedQty ?? 0}
+                                {row.cutLogsCount > 0 && (
+                                  <span className="text-[10px] text-slate-400 block font-normal">({row.cutLogsCount} cuts)</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 text-center font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                                {row.completedQty}
+                                {row.finishLogsCount > 0 && (
+                                  <span className="text-[10px] text-slate-400 block font-normal">({row.finishLogsCount} logs)</span>
+                                )}
+                              </td>
                               <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                                <Badge variant="outline" className="text-[10px]">
-                                  {row.status}
+                                {row.wipUnits > 0 ? (
+                                  <Badge variant="outline" className="text-[10px] bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800 font-mono">
+                                    {row.wipUnits} WIP
+                                  </Badge>
+                                ) : (
+                                  <span className="text-slate-400 font-mono text-[11px]">-</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 text-center font-semibold text-blue-600 dark:text-blue-400 whitespace-nowrap">{row.yieldPercentage}%</td>
+                              <td className="py-2.5 px-3 text-right whitespace-nowrap font-mono">{formatRs(row.materialCost)}</td>
+                              <td className="py-2.5 px-3 text-right text-slate-400 whitespace-nowrap font-mono">{row.scrapReturned}</td>
+                              <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                <Badge
+                                  variant="outline"
+                                  className={`text-[10px] font-semibold ${
+                                    row.status === 'COMPLETED' && row.isStockSynced
+                                      ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                                      : row.status === 'FINISHED_PENDING_STOCK' || (!row.isStockSynced && row.completedQty > 0)
+                                      ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border-purple-300 dark:border-purple-800'
+                                      : row.status === 'CUTTING'
+                                      ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                                      : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800'
+                                  }`}
+                                >
+                                  {row.status === 'COMPLETED' && row.isStockSynced ? 'IN STOCK' : row.status === 'FINISHED_PENDING_STOCK' ? 'AWAITING SYNC' : row.status}
                                 </Badge>
                               </td>
                             </>
@@ -1680,6 +1831,191 @@ export const ReportsPage: React.FC = () => {
         }}
         onSelectMetric={(m) => setAuditFocusMetric(m)}
       />
+
+      {/* ⭐ INTERACTIVE PRODUCTION BATCH SUMMARY MODAL */}
+      <Dialog open={isProductionBatchModalOpen} onOpenChange={setIsProductionBatchModalOpen}>
+        <DialogContent className="w-[95vw] max-w-lg sm:max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden rounded-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800">
+          <DialogHeader className="p-4 sm:p-5 pr-12 sm:pr-14 border-b border-slate-100 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 z-10">
+            <div className="flex items-center gap-3">
+              <div className="size-12 rounded-xl overflow-hidden border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shrink-0 flex items-center justify-center">
+                {selectedProductionBatch?.productImage ? (
+                  <img
+                    src={getProductImageUrl(selectedProductionBatch.productImage)}
+                    alt={selectedProductionBatch.productName}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <Package className="size-6 text-slate-400" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <DialogTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
+                  <span>{selectedProductionBatch?.productName}</span>
+                  <Badge variant="outline" className="font-mono text-xs">
+                    #{selectedProductionBatch?.productionNo}
+                  </Badge>
+                  {selectedProductionBatch?.isStockSynced ? (
+                    <Badge variant="outline" className="text-[10px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800">
+                      COMPLETED &amp; IN STOCK
+                    </Badge>
+                  ) : selectedProductionBatch?.completedQty > 0 ? (
+                    <Badge variant="outline" className="text-[10px] font-semibold bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border-purple-300 dark:border-purple-800">
+                      AWAITING STOCK SYNC
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-[10px] font-semibold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-300 dark:border-amber-800">
+                      {selectedProductionBatch?.status || 'CUTTING'}
+                    </Badge>
+                  )}
+                </DialogTitle>
+                <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+                  Variant: {selectedProductionBatch?.variant || 'Standard'} · Production Date: {selectedProductionBatch?.productionDate ? new Date(selectedProductionBatch.productionDate).toLocaleDateString() : '-'}
+                </p>
+              </div>
+            </div>
+          </DialogHeader>
+
+          {selectedProductionBatch && (
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 text-xs">
+              {/* Batch Metrics Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800 text-center">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Planned Target</span>
+                  <span className="font-mono font-bold text-slate-700 dark:text-zinc-300 text-sm">
+                    {selectedProductionBatch.targetQuantity} Pcs
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-amber-600 block">Materials Cut</span>
+                  <span className="font-mono font-bold text-amber-600 dark:text-amber-400 text-sm">
+                    {selectedProductionBatch.totalCutUnits ?? selectedProductionBatch.completedQty} Units
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-emerald-600 block">Garments Finished</span>
+                  <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-sm">
+                    {selectedProductionBatch.completedQty} Pcs
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-indigo-600 block">Yield / Efficiency</span>
+                  <span className="font-mono font-extrabold text-indigo-600 dark:text-indigo-400 text-sm">
+                    {selectedProductionBatch.yieldPercentage}%
+                  </span>
+                </div>
+              </div>
+
+              {/* Second Row Metrics: WIP, Cost, Scrap, Stock Sync */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800 text-center">
+                <div>
+                  <span className="text-[10px] font-bold text-amber-600 uppercase block">Remaining WIP</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-white">
+                    {selectedProductionBatch.wipUnits || 0} Pcs
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Material Cost</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-white">
+                    {formatRs(selectedProductionBatch.materialCost || 0)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-teal-600 uppercase block">Scrap Returned</span>
+                  <span className="font-mono font-bold text-teal-600 dark:text-teal-400">
+                    {selectedProductionBatch.scrapReturned || 0} Units
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-purple-600 uppercase block">Inventory Status</span>
+                  <span className={`font-mono font-bold text-xs ${selectedProductionBatch.isStockSynced ? 'text-emerald-600' : 'text-purple-600'}`}>
+                    {selectedProductionBatch.isStockSynced ? 'Confirmed in Stock' : 'Pending Sync'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Raw Material Consumption Breakdown Table */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+                  <Scissors className="w-3.5 h-3.5 text-amber-500" />
+                  Raw Material Consumption &amp; Cost Breakdown
+                </h4>
+                {selectedProductionBatch.materialUsages && selectedProductionBatch.materialUsages.length > 0 ? (
+                  <div className="rounded-xl border border-slate-200 dark:border-zinc-800 overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-slate-50 dark:bg-zinc-900 text-[10px] font-bold uppercase">
+                          <TableHead>Material</TableHead>
+                          <TableHead className="text-right">Issued</TableHead>
+                          <TableHead className="text-right">Returned</TableHead>
+                          <TableHead className="text-right">Net Consumed</TableHead>
+                          <TableHead className="text-right">Unit Cost</TableHead>
+                          <TableHead className="text-right">Line Total</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedProductionBatch.materialUsages.map((u: any) => {
+                          const unit = u.rawMaterial?.unit || 'Units';
+                          const lineCost = (Number(u.netConsumedQty) || 0) * (Number(u.unitCost) || 0);
+                          return (
+                            <TableRow key={u.id}>
+                              <TableCell className="font-medium text-slate-900 dark:text-white">
+                                {u.rawMaterial?.name}
+                                {u.rawMaterial?.code && (
+                                  <span className="text-[10px] text-slate-400 font-mono block">
+                                    {u.rawMaterial.code}
+                                  </span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right font-mono text-slate-700 dark:text-zinc-300">
+                                {u.issuedQty} {unit}
+                              </TableCell>
+                              <TableCell className="text-right font-mono text-teal-600 dark:text-teal-400 font-semibold">
+                                {u.returnedQty} {unit}
+                              </TableCell>
+                              <TableCell className="text-right font-mono font-bold text-slate-900 dark:text-white">
+                                {u.netConsumedQty} {unit}
+                              </TableCell>
+                              <TableCell className="text-right font-mono text-slate-500">
+                                {formatRs(u.unitCost || 0)}
+                              </TableCell>
+                              <TableCell className="text-right font-mono font-bold text-slate-900 dark:text-zinc-100">
+                                {formatRs(lineCost)}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <p className="text-slate-400 italic py-2">No material usages recorded for this batch.</p>
+                )}
+              </div>
+
+              {/* Complete BatchActivityTimeline */}
+              <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-zinc-800">
+                <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                  Chronological Batch Lifecycle Timeline
+                </h4>
+                <div className="bg-slate-50 dark:bg-zinc-900/60 p-3.5 rounded-xl border border-slate-200/80 dark:border-zinc-800">
+                  <BatchActivityTimeline order={selectedProductionBatch} />
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="p-4 sm:p-5 border-t border-slate-100 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 z-10 flex-row justify-end">
+            <Button
+              variant="outline"
+              onClick={() => setIsProductionBatchModalOpen(false)}
+              className="text-xs rounded-xl"
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

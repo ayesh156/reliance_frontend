@@ -11,8 +11,32 @@ declare module "react" {
   interface HTMLAttributes<T> {
     "data-vaul-no-drag"?: string | boolean;
     onOpenAutoFocus?: (event: React.SyntheticEvent | Event) => void;
+    onCloseAutoFocus?: (event: React.SyntheticEvent | Event) => void;
   }
 }
+
+/**
+ * PopoverContent component with auto-focus prevention to prevent conflicts
+ * with active parent Radix Dialogs or focus traps.
+ */
+export const PopoverContent = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement> & {
+    onOpenAutoFocus?: (event: React.SyntheticEvent | Event) => void;
+    onCloseAutoFocus?: (event: React.SyntheticEvent | Event) => void;
+  }
+>(({ className, children, onOpenAutoFocus, onCloseAutoFocus, ...props }, ref) => (
+  <div
+    ref={ref}
+    onOpenAutoFocus={onOpenAutoFocus ?? ((e) => e.preventDefault())}
+    onCloseAutoFocus={onCloseAutoFocus ?? ((e) => e.preventDefault())}
+    {...props}
+    className={className}
+  >
+    {children}
+  </div>
+));
+PopoverContent.displayName = "PopoverContent";
 
 /**
  * PopoverPrimitive portal wrapper mounted directly to document.body.
@@ -103,17 +127,36 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Determine whether to render inline (mobile viewports or inside touch drawers)
+  // Check if component is rendered inside a Dialog, Modal, or Drawer
+  const [isInModal, setIsInModal] = React.useState<boolean>(false);
+
+  React.useEffect(() => {
+    if (containerRef.current) {
+      const inModal = Boolean(
+        containerRef.current.closest(
+          '[data-vaul-drawer], [data-radix-dialog-content], [role="dialog"], [aria-modal="true"]'
+        )
+      );
+      setIsInModal(inModal);
+    }
+  }, [open]);
+
+  // Determine whether to render inline (mobile viewports or inside ANY dialog/modal/drawer on all screens)
   const isInline = React.useMemo(() => {
     if (isMobileViewport) return true;
+    if (isInModal) return true;
     if (containerRef.current) {
-      const inDrawerOrModal = !!containerRef.current.closest('[data-vaul-drawer], [data-radix-dialog-content], [role="dialog"]');
-      if (inDrawerOrModal && typeof window !== "undefined" && window.innerWidth < 1024) {
+      const inDrawerOrModal = Boolean(
+        containerRef.current.closest(
+          '[data-vaul-drawer], [data-radix-dialog-content], [role="dialog"], [aria-modal="true"]'
+        )
+      );
+      if (inDrawerOrModal) {
         return true;
       }
     }
     return false;
-  }, [isMobileViewport, open]);
+  }, [isMobileViewport, isInModal, open]);
 
   // Real-time dynamic screen coordinates for desktop portaled dropdown
   const [coords, setCoords] = React.useState<{ top: number; left: number; width: number }>({
@@ -254,16 +297,35 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   // Shared dropdown content: Search input and option items list
   const dropdownContent = (
     <>
-      {/* Search Input with Native Touch-Friendly Focus */}
-      <div className={`flex items-center gap-2 px-3 py-2 border-b shrink-0 ${dark ? "border-zinc-800" : "border-gray-100"}`}>
+      {/* Search Input with Native Touch-Friendly Focus & Event Isolation from Parent Dialogs */}
+      <div
+        onPointerDown={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+        className={`flex items-center gap-2 px-3 py-2 border-b shrink-0 pointer-events-auto ${dark ? "border-zinc-800" : "border-gray-100"}`}
+      >
         <Search className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
         <input
           ref={inputRef}
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (filteredOptions.length > 0) {
+                handleSelect(filteredOptions[0].value);
+              }
+            }
+          }}
+          onKeyUp={(e) => e.stopPropagation()}
           placeholder={searchPlaceholder}
-          className="w-full bg-transparent text-xs focus:outline-none placeholder-zinc-500"
+          className="w-full bg-transparent text-xs focus:outline-none placeholder-zinc-500 text-slate-900 dark:text-zinc-100 cursor-text"
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}
@@ -271,7 +333,12 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         {searchQuery && (
           <button
             type="button"
-            onClick={() => setSearchQuery("")}
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSearchQuery("");
+            }}
             className="text-zinc-400 hover:text-zinc-200 p-0.5 cursor-pointer"
             title="Clear search"
           >
@@ -283,7 +350,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       {/* List Options with Vaul Drawer Isolation & Momentum Touch Scroll */}
       <div
         data-vaul-no-drag=""
-        className="max-h-[220px] sm:max-h-[260px] overflow-y-auto overscroll-contain p-1 space-y-0.5"
+        className="max-h-[220px] sm:max-h-[260px] overflow-y-auto overscroll-contain p-1 space-y-0.5 pointer-events-auto"
         style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
       >
         {filteredOptions.length === 0 ? (
@@ -327,6 +394,14 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         disabled={disabled}
         onClick={() => {
           if (!disabled) {
+            if (containerRef.current) {
+              const inModal = Boolean(
+                containerRef.current.closest(
+                  '[data-vaul-drawer], [data-radix-dialog-content], [role="dialog"], [aria-modal="true"]'
+                )
+              );
+              setIsInModal(inModal);
+            }
             if (!isInline) {
               updatePosition();
             }
@@ -351,22 +426,25 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       {/* Hybrid Dropdown: Inline on Mobile/Touch Drawers, Body Portal on Desktop */}
       {open &&
         (isInline ? (
-          <div
+          <PopoverContent
             ref={dropdownRef}
             data-vaul-no-drag=""
-            className={`absolute left-0 right-0 top-full mt-1.5 z-[9999] rounded-xl border shadow-2xl overflow-hidden animate-in fade-in-0 zoom-in-95 duration-100 ${
+            onOpenAutoFocus={(e) => e.preventDefault()}
+            onCloseAutoFocus={(e) => e.preventDefault()}
+            className={`absolute left-0 right-0 top-full mt-1.5 z-[9999] rounded-xl border shadow-2xl overflow-hidden pointer-events-auto animate-in fade-in-0 zoom-in-95 duration-100 ${
               dark ? "bg-zinc-900 border-zinc-800 text-zinc-100" : "bg-white border-gray-200 text-gray-900"
             }`}
           >
             {dropdownContent}
-          </div>
+          </PopoverContent>
         ) : (
           <PopoverPrimitive.Portal>
             <DismissableLayerBranch asChild>
-              <div
+              <PopoverContent
                 ref={dropdownRef}
                 data-vaul-no-drag=""
                 onOpenAutoFocus={(e) => e.preventDefault()}
+                onCloseAutoFocus={(e) => e.preventDefault()}
                 style={{
                   position: "fixed",
                   top: `${coords.top}px`,
@@ -375,12 +453,12 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                   zIndex: 9999,
                   pointerEvents: "auto",
                 }}
-                className={`z-[9999] rounded-xl border shadow-2xl overflow-hidden animate-in fade-in-0 zoom-in-95 duration-100 ${
+                className={`z-[9999] rounded-xl border shadow-2xl overflow-hidden pointer-events-auto animate-in fade-in-0 zoom-in-95 duration-100 ${
                   dark ? "bg-zinc-900 border-zinc-800 text-zinc-100" : "bg-white border-gray-200 text-gray-900"
                 }`}
               >
                 {dropdownContent}
-              </div>
+              </PopoverContent>
             </DismissableLayerBranch>
           </PopoverPrimitive.Portal>
         ))}

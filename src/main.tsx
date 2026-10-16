@@ -4,9 +4,47 @@ import './index.css';
 import App from './App';
 
 /**
+ * Global dynamic import & chunk preload failure interceptor:
+ * Automatically triggers a clean page reload when Vite detects a missing or outdated
+ * JS chunk (e.g. after a new build deployment or stale cache).
+ */
+window.addEventListener('vite:preloadError', (event) => {
+  console.warn('[Vite] Chunk preload failure detected, refreshing page for latest assets...', event);
+  const reloadKey = 'vite_preload_reload_ts';
+  const lastReload = sessionStorage.getItem(reloadKey);
+  const now = Date.now();
+  // Prevent infinite refresh loop (minimum 10s cooldown)
+  if (!lastReload || now - parseInt(lastReload, 10) > 10000) {
+    sessionStorage.setItem(reloadKey, String(now));
+    window.location.reload();
+  }
+});
+
+// Intercept unhandled module script MIME-type error on SPA navigations
+window.addEventListener('error', (event) => {
+  const msg = event?.message || '';
+  if (
+    msg.includes('Failed to load module script') ||
+    msg.includes('Expected a JavaScript module script') ||
+    msg.includes('Failed to fetch dynamically imported module') ||
+    msg.includes('Loading chunk')
+  ) {
+    console.warn('[App] Dynamic chunk MIME/loading error detected, reloading...', msg);
+    const reloadKey = 'chunk_mime_reload_ts';
+    const lastReload = sessionStorage.getItem(reloadKey);
+    const now = Date.now();
+    if (!lastReload || now - parseInt(lastReload, 10) > 10000) {
+      sessionStorage.setItem(reloadKey, String(now));
+      window.location.reload();
+    }
+  }
+});
+
+/**
  * Enterprise PWA Service Worker Auto-Update & App Shell Lifecycle
  * - Automatically registers and polls for new version deployments on app focus and visibility changes
  * - Takes immediate controller takeover via skipWaiting() + clients.claim()
+ * - Bypasses browser HTTP cache for sw.js via updateViaCache: 'none'
  * - Performs seamless client auto-reload without requiring manual PWA re-installation
  */
 if ('serviceWorker' in navigator) {
@@ -22,7 +60,7 @@ if ('serviceWorker' in navigator) {
 
   window.addEventListener('load', () => {
     navigator.serviceWorker
-      .register('/sw.js')
+      .register('/sw.js', { updateViaCache: 'none' })
       .then((registration) => {
         console.log('[PWA] Service Worker registered with scope:', registration.scope);
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { get, del, post } from '../lib/api';
+import { get, del, post, patch } from '../lib/api';
 import { DateTimePicker } from '../components/ui/date-time-picker';
 import { toast } from 'react-toastify';
 import { useTheme } from '../contexts/ThemeContext';
@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
+import { Checkbox } from '../components/ui/checkbox';
 import { SearchableSelect } from '../components/ui/searchable-select';
 import { A4InvoiceModal } from '../components/pos/A4InvoiceModal';
 import { ReturnOrderModal } from '../components/invoices/ReturnOrderModal';
@@ -110,6 +111,9 @@ interface InvoiceRecord {
   payments?: any[];
   cheques?: any[];
   splitPayments?: any[];
+  // Rep Dispatch Tracking (Sent to sales rep / delivery tracking)
+  isDispatched?: boolean;
+  dispatchedByRole?: string | null;
 }
 
 interface InvoiceChequeInfo {
@@ -119,6 +123,31 @@ interface InvoiceChequeInfo {
   amount?: number;
   status: 'PENDING' | 'CLEARED' | 'BOUNCED' | string;
   statusLabel: 'PENDING' | 'REALIZED' | 'BOUNCED';
+}
+
+/**
+ * Dynamic role-specific badge styling for dispatch tracking and operator identification.
+ * Provides accessible contrast and tailored color palettes per organization role:
+ * - ADMIN: Purple / Indigo palette
+ * - REP: Amber / Orange palette
+ * - STAFF: Blue / Sky palette
+ * - CASHIER: Emerald / Teal palette
+ * - Fallback: Slate / Zinc palette
+ */
+export function getRoleBadgeStyle(role?: string | null): string {
+  const normalized = String(role || '').toUpperCase();
+  switch (normalized) {
+    case 'ADMIN':
+      return 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/50 dark:text-purple-300 dark:border-purple-800';
+    case 'REP':
+      return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800';
+    case 'STAFF':
+      return 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/50 dark:text-sky-300 dark:border-sky-800';
+    case 'CASHIER':
+      return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800';
+    default:
+      return 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700';
+  }
 }
 
 function getInvoiceChequeList(inv: InvoiceRecord): InvoiceChequeInfo[] {
@@ -273,6 +302,73 @@ export const InvoicesPage: React.FC = () => {
 
   // ⭐ Invoice Summary & Cheque Lifecycle Management Modal State
   const [summaryModalInvoice, setSummaryModalInvoice] = useState<InvoiceRecord | null>(null);
+
+  // Rep Dispatch Tracking State
+  const [togglingDispatchId, setTogglingDispatchId] = useState<number | null>(null);
+
+  /**
+   * Safely toggle or update Rep Dispatch Tracking status on an invoice.
+   * Optimistically updates UI state and synchronizes with PATCH /invoices/:id/dispatch.
+   */
+  const handleToggleDispatch = async (inv: InvoiceRecord, nextChecked: boolean) => {
+    setTogglingDispatchId(inv.id);
+    const prevDispatched = inv.isDispatched;
+    const prevRole = inv.dispatchedByRole;
+
+    // Optimistic UI state update
+    setInvoices((prev) =>
+      prev.map((item) =>
+        item.id === inv.id
+          ? {
+              ...item,
+              isDispatched: nextChecked,
+              dispatchedByRole: nextChecked ? (user?.role || 'ADMIN') : null,
+            }
+          : item
+      )
+    );
+
+    try {
+      const res = await patch<any>(`/invoices/${inv.id}/dispatch`, {
+        isDispatched: nextChecked,
+      });
+      const updated = res?.data || res;
+      if (updated && typeof updated.isDispatched === 'boolean') {
+        setInvoices((prev) =>
+          prev.map((item) =>
+            item.id === inv.id
+              ? {
+                  ...item,
+                  isDispatched: updated.isDispatched,
+                  dispatchedByRole: updated.dispatchedByRole,
+                }
+              : item
+          )
+        );
+      }
+      toast.success(
+        nextChecked
+          ? `Invoice #${inv.id} marked as Shipped (${user?.role || 'ADMIN'})`
+          : `Invoice #${inv.id} shipping status removed`
+      );
+    } catch (err: any) {
+      // Revert optimistic update on failure
+      setInvoices((prev) =>
+        prev.map((item) =>
+          item.id === inv.id
+            ? {
+                ...item,
+                isDispatched: prevDispatched,
+                dispatchedByRole: prevRole,
+              }
+            : item
+        )
+      );
+      toast.error(err.message || 'Failed to update dispatch status');
+    } finally {
+      setTogglingDispatchId(null);
+    }
+  };
 
   const handleOpenReturnModal = (inv: InvoiceRecord) => {
     setReturnInvoice(inv);
@@ -906,7 +1002,28 @@ export const InvoicesPage: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    <div className="flex flex-col items-end gap-1">
+                    <div className="flex flex-col sm:flex-row sm:items-center items-end gap-1.5">
+                      {/* Shipped / Dispatch Checkbox Tracker */}
+                      <label
+                        onClick={(e) => e.stopPropagation()}
+                        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium border cursor-pointer select-none transition-colors ${
+                          inv.isDispatched
+                            ? getRoleBadgeStyle(inv.dispatchedByRole)
+                            : 'bg-slate-50 text-slate-500 border-slate-200 dark:bg-zinc-800/60 dark:text-zinc-400 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800'
+                        }`}
+                        title="Shipped / Dispatch Tracking"
+                      >
+                        <Checkbox
+                          checked={!!inv.isDispatched}
+                          disabled={togglingDispatchId === inv.id}
+                          onCheckedChange={(checked) => handleToggleDispatch(inv, Boolean(checked))}
+                          className="size-3.5 data-[state=checked]:bg-zinc-900 data-[state=checked]:border-zinc-900 data-[state=checked]:text-white dark:data-[state=checked]:bg-white dark:data-[state=checked]:border-white dark:data-[state=checked]:text-zinc-900"
+                        />
+                        <span className="font-semibold">
+                          {inv.isDispatched ? `Shipped (${inv.dispatchedByRole || 'ADMIN'})` : 'Shipped'}
+                        </span>
+                      </label>
+
                       <div className="flex items-center gap-2">
                         <span className="text-[11px] text-slate-500 font-mono">
                           {new Date(inv.createdAt).toISOString().split('T')[0]}
@@ -1147,6 +1264,7 @@ export const InvoicesPage: React.FC = () => {
                 <th className="py-3 px-4">Invoice #</th>
                 <th className="py-3 px-4">Date</th>
                 <th className="py-3 px-4">Customer</th>
+                <th className="py-3 px-3 text-center">Shipped</th>
                 <th className="py-3 px-4 text-center">Method</th>
                 <th className="py-3 px-4 text-right">Total Amount</th>
                 <th className="py-3 px-4 text-right">Paid</th>
@@ -1157,14 +1275,14 @@ export const InvoicesPage: React.FC = () => {
             <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                  <td colSpan={9} className="py-12 text-center text-slate-400">
                     <Loader2 className="size-6 animate-spin mx-auto mb-2 text-emerald-500" />
                     <span>Loading invoices...</span>
                   </td>
                 </tr>
               ) : invoices.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                  <td colSpan={9} className="py-12 text-center text-slate-400">
                     <FileText className="size-8 opacity-30 mx-auto mb-2" />
                     <span>No invoices found matching current criteria.</span>
                   </td>
@@ -1197,7 +1315,7 @@ export const InvoicesPage: React.FC = () => {
                           )}
                           {/* Creator Role Badge inline next to Invoice Type */}
                           {inv.user?.role && (
-                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700">
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase border ${getRoleBadgeStyle(inv.user.role)}`}>
                               {inv.user.role}
                             </span>
                           )}
@@ -1229,6 +1347,28 @@ export const InvoicesPage: React.FC = () => {
                           {inv.customerName}
                         </div>
                         {inv.customerPhone && <span className="text-[10px] text-slate-400 font-mono">{inv.customerPhone}</span>}
+                      </td>
+                      {/* Shipped / Dispatch Tracking Column */}
+                      <td className="py-3 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                        <div className="inline-flex flex-col items-center justify-center gap-1">
+                          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                            <Checkbox
+                              checked={!!inv.isDispatched}
+                              disabled={togglingDispatchId === inv.id}
+                              onCheckedChange={(checked) => handleToggleDispatch(inv, Boolean(checked))}
+                              aria-label={`Toggle Shipped status for invoice ${inv.id}`}
+                              className="size-4 data-[state=checked]:bg-zinc-900 data-[state=checked]:border-zinc-900 data-[state=checked]:text-white dark:data-[state=checked]:bg-white dark:data-[state=checked]:border-white dark:data-[state=checked]:text-zinc-900"
+                            />
+                            <span className="text-[11px] font-medium text-slate-600 dark:text-zinc-400">
+                              Shipped
+                            </span>
+                          </label>
+                          {inv.isDispatched && inv.dispatchedByRole && (
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase border leading-none ${getRoleBadgeStyle(inv.dispatchedByRole)}`}>
+                              {inv.dispatchedByRole}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3 px-4 text-center">
                         <Badge

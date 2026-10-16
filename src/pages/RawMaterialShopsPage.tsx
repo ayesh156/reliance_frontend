@@ -626,28 +626,32 @@ export const RawMaterialShopsPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Action Bar: Touch Targets */}
-                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800/80">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => navigate(`/system/buy-raw-materials?search=${encodeURIComponent(shop.name)}`)}
-                    className="flex-1 min-w-[120px] h-8 text-xs font-medium gap-1.5 border-indigo-200 dark:border-indigo-900 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
-                  >
-                    <ReceiptText className="size-3.5" /> View Purchases / Ledger
-                  </Button>
-
-                  {shop.creditBalance > 0 && (
+                {/* Action Bar: Touch Targets & Responsive Wrapping */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <Button
                       type="button"
+                      variant="outline"
                       size="sm"
-                      onClick={() => setSettlementShop(shop)}
-                      className="h-8 text-xs font-semibold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                      onClick={() => navigate(`/system/buy-raw-materials?search=${encodeURIComponent(shop.name)}`)}
+                      className="h-8 text-xs px-2.5 font-medium gap-1.5 border-indigo-200 dark:border-indigo-900 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
                     >
-                      <CreditCard className="size-3.5" /> Pay Due
+                      <ReceiptText className="size-3.5" />
+                      <span>Purchases / Ledger</span>
                     </Button>
-                  )}
+
+                    {shop.creditBalance > 0 && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => setSettlementShop(shop)}
+                        className="h-8 text-xs px-2.5 font-semibold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                      >
+                        <CreditCard className="size-3.5" />
+                        <span>Pay Due</span>
+                      </Button>
+                    )}
+                  </div>
 
                   <div className="flex items-center gap-1 shrink-0 ml-auto">
                     {shop.creditBalance > 0 && shop.phone && (
@@ -659,7 +663,7 @@ export const RawMaterialShopsPage: React.FC = () => {
                           const waMsg = generateSupplierCreditSummaryWhatsAppMessage(shop);
                           openWhatsAppChat(shop.phone!, waMsg);
                         }}
-                        className="size-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                        className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
                         title="Send WhatsApp Credit Notice"
                       >
                         <MessageSquare className="size-3.5" />
@@ -671,7 +675,7 @@ export const RawMaterialShopsPage: React.FC = () => {
                       variant="ghost"
                       size="icon"
                       onClick={() => handleOpenEditModal(shop)}
-                      className="size-8 text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                      className="h-8 w-8 text-slate-500 hover:text-slate-900 dark:hover:text-white"
                       title="Edit Supplier Shop"
                     >
                       <Edit2 className="size-3.5" />
@@ -682,7 +686,7 @@ export const RawMaterialShopsPage: React.FC = () => {
                       variant="ghost"
                       size="icon"
                       onClick={() => setDeletingShop(shop)}
-                      className="size-8 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                      className="h-8 w-8 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30"
                       title="Delete Supplier Shop"
                     >
                       <Trash2 className="size-3.5" />

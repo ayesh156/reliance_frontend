@@ -34,8 +34,14 @@ const DialogContent = React.forwardRef<
     <DialogOverlay />
     <DialogPrimitive.Content
       ref={ref}
-      // Prevent outside click from dismissing the dialog modal
-      onPointerDownOutside={(e) => e.preventDefault()}
+      // Prevent outside click from dismissing the dialog modal, but allow focus on portaled popovers
+      onPointerDownOutside={(e) => {
+        const target = e.target as HTMLElement | null;
+        if (target?.closest?.('[data-vaul-no-drag], [data-radix-portal], [role="listbox"], [role="combobox"]')) {
+          return;
+        }
+        e.preventDefault();
+      }}
       // Prevent ESC key from unexpectedly closing in-progress forms
       onEscapeKeyDown={(e) => e.preventDefault()}
       // Prevent focus trap from intercepting focus on portaled inputs/popovers
@@ -47,7 +53,7 @@ const DialogContent = React.forwardRef<
       {...props}
     >
       {children}
-      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:outline-none disabled:pointer-events-none text-slate-500 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-zinc-100">
+      <DialogPrimitive.Close className="absolute right-5 top-5 z-50 rounded-lg p-1.5 opacity-70 transition-all hover:opacity-100 hover:bg-slate-100 dark:hover:bg-zinc-800 focus:outline-none disabled:pointer-events-none text-slate-500 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-zinc-100 cursor-pointer">
         <X className="h-4 w-4" />
         <span className="sr-only">Close</span>
       </DialogPrimitive.Close>

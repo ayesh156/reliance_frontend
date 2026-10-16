@@ -1,4 +1,4 @@
-const CACHE_NAME = 'reliance-pwa-v3';
+const CACHE_NAME = 'reliance-pwa-v4';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -92,11 +92,21 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static Assets: Stale-While-Revalidate caching pattern with safe cache.put
+  // Static Assets & Scripts: Stale-While-Revalidate caching pattern with MIME guard
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       const fetchPromise = fetch(event.request).then((networkResponse) => {
         if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+          const contentType = networkResponse.headers.get('content-type') || '';
+          const isScriptAsset = url.pathname.endsWith('.js') || url.pathname.includes('/assets/');
+
+          // CRITICAL: Never cache text/html responses when a JavaScript/CSS module script was requested!
+          // This occurs when a server's catch-all SPA route serves index.html for missing/purged chunk hashes.
+          if (isScriptAsset && contentType.includes('text/html')) {
+            console.warn('[SW] Server returned text/html for script chunk; skipping cache to avoid MIME error:', url.pathname);
+            return networkResponse;
+          }
+
           const responseToCache = networkResponse.clone();
           // Wrap cache.put in try/catch to prevent unhandled rejection on unsupported schemes
           try {

@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 
 export default defineConfig({
+  base: '/',
   plugins: [react()],
   server: {
     hmr: { host: 'localhost', port: 5174, protocol: 'ws' },
@@ -19,11 +20,15 @@ export default defineConfig({
     cssMinify: true,
     rollupOptions: {
       output: {
+        entryFileNames: 'assets/[name]-[hash].js',
+        chunkFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash].[ext]',
         manualChunks(id) {
           if (id.includes('node_modules/react-router')) return 'vendor-router';
           if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/') || id.includes('node_modules/scheduler/')) return 'vendor-react';
           if (id.includes('node_modules/recharts') || id.includes('node_modules/d3-') || id.includes('node_modules/victory') || id.includes('node_modules/internmap') || id.includes('node_modules/decimal.js')) return 'vendor-charts';
           if (id.includes('node_modules/lucide-react')) return 'vendor-icons';
+          if (id.includes('node_modules/@radix-ui/')) return 'vendor-ui';
           if (id.includes('node_modules/')) return 'vendor-other';
         },
       },

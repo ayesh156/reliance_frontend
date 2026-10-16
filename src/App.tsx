@@ -27,7 +27,6 @@ import { OrderCreatePage } from './pages/OrderCreatePage';
 import { BuyRawMaterialsPage } from './pages/BuyRawMaterialsPage';
 import BuyRawMaterialFormPage from './pages/BuyRawMaterialFormPage';
 import { ProductionListPage } from './pages/ProductionListPage';
-import { ProductionFormPage } from './pages/ProductionFormPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { Dashboard } from './pages/Dashboard';
 
@@ -269,24 +268,12 @@ export function App() {
 
               <Route
                 path="/system/production/new"
-                element={
-                  <ProtectedRoute requiredRole="STAFF">
-                    <AdminPage>
-                      <ProductionFormPage />
-                    </AdminPage>
-                  </ProtectedRoute>
-                }
+                element={<Navigate to="/system/production" replace />}
               />
 
               <Route
                 path="/system/production/edit/:id"
-                element={
-                  <ProtectedRoute requiredRole="STAFF">
-                    <AdminPage>
-                      <ProductionFormPage />
-                    </AdminPage>
-                  </ProtectedRoute>
-                }
+                element={<Navigate to="/system/production" replace />}
               />
 
               {/* Raw Material Stock Purchases Route */}
