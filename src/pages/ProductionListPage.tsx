@@ -2132,16 +2132,16 @@ export const ProductionListPage: React.FC = () => {
                     </div>
 
                     {/* ── Action Buttons Bar: Prominent Add to Stock & Clean 3-Dots Actions Menu ── */}
-                    <div className="pt-2 border-t border-slate-200/70 dark:border-zinc-800 flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
+                    <div className="pt-2.5 border-t border-slate-200/70 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                         {order.completedQty > 0 && !order.isStockSynced && order.status !== 'CANCELLED' && (
                           <Button
                             type="button"
                             size="sm"
                             onClick={() => setOrderToSyncStock(order)}
-                            className="h-8 px-2.5 text-xs font-semibold rounded-xl gap-1.5 cursor-pointer bg-purple-600 hover:bg-purple-700 text-white shadow-xs"
+                            className="h-7 px-2 text-[11px] font-semibold rounded-lg gap-1 cursor-pointer bg-purple-600 hover:bg-purple-700 text-white shadow-xs shrink-0"
                           >
-                            <Package className="size-3.5" />
+                            <Package className="size-3" />
                             <span>Add to Stock</span>
                           </Button>
                         )}
@@ -2150,9 +2150,9 @@ export const ProductionListPage: React.FC = () => {
                           variant="outline"
                           size="sm"
                           onClick={() => setExpandedTimelineBatchId(expandedTimelineBatchId === order.id ? null : order.id)}
-                          className="h-8 px-2.5 text-xs rounded-xl gap-1 text-slate-700 dark:text-zinc-300 border-slate-200 dark:border-zinc-800 cursor-pointer"
+                          className="h-7 px-2 text-[11px] rounded-lg gap-1 text-slate-700 dark:text-zinc-300 border-slate-200 dark:border-zinc-800 cursor-pointer shrink-0"
                         >
-                          <Clock className="size-3.5 text-indigo-500" />
+                          <Clock className="size-3 text-indigo-500" />
                           <span>Timeline ({((order.cutLogs?.length || 0) + (order.finishLogs?.length || 0))})</span>
                         </Button>
                       </div>
@@ -2162,9 +2162,9 @@ export const ProductionListPage: React.FC = () => {
                           <Button
                             variant="outline"
                             size="sm"
-                            className="h-8 px-2.5 rounded-xl text-xs gap-1.5 cursor-pointer"
+                            className="h-7 px-2 rounded-lg text-[11px] gap-1 cursor-pointer shrink-0 ml-auto"
                           >
-                            <MoreVertical className="size-3.5" />
+                            <MoreVertical className="size-3" />
                             <span>Actions</span>
                           </Button>
                         </DropdownMenuTrigger>
@@ -2239,20 +2239,21 @@ export const ProductionListPage: React.FC = () => {
             </div>
 
             {/* Pagination Controls */}
-            <div className="flex items-center justify-between pt-4 mt-2 border-t border-slate-100 dark:border-zinc-800 text-xs">
-              <span className="text-zinc-400">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 mt-2 border-t border-slate-100 dark:border-zinc-800 text-xs">
+              <span className="text-zinc-400 text-center sm:text-left">
                 Showing {paginatedRecords.length} of {filteredRecords.length} batches
               </span>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 w-full sm:w-auto justify-between sm:justify-end">
                 <Button
                   variant="outline"
                   size="sm"
                   disabled={currentPage === 1}
                   onClick={() => setCurrentPage((p) => p - 1)}
+                  className="h-8 px-2.5 text-xs rounded-xl cursor-pointer"
                 >
-                  <ChevronLeft className="size-3.5" /> Prev
+                  <ChevronLeft className="size-3.5 mr-1" /> Prev
                 </Button>
-                <span className="px-2 font-semibold">
+                <span className="px-3 py-1 font-mono font-semibold bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-lg text-slate-700 dark:text-zinc-300">
                   {currentPage} / {totalPages}
                 </span>
                 <Button
@@ -2260,8 +2261,9 @@ export const ProductionListPage: React.FC = () => {
                   size="sm"
                   disabled={currentPage === totalPages}
                   onClick={() => setCurrentPage((p) => p + 1)}
+                  className="h-8 px-2.5 text-xs rounded-xl cursor-pointer"
                 >
-                  Next <ChevronRight className="size-3.5" />
+                  Next <ChevronRight className="size-3.5 ml-1" />
                 </Button>
               </div>
             </div>
