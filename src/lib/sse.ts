@@ -59,12 +59,12 @@ export class SseSyncManager {
 
   /**
    * Watchdog Timer State:
-   * 35-second threshold provides high resilience:
-   * Server emits heartbeat pings every 15 seconds. 35 seconds allows for up to one
-   * dropped/delayed ping frame under severe packet jitter before declaring a silent drop.
+   * 60-second threshold prevents client reconnect thrashing under network latency or proxy jitter:
+   * Server emits heartbeat pings every 10 seconds. 60 seconds allows for multiple dropped/delayed
+   * frames before declaring a dead socket.
    */
   private watchdogTimer: ReturnType<typeof setTimeout> | null = null;
-  private readonly WATCHDOG_TIMEOUT_MS = 35000;
+  private readonly WATCHDOG_TIMEOUT_MS = 60000;
   private lastPacketTime = 0;
   private attachedEventNames = new Set<string>();
 
@@ -121,8 +121,11 @@ export class SseSyncManager {
   /**
    * Tab Visibility & Device Wake Handler:
    * Triggered when the browser tab transitions between hidden and visible.
-   * Mobile devices and laptops throttle or suspend network sockets during screen lock/sleep,
-   * causing silent half-open TCP dropouts. When waking up, immediately verify socket state.
+   *
+   * Anti-Thrashing Guard:
+   * Do NOT forcefully tear down an active EventSource if eventSource.readyState === EventSource.OPEN
+   * and the last packet was received within 45 seconds. Only reconnect if the socket is truly closed
+   * (CLOSED / CONNECTING) or silent for >= 45s.
    */
   private handleVisibilityChange(): void {
     if (typeof document === 'undefined' || document.visibilityState !== 'visible') {
@@ -132,18 +135,33 @@ export class SseSyncManager {
     // Only assess if user has an active authenticated session
     if (!this.currentToken) return;
 
-    const now = Date.now();
-    const isSocketMissingOrClosed = !this.eventSource || this.eventSource.readyState !== EventSource.OPEN;
-    const isConnectionStale = this.lastPacketTime > 0 && (now - this.lastPacketTime) >= this.WATCHDOG_TIMEOUT_MS;
-
-    if (isSocketMissingOrClosed || isConnectionStale) {
-      console.warn(
-        `[SSE] Tab became visible with stale or closed socket (closed: ${isSocketMissingOrClosed}, silent idle: ${
-          this.lastPacketTime > 0 ? ((now - this.lastPacketTime) / 1000).toFixed(1) + 's' : 'never'
-        }). Forcing immediate reconnect.`
-      );
+    if (!this.eventSource) {
+      console.warn('[SSE] Tab became visible with missing EventSource. Initiating connection.');
       this.forceReconnect();
+      return;
     }
+
+    const now = Date.now();
+    const isSocketOpen = this.eventSource.readyState === EventSource.OPEN;
+    const isRecentlyActive = this.lastPacketTime === 0 || (now - this.lastPacketTime) < 45000;
+
+    // Healthy connection check: if open and active within 45s, preserve connection and do NOT reconnect
+    if (isSocketOpen && isRecentlyActive) {
+      return;
+    }
+
+    const readyStateText = this.eventSource.readyState === EventSource.CONNECTING
+      ? 'CONNECTING'
+      : this.eventSource.readyState === EventSource.CLOSED
+      ? 'CLOSED'
+      : 'OPEN_BUT_STALE';
+
+    console.warn(
+      `[SSE] Tab became visible with stalled or closed socket (${readyStateText}, silent idle: ${
+        this.lastPacketTime > 0 ? ((now - this.lastPacketTime) / 1000).toFixed(1) + 's' : 'never'
+      }). Reconnecting cleanly.`
+    );
+    this.forceReconnect();
   }
 
   /**
@@ -286,14 +304,14 @@ export class SseSyncManager {
       };
 
       this.eventSource.onmessage = (event) => {
-        // Watchdog Reset: Any incoming packet, heartbeat comment (:\n\n), or event resets watchdog timer
+        // Watchdog Reset: Invoked on every raw incoming byte / message frame (including data pings)
         this.resetWatchdog();
 
         try {
           // Filter out heartbeat pings, comment reflections, or empty frames
           if (!event.data || event.data === ':' || event.data === 'ping') return;
           const parsed = JSON.parse(event.data);
-          if (parsed && (parsed.event === 'ping' || parsed.event === 'heartbeat')) return;
+          if (parsed && (parsed.type === 'ping' || parsed.event === 'ping' || parsed.event === 'heartbeat')) return;
           if (parsed && parsed.event) {
             const payload = parsed.payload !== undefined ? parsed.payload : parsed;
             this.dispatch(parsed.event, payload);
