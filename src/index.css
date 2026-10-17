@@ -36,6 +36,7 @@
 
 html {
   scrollbar-gutter: stable;
+  overflow-y: scroll;
 }
 
 html, body, #root {

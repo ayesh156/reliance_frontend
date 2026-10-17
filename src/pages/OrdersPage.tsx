@@ -5,10 +5,21 @@ import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
 import { DateRangePicker } from '../components/ui/date-range-picker';
 import { OrderDetailModal } from '../components/orders/OrderDetailModal';
-import { get, downloadBlob, post } from '../lib/api';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../components/ui/alert-dialog';
+import { get, downloadBlob, post, del } from '../lib/api';
 import { toast } from 'react-toastify';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { useSSE } from '../hooks/useSSE';
 import { openWhatsAppChat, generateSalesOrderWhatsAppMessage } from '../utils/whatsapp';
 import { SearchableSelect, type SearchableSelectOption } from '../components/ui/searchable-select';
 import {
@@ -40,6 +51,7 @@ import {
   Clock,
   SlidersHorizontal,
   X,
+  Trash2,
 } from 'lucide-react';
 
 /**
@@ -113,6 +125,8 @@ export const OrdersPage: React.FC = () => {
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState<boolean>(false);
   const [activePdfLoadingId, setActivePdfLoadingId] = useState<number | null>(null);
+  const [orderToDelete, setOrderToDelete] = useState<any | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   // Fetch Customers for customer filter dropdown
   useEffect(() => {
@@ -214,6 +228,21 @@ export const OrdersPage: React.FC = () => {
     return () => clearTimeout(timer);
   }, [page, statusFilter, selectedCustomerId, startDate, endDate, sortBy, search, fetchOrders]);
 
+  // Real-time SSE synchronization: live refetch when orders are created, updated, or deleted
+  useSSE({
+    events: {
+      order_created: () => {
+        fetchOrders(page);
+      },
+      order_updated: () => {
+        fetchOrders(page);
+      },
+      order_deleted: () => {
+        fetchOrders(page);
+      },
+    },
+  });
+
   // Summary KPI Calculations
   const totalOrdersCount = pagination.total;
   const totalPipelineValue = useMemo(() => {
@@ -253,6 +282,29 @@ export const OrdersPage: React.FC = () => {
     }
     const message = generateSalesOrderWhatsAppMessage(order);
     openWhatsAppChat(phone, message);
+  };
+
+  /**
+   * Confirms and executes atomic deletion of a sales order via modern state-driven modal workflow.
+   * Calls the backend deletion route which safely rolls back reserved inventory
+   * and any customer financial balance adjustments within a transaction.
+   */
+  const handleConfirmDelete = async () => {
+    if (!orderToDelete) return;
+    const orderRef = orderToDelete.orderNumber || `ORD-${orderToDelete.id}`;
+
+    try {
+      setIsDeleting(true);
+      await del<any>(`/sales-orders/${orderToDelete.id}`);
+      toast.success(`Order ${orderRef} deleted successfully`);
+      setOrderToDelete(null);
+      fetchOrders(page);
+    } catch (err: any) {
+      console.error('Failed to delete order:', err);
+      toast.error(err.message || 'Failed to delete order');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   /**
@@ -389,6 +441,22 @@ export const OrdersPage: React.FC = () => {
           <MessageSquare className="size-4 text-emerald-600" />
           <span>WhatsApp Share</span>
         </DropdownMenuItem>
+
+        {(user?.role === 'ADMIN' || (user?.role === 'REP' && (Number(order.userId) === Number(user?.id) || Number(order.userId) === Number((user as any)?.userId)))) && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                setOrderToDelete(order);
+              }}
+              className="gap-2.5 cursor-pointer text-rose-600 dark:text-rose-400 focus:text-rose-700 dark:focus:text-rose-300 font-medium"
+            >
+              <Trash2 className="size-4 text-rose-600 dark:text-rose-400" />
+              <span>Delete Order</span>
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -960,6 +1028,61 @@ export const OrdersPage: React.FC = () => {
         }}
         onStatusUpdated={fetchOrders}
       />
+
+      {/* ── Destructive Delete Order Confirmation Dialog ── */}
+      <AlertDialog
+        open={Boolean(orderToDelete)}
+        onOpenChange={(open) => {
+          if (!open && !isDeleting) {
+            setOrderToDelete(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <div className="flex items-center gap-3 mb-1">
+              <div className="size-10 rounded-full bg-rose-100 dark:bg-rose-950/60 flex items-center justify-center text-rose-600 dark:text-rose-400 shrink-0">
+                <Trash2 className="size-5" />
+              </div>
+              <AlertDialogTitle className="text-lg font-bold text-slate-900 dark:text-white">
+                Delete Order {orderToDelete?.orderNumber || (orderToDelete?.id ? `ORD-${orderToDelete.id}` : '')}?
+              </AlertDialogTitle>
+            </div>
+            <AlertDialogDescription className="text-sm text-slate-600 dark:text-zinc-400 leading-relaxed pt-1">
+              This will safely rollback any associated reserved stock or financial balances. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-4 gap-2 sm:gap-0">
+            <AlertDialogCancel
+              disabled={isDeleting}
+              onClick={() => setOrderToDelete(null)}
+              className="cursor-pointer"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDeleting}
+              onClick={(e) => {
+                e.preventDefault();
+                handleConfirmDelete();
+              }}
+              className="bg-rose-600 hover:bg-rose-700 text-white dark:bg-rose-600 dark:hover:bg-rose-700 font-semibold cursor-pointer inline-flex items-center justify-center gap-2"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  <span>Deleting...</span>
+                </>
+              ) : (
+                <>
+                  <Trash2 className="size-4" />
+                  <span>Delete Order</span>
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

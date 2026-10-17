@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { sseManager } from '../lib/sse';
 
 interface AuthUser {
   id: number;
@@ -92,6 +93,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const logout = useCallback(() => {
+    // Explicitly destroy the SSE EventSource stream connection immediately to prevent ghost connections
+    sseManager.disconnect();
     localStorage.removeItem('auth_token');
     setToken(null);
     setUser(null);

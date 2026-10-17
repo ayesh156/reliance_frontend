@@ -29,6 +29,7 @@ export const StorefrontNavbar: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -42,11 +43,13 @@ export const StorefrontNavbar: React.FC = () => {
   // Close mobile drawer on route change
   useEffect(() => {
     setMobileMenuOpen(false);
+    setIsClosing(false);
+    document.body.style.overflow = '';
   }, [location.pathname]);
 
-  // Lock body scroll when mobile menu is open
+  // Lock body scroll safely when mobile menu is open, and restore when closed
   useEffect(() => {
-    if (mobileMenuOpen) {
+    if (mobileMenuOpen && !isClosing) {
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
@@ -54,7 +57,20 @@ export const StorefrontNavbar: React.FC = () => {
     return () => {
       document.body.style.overflow = '';
     };
-  }, [mobileMenuOpen]);
+  }, [mobileMenuOpen, isClosing]);
+
+  /**
+   * Smoothly closes the mobile navigation menu before routing to prevent layout judder / scrollbar shifts
+   */
+  const handleCloseAndNavigate = (targetPath: string) => {
+    document.body.style.overflow = '';
+    setIsClosing(true);
+    setTimeout(() => {
+      setMobileMenuOpen(false);
+      setIsClosing(false);
+      navigate(targetPath);
+    }, 150);
+  };
 
   const navLinks = [
     { label: 'Home', path: '/' },
@@ -206,13 +222,15 @@ export const StorefrontNavbar: React.FC = () => {
       {/* ── Luxury Mobile Navigation Drawer ── */}
       {mobileMenuOpen && (
         <div
-          className="fixed inset-0 z-40 md:hidden animate-in fade-in duration-200"
+          className={`fixed inset-0 z-40 md:hidden transition-all duration-200 ${
+            isClosing ? 'opacity-0 pointer-events-none' : 'opacity-100 animate-in fade-in duration-200'
+          }`}
           style={{ top: 0 }}
         >
           {/* Backdrop with frosted blur */}
           <div
-            className="absolute inset-0 bg-[#f8f8f6]/95 dark:bg-zinc-950/95 backdrop-blur-2xl transition-colors"
-            onClick={() => setMobileMenuOpen(false)}
+            className="absolute inset-0 bg-[#f8f8f6]/95 dark:bg-zinc-950/95 backdrop-blur-2xl transition-colors cursor-pointer"
+            onClick={() => handleCloseAndNavigate(location.pathname)}
           />
 
           {/* Drawer Content */}
@@ -227,18 +245,18 @@ export const StorefrontNavbar: React.FC = () => {
                 {navLinks.map((item) => {
                   const isActive = location.pathname === item.path;
                   return (
-                    <NavLink
+                    <button
                       key={item.path}
-                      to={item.path}
-                      onClick={() => setMobileMenuOpen(false)}
-                      className={`text-xl sm:text-2xl uppercase tracking-[0.3em] font-serif transition-colors py-2 font-extrabold ${
+                      type="button"
+                      onClick={() => handleCloseAndNavigate(item.path)}
+                      className={`text-xl sm:text-2xl uppercase tracking-[0.3em] font-serif transition-colors py-2 font-extrabold cursor-pointer block w-full text-center ${
                         isActive
                           ? 'text-zinc-950 dark:text-white font-extrabold'
                           : 'text-zinc-800 dark:text-zinc-200 hover:text-emerald-600 dark:hover:text-emerald-400'
                       }`}
                     >
                       {item.label}
-                    </NavLink>
+                    </button>
                   );
                 })}
               </nav>
@@ -253,11 +271,9 @@ export const StorefrontNavbar: React.FC = () => {
 
               <div className="pt-4 border-t border-[#e5e5e0] dark:border-zinc-800 max-w-xs mx-auto">
                 <button
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    navigate(isAuthenticated ? '/system/products' : '/login');
-                  }}
-                  className="w-full flex items-center justify-center gap-2.5 py-3 px-4 bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 text-xs font-bold uppercase tracking-[0.24em] rounded-sm shadow-xl transition-colors"
+                  type="button"
+                  onClick={() => handleCloseAndNavigate(isAuthenticated ? '/system/products' : '/login')}
+                  className="w-full flex items-center justify-center gap-2.5 py-3 px-4 bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 text-xs font-bold uppercase tracking-[0.24em] rounded-sm shadow-xl transition-colors cursor-pointer"
                 >
                   {isAuthenticated ? (
                     <>

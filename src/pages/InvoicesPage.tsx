@@ -5,6 +5,7 @@ import { DateTimePicker } from '../components/ui/date-time-picker';
 import { toast } from 'react-toastify';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useSSE } from '../hooks/useSSE';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
@@ -565,6 +566,21 @@ export const InvoicesPage: React.FC = () => {
 
     return () => clearTimeout(timer);
   }, [page, selectedCustomerId, selectedMethod, startDate, endDate, sortBy, searchQuery]);
+
+  // Real-time SSE synchronization: live refetch when invoices are created, updated, or deleted
+  useSSE({
+    events: {
+      invoice_created: () => {
+        fetchInvoices(page);
+      },
+      invoice_updated: () => {
+        fetchInvoices(page);
+      },
+      invoice_deleted: () => {
+        fetchInvoices(page);
+      },
+    },
+  });
 
   // Comprehensive Invoice Metrics
   const totalInvoicesGenerated = totalCount;

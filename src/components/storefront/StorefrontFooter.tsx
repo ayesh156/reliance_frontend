@@ -42,25 +42,25 @@ export const StorefrontFooter: React.FC = () => {
             </p>
           </div>
 
-          <div className="w-full md:w-auto">
+          <div className="w-full md:w-auto max-w-full box-border">
             {subscribed ? (
-              <div className="flex items-center gap-2.5 px-5 py-3 rounded-sm bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-800 text-emerald-600 dark:text-emerald-400 text-xs tracking-wider shadow-sm">
-                <CheckCircle2 className="w-4 h-4 text-emerald-500 dark:text-emerald-400" />
+              <div className="flex items-center gap-2.5 px-5 py-3 rounded-sm bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-800 text-emerald-600 dark:text-emerald-400 text-xs tracking-wider shadow-sm box-border w-full">
+                <CheckCircle2 className="w-4 h-4 text-emerald-500 dark:text-emerald-400 shrink-0" />
                 <span>You have been registered for Reliance VIP access.</span>
               </div>
             ) : (
-              <form onSubmit={handleSubscribe} className="flex max-w-md w-full gap-2">
+              <form onSubmit={handleSubscribe} className="flex flex-col sm:flex-row flex-wrap w-full max-w-md gap-2 box-border">
                 <input
                   type="email"
                   required
                   value={newsletterEmail}
                   onChange={(e) => setNewsletterEmail(e.target.value)}
                   placeholder="ENTER YOUR EMAIL..."
-                  className="bg-white dark:bg-zinc-900/90 border border-zinc-300 dark:border-zinc-800 text-zinc-950 dark:text-zinc-100 placeholder-zinc-500 dark:placeholder-zinc-600 px-4 py-2.5 text-xs uppercase tracking-widest rounded-sm focus:outline-none focus:border-zinc-950 dark:focus:border-white transition-colors flex-1 shadow-sm"
+                  className="bg-white dark:bg-zinc-900/90 border border-zinc-300 dark:border-zinc-800 text-zinc-950 dark:text-zinc-100 placeholder-zinc-500 dark:placeholder-zinc-600 px-4 py-2.5 text-xs uppercase tracking-widest rounded-sm focus:outline-none focus:border-zinc-950 dark:focus:border-white transition-colors w-full sm:flex-1 min-w-0 box-border shadow-sm"
                 />
                 <button
                   type="submit"
-                  className="bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.2em] rounded-sm transition-colors shrink-0 flex items-center gap-1.5 shadow-sm"
+                  className="bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.2em] rounded-sm transition-colors w-full sm:w-auto shrink-0 flex items-center justify-center gap-1.5 box-border shadow-sm cursor-pointer"
                 >
                   <span>Subscribe</span>
                   <ArrowRight className="w-3.5 h-3.5" />

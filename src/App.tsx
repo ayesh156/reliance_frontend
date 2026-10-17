@@ -128,7 +128,7 @@ export function App() {
               <Route
                 path="/system/dashboard"
                 element={
-                  <ProtectedRoute>
+                  <ProtectedRoute requiredRole={['ADMIN', 'STAFF', 'CASHIER']}>
                     <AdminPage>
                       <Dashboard />
                     </AdminPage>
@@ -340,7 +340,7 @@ export function App() {
               <Route
                 path="/system/reports"
                 element={
-                  <ProtectedRoute requiredRole={['ADMIN', 'STAFF', 'REP']}>
+                  <ProtectedRoute requiredRole={['ADMIN', 'STAFF']}>
                     <AdminPage>
                       <ReportsPage />
                     </AdminPage>
@@ -351,7 +351,7 @@ export function App() {
               <Route
                 path="/system/settings"
                 element={
-                  <ProtectedRoute requiredRole={['ADMIN', 'REP']}>
+                  <ProtectedRoute requiredRole="ADMIN">
                     <AdminPage>
                       <Settings />
                     </AdminPage>
