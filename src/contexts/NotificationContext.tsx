@@ -184,10 +184,23 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     // Ensure SSE stream is active
     sseManager.connect(token, 'global');
 
+    /**
+     * ========================================================================
+     * EXPLICIT NAMED SSE EVENT LISTENERS (Cross-Device Broadcast Architecture)
+     * ========================================================================
+     * Architectural Requirement:
+     * Under the W3C EventSource specification, any SSE stream message containing an
+     * `event: ${eventName}` field (such as 'order_created', 'invoice_created') is dispatched
+     * as a custom named DOM event and COMPLETELY BYPASSES the default `.onmessage` handler.
+     *
+     * To guarantee cross-device real-time alerts propagate reliably (e.g., from mobile POS
+     * to desktop admin/cashier terminal), we strictly bind explicit
+     * `EventSource.addEventListener(eventName, callback)` handlers via `sseManager.addEventListener()`.
+     */
     const unsubs: Array<() => void> = [];
 
     // 1. Order Created (with direct invoice cross-event deduplication)
-    const unsubOrderCreated = sseManager.subscribe('order_created', (payload: any) => {
+    const unsubOrderCreated = sseManager.addEventListener('order_created', (payload: any) => {
       const entityId = payload?.id || payload?.orderNumber || 'unknown';
       if (isDuplicateEvent(`order_created:${entityId}`)) return;
 
@@ -225,7 +238,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     unsubs.push(unsubOrderCreated);
 
     // 2. Order Updated
-    const unsubOrderUpdated = sseManager.subscribe('order_updated', (payload: any) => {
+    const unsubOrderUpdated = sseManager.addEventListener('order_updated', (payload: any) => {
       const entityId = payload?.id || payload?.orderNumber || 'unknown';
       const status = payload?.status || '';
       if (isDuplicateEvent(`order_updated:${entityId}:${status}`)) return;
@@ -245,7 +258,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     unsubs.push(unsubOrderUpdated);
 
     // 3. Order Deleted
-    const unsubOrderDeleted = sseManager.subscribe('order_deleted', (payload: any) => {
+    const unsubOrderDeleted = sseManager.addEventListener('order_deleted', (payload: any) => {
       const id = payload?.orderNumber || payload?.id || payload?.orderId || 'unknown';
       if (isDuplicateEvent(`order_deleted:${id}`)) return;
 
@@ -260,7 +273,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     unsubs.push(unsubOrderDeleted);
 
     // 4. Invoice Created (with retroactive order notification purge)
-    const unsubInvoiceCreated = sseManager.subscribe('invoice_created', (payload: any) => {
+    const unsubInvoiceCreated = sseManager.addEventListener('invoice_created', (payload: any) => {
       const entityId = payload?.id || payload?.invoiceNumber || 'unknown';
       if (isDuplicateEvent(`invoice_created:${entityId}`)) return;
 
@@ -316,7 +329,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     unsubs.push(unsubInvoiceCreated);
 
     // 5. Invoice Updated
-    const unsubInvoiceUpdated = sseManager.subscribe('invoice_updated', (payload: any) => {
+    const unsubInvoiceUpdated = sseManager.addEventListener('invoice_updated', (payload: any) => {
       const entityId = payload?.id || payload?.invoiceNumber || 'unknown';
       const stateSig = `${payload?.paidAmount || ''}:${payload?.isDispatched || ''}`;
       if (isDuplicateEvent(`invoice_updated:${entityId}:${stateSig}`)) return;
@@ -335,7 +348,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     unsubs.push(unsubInvoiceUpdated);
 
     // 6. Invoice Deleted
-    const unsubInvoiceDeleted = sseManager.subscribe('invoice_deleted', (payload: any) => {
+    const unsubInvoiceDeleted = sseManager.addEventListener('invoice_deleted', (payload: any) => {
       const id = payload?.invoiceNumber || payload?.id || payload?.invoiceId || 'unknown';
       if (isDuplicateEvent(`invoice_deleted:${id}`)) return;
 

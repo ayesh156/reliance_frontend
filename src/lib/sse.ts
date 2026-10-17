@@ -29,6 +29,23 @@ export type SseEventHandler = (payload: any) => void;
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
+/**
+ * Core Named SSE Events:
+ * Under standard W3C EventSource specifications, incoming SSE frames containing
+ * an `event: <name>` field completely bypass `EventSource.onmessage`.
+ * We pre-bind explicit `EventSource.addEventListener(eventName, callback)` handlers
+ * for all recognized lifecycle events so updates are never silently discarded.
+ */
+export const CORE_SSE_EVENTS = [
+  'order_created',
+  'order_updated',
+  'order_deleted',
+  'invoice_created',
+  'invoice_updated',
+  'invoice_deleted',
+  'connected',
+] as const;
+
 export class SseSyncManager {
   private eventSource: EventSource | null = null;
   private listeners = new Map<string, Set<SseEventHandler>>();
@@ -248,6 +265,11 @@ export class SseSyncManager {
 
       this.eventSource = new EventSource(sseUrl.toString());
 
+      // Pre-bind explicit EventSource addEventListener handlers for all core named events
+      CORE_SSE_EVENTS.forEach((eventName) => {
+        this.bindEventSourceListener(eventName);
+      });
+
       // Bind custom event listeners for all registered subscribers
       this.listeners.forEach((_, eventName) => {
         this.bindEventSourceListener(eventName);
@@ -257,6 +279,7 @@ export class SseSyncManager {
       this.resetWatchdog();
 
       this.eventSource.onopen = () => {
+        console.log('[SSE] Connection securely established');
         this.status = 'connected';
         this.reconnectDelay = 1000;
         this.resetWatchdog();
@@ -344,9 +367,13 @@ export class SseSyncManager {
   }
 
   /**
-   * Subscribe a callback handler to a specific SSE event
+   * Explicit Named Event Registration:
+   * Under standard W3C EventSource specifications, incoming SSE frames containing
+   * an `event: <name>` field completely bypass `EventSource.onmessage`.
+   * Strictly uses `EventSource.addEventListener(eventName, callback)` to listen for
+   * specific named events (e.g., 'order_created', 'invoice_created').
    */
-  public subscribe(eventName: string, handler: SseEventHandler): () => void {
+  public addEventListener(eventName: string, handler: SseEventHandler): () => void {
     if (!this.listeners.has(eventName)) {
       this.listeners.set(eventName, new Set());
       this.bindEventSourceListener(eventName);
@@ -363,6 +390,20 @@ export class SseSyncManager {
         }
       }
     };
+  }
+
+  /**
+   * Subscribe alias delegating strictly to addEventListener
+   */
+  public subscribe(eventName: string, handler: SseEventHandler): () => void {
+    return this.addEventListener(eventName, handler);
+  }
+
+  /**
+   * Direct access to underlying EventSource instance if raw inspection is needed
+   */
+  public getEventSource(): EventSource | null {
+    return this.eventSource;
   }
 
   /**
