@@ -42,12 +42,13 @@ window.addEventListener('error', (event) => {
 
 /**
  * Enterprise PWA Service Worker Auto-Update & App Shell Lifecycle
- * - Automatically registers and polls for new version deployments on app focus and visibility changes
- * - Takes immediate controller takeover via skipWaiting() + clients.claim()
- * - Bypasses browser HTTP cache for sw.js via updateViaCache: 'none'
- * - Performs seamless client auto-reload without requiring manual PWA re-installation
+ * - Service Worker registration is strictly restricted to PRODUCTION environments
+ *   (import.meta.env.PROD && 'serviceWorker' in navigator).
+ * - During local development (`npm run dev`), Service Worker registration is completely disabled
+ *   to prevent `Failed to execute 'importScripts' on 'WorkerGlobalScope'` and dev-sw.js errors.
+ * - In development mode, existing active workers are cleanly unregistered.
  */
-if ('serviceWorker' in navigator) {
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   let isRefreshing = false;
 
   // Reload window once the active Service Worker controller changes to new deployment
@@ -59,15 +60,8 @@ if ('serviceWorker' in navigator) {
   });
 
   window.addEventListener('load', () => {
-    // In development mode, VitePWA serves the dev service worker at /dev-sw.js?dev-sw (ES module)
-    // In production, VitePWA outputs the compiled Workbox service worker at /sw.js
-    const swUrl = import.meta.env.DEV ? '/dev-sw.js?dev-sw' : '/sw.js';
-    const swOptions: RegistrationOptions = import.meta.env.DEV
-      ? { type: 'module' }
-      : { updateViaCache: 'none' };
-
     navigator.serviceWorker
-      .register(swUrl, swOptions)
+      .register('/sw.js', { updateViaCache: 'none' })
       .then((registration) => {
         console.log('[PWA] Service Worker registered with scope:', registration.scope);
 
@@ -110,6 +104,15 @@ if ('serviceWorker' in navigator) {
         console.error('[PWA] Service Worker registration failed:', error);
       });
   });
+}
+
+// In local development, proactively unregister any previously registered service workers
+if (!import.meta.env.PROD && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then((registrations) => {
+    for (const registration of registrations) {
+      registration.unregister().catch(() => {});
+    }
+  }).catch(() => {});
 }
 
 // Fallback safeguard to fade out startup splash screen if network/auth delays

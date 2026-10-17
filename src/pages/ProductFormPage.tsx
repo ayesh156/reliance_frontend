@@ -11,7 +11,7 @@ import { VariantTable } from '../components/products/VariantTable';
 import type { ProductItem, VariantItem } from '../types/product';
 import { compressAndConvertToWebP } from '../utils/imageCompressor';
 import { validateProductForm } from '../utils/validators';
-import { normalizeImageUrl, resolveImageUrl, isGoogleDriveUrl } from '../utils/imageUrl';
+import { normalizeImageUrl, resolveImageUrl, isGoogleDriveUrl, handleImageError } from '../utils/imageUrl';
 
 import {
   ArrowLeft,
@@ -919,6 +919,7 @@ export const ProductFormPage: React.FC = () => {
                       alt=""
                       loading="lazy"
                       referrerPolicy="no-referrer"
+                      onError={handleImageError}
                       className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
                     />
 

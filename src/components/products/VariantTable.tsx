@@ -13,7 +13,7 @@ import { SizeCombobox } from './SizeCombobox';
 import { ColorCombobox } from './ColorCombobox';
 import { VariantModal } from './VariantModal';
 import type { VariantItem } from '../../types/product';
-import { resolveImageUrl } from '../../utils/imageUrl';
+import { resolveImageUrl, handleImageError } from '../../utils/imageUrl';
 
 
 interface VariantTableProps {
@@ -210,6 +210,7 @@ export const VariantTable: React.FC<VariantTableProps> = ({
                           alt=""
                           loading="lazy"
                           referrerPolicy="no-referrer"
+                          onError={handleImageError}
                           className="w-full h-full object-cover"
                         />
                       ) : (
@@ -427,6 +428,7 @@ export const VariantTable: React.FC<VariantTableProps> = ({
                             alt="" 
                             loading="lazy"
                             referrerPolicy="no-referrer"
+                            onError={handleImageError}
                             className="w-full h-full object-cover" 
                           />
                         ) : (

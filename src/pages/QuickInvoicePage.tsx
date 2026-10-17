@@ -54,7 +54,7 @@ import {
 } from 'lucide-react';
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../utils/whatsapp';
-import { resolveImageUrl } from '../utils/imageUrl';
+import { resolveImageUrl, handleImageError } from '../utils/imageUrl';
 
 
 interface CatalogVariant {
@@ -2101,6 +2101,7 @@ export const QuickInvoicePage: React.FC = () => {
                           alt="" 
                           loading="lazy"
                           referrerPolicy="no-referrer"
+                          onError={handleImageError}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform" 
                         />
                       ) : (

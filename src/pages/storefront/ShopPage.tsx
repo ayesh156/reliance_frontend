@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { get } from '../../lib/api';
 import type { ProductItem } from '../../types/product';
-import { formatCurrency, getProductImageUrl, FALLBACK_IMAGE } from '../../lib/utils';
+import { formatCurrency, getProductImageUrl, FALLBACK_IMAGE, handleImageError } from '../../lib/utils';
 import { ProductQuickViewModal } from '../../components/storefront/ProductQuickViewModal';
 import { openWhatsAppChat } from '../../utils/whatsapp';
 import {
@@ -398,9 +398,7 @@ export const ShopPage: React.FC = () => {
                       alt={product.name}
                       className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
                       loading="lazy"
-                      onError={(e) => {
-                        e.currentTarget.src = FALLBACK_IMAGE;
-                      }}
+                      onError={handleImageError}
                     />
 
                     {/* Quick View Hover Overlay */}

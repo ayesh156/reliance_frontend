@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
-import { formatCurrency, getProductImageUrl } from '../lib/utils';
+import { formatCurrency, getProductImageUrl, handleImageError } from '../lib/utils';
 import { get, post, put, del } from '../lib/api';
 import { toast } from 'react-toastify';
 
@@ -548,6 +548,7 @@ const fetchAll = useCallback(async () => {
                             alt={p.name}
                             loading="lazy"
                             referrerPolicy="no-referrer"
+                            onError={handleImageError}
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                           />
                         ) : (
@@ -654,6 +655,7 @@ const fetchAll = useCallback(async () => {
                                   alt={p.name}
                                   loading="lazy"
                                   referrerPolicy="no-referrer"
+                                  onError={handleImageError}
                                   className="w-full h-full object-cover group-hover/item:scale-105 transition-transform"
                                 />
                               ) : (
@@ -779,6 +781,7 @@ const fetchAll = useCallback(async () => {
                         src={getProductImageUrl(currentImg!)}
                         alt={inspectProduct.name}
                         referrerPolicy="no-referrer"
+                        onError={handleImageError}
                         className="w-full h-full object-contain"
                       />
                     </div>
@@ -799,6 +802,7 @@ const fetchAll = useCallback(async () => {
                               src={getProductImageUrl(imgUrl)}
                               alt={`Thumbnail ${idx + 1}`}
                               referrerPolicy="no-referrer"
+                              onError={handleImageError}
                               className="w-full h-full object-cover"
                             />
                           </button>

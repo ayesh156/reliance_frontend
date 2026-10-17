@@ -63,6 +63,26 @@ export function normalizeImageUrl(url?: string | null): string {
 export const FALLBACK_IMAGE = '/images/reliance-placeholder.jpg';
 
 /**
+ * Global silent image error fallback handler for product components and storefront:
+ * When local development environments lack uploaded files (HTTP 404) or remote CDN endpoints fail,
+ * this replaces broken images with the branded Reliance placeholder or hides them gracefully
+ * without logging unhandled exceptions or triggering infinite loop cascades.
+ */
+export function handleImageError(
+  e: React.SyntheticEvent<HTMLImageElement, Event>,
+  fallbackSrc: string = FALLBACK_IMAGE
+) {
+  const target = e.currentTarget;
+  if (target.dataset.fallbackApplied) {
+    // Prevent infinite onError loops if the fallback itself fails or is missing locally
+    target.style.display = 'none';
+    return;
+  }
+  target.dataset.fallbackApplied = 'true';
+  target.src = fallbackSrc;
+}
+
+/**
  * Resolves full display image URL handling local API paths, Google Drive URLs, and external web links.
  */
 export function resolveImageUrl(path?: string | null): string {

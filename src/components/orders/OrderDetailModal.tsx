@@ -26,7 +26,7 @@ import {
   X,
   Edit,
 } from 'lucide-react';
-import { resolveImageUrl } from '../../utils/imageUrl';
+import { resolveImageUrl, handleImageError } from '../../utils/imageUrl';
 import { openWhatsAppChat, generateSalesOrderWhatsAppMessage } from '../../utils/whatsapp';
 import { downloadBlob, post } from '../../lib/api';
 import { toast } from 'react-toastify';
@@ -298,6 +298,7 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
                         <img
                           src={resolveImageUrl(img)}
                           alt={item.productName}
+                          onError={handleImageError}
                           className="size-full object-cover"
                         />
                       ) : (

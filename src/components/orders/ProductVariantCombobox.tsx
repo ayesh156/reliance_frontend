@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronsUpDown, Package, Check, X, Search } from 'lucide-react';
-import { resolveImageUrl } from '../../utils/imageUrl';
+import { resolveImageUrl, handleImageError } from '../../utils/imageUrl';
 
 export interface ProductVariantOption {
   id: number;
@@ -88,6 +88,7 @@ export const ProductVariantCombobox: React.FC<ProductVariantComboboxProps> = ({
                 <img
                   src={resolveImageUrl(selectedVariant.imageUrl)}
                   alt={selectedVariant.productName}
+                  onError={handleImageError}
                   className="size-7 rounded-lg object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
                 />
               ) : (
@@ -176,6 +177,7 @@ export const ProductVariantCombobox: React.FC<ProductVariantComboboxProps> = ({
                             <img
                               src={resolveImageUrl(variant.imageUrl)}
                               alt={variant.productName}
+                              onError={handleImageError}
                               className="size-8 rounded-lg object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
                             />
                           ) : (

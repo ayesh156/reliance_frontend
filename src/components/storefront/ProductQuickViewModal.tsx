@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { ProductItem, VariantItem } from '../../types/product';
-import { formatCurrency, getProductImageUrl, FALLBACK_IMAGE } from '../../lib/utils';
+import { formatCurrency, getProductImageUrl, FALLBACK_IMAGE, handleImageError } from '../../lib/utils';
 import { openWhatsAppChat } from '../../utils/whatsapp';
 import {
   X,
@@ -96,9 +96,7 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
                 src={displayImage}
                 alt={product.name}
                 className="w-full h-full object-cover transition-all duration-500"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src = FALLBACK_IMAGE;
-                }}
+                onError={handleImageError}
               />
 
               {allImages.length > 1 && (
@@ -143,6 +141,7 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
                     <img
                       src={getProductImageUrl(img)}
                       alt={`Thumb ${idx}`}
+                      onError={handleImageError}
                       className="w-full h-full object-cover"
                     />
                   </button>

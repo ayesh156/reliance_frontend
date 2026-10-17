@@ -28,8 +28,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       injectRegister: false, // Registered manually with auto-update lifecycle in src/main.tsx
       devOptions: {
-        enabled: true,
-        type: 'module',
+        // Disabled in local development to prevent WorkerGlobalScope importScripts / dev-sw.js errors
+        enabled: false,
       },
       workbox: {
         navigateFallback: '/index.html',

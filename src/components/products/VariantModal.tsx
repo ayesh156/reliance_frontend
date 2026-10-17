@@ -7,7 +7,7 @@ import { SizeCombobox } from './SizeCombobox';
 import { ColorCombobox } from './ColorCombobox';
 import type { VariantItem } from '../../types/product';
 import { sanitizePrice, calculateAdjustedStock } from '../../utils/validators';
-import { resolveImageUrl, normalizeImageUrl, isGoogleDriveUrl } from '../../utils/imageUrl';
+import { resolveImageUrl, normalizeImageUrl, isGoogleDriveUrl, handleImageError } from '../../utils/imageUrl';
 
 interface VariantModalProps {
   isOpen: boolean;
@@ -150,6 +150,7 @@ export const VariantModal: React.FC<VariantModalProps> = ({
                       alt="" 
                       loading="lazy"
                       referrerPolicy="no-referrer"
+                      onError={handleImageError}
                       className="w-full h-full object-cover" 
                     />
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white text-[10px] font-bold">
@@ -237,6 +238,7 @@ export const VariantModal: React.FC<VariantModalProps> = ({
                               alt="" 
                               loading="lazy"
                               referrerPolicy="no-referrer"
+                              onError={handleImageError}
                               className="w-full h-full object-cover" 
                             />
                           </button>
