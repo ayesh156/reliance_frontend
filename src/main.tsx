@@ -59,8 +59,15 @@ if ('serviceWorker' in navigator) {
   });
 
   window.addEventListener('load', () => {
+    // In development mode, VitePWA serves the dev service worker at /dev-sw.js?dev-sw (ES module)
+    // In production, VitePWA outputs the compiled Workbox service worker at /sw.js
+    const swUrl = import.meta.env.DEV ? '/dev-sw.js?dev-sw' : '/sw.js';
+    const swOptions: RegistrationOptions = import.meta.env.DEV
+      ? { type: 'module' }
+      : { updateViaCache: 'none' };
+
     navigator.serviceWorker
-      .register('/sw.js', { updateViaCache: 'none' })
+      .register(swUrl, swOptions)
       .then((registration) => {
         console.log('[PWA] Service Worker registered with scope:', registration.scope);
 

@@ -8,6 +8,16 @@ interface AuthUser {
   role: string;
 }
 
+/**
+ * AuthContext — Central authentication and session management provider.
+ * 
+ * Post-Login Default Landing Architecture:
+ * - Successful authentication (via Login portal or token restore) establishes active user state.
+ * - The application enforces `/system/invoices` as the default landing destination (instead of
+ *   dashboard or legacy views) across all devices (mobile and desktop).
+ * - Public storefront routes remain unauthenticated, while `/system/*` routes require active auth
+ *   and will redirect to `/login` if session is invalid.
+ */
 interface AuthContextType {
   user: AuthUser | null;
   token: string | null;

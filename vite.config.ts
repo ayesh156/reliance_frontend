@@ -1,25 +1,67 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
 
 /**
  * Vite Configuration for Reliance ERP & Storefront PWA
  *
- * PWA & Service Worker Architecture Notes:
- * - Runtime Service Worker: Hosted at `/public/sw.js` and registered in `src/main.tsx`.
- * - Same-Origin Filter: The Service Worker strictly intercepts same-origin requests
- *   (url.origin === self.location.origin) and completely bypasses external third-party origins
- *   (such as Cloudflare Insights / static.cloudflareinsights.com, CDNs, and trackers) to avoid
- *   console FetchEvent network error rejections.
- * - SPA Navigation Fallback: Workbox navigateFallback equivalent is enforced for all navigation
- *   requests (mode === 'navigate'), falling back to `/index.html` for deep links (e.g.,
- *   /system/products, /system/raw-material-shops) with strict denylists for `/api` and `/socket.io/`.
- * - Graceful Error Handling: Intercepted requests safely catch network errors and always return
- *   a valid fallback Response object, preventing 'Failed to convert value to Response' errors.
+ * SPA Service Worker & Workbox Architecture:
+ * - Workbox Service Worker Generation: Managed via `vite-plugin-pwa` to eliminate conflicting
+ *   manual service workers (such as legacy `public/sw.js`).
+ * - SPA Fallback Routing Logic:
+ *   Configured with `navigateFallback: '/index.html'`. All unknown client-side SPA navigation
+ *   requests (such as `/login`, `/system/invoices`, `/system/products`, etc.) are intercepted by Workbox
+ *   and served the React app shell (`/index.html`) rather than causing the network fetch promise to fail.
+ *   This completely resolves the browser console error:
+ *     `TypeError: Failed to convert value to 'Response'`
+ *   which happens when a navigation fetch event handler fails to return a valid Response.
+ * - API & Dynamic Backend Denylist:
+ *   Configured with `navigateFallbackDenylist: [/^\/api/]`. This ensures that all backend API requests
+ *   (`/api/*`) bypass the SPA app shell fallback and are routed directly to the backend server.
  */
 export default defineConfig({
   base: '/',
-  plugins: [react()],
+  plugins: [
+    react(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      injectRegister: false, // Registered manually with auto-update lifecycle in src/main.tsx
+      devOptions: {
+        enabled: true,
+        type: 'module',
+      },
+      workbox: {
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/api/],
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,jpeg,woff2}'],
+      },
+      manifest: {
+        short_name: 'Reliance POS',
+        name: 'Reliance Clothing ERP & POS Suite',
+        icons: [
+          {
+            src: '/icons/icon-192x192.png',
+            type: 'image/png',
+            sizes: '192x192',
+            purpose: 'any maskable',
+          },
+          {
+            src: '/icons/icon-512x512.png',
+            type: 'image/png',
+            sizes: '512x512',
+            purpose: 'any maskable',
+          },
+        ],
+        start_url: '/',
+        background_color: '#09090b',
+        theme_color: '#09090b',
+        display: 'standalone',
+        orientation: 'portrait-primary',
+        scope: '/',
+      },
+    }),
+  ],
   server: {
     hmr: { host: 'localhost', port: 5174, protocol: 'ws' },
     port: 5174,

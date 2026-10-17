@@ -18,9 +18,12 @@ export const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Post-Login Default Redirection:
+  // Automatically redirect authenticated staff/users to the Invoices page (/system/invoices)
+  // as the default system landing page across all devices (mobile and desktop).
   useEffect(() => {
     if (isAuthenticated) {
-      navigate('/system/products', { replace: true });
+      navigate('/system/invoices', { replace: true });
     }
   }, [isAuthenticated, navigate]);
 
@@ -39,7 +42,8 @@ export const Login: React.FC = () => {
 
     try {
       await login(cleanEmail, cleanPassword);
-      navigate('/system/products');
+      // Default Landing Page: Direct immediately to Invoices page upon successful authentication
+      navigate('/system/invoices', { replace: true });
     } catch (err: any) {
       setError(err.message || 'Login failed. Please verify credentials.');
     } finally {

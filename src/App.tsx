@@ -117,13 +117,15 @@ export function App() {
               <Route path="/login" element={<Login />} />
 
               {/* ── Legacy Direct Navigation Shortcuts (Prevent Root Hijack) ── */}
-              <Route path="/dashboard" element={<Navigate to="/system/dashboard" replace />} />
+              <Route path="/dashboard" element={<Navigate to="/system/invoices" replace />} />
+              <Route path="/invoices" element={<Navigate to="/system/invoices" replace />} />
               <Route path="/products" element={<Navigate to="/system/products" replace />} />
 
               {/* ── Admin Back-Office (/system/*) ── */}
+              {/* Default Landing Page: Root /system route immediately redirects to Invoices page (/system/invoices) */}
               <Route
                 path="/system"
-                element={<Navigate to="/system/products" replace />}
+                element={<Navigate to="/system/invoices" replace />}
               />
               <Route
                 path="/system/dashboard"
@@ -372,7 +374,8 @@ export function App() {
               />
 
               {/* ── Catch-all Fallbacks ── */}
-              <Route path="/system/*" element={<Navigate to="/system/products" replace />} />
+              {/* Unknown back-office subroutes redirect directly to the default landing page (/system/invoices) */}
+              <Route path="/system/*" element={<Navigate to="/system/invoices" replace />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
             </ErrorBoundary>

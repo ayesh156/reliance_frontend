@@ -85,11 +85,11 @@ export const AccessDenied: React.FC<AccessDeniedProps> = ({ requiredRole }) => {
         {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
           <Button
-            onClick={() => navigate('/system/products')}
+            onClick={() => navigate('/system/invoices')}
             className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/20 font-medium px-5"
           >
             <LayoutDashboard className="size-4 mr-2" />
-            Return to Dashboard
+            Return to Invoices
           </Button>
 
           <Button

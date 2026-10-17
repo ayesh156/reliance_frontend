@@ -161,7 +161,7 @@ export const StorefrontNavbar: React.FC = () => {
                 id="storefront-system-portal-btn"
                 onClick={() => {
                   if (isAuthenticated) {
-                    navigate('/system/products');
+                    navigate('/system/invoices');
                   } else {
                     navigate('/login');
                   }
@@ -188,7 +188,7 @@ export const StorefrontNavbar: React.FC = () => {
               {/* ── Mobile Compact Portal Quick Icon Button (< 640px) ── */}
               <button
                 type="button"
-                onClick={() => navigate(isAuthenticated ? '/system/products' : '/login')}
+                onClick={() => navigate(isAuthenticated ? '/system/invoices' : '/login')}
                 className="sm:hidden p-2 text-zinc-800 dark:text-zinc-200 hover:text-zinc-950 dark:hover:text-white hover:bg-zinc-200/50 dark:hover:bg-zinc-800/60 rounded-full transition-colors"
                 title={isAuthenticated ? 'System Portal' : 'Staff Portal Login'}
                 aria-label="Staff Portal"
@@ -272,7 +272,7 @@ export const StorefrontNavbar: React.FC = () => {
               <div className="pt-4 border-t border-[#e5e5e0] dark:border-zinc-800 max-w-xs mx-auto">
                 <button
                   type="button"
-                  onClick={() => handleCloseAndNavigate(isAuthenticated ? '/system/products' : '/login')}
+                  onClick={() => handleCloseAndNavigate(isAuthenticated ? '/system/invoices' : '/login')}
                   className="w-full flex items-center justify-center gap-2.5 py-3 px-4 bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 text-xs font-bold uppercase tracking-[0.24em] rounded-sm shadow-xl transition-colors cursor-pointer"
                 >
                   {isAuthenticated ? (
