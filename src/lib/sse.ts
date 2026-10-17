@@ -56,6 +56,7 @@ export class SseSyncManager {
   private currentToken: string | null = null;
   private currentChannel = 'global';
   private clientId: string;
+  private activeClientId: string | null = null;
 
   /**
    * Watchdog Timer State:
@@ -255,16 +256,17 @@ export class SseSyncManager {
       return;
     }
 
-    // If already connected with identical credentials and active socket that isn't stale, retain connection
-    const now = Date.now();
-    const isHealthy =
+    /**
+     * React StrictMode & Duplicate Connection Guard:
+     * Check if this.eventSource already exists and is in CONNECTING or OPEN state.
+     * If so, immediately return to prevent overlapping duplicate connections caused by
+     * React StrictMode (double-invoked useEffect during development) or multiple components
+     * simultaneously mounting and triggering connect().
+     */
+    if (
       this.eventSource &&
-      this.eventSource.readyState === EventSource.OPEN &&
-      this.currentToken === authToken &&
-      this.currentChannel === channel &&
-      (this.lastPacketTime === 0 || now - this.lastPacketTime < this.WATCHDOG_TIMEOUT_MS);
-
-    if (isHealthy) {
+      (this.eventSource.readyState === EventSource.CONNECTING || this.eventSource.readyState === EventSource.OPEN)
+    ) {
       return;
     }
 
@@ -278,7 +280,20 @@ export class SseSyncManager {
     try {
       const sseUrl = new URL(`${API_BASE}/sync/stream`);
       sseUrl.searchParams.set('token', authToken);
-      sseUrl.searchParams.set('clientId', this.clientId);
+
+      /**
+       * Frontend Unique Instance Generation:
+       * Appends timestamp and high-entropy random string to this.clientId for every single
+       * connection attempt: clientId=${this.clientId}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.
+       *
+       * Ghost Cleanup Race Condition Prevention:
+       * In concert with the server's reference equality check, this ensures that if an older
+       * stalled connection drops or emits a delayed close event, it never deletes a newly
+       * established connection's Map entry on the backend.
+       */
+      const uniqueClientId = `${this.clientId}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      this.activeClientId = uniqueClientId;
+      sseUrl.searchParams.set('clientId', uniqueClientId);
       sseUrl.searchParams.set('channel', channel);
 
       this.eventSource = new EventSource(sseUrl.toString());
@@ -355,6 +370,7 @@ export class SseSyncManager {
     this.status = 'disconnected';
     this.currentToken = null;
     this.lastPacketTime = 0;
+    this.activeClientId = null;
   }
 
   /**
@@ -460,10 +476,10 @@ export class SseSyncManager {
   }
 
   /**
-   * Return client UUID
+   * Return client UUID (active unique connection ID, or fallback base client ID)
    */
   public getClientId(): string {
-    return this.clientId;
+    return this.activeClientId || this.clientId;
   }
 }
 
