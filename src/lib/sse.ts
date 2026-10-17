@@ -49,6 +49,28 @@ export class SseSyncManager {
   private watchdogTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly WATCHDOG_TIMEOUT_MS = 35000;
   private lastPacketTime = 0;
+  private attachedEventNames = new Set<string>();
+
+  /**
+   * Binds EventSource addEventListener for custom named events (Senari SSE pattern)
+   */
+  private bindEventSourceListener(eventName: string): void {
+    if (!this.eventSource || eventName === '*' || this.attachedEventNames.has(eventName)) return;
+    this.attachedEventNames.add(eventName);
+
+    this.eventSource.addEventListener(eventName, ((event: MessageEvent) => {
+      this.resetWatchdog();
+      try {
+        if (!event.data || event.data === ':' || event.data === 'ping') return;
+        const parsed = JSON.parse(event.data);
+        if (parsed && (parsed.event === 'ping' || parsed.event === 'heartbeat')) return;
+        const payload = (parsed && typeof parsed === 'object' && 'payload' in parsed) ? parsed.payload : parsed;
+        this.dispatch(eventName, payload);
+      } catch {
+        this.dispatch(eventName, event.data);
+      }
+    }) as EventListener);
+  }
 
   constructor() {
     this.clientId = typeof window !== 'undefined'
@@ -150,6 +172,8 @@ export class SseSyncManager {
    * Safely terminates the underlying EventSource socket and clears socket listeners.
    */
   private closeSocket(): void {
+    this.attachedEventNames.clear();
+
     if (this.watchdogTimer) {
       clearTimeout(this.watchdogTimer);
       this.watchdogTimer = null;
@@ -224,6 +248,11 @@ export class SseSyncManager {
 
       this.eventSource = new EventSource(sseUrl.toString());
 
+      // Bind custom event listeners for all registered subscribers
+      this.listeners.forEach((_, eventName) => {
+        this.bindEventSourceListener(eventName);
+      });
+
       // Arm watchdog timer immediately upon connection attempt
       this.resetWatchdog();
 
@@ -243,7 +272,8 @@ export class SseSyncManager {
           const parsed = JSON.parse(event.data);
           if (parsed && (parsed.event === 'ping' || parsed.event === 'heartbeat')) return;
           if (parsed && parsed.event) {
-            this.dispatch(parsed.event, parsed.payload);
+            const payload = parsed.payload !== undefined ? parsed.payload : parsed;
+            this.dispatch(parsed.event, payload);
           }
         } catch {
           // Silently absorb malformed frames to keep browser console clean
@@ -319,6 +349,7 @@ export class SseSyncManager {
   public subscribe(eventName: string, handler: SseEventHandler): () => void {
     if (!this.listeners.has(eventName)) {
       this.listeners.set(eventName, new Set());
+      this.bindEventSourceListener(eventName);
     }
     this.listeners.get(eventName)!.add(handler);
 
