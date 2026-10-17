@@ -3,6 +3,7 @@ import './index.css';
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { AuthProvider } from './contexts/AuthContext';
+import { NotificationProvider } from './contexts/NotificationContext';
 import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { ToastContainer } from 'react-toastify';
@@ -72,7 +73,8 @@ export function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <TooltipProvider delayDuration={150}>
+        <NotificationProvider>
+          <TooltipProvider delayDuration={150}>
           <OfflineSentinel />
           <ThemedToastContainer />
           <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
@@ -381,8 +383,9 @@ export function App() {
             </ErrorBoundary>
           </BrowserRouter>
         </TooltipProvider>
-      </AuthProvider>
-    </ThemeProvider>
+      </NotificationProvider>
+    </AuthProvider>
+  </ThemeProvider>
   );
 }
 

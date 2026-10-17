@@ -12,8 +12,11 @@ export interface UseSSEOptions {
  *
  * Capabilities:
  * - Automatically initializes stream connection upon authenticated session.
+ * - Suppresses console noise (like ERR_QUIC_PROTOCOL_ERROR or HTTP/3 transport drops)
+ *   during native EventSource automatic background reconnection cycles.
  * - Manages event listeners and unsubscription upon component unmount.
- * - Tightly coupled with auth state; disconnects immediately when session expires.
+ * - Tightly coupled with auth state; disconnects immediately when session expires
+ *   to eliminate ghost connections or memory leaks.
  */
 export function useSSE(options: UseSSEOptions = {}) {
   const { token, isAuthenticated } = useAuth();

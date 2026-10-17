@@ -4,6 +4,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "./ui/sidebar";
 import { AppSidebar } from "./app-sidebar";
 import { ThemeToggle } from "./ThemeToggle";
+import { NotificationMenu } from "./common/NotificationMenu";
 import {
   Globe,
   User,
@@ -55,28 +56,32 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({
       {/* Main Fluid Inset */}
       <SidebarInset>
         {/* Top Navbar */}
-        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b border-slate-200/80 dark:border-zinc-800/80 bg-white/80 dark:bg-zinc-950/80 px-4 lg:px-8 backdrop-blur-md transition-colors">
-          <div className="flex items-center gap-2">
-            <SidebarTrigger className="-ml-1" />
-            <div className="h-4 w-[1px] bg-slate-200 dark:bg-zinc-800 mx-2" />
-            <span className="text-xs font-bold tracking-tight text-slate-700 dark:text-zinc-200 uppercase">
+        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b border-slate-200/80 dark:border-zinc-800/80 bg-white/80 dark:bg-zinc-950/80 px-3 sm:px-4 lg:px-8 backdrop-blur-md transition-colors gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+            <SidebarTrigger className="-ml-1 shrink-0" />
+            <div className="h-4 w-[1px] bg-slate-200 dark:bg-zinc-800 mx-1 sm:mx-2 shrink-0" />
+            <span className="text-[11px] sm:text-xs font-bold tracking-tight text-slate-700 dark:text-zinc-200 uppercase truncate">
               Retail & Wholesale Suite
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* Global Real-Time SSE Notification Bell */}
+            <NotificationMenu />
+
             {/* Visit Store */}
             <button
               onClick={() => navigate("/")}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-900 text-slate-700 dark:text-zinc-300 transition-all"
+              className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg border text-xs font-medium border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-900 text-slate-700 dark:text-zinc-300 transition-all shrink-0"
+              title="Visit Storefront"
             >
-              <Globe className="w-3.5 h-3.5" />
+              <Globe className="w-3.5 h-3.5 shrink-0" />
               <span className="hidden sm:inline">Store</span>
-              <ExternalLink className="w-3 h-3 opacity-60" />
+              <ExternalLink className="w-3 h-3 opacity-60 hidden sm:inline shrink-0" />
             </button>
 
             {/* Unified Theme Selector (Light, Dark, System) */}
-            <ThemeToggle className="h-8 w-8 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white/80 dark:bg-zinc-900/80 hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300" />
+            <ThemeToggle className="h-8 w-8 sm:h-9 sm:w-9 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white/80 dark:bg-zinc-900/80 hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300 shrink-0" />
 
             {/* Profile Dropdown */}
             <div className="relative" ref={profileRef}>

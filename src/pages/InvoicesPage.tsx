@@ -567,17 +567,41 @@ export const InvoicesPage: React.FC = () => {
     return () => clearTimeout(timer);
   }, [page, selectedCustomerId, selectedMethod, startDate, endDate, sortBy, searchQuery]);
 
-  // Real-time SSE synchronization: live refetch when invoices are created, updated, or deleted
+  /**
+   * Real-Time SSE Synchronization with In-Place State Mutation
+   * Refactored from full-table re-fetching to in-place React state updates.
+   *
+   * Architectural Advantages:
+   * 1. Preserves User Scroll & Pagination: Prepending the newly generated invoice directly
+   *    to the state array prevents pagination resets and retains active scroll position.
+   * 2. Zero-Flicker UX: Avoids full-page reloading skeletons or table row blinks during active cashier usage.
+   * 3. Idempotent Deduplication: Verifies whether the invoice record ID already exists before prepending,
+   *    preventing duplicate rows if an invoice was created optimistically or broadcast repeatedly.
+   */
   useSSE({
     events: {
-      invoice_created: () => {
-        fetchInvoices(page);
+      invoice_created: (newInvoice: any) => {
+        if (!newInvoice || !newInvoice.id) return;
+        setInvoices((prev) => {
+          const exists = prev.some((inv) => inv.id === newInvoice.id);
+          if (exists) {
+            return prev.map((inv) => (inv.id === newInvoice.id ? { ...inv, ...newInvoice } : inv));
+          }
+          return [newInvoice, ...prev];
+        });
+        setTotalCount((prev) => prev + 1);
       },
-      invoice_updated: () => {
-        fetchInvoices(page);
+      invoice_updated: (updatedInvoice: any) => {
+        if (!updatedInvoice || !updatedInvoice.id) return;
+        setInvoices((prev) =>
+          prev.map((inv) => (inv.id === updatedInvoice.id ? { ...inv, ...updatedInvoice } : inv))
+        );
       },
-      invoice_deleted: () => {
-        fetchInvoices(page);
+      invoice_deleted: (deletedPayload: any) => {
+        const idToDelete = deletedPayload?.id || deletedPayload?.invoiceId;
+        if (!idToDelete) return;
+        setInvoices((prev) => prev.filter((inv) => inv.id !== idToDelete));
+        setTotalCount((prev) => Math.max(0, prev - 1));
       },
     },
   });

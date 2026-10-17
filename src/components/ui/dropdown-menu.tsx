@@ -7,14 +7,23 @@ const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger
 const DropdownMenuGroup = DropdownMenuPrimitive.Group
 const DropdownMenuPortal = DropdownMenuPrimitive.Portal
 
+/**
+ * DropdownMenuContent with robust collision handling and scroll anchoring.
+ * Defaults avoidCollisions to true and collisionPadding to 16px to prevent
+ * clipping against viewport edges and maintain position during scroll.
+ */
 const DropdownMenuContent = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>
->(({ className, sideOffset = 4, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content> & {
+    preventScroll?: boolean;
+  }
+>(({ className, sideOffset = 4, avoidCollisions = true, collisionPadding = 16, ...props }, ref) => (
   <DropdownMenuPrimitive.Portal>
     <DropdownMenuPrimitive.Content
       ref={ref}
       sideOffset={sideOffset}
+      avoidCollisions={avoidCollisions}
+      collisionPadding={collisionPadding}
       className={cn(
         "z-[99999] min-w-[8rem] overflow-hidden rounded-xl border p-1 shadow-xl animate-in fade-in-80 data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2",
         "bg-white text-slate-900 border-slate-200 dark:bg-zinc-950 dark:text-zinc-100 dark:border-zinc-800",

@@ -74,7 +74,6 @@ export class SseSyncManager {
       this.eventSource.onopen = () => {
         this.status = 'connected';
         this.reconnectDelay = 1000;
-        console.log(`[SSE] Real-time connection established (Client: ${this.clientId}, Channel: ${channel})`);
       };
 
       this.eventSource.onmessage = (event) => {
@@ -84,22 +83,32 @@ export class SseSyncManager {
           if (parsed && parsed.event) {
             this.dispatch(parsed.event, parsed.payload);
           }
-        } catch (err) {
-          console.warn('[SSE] Failed to parse SSE message frame:', err);
+        } catch {
+          // Silently absorb malformed frames to keep browser console clean
         }
       };
 
-      this.eventSource.onerror = (err) => {
-        console.warn('[SSE] Connection interrupted or dropped:', err);
+      this.eventSource.onerror = () => {
+        /**
+         * Silent Network Transport Recovery:
+         * Silently handle expected network drops, HTTP/3 timeouts, and ERR_QUIC_PROTOCOL_ERROR.
+         * Browser EventSource triggers error events during sleep/wake cycles, proxy timeouts,
+         * or automatic transport renegotiation. We suppress console warnings and quietly
+         * schedule automatic exponential backoff reconnection.
+         */
         this.status = 'error';
         if (this.eventSource) {
-          this.eventSource.close();
+          try {
+            this.eventSource.close();
+          } catch {
+            // Silently absorb socket close exceptions
+          }
           this.eventSource = null;
         }
         this.scheduleReconnect();
       };
-    } catch (err) {
-      console.error('[SSE] Failed to construct EventSource instance:', err);
+    } catch {
+      // Silently handle construction failures during transient offline periods
       this.status = 'error';
       this.scheduleReconnect();
     }
@@ -118,9 +127,8 @@ export class SseSyncManager {
     if (this.eventSource) {
       try {
         this.eventSource.close();
-        console.log('[SSE] EventSource closed safely. Ghost connection eliminated.');
-      } catch (err) {
-        console.error('[SSE] Error closing EventSource:', err);
+      } catch {
+        // Silently absorb close errors on dead sockets
       }
       this.eventSource = null;
     }

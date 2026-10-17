@@ -8,6 +8,14 @@
     <title>Reliance - Retail &amp; Wholesale Store</title>
     <meta name="description" content="Reliance — Retail and wholesale store. Shop products online or visit our store for wholesale pricing." />
 
+    <!-- 
+      Content Security Policy (CSP) Architecture:
+      Client-side <meta http-equiv="Content-Security-Policy"> is deliberately omitted from index.html.
+      CSP enforcement is solely delegated to the production backend's Helmet/Express middleware
+      (and Nginx reverse proxy) in production environments. This prevents browser CSP console violations
+      against Vite's dev-server HMR (Hot Module Replacement), dynamic imports, and local WebSocket/SSE streams.
+    -->
+
     <!-- Anti-flash inline script: immediately evaluate reliance-theme and OS preference -->
     <script>
       (function() {

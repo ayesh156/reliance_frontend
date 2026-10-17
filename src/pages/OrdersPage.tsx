@@ -228,17 +228,47 @@ export const OrdersPage: React.FC = () => {
     return () => clearTimeout(timer);
   }, [page, statusFilter, selectedCustomerId, startDate, endDate, sortBy, search, fetchOrders]);
 
-  // Real-time SSE synchronization: live refetch when orders are created, updated, or deleted
+  /**
+   * Real-Time SSE Synchronization with In-Place State Mutation
+   * Refactored from full-table re-fetching to in-place React state updates.
+   *
+   * Architectural Advantages:
+   * 1. Preserves User Scroll & Pagination: Prepending the incoming payload directly to state
+   *    retains the active page view, form inputs, modal focus, and scroll offset.
+   * 2. Zero-Flicker UX: Avoids resetting table rows or displaying an intrusive loading spinner.
+   * 3. Idempotent Deduplication: Verifies whether the record ID already exists before prepending,
+   *    preventing duplicate rows if an order was created optimistically or broadcast repeatedly.
+   */
   useSSE({
     events: {
-      order_created: () => {
-        fetchOrders(page);
+      order_created: (newOrder: any) => {
+        if (!newOrder || !newOrder.id) return;
+        setOrders((prev) => {
+          const exists = prev.some((o) => o.id === newOrder.id);
+          if (exists) {
+            return prev.map((o) => (o.id === newOrder.id ? { ...o, ...newOrder } : o));
+          }
+          return [newOrder, ...prev];
+        });
+        setPagination((prev) => ({
+          ...prev,
+          total: prev.total + 1,
+        }));
       },
-      order_updated: () => {
-        fetchOrders(page);
+      order_updated: (updatedOrder: any) => {
+        if (!updatedOrder || !updatedOrder.id) return;
+        setOrders((prev) =>
+          prev.map((o) => (o.id === updatedOrder.id ? { ...o, ...updatedOrder } : o))
+        );
       },
-      order_deleted: () => {
-        fetchOrders(page);
+      order_deleted: (deletedPayload: any) => {
+        const idToDelete = deletedPayload?.id || deletedPayload?.orderId;
+        if (!idToDelete) return;
+        setOrders((prev) => prev.filter((o) => o.id !== idToDelete));
+        setPagination((prev) => ({
+          ...prev,
+          total: Math.max(0, prev.total - 1),
+        }));
       },
     },
   });
@@ -372,10 +402,12 @@ export const OrdersPage: React.FC = () => {
   };
 
   /**
-   * Action Popup Menu with View, Edit, Convert, Download PDF, and WhatsApp options
+   * Action Popup Menu with View, Edit, Convert, Download PDF, and WhatsApp options.
+   * Anchored robustly to trigger button with modal={false}, avoidCollisions={true},
+   * collisionPadding={16}, and preventScroll={false} so position remains anchored during scroll.
    */
   const renderActionMenu = (order: any) => (
-    <DropdownMenu>
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <Button
           type="button"
@@ -388,7 +420,14 @@ export const OrdersPage: React.FC = () => {
           <span className="sr-only">Open actions menu</span>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-48">
+      <DropdownMenuContent
+        align="end"
+        sideOffset={4}
+        avoidCollisions={true}
+        collisionPadding={16}
+        preventScroll={false}
+        className="w-48"
+      >
         <DropdownMenuItem
           onClick={(e) => {
             e.stopPropagation();
