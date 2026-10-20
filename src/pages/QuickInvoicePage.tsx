@@ -366,8 +366,8 @@ export const QuickInvoicePage: React.FC = () => {
         setIsEditing(true);
         setOriginalInvoice(inv);
 
-        // Pre-fill Pricing Mode based on order source (Wholesale vs Retail)
-        if (inv.source === 'POS_WHOLESALE' || inv.orderType === 'WHOLESALE') {
+        // Pre-fill Pricing Mode based on order source (Wholesale vs Retail), strictly locked to Wholesale for REP
+        if (isRepUser || inv.source === 'POS_WHOLESALE' || inv.orderType === 'WHOLESALE') {
           setPricingMode('WHOLESALE');
         } else {
           setPricingMode('RETAIL');
@@ -1737,7 +1737,7 @@ export const QuickInvoicePage: React.FC = () => {
       }
 
       const payload = {
-        source: pricingMode === 'WHOLESALE' ? 'POS_WHOLESALE' : 'POS_RETAIL',
+        source: isRepUser ? 'POS_WHOLESALE' : (pricingMode === 'WHOLESALE' ? 'POS_WHOLESALE' : 'POS_RETAIL'),
         customerId: !isWalkIn && selectedCust ? selectedCust.id : undefined,
         customerName: selectedCust ? selectedCust.name : 'Walk-in Customer',
         customerPhone: selectedCust ? selectedCust.phone : undefined,

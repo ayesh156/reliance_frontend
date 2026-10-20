@@ -236,10 +236,11 @@ export const InvoicesPage: React.FC = () => {
   const canDeleteInvoice = (inv: InvoiceRecord): boolean => {
     if (isAdmin) return true;
     const isWholesale = inv.source === 'POS_WHOLESALE' || (inv as any).orderType === 'WHOLESALE';
+    const authId = user?.id ?? (user as any)?.userId;
     const isOwner =
-      Number(inv.userId) === Number(user?.id) ||
-      String(inv.userId) === String(user?.id) ||
-      Number((inv as any).createdById) === Number(user?.id);
+      (authId !== undefined && Number(inv.userId) === Number(authId)) ||
+      (authId !== undefined && String(inv.userId) === String(authId)) ||
+      (authId !== undefined && Number((inv as any).createdById) === Number(authId));
 
     if (isRep && isWholesale && isOwner) {
       return true;
@@ -582,6 +583,10 @@ export const InvoicesPage: React.FC = () => {
     events: {
       invoice_created: (newInvoice: any) => {
         if (!newInvoice || !newInvoice.id) return;
+        // Scoping guard for Sales Representatives (REP): Only append invoices authored by this representative
+        if (isRep && newInvoice.userId && Number(newInvoice.userId) !== Number(user?.id)) {
+          return;
+        }
         setInvoices((prev) => {
           const exists = prev.some((inv) => inv.id === newInvoice.id);
           if (exists) {
@@ -593,6 +598,10 @@ export const InvoicesPage: React.FC = () => {
       },
       invoice_updated: (updatedInvoice: any) => {
         if (!updatedInvoice || !updatedInvoice.id) return;
+        // Scoping guard for Sales Representatives (REP): Only update invoices authored by this representative
+        if (isRep && updatedInvoice.userId && Number(updatedInvoice.userId) !== Number(user?.id)) {
+          return;
+        }
         setInvoices((prev) =>
           prev.map((inv) => (inv.id === updatedInvoice.id ? { ...inv, ...updatedInvoice } : inv))
         );
