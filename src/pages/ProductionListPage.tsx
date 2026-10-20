@@ -4,6 +4,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
+import { Checkbox } from '../components/ui/checkbox';
 import { Badge } from '../components/ui/badge';
 import {
   Table,
@@ -73,6 +74,7 @@ import {
   Info,
   GitBranch,
   MoreVertical,
+  Ban,
 } from 'lucide-react';
 
 interface ProductImageItem {
@@ -230,6 +232,78 @@ const PRODUCTION_REASON_OPTIONS: SearchableSelectOption[] = [
   { value: 'Custom Tailoring', label: 'Custom Tailoring' },
   { value: 'Stock Replenishment', label: 'Stock Replenishment' },
 ];
+
+/**
+ * Formats a Date instance, timestamp string, or epoch number strictly into
+ * the standardized `YYYY-MM-DD hh:mm AM/PM` pattern (e.g., `2026-10-20 09:30 AM`).
+ * Safely handles invalid inputs and returns '-' as fallback.
+ *
+ * @param dateInput - Date instance, ISO date string, or epoch number
+ * @returns Strict `YYYY-MM-DD hh:mm AM/PM` formatted string
+ */
+function formatDateTimeAmPm(dateInput?: string | Date | number | null): string {
+  if (!dateInput) return '-';
+  const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return '-';
+
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+
+  let hours = d.getHours();
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  hours = hours ? hours : 12; // '0' should display as '12'
+  const hh = String(hours).padStart(2, '0');
+
+  return `${yyyy}-${mm}-${dd} ${hh}:${minutes} ${ampm}`;
+}
+
+/**
+ * Resolves the latest manufacturing activity timestamp for a production batch across
+ * inventory syncs, garment finishing logs, fabric cutting logs, and batch creation.
+ * Returns the timestamp formatted strictly as `YYYY-MM-DD hh:mm AM/PM`.
+ *
+ * @param order - ProductionOrder record
+ * @returns Latest formatted timestamp string
+ */
+function getBatchLatestTimestamp(order: ProductionOrder): string {
+  const timestamps: number[] = [];
+
+  if (order.stockSyncedAt) {
+    const t = new Date(order.stockSyncedAt).getTime();
+    if (!isNaN(t)) timestamps.push(t);
+  }
+
+  if (order.finishLogs && order.finishLogs.length > 0) {
+    order.finishLogs.forEach((f) => {
+      const t = new Date(f.finishDate || (f as any).createdAt).getTime();
+      if (!isNaN(t)) timestamps.push(t);
+    });
+  }
+
+  if (order.cutLogs && order.cutLogs.length > 0) {
+    order.cutLogs.forEach((c) => {
+      const t = new Date(c.cutDate || (c as any).createdAt).getTime();
+      if (!isNaN(t)) timestamps.push(t);
+    });
+  }
+
+  if (order.productionDate) {
+    const t = new Date(order.productionDate).getTime();
+    if (!isNaN(t)) timestamps.push(t);
+  }
+
+  if (order.createdAt) {
+    const t = new Date(order.createdAt).getTime();
+    if (!isNaN(t)) timestamps.push(t);
+  }
+
+  if (timestamps.length === 0) return '-';
+  const latestTime = Math.max(...timestamps);
+  return formatDateTimeAmPm(new Date(latestTime));
+}
 
 /**
  * Enhanced History Timeline Component:
@@ -400,12 +474,9 @@ export const BatchActivityTimeline: React.FC<{ order: ProductionOrder }> = ({ or
                     {ev.title}
                   </span>
                 </div>
-                <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-                  <Calendar className="w-3 h-3" />
-                  <span>
-                    {ev.timestamp.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} at{' '}
-                    {ev.timestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                  </span>
+                <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-mono">
+                  <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
+                  <span>{formatDateTimeAmPm(ev.timestamp)}</span>
                 </div>
               </div>
 
@@ -458,6 +529,30 @@ export const ProductionListPage: React.FC = () => {
   // Delete / Rollback Alert
   const [orderToDelete, setOrderToDelete] = useState<ProductionOrder | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Cancel Batch Alert State
+  const [orderToCancel, setOrderToCancel] = useState<ProductionOrder | null>(null);
+  const [cancelReason, setCancelReason] = useState<string>('');
+  const [isCancelling, setIsCancelling] = useState(false);
+
+  // Record Finished Product Modal State (Supports bi-directional finishing-first or logging to existing batch)
+  const [isRecordFinishedModalOpen, setIsRecordFinishedModalOpen] = useState(false);
+  const [recordFinishedMode, setRecordFinishedMode] = useState<'new' | 'existing'>('new');
+  // Existing batch mode
+  const [recordFinishedExistingOrderId, setRecordFinishedExistingOrderId] = useState<string>('');
+  const [recordFinishedExistingQty, setRecordFinishedExistingQty] = useState<number | ''>('');
+  const [recordFinishedExistingDateTime, setRecordFinishedExistingDateTime] = useState<string>('');
+  const [recordFinishedExistingSyncStock, setRecordFinishedExistingSyncStock] = useState<boolean>(false);
+  // New batch mode (finishing-first)
+  const [recordFinishedProductId, setRecordFinishedProductId] = useState<string>('');
+  const [recordFinishedVariantId, setRecordFinishedVariantId] = useState<string>('');
+  const [recordFinishedTargetQty, setRecordFinishedTargetQty] = useState<number | ''>('');
+  const [recordFinishedQty, setRecordFinishedQty] = useState<number | ''>('');
+  const [recordFinishedDateTime, setRecordFinishedDateTime] = useState<string>('');
+  const [recordFinishedReason, setRecordFinishedReason] = useState<string>('Regular Bulk');
+  const [recordFinishedNotes, setRecordFinishedNotes] = useState<string>('');
+  const [recordFinishedSyncStock, setRecordFinishedSyncStock] = useState<boolean>(false);
+  const [isSubmittingRecordFinished, setIsSubmittingRecordFinished] = useState(false);
 
   // Return leftover scrap modal state
   const [returnFormLines, setReturnFormLines] = useState<
@@ -663,6 +758,41 @@ export const ProductionListPage: React.FC = () => {
     ];
   }, [cutBatchProductId, productsList]);
 
+  // Variant Options for Record Finished Product Modal (Finishing-First)
+  const recordFinishedVariantOptions: SearchableSelectOption[] = useMemo(() => {
+    if (!recordFinishedProductId) return [];
+    const prod = productsList.find((p) => p.id === Number(recordFinishedProductId));
+    if (!prod || !prod.variants || prod.variants.length === 0) return [];
+    return [
+      { value: '', label: 'Default / No Variant' },
+      ...prod.variants.map((v) => ({
+        value: String(v.id),
+        label: [v.size && `Size ${v.size}`, v.color && `Color ${v.color}`, v.sku && `SKU: ${v.sku}`]
+          .filter(Boolean)
+          .join(' • ') + ` (In Stock: ${v.stock})`,
+      })),
+    ];
+  }, [recordFinishedProductId, productsList]);
+
+  // Active production batches for "Log to Existing Batch" in Record Finished modal
+  const activeBatchOptions: SearchableSelectOption[] = useMemo(() => {
+    if (!summaryData?.records) return [];
+    return summaryData.records
+      .filter((r) => r.status !== 'CANCELLED')
+      .map((r) => ({
+        value: String(r.id),
+        label: `#${r.productionNo} — ${r.product.name}${
+          r.variant ? ` (${[r.variant.size && `Size ${r.variant.size}`, r.variant.color].filter(Boolean).join(' ')})` : ''
+        } [Finished: ${r.completedQty}/${r.targetQuantity || r.completedQty} Pcs]`,
+      }));
+  }, [summaryData?.records]);
+
+  // Selected existing batch details for Record Finished modal
+  const selectedExistingRecordBatch = useMemo(() => {
+    if (!recordFinishedExistingOrderId || !summaryData?.records) return null;
+    return summaryData.records.find((r) => r.id === Number(recordFinishedExistingOrderId)) || null;
+  }, [recordFinishedExistingOrderId, summaryData?.records]);
+
   // Raw Material Options with live warehouse available stock
   const rawMaterialSelectOptions: SearchableSelectOption[] = useMemo(() => {
     return rawMaterialsList.map((rm) => ({
@@ -671,19 +801,34 @@ export const ProductionListPage: React.FC = () => {
     }));
   }, [rawMaterialsList]);
 
-  // Allocated material options for the "Log Material Cut" tab
+  // Allocated material options for the "Log Material Cut" tab (Combines allocated lines with all warehouse raw materials)
   const allocatedMaterialSelectOptions: SearchableSelectOption[] = useMemo(() => {
-    if (!selectedOrder) return [];
-    if (selectedOrder.materialUsages && selectedOrder.materialUsages.length > 0) {
-      return selectedOrder.materialUsages.map((usage) => ({
-        value: String(usage.rawMaterialId),
-        label: `${usage.rawMaterial.name} (${usage.rawMaterial.unit}) — Allocated: ${usage.issuedQty} ${usage.rawMaterial.unit}`,
-      }));
+    const list: SearchableSelectOption[] = [];
+    if (selectedOrder && selectedOrder.materialUsages && selectedOrder.materialUsages.length > 0) {
+      selectedOrder.materialUsages.forEach((usage) => {
+        const totalAlreadyCut = (selectedOrder.cutLogs || [])
+          .filter((c) => c.rawMaterialId === usage.rawMaterialId)
+          .reduce((sum, c) => sum + Number(c.quantityCut || 0), 0);
+        const uncutLeft = Math.max(0, usage.issuedQty - totalAlreadyCut - usage.returnedQty);
+        list.push({
+          value: String(usage.rawMaterialId),
+          label: `${usage.rawMaterial.name} [Allocated: ${usage.issuedQty} ${usage.rawMaterial.unit} · Uncut: ${uncutLeft} ${usage.rawMaterial.unit}]`,
+        });
+      });
     }
-    return rawMaterialsList.map((rm) => ({
-      value: String(rm.id),
-      label: `${rm.name} (${rm.unit}) — Stock: ${rm.currentStock ?? 0} ${rm.unit}`,
-    }));
+
+    // Also include warehouse raw materials that are not yet allocated
+    rawMaterialsList.forEach((rm) => {
+      const alreadyIncluded = list.some((item) => item.value === String(rm.id));
+      if (!alreadyIncluded) {
+        list.push({
+          value: String(rm.id),
+          label: `${rm.name} (${rm.code || 'RM'}) — Warehouse Stock: ${rm.currentStock ?? 0} ${rm.unit}`,
+        });
+      }
+    });
+
+    return list;
   }, [selectedOrder, rawMaterialsList]);
 
 
@@ -872,29 +1017,41 @@ export const ProductionListPage: React.FC = () => {
     setIsActionModalOpen(true);
   };
 
-  // Active material cutting calculation: calculates allocated, already cut, and remaining uncut for selected material
-  const selectedCutUsage = useMemo(() => {
-    if (!selectedOrder || !cutRawMaterialId) return null;
-    return selectedOrder.materialUsages?.find((u) => u.rawMaterialId === Number(cutRawMaterialId));
-  }, [selectedOrder, cutRawMaterialId]);
-
+  // Active material cutting calculation: calculates allocated, already cut, remaining uncut, and warehouse stock
   const cutMaterialStats = useMemo(() => {
-    if (!selectedOrder || !selectedCutUsage) return null;
-    const rawId = selectedCutUsage.rawMaterialId;
-    const issued = Number(selectedCutUsage.issuedQty) || 0;
-    const returned = Number(selectedCutUsage.returnedQty) || 0;
-    const totalAlreadyCut = (selectedOrder.cutLogs || [])
-      .filter((c) => c.rawMaterialId === rawId)
-      .reduce((sum, c) => sum + Number(c.quantityCut || 0), 0);
-    const remainingToCut = Math.max(0, issued - totalAlreadyCut - returned);
+    if (!cutRawMaterialId) return null;
+    const rawId = Number(cutRawMaterialId);
+    const rawItem = rawMaterialsList.find((m) => m.id === rawId);
+    const existingUsage = selectedOrder?.materialUsages?.find((u) => u.rawMaterialId === rawId);
+
+    if (existingUsage) {
+      const issued = Number(existingUsage.issuedQty) || 0;
+      const returned = Number(existingUsage.returnedQty) || 0;
+      const totalAlreadyCut = (selectedOrder?.cutLogs || [])
+        .filter((c) => c.rawMaterialId === rawId)
+        .reduce((sum, c) => sum + Number(c.quantityCut || 0), 0);
+      const remainingToCut = Math.max(0, issued - totalAlreadyCut - returned);
+      return {
+        isAllocated: true,
+        issued,
+        totalAlreadyCut,
+        returned,
+        remainingToCut,
+        warehouseStock: rawItem?.currentStock ?? 0,
+        unit: existingUsage.rawMaterial?.unit || rawItem?.unit || 'Units',
+      };
+    }
+
     return {
-      issued,
-      totalAlreadyCut,
-      returned,
-      remainingToCut,
-      unit: selectedCutUsage.rawMaterial?.unit || 'Units',
+      isAllocated: false,
+      issued: 0,
+      totalAlreadyCut: 0,
+      returned: 0,
+      remainingToCut: 0,
+      warehouseStock: rawItem?.currentStock ?? 0,
+      unit: rawItem?.unit || 'Units',
     };
-  }, [selectedOrder, selectedCutUsage]);
+  }, [selectedOrder, cutRawMaterialId, rawMaterialsList]);
 
   // Submit asynchronous material cutting log
   const handleLogMaterialCut = async (e: React.FormEvent) => {
@@ -910,11 +1067,27 @@ export const ProductionListPage: React.FC = () => {
       return;
     }
 
-    if (cutMaterialStats && cutNum > cutMaterialStats.remainingToCut) {
-      toast.error(
-        `Quantity cut (${cutNum} ${cutMaterialStats.unit}) cannot exceed remaining uncut allocation in batch (${cutMaterialStats.remainingToCut} ${cutMaterialStats.unit}). Use Edit Batch to allocate more materials.`
-      );
-      return;
+    if (cutMaterialStats) {
+      if (!cutMaterialStats.isAllocated || cutDeductStock) {
+        // Cutting with warehouse deduction
+        const neededWarehouse = cutMaterialStats.isAllocated
+          ? Math.max(0, cutNum - cutMaterialStats.remainingToCut)
+          : cutNum;
+        if (neededWarehouse > cutMaterialStats.warehouseStock) {
+          toast.error(
+            `Cut quantity requires ${neededWarehouse} ${cutMaterialStats.unit} from warehouse, but only ${cutMaterialStats.warehouseStock} ${cutMaterialStats.unit} is available in stock.`
+          );
+          return;
+        }
+      } else {
+        // Cutting strictly from existing uncut allocation
+        if (cutNum > cutMaterialStats.remainingToCut) {
+          toast.error(
+            `Quantity cut (${cutNum} ${cutMaterialStats.unit}) exceeds remaining uncut allocation in batch (${cutMaterialStats.remainingToCut} ${cutMaterialStats.unit}). Please check "Deduct from warehouse raw material stock" to allocate more fabric.`
+          );
+          return;
+        }
+      }
     }
 
     setIsSubmittingProgress(true);
@@ -924,6 +1097,7 @@ export const ProductionListPage: React.FC = () => {
         quantityCut: cutNum,
         cutDate: cutDateTime ? new Date(cutDateTime).toISOString() : new Date().toISOString(),
         loggedByRole: user?.role || 'STAFF',
+        deductInventory: cutDeductStock,
       });
 
       toast.success(`Logged cutting of ${cutNum} units for Batch #${selectedOrder.productionNo}!`);
@@ -933,6 +1107,154 @@ export const ProductionListPage: React.FC = () => {
       toast.error(err.message || 'Failed to record material cutting log');
     } finally {
       setIsSubmittingProgress(false);
+    }
+  };
+
+  /**
+   * Open Record Finished Product Modal
+   * Supports pre-selecting an active batch or creating a new finishing-first batch
+   */
+  const handleOpenRecordFinishedModal = (preselectedOrder?: ProductionOrder) => {
+    const nowIso = new Date().toISOString().slice(0, 16);
+    if (preselectedOrder) {
+      setRecordFinishedMode('existing');
+      setRecordFinishedExistingOrderId(String(preselectedOrder.id));
+      setRecordFinishedExistingQty('');
+      setRecordFinishedExistingDateTime(nowIso);
+      setRecordFinishedExistingSyncStock(false);
+    } else {
+      setRecordFinishedMode('new');
+      setRecordFinishedExistingOrderId('');
+      setRecordFinishedExistingQty('');
+      setRecordFinishedExistingDateTime(nowIso);
+      setRecordFinishedExistingSyncStock(false);
+    }
+    setRecordFinishedProductId('');
+    setRecordFinishedVariantId('');
+    setRecordFinishedTargetQty('');
+    setRecordFinishedQty('');
+    setRecordFinishedDateTime(nowIso);
+    setRecordFinishedReason('Regular Bulk');
+    setRecordFinishedNotes('');
+    setRecordFinishedSyncStock(false);
+    setIsRecordFinishedModalOpen(true);
+  };
+
+  /**
+   * Submit Handler for "Record Finished Product"
+   * Mode 'existing': Logs finished garments to selected active batch
+   * Mode 'new': Creates brand new Finishing-First batch with 0 raw materials
+   */
+  const handleSubmitRecordFinished = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (recordFinishedMode === 'existing') {
+      if (!recordFinishedExistingOrderId) {
+        toast.warn('Please select an active production batch');
+        return;
+      }
+      const finishNum = Math.floor(Number(recordFinishedQty));
+      if (!recordFinishedQty || isNaN(finishNum) || finishNum <= 0) {
+        toast.warn('Please enter a valid finished quantity greater than 0');
+        return;
+      }
+
+      const targetBatch = selectedExistingRecordBatch;
+      if (targetBatch && targetBatch.targetQuantity > 0) {
+        const currentCompleted = Math.max(
+          targetBatch.completedQty || 0,
+          (targetBatch.finishLogs || []).reduce((sum, f) => sum + Number(f.quantityFinished || 0), 0)
+        );
+        if (currentCompleted + finishNum > targetBatch.targetQuantity) {
+          const remaining = Math.max(0, targetBatch.targetQuantity - currentCompleted);
+          toast.error(
+            `Finished quantity (${finishNum}) exceeds remaining target capacity (${remaining} Pcs). Target is ${targetBatch.targetQuantity} Pcs.`
+          );
+          return;
+        }
+      }
+
+      setIsSubmittingRecordFinished(true);
+      try {
+        await post<any>(`/production/${recordFinishedExistingOrderId}/finish-logs`, {
+          quantityFinished: finishNum,
+          finishDate: recordFinishedDateTime ? new Date(recordFinishedDateTime).toISOString() : new Date().toISOString(),
+          loggedByRole: user?.role || 'Finishing Supervisor',
+          incrementInventory: recordFinishedSyncStock,
+        });
+
+        toast.success(
+          `Logged ${finishNum} finished garments for Batch #${targetBatch?.productionNo || recordFinishedExistingOrderId}!${
+            recordFinishedSyncStock ? ' Added to product inventory immediately.' : ' Awaiting stock sync.'
+          }`
+        );
+        setIsRecordFinishedModalOpen(false);
+        fetchProductionData();
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to log finished garments');
+      } finally {
+        setIsSubmittingRecordFinished(false);
+      }
+    } else {
+      // New Batch (Finishing-First Workflow)
+      if (!recordFinishedProductId) {
+        toast.warn('Please select a target product');
+        return;
+      }
+      const finishedNum = Math.floor(Number(recordFinishedQty));
+      if (!recordFinishedQty || isNaN(finishedNum) || finishedNum <= 0) {
+        toast.warn('Please enter a valid finished quantity greater than 0');
+        return;
+      }
+      const targetNum = recordFinishedTargetQty !== '' ? Math.max(finishedNum, Number(recordFinishedTargetQty)) : finishedNum;
+
+      setIsSubmittingRecordFinished(true);
+      try {
+        const res = await post<any>('/production/finish-batch', {
+          productId: Number(recordFinishedProductId),
+          variantId: recordFinishedVariantId ? Number(recordFinishedVariantId) : null,
+          targetQuantity: targetNum,
+          completedQty: finishedNum,
+          finishDate: recordFinishedDateTime ? new Date(recordFinishedDateTime).toISOString() : new Date().toISOString(),
+          reason: recordFinishedReason,
+          notes: recordFinishedNotes,
+          loggedByRole: user?.role || 'Finishing Supervisor',
+          syncToStock: recordFinishedSyncStock,
+        });
+
+        const createdOrder = res?.data || res;
+        toast.success(
+          `Production Batch #${createdOrder?.productionNo || 'new'} recorded with ${finishedNum} finished garments! (Finishing-First: Raw materials can be allocated anytime later).`
+        );
+        setIsRecordFinishedModalOpen(false);
+        fetchProductionData();
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to create finishing-first production batch');
+      } finally {
+        setIsSubmittingRecordFinished(false);
+      }
+    }
+  };
+
+  /**
+   * Cancel Production Batch Confirmation Handler
+   * Safely reverses all raw material deductions and synced finished goods in an atomic transaction.
+   */
+  const handleConfirmCancelBatch = async () => {
+    if (!orderToCancel) return;
+    setIsCancelling(true);
+    try {
+      await put<any>(`/production/${orderToCancel.id}/cancel`, {
+        reason: cancelReason?.trim() || 'Operator Cancellation',
+      });
+      toast.success(`Batch #${orderToCancel.productionNo} cancelled. Consumed raw materials restored to warehouse inventory.`);
+      setOrderToCancel(null);
+      setCancelReason('');
+      fetchProductionData();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to cancel production batch');
+    } finally {
+      setIsCancelling(false);
     }
   };
 
@@ -1125,19 +1447,16 @@ export const ProductionListPage: React.FC = () => {
       return;
     }
 
-    if (cutBatchMaterials.length === 0) {
-      toast.warn('Please add at least one material cut row');
+    const validMaterialRows = cutBatchMaterials.filter((m) => m.rawMaterialId && m.issuedQty !== '');
+    if (!editingOrderId && validMaterialRows.length === 0) {
+      toast.warn('Please add at least one material cut row to initiate fabric cutting');
       return;
     }
 
-    for (let i = 0; i < cutBatchMaterials.length; i++) {
-      const row = cutBatchMaterials[i];
-      if (!row.rawMaterialId) {
-        toast.warn(`Please select a raw material for row #${i + 1}`);
-        return;
-      }
+    for (let i = 0; i < validMaterialRows.length; i++) {
+      const row = validMaterialRows[i];
       const issued = Number(row.issuedQty);
-      if (!row.issuedQty || isNaN(issued) || issued <= 0) {
+      if (isNaN(issued) || issued <= 0) {
         toast.warn(`Please enter a valid quantity for row #${i + 1}`);
         return;
       }
@@ -1178,7 +1497,7 @@ export const ProductionListPage: React.FC = () => {
           productionDate: formattedDate,
           reason: cutBatchReason,
           notes: cutBatchNotes,
-          materials: cutBatchMaterials.map((m) => {
+          materials: validMaterialRows.map((m) => {
             const rmId = Number(m.rawMaterialId);
             const existingUsage = selectedOrder?.materialUsages?.find((u) => u.rawMaterialId === rmId);
             return {
@@ -1198,7 +1517,7 @@ export const ProductionListPage: React.FC = () => {
           cutDate: formattedDate,
           reason: cutBatchReason,
           notes: cutBatchNotes,
-          materials: cutBatchMaterials.map((m) => ({
+          materials: validMaterialRows.map((m) => ({
             rawMaterialId: Number(m.rawMaterialId),
             issuedQty: Number(m.issuedQty),
           })),
@@ -1328,7 +1647,13 @@ export const ProductionListPage: React.FC = () => {
             onClick={handleOpenCreateBatchModal}
             className="gap-2 bg-amber-600 hover:bg-amber-700 text-white shadow-xs cursor-pointer font-semibold"
           >
-            <Scissors className="size-4" /> Start Batch
+            <Scissors className="size-4" /> Cut Fabrics
+          </Button>
+          <Button
+            onClick={() => handleOpenRecordFinishedModal()}
+            className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs cursor-pointer font-semibold"
+          >
+            <Shirt className="size-4" /> Record Finished Product
           </Button>
         </div>
       </div>
@@ -1853,7 +2178,12 @@ export const ProductionListPage: React.FC = () => {
 
                         {/* Status */}
                         <TableCell className="text-center">
-                          {renderBatchStatusBadge(order.status, order.isStockSynced)}
+                          <div className="flex flex-col items-center">
+                            {renderBatchStatusBadge(order.status, order.isStockSynced)}
+                            <span className="text-[10px] text-slate-400 font-mono mt-1">
+                              {getBatchLatestTimestamp(order)}
+                            </span>
+                          </div>
                         </TableCell>
 
                         {/* Actions */}
@@ -1883,7 +2213,16 @@ export const ProductionListPage: React.FC = () => {
                                   <MoreVertical className="w-4 h-4" />
                                 </button>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-52 rounded-xl">
+                              <DropdownMenuContent align="end" className="w-56 rounded-xl">
+                                {order.completedQty > 0 && !order.isStockSynced && order.status !== 'CANCELLED' && (
+                                  <DropdownMenuItem
+                                    onClick={() => setOrderToSyncStock(order)}
+                                    className="cursor-pointer gap-2 text-xs font-medium text-purple-600 dark:text-purple-400 focus:text-purple-600"
+                                  >
+                                    <Package className="w-4 h-4 text-purple-600" />
+                                    <span>Add to Product Stock</span>
+                                  </DropdownMenuItem>
+                                )}
                                 <DropdownMenuItem
                                   onClick={() => handleOpenActionModal(order, 'finish')}
                                   className="cursor-pointer gap-2 text-xs font-medium"
@@ -1921,8 +2260,20 @@ export const ProductionListPage: React.FC = () => {
                                   className="cursor-pointer gap-2 text-xs font-medium"
                                 >
                                   <Pencil className="w-4 h-4 text-slate-600" />
-                                  <span>Edit Batch</span>
+                                  <span>Edit &amp; Allocate Materials</span>
                                 </DropdownMenuItem>
+                                {order.status !== 'CANCELLED' && (
+                                  <DropdownMenuItem
+                                    onClick={() => {
+                                      setOrderToCancel(order);
+                                      setCancelReason('');
+                                    }}
+                                    className="cursor-pointer gap-2 text-xs font-medium text-amber-600 dark:text-amber-400 focus:text-amber-600"
+                                  >
+                                    <Ban className="w-4 h-4 text-amber-600" />
+                                    <span>Cancel Batch</span>
+                                  </DropdownMenuItem>
+                                )}
                                 {isAdmin && (
                                   <DropdownMenuItem
                                     onClick={() => setOrderToDelete(order)}
@@ -2034,8 +2385,11 @@ export const ProductionListPage: React.FC = () => {
                       </div>
 
                       {/* Status Badge */}
-                      <div className="shrink-0 text-right">
+                      <div className="shrink-0 text-right flex flex-col items-end">
                         {renderBatchStatusBadge(order.status, order.isStockSynced)}
+                        <span className="text-[10px] text-slate-400 font-mono mt-1">
+                          {getBatchLatestTimestamp(order)}
+                        </span>
                       </div>
                     </div>
 
@@ -2168,7 +2522,16 @@ export const ProductionListPage: React.FC = () => {
                             <span>Actions</span>
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-52 rounded-xl">
+                        <DropdownMenuContent align="end" className="w-56 rounded-xl">
+                          {order.completedQty > 0 && !order.isStockSynced && order.status !== 'CANCELLED' && (
+                            <DropdownMenuItem
+                              onClick={() => setOrderToSyncStock(order)}
+                              className="cursor-pointer gap-2 text-xs font-medium text-purple-600 dark:text-purple-400 focus:text-purple-600"
+                            >
+                              <Package className="w-4 h-4 text-purple-600" />
+                              <span>Add to Product Stock</span>
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem
                             onClick={() => handleOpenActionModal(order, 'finish')}
                             className="cursor-pointer gap-2 text-xs font-medium"
@@ -2206,8 +2569,20 @@ export const ProductionListPage: React.FC = () => {
                             className="cursor-pointer gap-2 text-xs font-medium"
                           >
                             <Pencil className="w-4 h-4 text-slate-600" />
-                            <span>Edit Batch</span>
+                            <span>Edit &amp; Allocate Materials</span>
                           </DropdownMenuItem>
+                          {order.status !== 'CANCELLED' && (
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setOrderToCancel(order);
+                                setCancelReason('');
+                              }}
+                              className="cursor-pointer gap-2 text-xs font-medium text-amber-600 dark:text-amber-400 focus:text-amber-600"
+                            >
+                              <Ban className="w-4 h-4 text-amber-600" />
+                              <span>Cancel Batch</span>
+                            </DropdownMenuItem>
+                          )}
                           {isAdmin && (
                             <DropdownMenuItem
                               onClick={() => setOrderToDelete(order)}
@@ -2828,37 +3203,69 @@ export const ProductionListPage: React.FC = () => {
                     <div className="bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/70 dark:border-amber-900/40 p-2.5 sm:p-3 rounded-xl flex items-start gap-2.5">
                       <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                       <p className="text-xs text-amber-900 dark:text-amber-200">
-                        Record raw fabric cuts as they happen from the batch's allocated materials. Cuts consume from batch allocation without deducting again from warehouse stock.
+                        Record raw fabric cuts as they happen from pre-allocated materials, or allocate and cut fabrics directly from warehouse raw material stock at any time.
                       </p>
                     </div>
 
                     <div className="space-y-1.5">
                       <label className="text-[11px] font-bold text-slate-700 dark:text-zinc-300 block">
-                        Select Allocated Raw Material <span className="text-rose-500">*</span>
+                        Select Raw Material (Allocated or Warehouse) <span className="text-rose-500">*</span>
                       </label>
                       <SearchableSelect
                         options={allocatedMaterialSelectOptions}
                         value={cutRawMaterialId}
                         onValueChange={setCutRawMaterialId}
-                        placeholder="Select allocated raw material..."
+                        placeholder="Select raw material..."
                         searchPlaceholder="Search material name or code..."
                         dark={dark}
                       />
 
                       {cutMaterialStats && (
-                        <div className="p-2.5 rounded-xl bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 text-xs space-y-1">
-                          <div className="flex items-center justify-between text-amber-900 dark:text-amber-200">
-                            <span className="font-semibold">Batch Allocation Status:</span>
-                            <span className="font-mono font-bold text-amber-700 dark:text-amber-300">
-                              Remaining to Cut: {cutMaterialStats.remainingToCut} {cutMaterialStats.unit}
-                            </span>
+                        cutMaterialStats.isAllocated ? (
+                          <div className="p-2.5 rounded-xl bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 text-xs space-y-1">
+                            <div className="flex items-center justify-between text-amber-900 dark:text-amber-200">
+                              <span className="font-semibold">Batch Allocation Status:</span>
+                              <span className="font-mono font-bold text-amber-700 dark:text-amber-300">
+                                Remaining Uncut: {cutMaterialStats.remainingToCut} {cutMaterialStats.unit}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80 font-mono">
+                              Allocated: {cutMaterialStats.issued} {cutMaterialStats.unit} | Already Cut: {cutMaterialStats.totalAlreadyCut} {cutMaterialStats.unit} | Returned: {cutMaterialStats.returned} {cutMaterialStats.unit}
+                            </p>
+                            {cutMaterialStats.warehouseStock !== undefined && (
+                              <p className="text-[10px] text-amber-700 dark:text-amber-400 font-mono pt-0.5">
+                                Warehouse Stock Available: {cutMaterialStats.warehouseStock} {cutMaterialStats.unit}
+                              </p>
+                            )}
                           </div>
-                          <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80 font-mono">
-                            Allocated: {cutMaterialStats.issued} {cutMaterialStats.unit} | Already Cut: {cutMaterialStats.totalAlreadyCut} {cutMaterialStats.unit} | Returned: {cutMaterialStats.returned} {cutMaterialStats.unit}
-                          </p>
-                        </div>
+                        ) : (
+                          <div className="p-2.5 rounded-xl bg-sky-50/80 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-900/60 text-xs space-y-1">
+                            <div className="flex items-center justify-between text-sky-900 dark:text-sky-200">
+                              <span className="font-semibold">Warehouse Stock Available:</span>
+                              <span className="font-mono font-bold text-sky-700 dark:text-sky-300">
+                                {cutMaterialStats.warehouseStock} {cutMaterialStats.unit}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-sky-800/80 dark:text-sky-300/80">
+                              This material is not yet in this batch's allocation. Logging this cut will allocate it to batch #{selectedOrder?.productionNo} and deduct stock from warehouse inventory.
+                            </p>
+                          </div>
+                        )
                       )}
                     </div>
+
+                    {cutMaterialStats?.isAllocated && cutMaterialStats.remainingToCut <= 0 && (
+                      <div className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50">
+                        <Checkbox
+                          id="cutDeductStockAllocated"
+                          checked={cutDeductStock}
+                          onCheckedChange={(c) => setCutDeductStock(Boolean(c))}
+                        />
+                        <label htmlFor="cutDeductStockAllocated" className="text-xs font-medium text-amber-900 dark:text-amber-200 cursor-pointer">
+                          Allocated yardage fully cut. Deduct additional quantity directly from warehouse stock ({cutMaterialStats.warehouseStock} {cutMaterialStats.unit} available)
+                        </label>
+                      </div>
+                    )}
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       <div className="space-y-1">
@@ -2869,11 +3276,23 @@ export const ProductionListPage: React.FC = () => {
                           type="number"
                           step="0.01"
                           min="0.01"
-                          max={cutMaterialStats ? cutMaterialStats.remainingToCut : undefined}
+                          max={
+                            cutMaterialStats
+                              ? (cutMaterialStats.isAllocated && !cutDeductStock
+                                  ? cutMaterialStats.remainingToCut
+                                  : cutMaterialStats.warehouseStock)
+                              : undefined
+                          }
                           required
                           value={cutQuantity}
                           onChange={(e) => setCutQuantity(e.target.value === '' ? '' : Number(e.target.value))}
-                          placeholder={cutMaterialStats ? `Max ${cutMaterialStats.remainingToCut} ${cutMaterialStats.unit}` : 'e.g. 15.5'}
+                          placeholder={
+                            cutMaterialStats
+                              ? (cutMaterialStats.isAllocated && !cutDeductStock
+                                  ? `Max ${cutMaterialStats.remainingToCut} ${cutMaterialStats.unit}`
+                                  : `Max ${cutMaterialStats.warehouseStock} ${cutMaterialStats.unit}`)
+                              : 'e.g. 15.5'
+                          }
                           className="h-9 text-xs rounded-xl bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 font-mono"
                         />
                       </div>
@@ -2915,7 +3334,14 @@ export const ProductionListPage: React.FC = () => {
                     </Button>
                     <Button
                       type="submit"
-                      disabled={isSubmittingProgress || !cutQuantity || (cutMaterialStats ? Number(cutQuantity) > cutMaterialStats.remainingToCut : false)}
+                      disabled={
+                        isSubmittingProgress ||
+                        !cutQuantity ||
+                        Number(cutQuantity) <= 0 ||
+                        (cutMaterialStats?.isAllocated && !cutDeductStock
+                          ? Number(cutQuantity) > cutMaterialStats.remainingToCut
+                          : (cutMaterialStats ? Number(cutQuantity) > (cutMaterialStats.warehouseStock ?? Infinity) : false))
+                      }
                       className="bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs rounded-xl shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
                     >
                       {isSubmittingProgress ? (
@@ -3477,6 +3903,357 @@ export const ProductionListPage: React.FC = () => {
                 <>
                   <Package className="w-3.5 h-3.5" />
                   <span>Confirm &amp; Add to Product Stock</span>
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ─────────────────────────────────────────────────────────────
+          MODAL 5: RECORD FINISHED PRODUCT (FINISHING-FIRST WORKFLOW OR LOG TO EXISTING BATCH)
+      ───────────────────────────────────────────────────────────── */}
+      <Dialog open={isRecordFinishedModalOpen} onOpenChange={setIsRecordFinishedModalOpen}>
+        <DialogContent className="w-[95vw] max-w-lg sm:max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden rounded-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800">
+          <DialogHeader className="px-4 py-3 sm:px-5 sm:py-3.5 pr-12 sm:pr-14 border-b border-slate-100 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 z-10">
+            <div className="flex items-center gap-2.5">
+              <div className="size-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-200 dark:border-emerald-900/50">
+                <Shirt className="w-4 h-4" />
+              </div>
+              <div>
+                <DialogTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <span>Record Finished Product</span>
+                  <Badge variant="outline" className="text-[10px] font-mono uppercase bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800">
+                    {recordFinishedMode === 'new' ? 'FINISHING-FIRST RUN' : 'ACTIVE BATCH LOG'}
+                  </Badge>
+                </DialogTitle>
+                <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+                  Log finished garment output directly or initiate a new production batch without cutting upfront.
+                </p>
+              </div>
+            </div>
+          </DialogHeader>
+
+          {/* Mode Switcher */}
+          <div className="px-4 pt-3 pb-1.5 sm:px-5 sm:pt-3.5 shrink-0 bg-white dark:bg-zinc-950">
+            <div className="grid grid-cols-2 w-full p-1 bg-slate-100 dark:bg-zinc-900 rounded-xl text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setRecordFinishedMode('new')}
+                className={`flex items-center justify-center gap-2 py-2 rounded-lg transition-all cursor-pointer ${
+                  recordFinishedMode === 'new'
+                    ? 'bg-white dark:bg-zinc-800 text-emerald-700 dark:text-emerald-400 shadow-sm'
+                    : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Start New Batch (Finishing-First)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRecordFinishedMode('existing')}
+                className={`flex items-center justify-center gap-2 py-2 rounded-lg transition-all cursor-pointer ${
+                  recordFinishedMode === 'existing'
+                    ? 'bg-white dark:bg-zinc-800 text-emerald-700 dark:text-emerald-400 shadow-sm'
+                    : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Log to Existing Batch</span>
+              </button>
+            </div>
+          </div>
+
+          <form onSubmit={handleSubmitRecordFinished} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+            <div className="flex-1 overflow-y-auto p-3.5 sm:p-4 space-y-3.5">
+              {recordFinishedMode === 'new' ? (
+                <>
+                  <div className="bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/70 dark:border-emerald-900/40 p-2.5 sm:p-3 rounded-xl flex items-start gap-2.5">
+                    <Info className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                    <p className="text-xs text-emerald-900 dark:text-emerald-200">
+                      <strong>Finishing-First Workflow:</strong> Record finished garments immediately without logging raw material fabric cuts first. You can allocate and cut materials anytime later via "Edit &amp; Allocate Materials" or "Add More Material Cuts".
+                    </p>
+                  </div>
+
+                  {/* Product Selection */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 flex items-center gap-1.5">
+                      <Package className="w-3.5 h-3.5 text-emerald-600" />
+                      Target Garment Product <span className="text-rose-500">*</span>
+                    </label>
+                    <SearchableSelect
+                      options={productSelectOptions}
+                      value={recordFinishedProductId}
+                      onValueChange={(val) => {
+                        setRecordFinishedProductId(val);
+                        setRecordFinishedVariantId('');
+                      }}
+                      placeholder="Search and select finished garment product..."
+                      searchPlaceholder="Search product by name..."
+                      dark={dark}
+                    />
+                  </div>
+
+                  {/* Variant Selection if available */}
+                  {recordFinishedVariantOptions.length > 0 && (
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">
+                        Product Variant (Size / Color) <span className="text-xs font-normal text-slate-400">(Optional)</span>
+                      </label>
+                      <SearchableSelect
+                        options={recordFinishedVariantOptions}
+                        value={recordFinishedVariantId}
+                        onValueChange={setRecordFinishedVariantId}
+                        placeholder="Select variant (or leave general)..."
+                        searchPlaceholder="Filter size / color..."
+                        dark={dark}
+                      />
+                    </div>
+                  )}
+
+                  {/* Target Qty & Finished Qty */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 block">
+                        Target Planned Quantity (Pcs) <span className="text-rose-500">*</span>
+                      </label>
+                      <Input
+                        type="number"
+                        min="1"
+                        step="1"
+                        required
+                        value={recordFinishedTargetQty}
+                        onChange={(e) => setRecordFinishedTargetQty(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="e.g. 50"
+                        className="h-9 text-xs rounded-xl bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 font-mono"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-emerald-700 dark:text-emerald-400 block">
+                        Finished Output Recorded Now (Pcs) <span className="text-rose-500">*</span>
+                      </label>
+                      <Input
+                        type="number"
+                        min="1"
+                        step="1"
+                        required
+                        value={recordFinishedQty}
+                        onChange={(e) => setRecordFinishedQty(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="e.g. 50"
+                        className="h-9 text-xs rounded-xl bg-white dark:bg-zinc-900 border-emerald-300 dark:border-emerald-800 font-mono font-bold"
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="bg-sky-50/60 dark:bg-sky-950/20 border border-sky-200/70 dark:border-sky-900/40 p-2.5 sm:p-3 rounded-xl flex items-start gap-2.5">
+                    <Info className="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0 mt-0.5" />
+                    <p className="text-xs text-sky-900 dark:text-sky-200">
+                      Select an existing active production run to log newly completed garment pieces.
+                    </p>
+                  </div>
+
+                  {/* Active Batch Selection */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5 text-sky-600" />
+                      Select Active Production Batch <span className="text-rose-500">*</span>
+                    </label>
+                    <SearchableSelect
+                      options={activeBatchOptions}
+                      value={recordFinishedExistingOrderId}
+                      onValueChange={setRecordFinishedExistingOrderId}
+                      placeholder="Select active batch #..."
+                      searchPlaceholder="Search batch number or style..."
+                      dark={dark}
+                    />
+                  </div>
+
+                  {/* Selected Batch Preview Card */}
+                  {selectedExistingRecordBatch && (
+                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/80 border border-slate-200 dark:border-zinc-800 text-xs space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-700 dark:text-zinc-300">Target Product:</span>
+                        <span className="font-bold text-slate-900 dark:text-white">
+                          {selectedExistingRecordBatch.product.name}
+                          {selectedExistingRecordBatch.variant ? ` (${selectedExistingRecordBatch.variant.size || ''} ${selectedExistingRecordBatch.variant.color || ''})` : ''}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between font-mono text-[11px]">
+                        <span>Target: {selectedExistingRecordBatch.targetQuantity} pcs</span>
+                        <span className="text-emerald-600">Already Finished: {selectedExistingRecordBatch.completedQty} pcs</span>
+                        <span className="text-amber-600">
+                          WIP: {Math.max(0, (selectedExistingRecordBatch.targetQuantity || 0) - (selectedExistingRecordBatch.completedQty || 0))} pcs
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Finished Qty for Existing Batch */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-emerald-700 dark:text-emerald-400 block">
+                      Quantity Finished This Session (Pcs) <span className="text-rose-500">*</span>
+                    </label>
+                    <Input
+                      type="number"
+                      min="1"
+                      step="1"
+                      required
+                      value={recordFinishedQty}
+                      onChange={(e) => setRecordFinishedQty(e.target.value === '' ? '' : Number(e.target.value))}
+                      placeholder="e.g. 20"
+                      className="h-9 text-xs rounded-xl bg-white dark:bg-zinc-900 border-emerald-300 dark:border-emerald-800 font-mono font-bold"
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Shared Date & Time Picker */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 block">
+                  Date &amp; Time of Finishing <span className="text-rose-500">*</span>
+                </label>
+                <DateTimePicker
+                  value={recordFinishedDateTime}
+                  onChange={setRecordFinishedDateTime}
+                />
+              </div>
+
+              {/* Shared Notes */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 block">
+                  Finishing Notes / Batch Remarks <span className="text-xs font-normal text-slate-400">(Optional)</span>
+                </label>
+                <Input
+                  value={recordFinishedNotes}
+                  onChange={(e) => setRecordFinishedNotes(e.target.value)}
+                  placeholder="e.g. QC passed, buttons attached, ready for packaging"
+                  className="h-9 text-xs rounded-xl bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800"
+                />
+              </div>
+
+              {/* Optional Immediate Stock Sync Toggle (defaults to false) */}
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40">
+                <Checkbox
+                  id="recordFinishedSyncStock"
+                  checked={recordFinishedSyncStock}
+                  onCheckedChange={(c) => setRecordFinishedSyncStock(Boolean(c))}
+                />
+                <label htmlFor="recordFinishedSyncStock" className="text-xs font-medium text-emerald-900 dark:text-emerald-200 cursor-pointer">
+                  Sync to active storefront &amp; POS product inventory immediately (Default: false, can sync later at any time)
+                </label>
+              </div>
+            </div>
+
+            <DialogFooter className="px-4 py-3 sm:px-5 sm:py-3.5 border-t border-slate-100 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 z-10 flex-row justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsRecordFinishedModalOpen(false)}
+                className="text-xs rounded-xl"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={
+                  isSubmittingRecordFinished ||
+                  (recordFinishedMode === 'new'
+                    ? !recordFinishedProductId || !recordFinishedTargetQty || !recordFinishedQty || Number(recordFinishedQty) <= 0
+                    : !recordFinishedExistingOrderId || !recordFinishedQty || Number(recordFinishedQty) <= 0)
+                }
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isSubmittingRecordFinished ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Saving Finished Goods...</span>
+                  </>
+                ) : (
+                  <>
+                    <Shirt className="w-3.5 h-3.5" />
+                    <span>{recordFinishedMode === 'new' ? 'Create Finishing Batch' : 'Log Finished Garments'}</span>
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─────────────────────────────────────────────────────────────
+          ALERT DIALOG 3: CANCEL PRODUCTION BATCH
+      ───────────────────────────────────────────────────────────── */}
+      <AlertDialog open={Boolean(orderToCancel)} onOpenChange={() => setOrderToCancel(null)}>
+        <AlertDialogContent className="w-full max-w-lg sm:max-w-xl max-h-[90vh] overflow-y-auto bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-6 shadow-2xl">
+          <AlertDialogHeader>
+            <div className="flex items-center gap-2.5">
+              <div className="size-9 rounded-xl bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 flex items-center justify-center border border-rose-200 dark:border-rose-900/50">
+                <Ban className="w-4 h-4" />
+              </div>
+              <AlertDialogTitle className="text-base font-bold text-slate-900 dark:text-white">
+                Cancel Production Batch #{orderToCancel?.productionNo}?
+              </AlertDialogTitle>
+            </div>
+            <AlertDialogDescription className="text-xs text-slate-500 dark:text-zinc-400 space-y-3 pt-2">
+              <p>
+                Are you sure you want to cancel Batch{' '}
+                <strong className="text-slate-900 dark:text-white font-mono font-bold">
+                  #{orderToCancel?.productionNo}
+                </strong>{' '}
+                ({orderToCancel?.product.name})?
+              </p>
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-xs text-amber-900 dark:text-amber-200 space-y-1.5">
+                <div className="font-semibold flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Atomic Reversal Details:</span>
+                </div>
+                <p>
+                  • All warehouse raw materials deducted for this batch will be safely restored to warehouse inventory.
+                </p>
+                {orderToCancel?.isStockSynced && (
+                  <p>
+                    • Finished goods (+{orderToCancel.completedQty} units) previously added to sellable stock will be reversed.
+                  </p>
+                )}
+                <p>
+                  • The batch status will transition to <strong>CANCELLED</strong> while preserving audit logs.
+                </p>
+              </div>
+
+              <div className="space-y-1.5 pt-1">
+                <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block">
+                  Cancellation Reason / Notes <span className="text-slate-400">(Optional)</span>
+                </label>
+                <Input
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  placeholder="e.g. Order cancelled by client, defective fabric, machine downtime"
+                  className="h-9 text-xs rounded-xl bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800"
+                />
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="sticky bottom-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm pt-3 border-t border-slate-100 dark:border-zinc-800 gap-2 mt-2">
+            <AlertDialogCancel disabled={isCancelling} className="text-xs rounded-xl">
+              Keep Batch Active
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isCancelling}
+              onClick={handleConfirmCancelBatch}
+              className="bg-rose-600 hover:bg-rose-700 text-white text-xs rounded-xl font-semibold shadow-sm cursor-pointer flex items-center gap-1.5"
+            >
+              {isCancelling ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Cancelling Batch...</span>
+                </>
+              ) : (
+                <>
+                  <Ban className="w-3.5 h-3.5" />
+                  <span>Confirm Batch Cancellation</span>
                 </>
               )}
             </AlertDialogAction>
