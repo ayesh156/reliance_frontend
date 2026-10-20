@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { sseManager } from '../lib/sse';
+import { preloadCriticalImageAsset } from '../utils/imagePreloader';
 
 interface AuthUser {
   id: number;
@@ -38,10 +39,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [token, setToken] = useState<string | null>(localStorage.getItem('auth_token'));
   const [loading, setLoading] = useState(true);
 
+  /**
+   * Smoothly transitions and removes the initial startup splash screen overlay
+   * ("Initializing Enterprise Suite..."). Applies a 500ms cubic-bezier opacity transition
+   * to guarantee an elegant, flicker-free visual handoff to the application.
+   */
   const dismissSplashScreen = useCallback(() => {
     if (typeof window !== 'undefined') {
       const splash = document.getElementById('pwa-splash-screen');
-      if (splash) {
+      if (splash && !splash.classList.contains('pointer-events-none')) {
+        splash.classList.add('pointer-events-none');
+        splash.style.transition = 'opacity 500ms cubic-bezier(0.4, 0, 0.2, 1)';
         splash.style.opacity = '0';
         splash.style.pointerEvents = 'none';
         setTimeout(() => {
@@ -51,31 +59,48 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  /**
+   * Initializes application authentication in parallel with preloading the critical
+   * Reliance hero background image (/images/editorial/hero-denim.jpg).
+   *
+   * Keeps the loading screen visible until BOTH the initialization state resolves
+   * AND the hero background image has finished downloading/decoding.
+   * A strict 2.5-second safety timeout guarantees the app never blocks if an asset fails.
+   */
   const fetchUser = useCallback(async () => {
     const storedToken = localStorage.getItem('auth_token');
-    if (!storedToken) {
-      setLoading(false);
-      dismissSplashScreen();
-      return;
-    }
-    try {
-      const res = await fetch(`${API_BASE}/auth/me`, {
-        headers: { Authorization: `Bearer ${storedToken}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setUser({ id: data.id, name: data.name, email: data.email || '', role: data.role });
-      } else {
-        localStorage.removeItem('auth_token');
-        setToken(null);
-        // STRICT ROUTE GUARD: Only redirect unauthenticated requests if accessing protected /system/* suite
-        // Public Storefront routes (/, /shop, /about, /contact) load freely with zero auth redirection
-        if (typeof window !== 'undefined' && window.location.pathname.startsWith('/system')) {
-          window.location.href = '/login';
-        }
+
+    // Preload & hardware-decode flagship hero background image to eliminate visual flashing
+    const heroPreloadPromise = preloadCriticalImageAsset('/images/editorial/hero-denim.jpg', 2500);
+
+    const authInitPromise = (async () => {
+      if (!storedToken) {
+        return;
       }
-    } catch {
-      // Offline — keep existing state
+      try {
+        const res = await fetch(`${API_BASE}/auth/me`, {
+          headers: { Authorization: `Bearer ${storedToken}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setUser({ id: data.id, name: data.name, email: data.email || '', role: data.role });
+        } else {
+          localStorage.removeItem('auth_token');
+          setToken(null);
+          // STRICT ROUTE GUARD: Only redirect unauthenticated requests if accessing protected /system/* suite
+          // Public Storefront routes (/, /shop, /about, /contact) load freely with zero auth redirection
+          if (typeof window !== 'undefined' && window.location.pathname.startsWith('/system')) {
+            window.location.href = '/login';
+          }
+        }
+      } catch {
+        // Offline — keep existing state
+      }
+    })();
+
+    try {
+      // Keep loading screen visible until both auth state resolves AND hero background is decoded
+      await Promise.all([authInitPromise, heroPreloadPromise]);
     } finally {
       setLoading(false);
       dismissSplashScreen();

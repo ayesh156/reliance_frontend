@@ -171,6 +171,16 @@ export function App() {
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="/system/products/edit/:id"
+                element={
+                  <ProtectedRoute requiredRole={['ADMIN', 'STAFF']}>
+                    <AdminPage>
+                      <ProductFormPage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
 
               <Route
                 path="/system/attributes"

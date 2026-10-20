@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { formatCurrency, getProductImageUrl, handleImageError } from '../lib/utils';
@@ -236,6 +236,22 @@ const fetchAll = useCallback(async () => {
     }
   };
 
+  /**
+   * Direct product navigation handler.
+   * Prominently navigates the user directly to the product edit page (/system/products/:id/edit).
+   * For sales reps who lack edit permissions, seamlessly defaults to the inspect details modal.
+   * Halts event propagation so parent card click triggers are not duplicated.
+   */
+  const handleProductDirectEdit = (e: React.MouseEvent, product: ProductItem) => {
+    e.stopPropagation();
+    if (isRep) {
+      setInspectProduct(product);
+      setActiveInspectImage(null);
+    } else {
+      navigate(`/system/products/${product.id}/edit`);
+    }
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6 w-full pb-10">
       <div className="flex items-center justify-between">
@@ -255,8 +271,8 @@ const fetchAll = useCallback(async () => {
         </div>
       </div>
 
-      {/* Metrics Row matching CustomersPage design */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-4 w-full">
+      {/* Metrics Row: Fluid 3 columns on tablet portrait (~534px) instead of single-column stacking */}
+      <div className="grid grid-cols-1 xs:grid-cols-3 gap-2 sm:gap-4 w-full">
         <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
           <div>
             <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Products</span>
@@ -339,10 +355,10 @@ const fetchAll = useCallback(async () => {
           </button>
         </div>
 
-        {/* Collapsible Expansion Tray */}
+        {/* Collapsible Expansion Tray: Fluid 3-column filter tray on ~534px tablet screens */}
         {mobileFiltersOpen && (
           <div className="pt-2.5 border-t border-slate-100 dark:border-zinc-800/80 space-y-2.5 animate-in fade-in-0 slide-in-from-top-2 duration-150">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 w-full">
+            <div className="grid grid-cols-1 xs:grid-cols-3 gap-2 sm:gap-2.5 w-full">
               {/* Category Filter */}
               <div className="min-w-0">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
@@ -520,8 +536,8 @@ const fetchAll = useCallback(async () => {
           </div>
         ) : (
           <>
-            {/* Mobile / Tablet Responsive Card Grid (< 1024px) */}
-            <div className="grid lg:hidden grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 w-full">
+            {/* Mobile / Tablet Responsive Card Grid (< 1024px): Elegantly splits into 2 columns at ~534px tablet viewports */}
+            <div className="grid lg:hidden grid-cols-1 xs:grid-cols-2 gap-2.5 sm:gap-3 w-full">
               {paginated.map(p => {
                 const v = p.variants?.[0];
                 const stock = (p.variants || []).reduce((acc, cur) => acc + (cur.stock || 0), 0);
@@ -565,9 +581,26 @@ const fetchAll = useCallback(async () => {
                               {p.variants.length} Var
                             </span>
                           ) : null}
+                          {/* Prominently clickable Product ID */}
+                          <Link
+                            to={isRep ? '#' : `/system/products/${p.id}/edit`}
+                            onClick={(e) => handleProductDirectEdit(e, p)}
+                            className="font-mono text-[10px] font-semibold text-slate-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded transition-colors ml-auto"
+                            title={isRep ? "Inspect product details" : `Edit product #${p.id}`}
+                          >
+                            #{p.id}
+                          </Link>
                         </div>
-                        <h3 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-zinc-100 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors line-clamp-1 mt-1">
-                          {p.name}
+                        {/* Prominently clickable Product Name */}
+                        <h3 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-zinc-100 line-clamp-1 mt-1">
+                          <Link
+                            to={isRep ? '#' : `/system/products/${p.id}/edit`}
+                            onClick={(e) => handleProductDirectEdit(e, p)}
+                            className="hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer transition-colors"
+                            title={isRep ? "Inspect product details" : `Edit ${p.name}`}
+                          >
+                            {p.name}
+                          </Link>
                         </h3>
                         {p.searchKey && (
                           <p className="text-[10px] text-slate-400 dark:text-zinc-500 font-mono truncate">
@@ -635,20 +668,13 @@ const fetchAll = useCallback(async () => {
                     return (
                       <TableRow key={p.id}>
                         <TableCell>
-                          {/* Interactive Clickable Target: REP opens inspect modal, Admin navigates to edit */}
-                          <div 
-                            onClick={() => {
-                              if (isRep) {
-                                setInspectProduct(p);
-                                setActiveInspectImage(null);
-                              } else {
-                                navigate(`/system/products/${p.id}/edit`);
-                              }
-                            }}
-                            className="flex items-center gap-3 cursor-pointer group/item select-none"
-                            title={isRep ? "Click to inspect product details" : "Click to edit product"}
-                          >
-                            <div className="relative size-10 rounded-lg overflow-hidden border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900 shrink-0 flex items-center justify-center group-hover/item:border-emerald-500 transition-colors">
+                          <div className="flex items-center gap-3 select-none">
+                            {/* Product Thumbnail with direct edit/inspect click handler */}
+                            <div 
+                              onClick={(e) => handleProductDirectEdit(e, p)}
+                              className="relative size-10 rounded-lg overflow-hidden border border-slate-200 dark:border-zinc-800 bg-slate-100 dark:bg-zinc-900 shrink-0 flex items-center justify-center hover:border-indigo-500 dark:hover:border-indigo-400 transition-colors cursor-pointer group/thumb"
+                              title={isRep ? "Click to inspect product details" : `Click to edit ${p.name}`}
+                            >
                               {primaryImage ? (
                                 <img
                                   src={primaryImage}
@@ -656,15 +682,31 @@ const fetchAll = useCallback(async () => {
                                   loading="lazy"
                                   referrerPolicy="no-referrer"
                                   onError={handleImageError}
-                                  className="w-full h-full object-cover group-hover/item:scale-105 transition-transform"
+                                  className="w-full h-full object-cover group-hover/thumb:scale-105 transition-transform"
                                 />
                               ) : (
-                                <Package className="size-4 text-slate-400 dark:text-zinc-500 group-hover/item:text-emerald-500" />
+                                <Package className="size-4 text-slate-400 dark:text-zinc-500 group-hover/thumb:text-indigo-600 dark:group-hover/thumb:text-indigo-400" />
                               )}
                             </div>
-                            <div>
-                              <div className="font-semibold text-slate-900 dark:text-zinc-100 group-hover/item:text-emerald-600 dark:group-hover/item:text-emerald-400 group-hover/item:underline transition-colors">
-                                {p.name}
+                            {/* Prominently clickable Product Name & Product ID with hover effects */}
+                            <div className="flex flex-col">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <Link
+                                  to={isRep ? '#' : `/system/products/${p.id}/edit`}
+                                  onClick={(e) => handleProductDirectEdit(e, p)}
+                                  className="font-semibold text-slate-900 dark:text-zinc-100 hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer transition-colors"
+                                  title={isRep ? "Click to inspect product details" : `Click to edit ${p.name}`}
+                                >
+                                  {p.name}
+                                </Link>
+                                <Link
+                                  to={isRep ? '#' : `/system/products/${p.id}/edit`}
+                                  onClick={(e) => handleProductDirectEdit(e, p)}
+                                  className="font-mono text-[10px] text-slate-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer bg-slate-100 dark:bg-zinc-800/80 px-1.5 py-0.5 rounded transition-colors"
+                                  title={isRep ? "Click to inspect product details" : `Click to edit product #${p.id}`}
+                                >
+                                  #{p.id}
+                                </Link>
                               </div>
                               {p.searchKey && (
                                 <div className="text-[10px] text-slate-400 dark:text-zinc-500 font-mono">

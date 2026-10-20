@@ -476,6 +476,23 @@ export const OrderCreatePage: React.FC = () => {
 
   const calculatedTotalAmount = Math.max(0, calculatedSubtotal - numericOrderDiscount);
 
+  /**
+   * Metrics calculations for Distinct Products and Total Pieces Quantity:
+   * Provides real-time distinct catalog items count and sum of all garment units
+   * for responsive display in the Order Financials summary and mobile sticky bar.
+   */
+  const distinctProductsCount = useMemo(() => {
+    const validWithVariant = lineItems.filter((i) => Boolean(i.variantId));
+    const uniqueIdentifiers = new Set(
+      validWithVariant.map((i) => i.productName || i.variantId)
+    );
+    return uniqueIdentifiers.size || validWithVariant.length;
+  }, [lineItems]);
+
+  const totalPiecesQuantity = useMemo(() => {
+    return lineItems.reduce((acc, it) => acc + (Number(it.quantity) || 0), 0);
+  }, [lineItems]);
+
   // Normalizes 'PERCENT' / 'FIXED' internal state with 'percentage' / 'fixed' UI toggles
   const orderDiscountType = discountType === 'PERCENT' ? 'percentage' : 'fixed';
   const orderDiscountInput = discountInput;
@@ -731,7 +748,7 @@ export const OrderCreatePage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 pb-24 lg:pb-12 max-w-6xl mx-auto">
+    <div className="space-y-4 sm:space-y-6 pb-20 lg:pb-12 max-w-6xl mx-auto">
       {/* ── Page Header ── */}
       <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-200/80 dark:border-zinc-800">
         <div className="flex items-center gap-3">
@@ -801,9 +818,9 @@ export const OrderCreatePage: React.FC = () => {
         </div>
       </div>
 
-      <form id="sales-order-form" onSubmit={handleSubmit} className="space-y-6">
+      <form id="sales-order-form" onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
         {/* ── CARD 1: CUSTOMER SELECTION ── */}
-        <div className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-4 sm:p-5 space-y-4 shadow-xs">
+        <div className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-3.5 sm:p-5 space-y-3 sm:space-y-4 shadow-xs">
           <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-zinc-800">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-zinc-300 flex items-center gap-2">
               <Users className="size-4 text-indigo-600" /> 1. Customer Selection
@@ -858,7 +875,8 @@ export const OrderCreatePage: React.FC = () => {
               </div>
 
               {selectedCustomer && (
-                <div className="p-3.5 rounded-xl border border-indigo-100 dark:border-indigo-950/60 bg-indigo-50/50 dark:bg-indigo-950/20 text-xs grid grid-cols-1 sm:grid-cols-3 gap-2">
+                /* Customer Summary Details: Fluid 3 columns on tablet portrait (~534px) instead of vertical stacking */
+                <div className="p-3.5 rounded-xl border border-indigo-100 dark:border-indigo-950/60 bg-indigo-50/50 dark:bg-indigo-950/20 text-xs grid grid-cols-1 xs:grid-cols-3 gap-2">
                   <div>
                     <span className="text-[10px] uppercase font-bold text-slate-400">Name</span>
                     <p className="font-bold text-slate-900 dark:text-white">{selectedCustomer.name}</p>
@@ -877,7 +895,7 @@ export const OrderCreatePage: React.FC = () => {
               )}
             </div>
           ) : (
-            /* Guest Customer Section (On the fly without database persistence) */
+            /* Guest Customer Section: Fluid 2x2 grid on ~500-600px tablet screens */
             <div className="space-y-3">
               <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 flex items-start gap-2 text-xs text-amber-800 dark:text-amber-300">
                 <AlertCircle className="size-4 shrink-0 mt-0.5 text-amber-600" />
@@ -886,7 +904,7 @@ export const OrderCreatePage: React.FC = () => {
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
                     Guest Customer Name *
@@ -942,7 +960,7 @@ export const OrderCreatePage: React.FC = () => {
         </div>
 
         {/* ── CARD 2: PRODUCT SELECTION INTERFACE (SIMILAR TO MATERIAL SECTION) ── */}
-        <div className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-4 sm:p-5 space-y-4 shadow-xs">
+        <div className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-3.5 sm:p-5 space-y-3 sm:space-y-4 shadow-xs">
           {/* Section Header: Full-width title without top Add Row button (action kept exclusively at bottom) */}
           <div className="w-full flex items-center justify-between pb-2 border-b border-slate-100 dark:border-zinc-800">
             <h3 className="w-full text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-zinc-300 flex items-center gap-2">
@@ -951,7 +969,7 @@ export const OrderCreatePage: React.FC = () => {
           </div>
 
           {/* ── Responsive Touch-Friendly Line Item Cards (Mobile, Tablet & Desktop) ── */}
-          <div className="space-y-3.5">
+          <div className="space-y-3 sm:space-y-3.5">
             {lineItems.map((item, index) => {
               const rowTotal = Math.max(
                 0,
@@ -961,21 +979,21 @@ export const OrderCreatePage: React.FC = () => {
               return (
                 <div
                   key={index}
-                  className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/70 p-3.5 sm:p-4 space-y-3.5 shadow-xs transition-all hover:border-slate-300 dark:hover:border-zinc-700"
+                  className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/70 p-2.5 sm:p-3.5 space-y-2 sm:space-y-2.5 shadow-xs transition-all hover:border-slate-300 dark:hover:border-zinc-700"
                 >
-                  {/* Card Header: Item Number, SKU & Remove Button */}
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-zinc-800/80">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs font-bold text-slate-500 dark:text-zinc-400">
+                  {/* Card Header: Item Number, SKU, Variant Descriptor & Quick Remove */}
+                  <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-zinc-800/80">
+                    <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                      <span className="font-mono text-xs font-bold text-slate-600 dark:text-zinc-300">
                         Item #{index + 1}
                       </span>
                       {item.sku && (
-                        <span className="text-[10px] font-mono bg-slate-100 dark:bg-zinc-800 px-2 py-0.5 rounded text-slate-600 dark:text-zinc-300 font-semibold">
+                        <span className="text-[10px] font-mono bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-slate-600 dark:text-zinc-300 font-semibold truncate max-w-[120px]">
                           {item.sku}
                         </span>
                       )}
                       {item.variantName && (
-                        <span className="text-xs text-slate-500 dark:text-zinc-400">
+                        <span className="text-[11px] text-slate-500 dark:text-zinc-400 truncate max-w-[140px]">
                           {item.variantName}
                         </span>
                       )}
@@ -986,16 +1004,16 @@ export const OrderCreatePage: React.FC = () => {
                       size="sm"
                       onClick={() => handleRemoveLineItem(index)}
                       disabled={lineItems.length === 1}
-                      className="size-8 p-0 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg disabled:opacity-40 cursor-pointer transition-colors"
+                      className="size-7 sm:size-8 p-0 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg disabled:opacity-40 cursor-pointer transition-colors shrink-0"
                       title="Remove line item"
                     >
-                      <Trash2 className="size-4" />
+                      <Trash2 className="size-3.5 sm:size-4" />
                     </Button>
                   </div>
 
                   {/* Product Variant Selector */}
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400 block">
                       Product Variant *
                     </label>
                     <ProductVariantCombobox
@@ -1006,11 +1024,11 @@ export const OrderCreatePage: React.FC = () => {
                     />
                   </div>
 
-                  {/* Interactive Controls: Price, Quantity (+/-), Discount Toggle & Line Total */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+                  {/* Dense Fluid Grid: 2 columns on Mobile, 4 columns on Tablet & Desktop */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-0.5">
                     {/* 1. Unit Price Input */}
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400 block">
                         Price (Rs) *
                       </label>
                       <Input
@@ -1027,20 +1045,20 @@ export const OrderCreatePage: React.FC = () => {
                           )
                         }
                         placeholder="0.00"
-                        className="font-mono text-xs h-9 bg-white dark:bg-zinc-900"
+                        className="font-mono text-xs h-8 sm:h-9 bg-white dark:bg-zinc-900"
                       />
                     </div>
 
                     {/* 2. Quantity with Touch Stepper (+ / -) */}
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400 block">
                         Quantity *
                       </label>
-                      <div className="flex items-center rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-950/50 overflow-hidden h-9">
+                      <div className="flex items-center rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-950/50 overflow-hidden h-8 sm:h-9">
                         <button
                           type="button"
                           onClick={() => handleAdjustQuantity(index, -1)}
-                          className="size-9 flex items-center justify-center text-slate-500 hover:bg-slate-200 dark:hover:bg-zinc-800 cursor-pointer active:scale-95 transition-all"
+                          className="size-8 sm:size-9 flex items-center justify-center text-slate-500 hover:bg-slate-200 dark:hover:bg-zinc-800 cursor-pointer active:scale-95 transition-all shrink-0"
                           title="Decrease quantity"
                         >
                           <Minus className="size-3.5" />
@@ -1062,7 +1080,7 @@ export const OrderCreatePage: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => handleAdjustQuantity(index, 1)}
-                          className="size-9 flex items-center justify-center text-slate-500 hover:bg-slate-200 dark:hover:bg-zinc-800 cursor-pointer active:scale-95 transition-all"
+                          className="size-8 sm:size-9 flex items-center justify-center text-slate-500 hover:bg-slate-200 dark:hover:bg-zinc-800 cursor-pointer active:scale-95 transition-all shrink-0"
                           title="Increase quantity"
                         >
                           <Plus className="size-3.5" />
@@ -1076,11 +1094,11 @@ export const OrderCreatePage: React.FC = () => {
                         <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
                           Discount
                         </label>
-                        <div className="flex items-center rounded-lg bg-slate-100 dark:bg-zinc-800 p-0.5 text-[10px] font-bold">
+                        <div className="flex items-center rounded-md bg-slate-100 dark:bg-zinc-800 p-0.5 text-[9px] font-bold">
                           <button
                             type="button"
                             onClick={() => handleLineItemDiscountTypeChange(index, 'PERCENT')}
-                            className={`px-2 py-0.5 rounded-md transition-colors cursor-pointer ${
+                            className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer ${
                               item.discountType === 'PERCENT'
                                 ? 'bg-indigo-600 text-white shadow-xs'
                                 : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
@@ -1091,7 +1109,7 @@ export const OrderCreatePage: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => handleLineItemDiscountTypeChange(index, 'FIXED')}
-                            className={`px-2 py-0.5 rounded-md transition-colors cursor-pointer ${
+                            className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer ${
                               item.discountType !== 'PERCENT'
                                 ? 'bg-indigo-600 text-white shadow-xs'
                                 : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
@@ -1109,24 +1127,22 @@ export const OrderCreatePage: React.FC = () => {
                           value={item.discountInput !== undefined && item.discountInput !== '' ? item.discountInput : (Number(item.discount) > 0 ? item.discount : '')}
                           onChange={(e) => handleLineItemDiscountInputChange(index, e.target.value)}
                           placeholder="0.00"
-                          className="font-mono text-xs h-9 pr-20 bg-white dark:bg-zinc-900"
+                          className="font-mono text-xs h-8 sm:h-9 pr-14 bg-white dark:bg-zinc-900"
                         />
-                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-mono pointer-events-none">
-                          {item.discountType === 'PERCENT'
-                            ? `% (-Rs. ${(Number(item.discount) || 0).toLocaleString('en-LK')})`
-                            : 'Rs'}
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 font-mono pointer-events-none truncate max-w-[50px]">
+                          {item.discountType === 'PERCENT' ? '%' : 'Rs'}
                         </span>
                       </div>
                     </div>
 
                     {/* 4. Line Total Display */}
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400 block">
                         Line Total
                       </label>
-                      <div className="h-9 px-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950/60 flex items-center justify-between font-mono font-bold text-xs">
-                        <span className="text-[10px] text-slate-400 font-sans font-semibold">Total:</span>
-                        <span className="text-slate-900 dark:text-white">
+                      <div className="h-8 sm:h-9 px-2.5 rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950/60 flex items-center justify-between font-mono font-bold text-xs">
+                        <span className="text-[9px] text-slate-400 font-sans font-semibold">Total:</span>
+                        <span className="text-slate-900 dark:text-white truncate">
                           Rs. {rowTotal.toLocaleString('en-LK')}
                         </span>
                       </div>
@@ -1152,9 +1168,9 @@ export const OrderCreatePage: React.FC = () => {
         </div>
 
         {/* ── CARD 3: NOTES & FINANCIAL SUMMARY ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
           {/* Notes */}
-          <div className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-4 sm:p-5 space-y-2 shadow-xs">
+          <div className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-3.5 sm:p-5 space-y-2 shadow-xs">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-zinc-300 flex items-center gap-2">
               <FileText className="size-4 text-indigo-600" /> 3. Special Instructions / Notes
             </h3>
@@ -1168,10 +1184,30 @@ export const OrderCreatePage: React.FC = () => {
           </div>
 
           {/* Financial Breakdown */}
-          <div className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-4 sm:p-5 space-y-3 shadow-xs">
+          <div className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-3.5 sm:p-5 space-y-3 shadow-xs">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-zinc-300">
               4. Order Financials
             </h3>
+
+            {/* Distinct Metrics Ribbon: Total Items/Units & Total Quantity */}
+            <div className="grid grid-cols-2 gap-2 pb-2.5 border-b border-slate-100 dark:border-zinc-800">
+              <div className="p-2 sm:p-2.5 rounded-xl bg-slate-50/80 dark:bg-zinc-950/60 border border-slate-200/70 dark:border-zinc-800/80 flex flex-col justify-center text-center">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                  Total Items / Units
+                </span>
+                <span className="font-mono text-sm sm:text-base font-bold text-slate-900 dark:text-white mt-0.5">
+                  {distinctProductsCount} <span className="text-[11px] font-normal text-slate-500">units</span>
+                </span>
+              </div>
+              <div className="p-2 sm:p-2.5 rounded-xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/50 flex flex-col justify-center text-center">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+                  Total Qty
+                </span>
+                <span className="font-mono text-sm sm:text-base font-bold text-indigo-700 dark:text-indigo-300 mt-0.5">
+                  {totalPiecesQuantity} <span className="text-[11px] font-normal text-indigo-500">pcs</span>
+                </span>
+              </div>
+            </div>
 
             <div className="space-y-2 text-xs">
               <div className="flex justify-between items-center text-slate-600 dark:text-zinc-400">
@@ -1238,9 +1274,13 @@ export const OrderCreatePage: React.FC = () => {
         </div>
 
         {/* ── Fixed Mobile Bottom Action Bar (< 1024px) ── */}
-        <div className="fixed bottom-0 left-0 right-0 z-40 lg:hidden p-3 bg-white/90 dark:bg-zinc-950/90 backdrop-blur-md border-t border-slate-200 dark:border-zinc-800 flex items-center justify-between gap-3 shadow-lg">
+        <div className="fixed bottom-0 left-0 right-0 z-40 lg:hidden p-3 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md border-t border-slate-200 dark:border-zinc-800 flex items-center justify-between gap-3 shadow-lg">
           <div>
-            <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Due</span>
+            <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-slate-500 dark:text-zinc-400">
+              <span>{distinctProductsCount} items</span>
+              <span>•</span>
+              <span className="text-indigo-600 dark:text-indigo-400 font-mono">{totalPiecesQuantity} pcs</span>
+            </div>
             <span className="text-sm font-mono font-bold text-indigo-600 dark:text-indigo-400">
               Rs. {calculatedTotalAmount.toLocaleString('en-LK')}
             </span>

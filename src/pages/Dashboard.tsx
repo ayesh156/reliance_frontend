@@ -70,8 +70,8 @@ export const Dashboard: React.FC = () => {
     fetchMetrics();
   }, [fetchMetrics]);
 
-  // Dynamic Theme Card Container
-  const cardClass = `rounded-2xl border p-5 transition-all duration-200 ${
+  // Dynamic Theme Card Container with density-optimized padding for compact rep screens
+  const cardClass = `rounded-2xl border p-3.5 sm:p-5 transition-all duration-200 ${
     dark 
       ? 'bg-zinc-900/60 border-zinc-800/80 shadow-lg shadow-black/40' 
       : 'bg-white border-slate-200/90 shadow-sm'
@@ -127,8 +127,8 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* 4 Primary KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* 4 Primary KPI Cards: Tablet portrait (~534px) splits into fluid 2-column grid instead of collapsing */}
+      <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {/* Revenue */}
         <div className={cardClass}>
           <div className="flex items-center justify-between">

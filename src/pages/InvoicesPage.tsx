@@ -702,8 +702,8 @@ export const InvoicesPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Metrics Row matching CustomersPage design */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-4 w-full">
+      {/* Metrics Row: Fluid 3 columns on tablet portrait (~534px) instead of single-column stacking */}
+      <div className="grid grid-cols-1 xs:grid-cols-3 gap-2 sm:gap-4 w-full">
         <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
           <div>
             <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Invoices</span>
@@ -779,8 +779,8 @@ export const InvoicesPage: React.FC = () => {
         {/* Collapsible Expansion Tray */}
         {mobileFiltersOpen && (
           <div className="pt-2.5 border-t border-slate-100 dark:border-zinc-800/80 space-y-2.5 animate-in fade-in-0 slide-in-from-top-2 duration-150">
-            {/* Responsive 2-column grid inside collapsible filter tray */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
+            {/* Responsive 2-column grid inside collapsible filter tray on ~534px tablet viewports */}
+            <div className="grid grid-cols-1 xs:grid-cols-2 gap-2 sm:gap-2.5 w-full">
               {/* 1. Customer Filter  */}
               <div className="min-w-0">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
@@ -977,8 +977,8 @@ export const InvoicesPage: React.FC = () => {
 
       {/* Invoices Table & Mobile/Tablet Adaptive Touch Card View */}
       <div className="flex-1 bg-white dark:bg-zinc-900/60 rounded-2xl border border-slate-200 dark:border-zinc-800 overflow-hidden flex flex-col">
-        {/* ── Mobile & Tablet (< 1024px) Responsive Touch-Friendly Card View ── */}
-        <div className="block lg:hidden flex-1 overflow-y-auto p-2 sm:p-4 space-y-2.5 sm:space-y-3">
+        {/* ── Mobile & Tablet (< 1024px) Responsive Touch-Friendly Card View: Fluid 2-column grid on tablets ── */}
+        <div className="block lg:hidden flex-1 overflow-y-auto p-2 sm:p-4">
           {loading ? (
             <div className="py-12 text-center text-slate-400">
               <Loader2 className="size-6 animate-spin mx-auto mb-2 text-emerald-500" />
@@ -990,7 +990,8 @@ export const InvoicesPage: React.FC = () => {
               <span>No invoices found matching current criteria.</span>
             </div>
           ) : (
-            invoices.map((inv) => {
+            <div className="grid grid-cols-1 xs:grid-cols-2 gap-2.5 sm:gap-3">
+              {invoices.map((inv) => {
               const creditDue = Math.max(0, inv.totalAmount - inv.paidAmount);
               const isUnderpaid = creditDue > 0;
               const ageInfo = getInvoiceAgeInfo(inv.createdAt);
@@ -1292,7 +1293,8 @@ export const InvoicesPage: React.FC = () => {
                   </div>
                 </div>
               );
-            })
+            })}
+            </div>
           )}
         </div>
 
@@ -1724,8 +1726,8 @@ export const InvoicesPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Inputs Grid: Convert Amount and Payment Method into a responsive 2-column grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              {/* Inputs Grid: Convert Amount and Payment Method into a responsive 2-column grid on ~534px */}
+              <div className="grid grid-cols-1 xs:grid-cols-2 gap-2.5 sm:gap-3.5">
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
                     Pay Amount (Rs.) *

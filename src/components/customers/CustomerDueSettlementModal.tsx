@@ -562,8 +562,8 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                   </div>
                 </div>
 
-                {/* Inputs Grid: Convert Amount and Payment Method into a responsive 2-column grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                {/* Inputs Grid: Fluid 2-column grid on ~534px tablet viewports */}
+                <div className="grid grid-cols-1 xs:grid-cols-2 gap-2.5 sm:gap-3.5">
                   <div className="space-y-1">
                     <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
                       Amount (Rs.) *
@@ -755,7 +755,8 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                         <span>Settle Payment for Invoice #{bill.invoiceNumber}</span>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 w-full overflow-visible relative z-40">
+                      {/* Fluid Inputs: 2 columns on tablets, 4 on desktop */}
+                      <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-2.5 w-full overflow-visible relative z-40">
                         <div className="w-full space-y-1">
                           <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
                             Paying Amount *

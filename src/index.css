@@ -162,6 +162,26 @@ html[data-scroll-locked] {
   100% { transform: translateX(-100%); }
 }
 
+/* ── Fluid Tablet & Rep Device Layout Utilities (~500px - 600px Viewport) ── */
+@layer utilities {
+  /**
+   * Fluid multi-column wrapper that automatically distributes items across 2 columns
+   * on viewports >= 500px (e.g. Sales Rep 534px tablets) without rigid breakpoints.
+   */
+  .grid-fluid-rep {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  }
+
+  /**
+   * Ultra-compact line-item grid for fast numeric presales and wholesale entry
+   */
+  .grid-fluid-line-item {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  }
+}
+
 /* 80mm POS Receipt Print */
 @media print {
   body * { visibility: hidden; }

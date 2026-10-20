@@ -467,8 +467,8 @@ export const ReturnOrderModal: React.FC<ReturnOrderModalProps> = ({
               </div>
             </div>
 
-            {/* Return Reason Selection */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Return Reason Selection: Fluid 2 columns on ~534px tablet screens */}
+            <div className="grid grid-cols-1 xs:grid-cols-2 gap-2.5 sm:gap-3">
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
                   Return Reason *

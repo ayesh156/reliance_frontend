@@ -5,6 +5,7 @@ import type { ProductItem } from '../../types/product';
 import { formatCurrency, getProductImageUrl, FALLBACK_IMAGE, handleImageError } from '../../lib/utils';
 import { ProductQuickViewModal } from '../../components/storefront/ProductQuickViewModal';
 import { openWhatsAppChat } from '../../utils/whatsapp';
+import { preloadCriticalImageAsset } from '../../utils/imagePreloader';
 import {
   ArrowRight,
   Sparkles,
@@ -39,6 +40,15 @@ export const HomePage: React.FC = () => {
   const [selectedProduct, setSelectedProduct] = useState<ProductItem | null>(null);
   const [vipEmail, setVipEmail] = useState('');
   const [vipSubmitted, setVipSubmitted] = useState(false);
+  // Track hero background bitmap decoding state to eliminate visual flash on client-side SPA navigation
+  const [heroImageLoaded, setHeroImageLoaded] = useState(false);
+
+  useEffect(() => {
+    // Hardware-decode hero background asset off main thread with a 2.5s safety timeout
+    preloadCriticalImageAsset('/images/editorial/hero-denim.jpg', 2500).then(() => {
+      setHeroImageLoaded(true);
+    });
+  }, []);
 
   useEffect(() => {
     const fetchCatalog = async () => {
@@ -99,9 +109,13 @@ export const HomePage: React.FC = () => {
           <img
             src="/images/editorial/hero-denim.jpg"
             alt="Raw Selvedge Denim Editorial Texture"
-            className="w-full h-full object-cover object-center animate-ken-burns opacity-35 dark:opacity-35 filter brightness-105 contrast-110 dark:brightness-80 dark:contrast-125 will-change-transform"
+            onLoad={() => setHeroImageLoaded(true)}
+            className={`w-full h-full object-cover object-center animate-ken-burns filter brightness-105 contrast-110 dark:brightness-80 dark:contrast-125 will-change-transform transition-opacity duration-700 ${
+              heroImageLoaded ? 'opacity-35 dark:opacity-35' : 'opacity-0'
+            }`}
             onError={(e) => {
               e.currentTarget.src = FALLBACK_IMAGE;
+              setHeroImageLoaded(true);
             }}
           />
           {/* Dual Luxury Gradient Vignettes dynamically styled for Alabaster vs Obsidian */}

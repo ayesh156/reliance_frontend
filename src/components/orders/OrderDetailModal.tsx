@@ -189,8 +189,8 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
           </div>
         </DialogHeader>
 
-        {/* Customer Information Card */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 py-3">
+        {/* Customer Information & Order Details: Fluid 2 columns on tablet portrait ~534px */}
+        <div className="grid grid-cols-1 xs:grid-cols-2 gap-3 sm:gap-3.5 py-2.5 sm:py-3">
           <div className="p-3.5 rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 space-y-1.5">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 flex items-center gap-1.5">
               <User className="size-3" /> Customer Information
@@ -377,27 +377,62 @@ export const OrderDetailModal: React.FC<OrderDetailModalProps> = ({
           </div>
         </div>
 
-        {/* Financial Summary */}
-        <div className="flex justify-end pt-2">
-          <div className="w-full sm:w-64 space-y-1.5 p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200 dark:border-zinc-800 text-xs">
-            <div className="flex justify-between text-slate-600 dark:text-zinc-400">
-              <span>Subtotal:</span>
-              <span className="font-mono">Rs. {Number(order.subtotal || 0).toLocaleString('en-LK')}</span>
-            </div>
-            {Number(order.discount) > 0 && (
-              <div className="flex justify-between text-rose-600 dark:text-rose-400 font-medium">
-                <span>Discount:</span>
-                <span className="font-mono">- Rs. {Number(order.discount).toLocaleString('en-LK')}</span>
+        {/* Order Summary & Financials: Metrics Ribbon + Financial Breakdown */}
+        {(() => {
+          const distinctProductsCount = new Set(
+            (order.items || []).map((it: any) => it.productName || it.variant?.productId || it.variantId || it.id)
+          ).size || (order.items?.length || 0);
+
+          const totalPiecesQuantity = (order.items || []).reduce(
+            (sum: number, it: any) => sum + (Number(it.quantity) || 0),
+            0
+          );
+
+          return (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+              {/* Visually Distinct Metrics Card: Total Items / Units & Total Qty */}
+              <div className="p-3 rounded-xl bg-slate-50/80 dark:bg-zinc-900/60 border border-slate-200 dark:border-zinc-800 flex items-center justify-around gap-2 text-center">
+                <div className="space-y-0.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400 block">
+                    Total Items / Units
+                  </span>
+                  <span className="font-mono text-base font-bold text-slate-900 dark:text-white">
+                    {distinctProductsCount} <span className="text-xs font-normal text-slate-500">units</span>
+                  </span>
+                </div>
+                <div className="h-8 w-px bg-slate-200 dark:bg-zinc-800" />
+                <div className="space-y-0.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 block">
+                    Total Qty
+                  </span>
+                  <span className="font-mono text-base font-bold text-indigo-600 dark:text-indigo-400">
+                    {totalPiecesQuantity} <span className="text-xs font-normal text-slate-500">pcs</span>
+                  </span>
+                </div>
               </div>
-            )}
-            <div className="flex justify-between pt-1.5 border-t border-slate-200 dark:border-zinc-800 text-sm font-bold text-slate-900 dark:text-white">
-              <span>Total Amount:</span>
-              <span className="font-mono text-indigo-600 dark:text-indigo-400">
-                Rs. {Number(order.totalAmount || 0).toLocaleString('en-LK')}
-              </span>
+
+              {/* Financial Breakdown Card */}
+              <div className="space-y-1.5 p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200 dark:border-zinc-800 text-xs">
+                <div className="flex justify-between text-slate-600 dark:text-zinc-400">
+                  <span>Subtotal:</span>
+                  <span className="font-mono">Rs. {Number(order.subtotal || 0).toLocaleString('en-LK')}</span>
+                </div>
+                {Number(order.discount) > 0 && (
+                  <div className="flex justify-between text-rose-600 dark:text-rose-400 font-medium">
+                    <span>Discount:</span>
+                    <span className="font-mono">- Rs. {Number(order.discount).toLocaleString('en-LK')}</span>
+                  </div>
+                )}
+                <div className="flex justify-between pt-1.5 border-t border-slate-200 dark:border-zinc-800 text-sm font-bold text-slate-900 dark:text-white">
+                  <span>Total Amount:</span>
+                  <span className="font-mono text-indigo-600 dark:text-indigo-400">
+                    Rs. {Number(order.totalAmount || 0).toLocaleString('en-LK')}
+                  </span>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+          );
+        })()}
 
         {/* Bottom Actions Footer */}
         <div className="pt-3 border-t border-slate-100 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-2">

@@ -61,6 +61,12 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 
+import { openWhatsAppChat, generateCustomerDebtSummaryWhatsAppMessage } from '../utils/whatsapp';
+// Enterprise Customer Itemized Due Settlement Modal
+import { CustomerDueSettlementModal } from '../components/customers/CustomerDueSettlementModal';
+// Universal Customer Bill History Modal
+import { CustomerBillHistoryModal } from '../components/customers/CustomerBillHistoryModal';
+
 /**
  * Filter options for customer account types
  */
@@ -87,11 +93,6 @@ const CUSTOMER_SORT_OPTIONS: SearchableSelectOption[] = [
   { value: 'DEBT_DESC', label: 'Highest Due Debt' },
   { value: 'NAME_ASC', label: 'Name A-Z' },
 ];
-import { openWhatsAppChat, generateCustomerDebtSummaryWhatsAppMessage } from '../utils/whatsapp';
-// Enterprise Customer Itemized Due Settlement Modal
-import { CustomerDueSettlementModal } from '../components/customers/CustomerDueSettlementModal';
-// Universal Customer Bill History Modal
-import { CustomerBillHistoryModal } from '../components/customers/CustomerBillHistoryModal';
 
 interface CustomerItem {
   id: number;
@@ -400,8 +401,8 @@ export const CustomersPage: React.FC = () => {
         </Button>
       </div>
 
-      {/* Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-4">
+      {/* Metrics Row: Fluid 3 columns on tablet portrait (~534px) */}
+      <div className="grid grid-cols-1 xs:grid-cols-3 gap-2 sm:gap-4">
         <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800">
           <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Customers</span>
           <h3 className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{customers.length}</h3>
@@ -463,10 +464,10 @@ export const CustomersPage: React.FC = () => {
           </button>
         </div>
 
-        {/* Collapsible Expansion Tray */}
+        {/* Collapsible Expansion Tray: Fluid 3-column filter row on ~534px tablets */}
         {mobileFiltersOpen && (
           <div className="pt-2.5 border-t border-slate-100 dark:border-zinc-800/80 space-y-2.5 animate-in fade-in-0 slide-in-from-top-2 duration-150">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 w-full">
+            <div className="grid grid-cols-1 xs:grid-cols-3 gap-2 sm:gap-2.5 w-full">
               {/* Account Type Filter */}
               <div className="min-w-0">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
@@ -620,7 +621,8 @@ export const CustomersPage: React.FC = () => {
               No customers found matching the search criteria.
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 w-full">
+            <div className="grid grid-cols-1 xs:grid-cols-2 gap-2.5 sm:gap-3 w-full">
+              {/* Customer Cards: Fluid 2 columns on tablet portrait ~534px to eliminate excessive vertical scrolling */}
               {filteredCustomers.map((cust) => {
                 const hasDebt = Number(cust.outstandingBalance || 0) > 0;
                 return (

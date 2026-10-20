@@ -1658,8 +1658,8 @@ export const ProductionListPage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── KPI Metrics Cards (Summary KPIs: Materials Cut, Garments Finished, Current WIP, Output) ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 w-full">
+      {/* ── KPI Metrics Cards: Fluid 2-column grid on tablet portrait (~534px) instead of vertical stacking ── */}
+      <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 w-full">
         {/* Metric 1: Total Materials Cut (Today/Week) */}
         <div className="rounded-2xl border p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex flex-col justify-between min-h-[125px]">
           <div className="flex justify-between items-start">

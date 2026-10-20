@@ -348,10 +348,16 @@ export const OrdersPage: React.FC = () => {
   };
 
   /**
-   * Navigate to Order Create page in Edit Mode with existing order data
+   * Direct Order Edit Navigation:
+   * Prevents click bubbling to parent row/card preview handlers and immediately
+   * routes the user to the Order Edit page with query parameter `editOrderId`.
+   *
+   * @param e Mouse click event from the Order Ref button
+   * @param order Presales order object containing the unique identifier
    */
   const handleEditOrder = (e: React.MouseEvent, order: any) => {
     e.stopPropagation();
+    e.preventDefault();
     navigate(`/system/orders/new?editOrderId=${order.id}`);
   };
 
@@ -529,8 +535,8 @@ export const OrdersPage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── 2. Summary KPI Cards Grid (3 Columns Matching InvoicesPage Architecture) ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-4 w-full">
+      {/* ── 2. Summary KPI Cards Grid (Fluid 3 Columns on Tablet Portrait ~534px) ── */}
+      <div className="grid grid-cols-1 xs:grid-cols-3 gap-2 sm:gap-4 w-full">
         {/* Card 1: Total Presales Orders */}
         <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
           <div>
@@ -611,10 +617,10 @@ export const OrdersPage: React.FC = () => {
           </button>
         </div>
 
-        {/* Collapsible Expansion Tray */}
+        {/* Collapsible Expansion Tray: Fluid 2-column filter grid on tablets */}
         {mobileFiltersOpen && (
           <div className="pt-2.5 border-t border-slate-100 dark:border-zinc-800/80 space-y-2.5 animate-in fade-in-0 slide-in-from-top-2 duration-150">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
+            <div className="grid grid-cols-1 xs:grid-cols-2 gap-2 sm:gap-2.5 w-full">
               {/* 1. Status Filter */}
               <div className="min-w-0">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
@@ -810,7 +816,8 @@ export const OrdersPage: React.FC = () => {
             <span>No orders found matching your current filters.</span>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+          <div className="grid grid-cols-1 xs:grid-cols-2 gap-2.5 sm:gap-3.5">
+            {/* Order Cards: Fluid 2 columns on tablet portrait ~534px to eliminate excessive vertical scroll fatigue */}
             {orders.map((order) => {
               const statusClass =
                 statusColors[order.status] ||
@@ -823,7 +830,7 @@ export const OrdersPage: React.FC = () => {
                     setSelectedOrder(order);
                     setIsDetailModalOpen(true);
                   }}
-                  className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/70 p-4 shadow-xs space-y-3 cursor-pointer hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md transition-all active:scale-[0.99] flex flex-col justify-between"
+                  className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/70 p-3 sm:p-4 shadow-xs space-y-2.5 sm:space-y-3 cursor-pointer hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md transition-all active:scale-[0.99] flex flex-col justify-between"
                 >
                   {/* Card Header: Clickable Order Ref, Role Badge, Date, Status & Action Menu */}
                   <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-zinc-800">
@@ -834,9 +841,11 @@ export const OrdersPage: React.FC = () => {
                           type="button"
                           onClick={(e) => handleEditOrder(e, order)}
                           className="font-mono text-xs font-bold text-slate-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer text-left transition-colors"
-                          title="Click to edit order"
+                          title={`Click to edit order #${order.orderNumber ? String(order.orderNumber).replace(/^#/, '') : `ORD-${order.id}`}`}
                         >
-                          {order.orderNumber || `ORD-${order.id}`}
+                          {order.orderNumber
+                            ? (String(order.orderNumber).startsWith('#') ? order.orderNumber : `#${order.orderNumber}`)
+                            : `#ORD-${order.id}`}
                         </button>
                         {getRoleBadge(order.user?.role)}
                       </div>
@@ -949,9 +958,11 @@ export const OrdersPage: React.FC = () => {
                             type="button"
                             onClick={(e) => handleEditOrder(e, order)}
                             className="font-mono font-bold text-slate-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer text-left transition-colors"
-                            title="Click to edit order"
+                            title={`Click to edit order #${order.orderNumber ? String(order.orderNumber).replace(/^#/, '') : `ORD-${order.id}`}`}
                           >
-                            {order.orderNumber || `ORD-${order.id}`}
+                            {order.orderNumber
+                              ? (String(order.orderNumber).startsWith('#') ? order.orderNumber : `#${order.orderNumber}`)
+                              : `#ORD-${order.id}`}
                           </button>
                           {getRoleBadge(order.user?.role)}
                         </div>

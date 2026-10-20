@@ -5,6 +5,11 @@ export default {
   theme: {
     container: { center: true, padding: "2rem", screens: { "2xl": "1400px" } },
     extend: {
+      screens: {
+        // Fluid breakpoint tailored for field sales rep tablets & compact viewports (~500px - 639px)
+        // Prevents premature single-column collapse below Tailwind default sm (640px)
+        xs: '500px',
+      },
       fontFamily: {
         sans: ["Inter", "system-ui", "sans-serif"],
         display: ["'Playfair Display'", "Georgia", "serif"],

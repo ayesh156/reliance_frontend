@@ -498,8 +498,8 @@ export const ProductFormPage: React.FC = () => {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6 w-full pb-16">
-      {/* Top Bar Navigation */}
+    <form onSubmit={handleSubmit} className="space-y-6 w-full pb-24 lg:pb-12">
+      {/* Top Bar Navigation: Title & Back Navigation Only (Actions relocated to footer) */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <Button
@@ -510,7 +510,8 @@ export const ProductFormPage: React.FC = () => {
               const returnUrl = new URLSearchParams(window.location.search).get('returnUrl');
               navigate(returnUrl || '/system/products');
             }}
-            className="h-9 w-9 rounded-xl"
+            className="h-9 w-9 rounded-xl cursor-pointer"
+            title="Return to products catalog"
           >
             <ArrowLeft className="size-4" />
           </Button>
@@ -523,35 +524,19 @@ export const ProductFormPage: React.FC = () => {
             </p>
           </div>
         </div>
-
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              const returnUrl = new URLSearchParams(window.location.search).get('returnUrl');
-              navigate(returnUrl || '/system/products');
-            }}
-          >
-            Cancel
-          </Button>
-          <Button type="submit" disabled={saving} className="gap-2">
-            {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-            {saving ? 'Saving...' : isEdit ? 'Save Changes' : 'Publish Product'}
-          </Button>
-        </div>
       </div>
 
       {/* Main Tabs Container */}
       <div className="space-y-6">
         {/* Section 1: General Info */}
-        <div className="rounded-2xl border p-6 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 space-y-4 shadow-sm">
+        <div className="rounded-2xl border p-4 sm:p-6 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 space-y-3.5 sm:space-y-4 shadow-sm">
           <div className="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-zinc-800">
             <Package className="size-4 text-emerald-500" />
             <h3 className="text-sm font-bold">General Information</h3>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="sm:col-span-2 space-y-1.5">
+          {/* Fluid Form Grid: Product Title spans full, Category & Search tags sit side-by-side on ~534px tablet viewports */}
+          <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+            <div className="xs:col-span-2 lg:col-span-2 space-y-1.5">
               <label className="block text-xs font-semibold">Product Title *</label>
               <Input
                 required
@@ -581,7 +566,7 @@ export const ProductFormPage: React.FC = () => {
               />
             </div>
 
-            <div className="sm:col-span-2 space-y-1.5">
+            <div className="xs:col-span-2 lg:col-span-2 space-y-1.5">
               <label className="block text-xs font-semibold">Description</label>
               <Input
                 value={description}
@@ -876,7 +861,59 @@ export const ProductFormPage: React.FC = () => {
             dark={dark}
           />
         </div>
+      </div>
 
+      {/**
+       * Mobile & Tablet Sticky Action Bar (< 1024px)
+       * Placed inside a fixed bottom drawer for instant thumb access on handheld devices.
+       * Bottom padding on the parent form (pb-24 lg:pb-8) prevents content overlap.
+       */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 p-3 bg-white dark:bg-zinc-900 border-t border-slate-200 dark:border-zinc-800 shadow-md z-50 flex justify-end gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            const returnUrl = new URLSearchParams(window.location.search).get('returnUrl');
+            navigate(returnUrl || '/system/products');
+          }}
+          className="cursor-pointer"
+        >
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          disabled={saving}
+          className="gap-2 cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+        >
+          {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+          {saving ? 'Saving...' : isEdit ? 'Save Changes' : 'Publish Product'}
+        </Button>
+      </div>
+
+      {/**
+       * Desktop Form Action Footer (>= 1024px)
+       * Flows naturally at the end of the form wrapper without sticky fixed positioning.
+       */}
+      <div className="hidden lg:flex items-center justify-end gap-2 pt-6 border-t border-slate-200 dark:border-zinc-800">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            const returnUrl = new URLSearchParams(window.location.search).get('returnUrl');
+            navigate(returnUrl || '/system/products');
+          }}
+          className="cursor-pointer"
+        >
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          disabled={saving}
+          className="gap-2 cursor-pointer bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+        >
+          {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+          {saving ? 'Saving...' : isEdit ? 'Save Changes' : 'Publish Product'}
+        </Button>
       </div>
 
       {/* Full Media Gallery Modal: Hardened 2-Layer Responsive Architecture (Zero Vertical Squashing) */}

@@ -120,6 +120,8 @@ if (typeof window !== 'undefined') {
   setTimeout(() => {
     const splash = document.getElementById('pwa-splash-screen');
     if (splash && !splash.classList.contains('pointer-events-none')) {
+      splash.classList.add('pointer-events-none');
+      splash.style.transition = 'opacity 500ms cubic-bezier(0.4, 0, 0.2, 1)';
       splash.style.opacity = '0';
       splash.style.pointerEvents = 'none';
       setTimeout(() => splash.remove(), 550);

@@ -197,7 +197,8 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
   };
 
   return (
-    <div className={cn('grid grid-cols-1 sm:grid-cols-2 gap-2 w-full relative z-30 overflow-visible', className)}>
+    <div className={cn('grid grid-cols-1 xs:grid-cols-2 gap-2 w-full relative z-30 overflow-visible', className)}>
+      {/* Fluid 2-column layout for Date and Time controls on ~534px tablet viewports */}
       {/* Date Picker with elevated z-index so popover calendar renders cleanly in front */}
       <div className="w-full relative z-50 overflow-visible">
         <DatePicker

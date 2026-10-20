@@ -55,17 +55,20 @@ export const ProductVariantCombobox: React.FC<ProductVariantComboboxProps> = ({
 
   const handleOpen = () => {
     if (disabled) return;
-    if (buttonRef.current) {
+    if (!open && buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
       const spaceBelow = window.innerHeight - rect.bottom;
       const dropdownHeight = 280;
-
       const top = spaceBelow < dropdownHeight ? rect.top - dropdownHeight - 6 : rect.bottom + 4;
+      
+      // Calculate viewport-safe width and clamp within screen edges for ~500px tablet displays
+      const dropdownWidth = Math.min(window.innerWidth - 16, Math.max(rect.width, 280));
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - dropdownWidth - 8));
 
       setCoords({
         top: top + window.scrollY,
-        left: rect.left + window.scrollX,
-        width: Math.max(rect.width, 320),
+        left: left + window.scrollX,
+        width: dropdownWidth,
       });
     }
     setOpen(!open);

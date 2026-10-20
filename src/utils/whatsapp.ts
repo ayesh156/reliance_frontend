@@ -434,7 +434,60 @@ export const generateSupplierCreditSummaryWhatsAppMessage = (
 };
 
 /**
- * 5. Build Formatted Presales Order Summary for Customer WhatsApp Dispatch
+ * Safely extracts human-readable user notes from an order notes payload.
+ * Handles both plain strings and JSON objects/serialized strings containing system metadata
+ * (e.g. `{"userNotes":"...","discountType":"PERCENT"...}`), strictly preventing raw JSON
+ * structures from leaking into client-facing WhatsApp receipts.
+ *
+ * @param notesRaw Raw order notes string or metadata object
+ * @returns Sanitized plaintext user notes, or an empty string if absent/empty
+ */
+export const extractCleanUserNotes = (notesRaw?: any): string => {
+  if (!notesRaw) return '';
+
+  // Handle parsed object payload
+  if (typeof notesRaw === 'object' && notesRaw !== null) {
+    return typeof notesRaw.userNotes === 'string' ? notesRaw.userNotes.trim() : '';
+  }
+
+  const trimmed = String(notesRaw).trim();
+  if (!trimmed) return '';
+
+  // Check for serialized JSON string payload
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === 'object') {
+        if (typeof parsed.userNotes === 'string') {
+          return parsed.userNotes.trim();
+        }
+        // Metadata object without user notes (e.g., only discount settings)
+        return '';
+      }
+    } catch {
+      // If parsing fails but looks like serialized JSON containing userNotes or discountType, suppress it
+      if (trimmed.includes('"userNotes"') || trimmed.includes('"discountType"')) {
+        return '';
+      }
+      return trimmed;
+    }
+  }
+
+  // Fallback check against raw JSON text artifacts
+  if (trimmed.startsWith('{"') || (trimmed.includes('{"userNotes"') && trimmed.includes('}'))) {
+    return '';
+  }
+
+  return trimmed;
+};
+
+/**
+ * 5. Build Formatted Presales Order Summary for Customer WhatsApp Dispatch.
+ * Safely parses serialized order notes to extract only plaintext user instructions,
+ * preventing JSON metadata leak, and conditionally displays discount breakdowns.
+ *
+ * @param order Presales order object containing items, customer info, and financials
+ * @returns Clean, formatted WhatsApp message string
  */
 export const generateSalesOrderWhatsAppMessage = (order: any): string => {
   const createdDate = order.createdAt ? new Date(order.createdAt) : new Date();
@@ -487,14 +540,19 @@ export const generateSalesOrderWhatsAppMessage = (order: any): string => {
   text += `*BOOKED ORDER ITEMS:*\n${itemsList || '- No items recorded -'}\n\n`;
   text += `-------------------------------------------\n`;
 
+  // Conditionally render Subtotal and Discount ONLY if an applied discount exists and is > 0
   if (discount > 0) {
-    text += `*Subtotal:* Rs. ${subtotal.toLocaleString('en-LK')}\n`;
+    if (subtotal > 0) {
+      text += `*Subtotal:* Rs. ${subtotal.toLocaleString('en-LK')}\n`;
+    }
     text += `*Discount:* - Rs. ${discount.toLocaleString('en-LK')}\n`;
   }
   text += `*Total Order Value:* *Rs. ${total.toLocaleString('en-LK')}*\n`;
 
-  if (order.notes) {
-    text += `*Notes:* ${order.notes}\n`;
+  // Safely extract and render user-entered notes only; suppresses raw JSON metadata
+  const userNotes = extractCleanUserNotes(order.notes);
+  if (userNotes) {
+    text += `*Notes:* ${userNotes}\n`;
   }
 
   text += `-------------------------------------------\n`;
