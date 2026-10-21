@@ -129,6 +129,12 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   );
 };
 
+export { ThemeContext };
+
+export const useSafeTheme = (): ThemeContextType | undefined => {
+  return useContext(ThemeContext);
+};
+
 export const useTheme = (): ThemeContextType => {
   const ctx = useContext(ThemeContext);
   if (!ctx) {
@@ -136,3 +142,4 @@ export const useTheme = (): ThemeContextType => {
   }
   return ctx;
 };
+

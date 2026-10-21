@@ -45,6 +45,10 @@ import { DateTimePicker } from '../components/ui/date-time-picker';
 import { get, post, put, del } from '../lib/api';
 import { getProductImageUrl } from '../lib/utils';
 import { toast } from 'react-toastify';
+import ProductionBatchModal from '../components/production/ProductionBatchModal';
+import ProductionBatchEditModal from '../components/production/ProductionBatchEditModal';
+import ProductionBatchDetailModal from '../components/production/ProductionBatchDetailModal';
+import { BatchStatusBadge } from '../components/production/BatchStatusBadge';
 import {
   Factory,
   Plus,
@@ -123,15 +127,25 @@ export interface GarmentFinishLog {
   syncedAt?: string | null;
 }
 
+export interface TargetProductItem {
+  productId: number;
+  productName?: string;
+  sku?: string;
+  barcode?: string;
+  plannedQty: number;
+}
+
 interface ProductionMaterialUsage {
   id: number;
   productionOrderId: number;
   rawMaterialId: number;
+  piecesCount?: number | null;
   issuedQty: number;
   returnedQty: number;
   netConsumedQty: number;
   unitCost: number;
   returnReason?: string | null;
+  targetProducts?: TargetProductItem[] | null;
   rawMaterial: {
     id: number;
     name: string;
@@ -156,6 +170,7 @@ interface ProductionOrder {
   notes?: string | null;
   productionDate: string;
   createdAt: string;
+  targetProducts?: TargetProductItem[] | null;
   product: {
     id: number;
     name: string;
@@ -172,7 +187,20 @@ interface ProductionOrder {
   materialUsages: ProductionMaterialUsage[];
   cutLogs?: MaterialCutLog[];
   finishLogs?: GarmentFinishLog[];
+  activityLogs?: BatchActivityLogItem[];
   scrapReturns?: any[];
+}
+
+export interface BatchActivityLogItem {
+  id: number;
+  stage: string;
+  action: string;
+  notes?: string | null;
+  timestamp: string;
+  userId?: number | null;
+  userName?: string | null;
+  quantity: number;
+  createdAt: string;
 }
 
 interface ProductionSummaryResponse {
@@ -314,24 +342,100 @@ function getBatchLatestTimestamp(order: ProductionOrder): string {
  * 4. Confirmed & Added to Product Inventory (Emerald)
  * Alongside exact date, time, and user role who logged it.
  */
-export const BatchActivityTimeline: React.FC<{ order: ProductionOrder }> = ({ order }) => {
+export const BatchActivityTimeline: React.FC<{
+  order: ProductionOrder | any;
+  onOrderUpdate?: (updatedOrder: any) => void;
+  onRefresh?: () => void;
+  onEditBatch?: (order: any) => void;
+}> = ({ order, onOrderUpdate, onRefresh, onEditBatch }) => {
+
   const events = useMemo(() => {
     const list: Array<{
       id: string;
-      type: 'cut' | 'scrap' | 'finish' | 'sync';
+      type: 'cut' | 'scrap' | 'finish' | 'sync' | 'cancel';
       timestamp: Date;
       title: string;
       subtitle: string;
       badgeText: string;
       role: string;
+      cutLogId?: number;
+      rawCutLog?: any;
     }> = [];
 
-    // 1. Initial & Additional Material Cuts
-    (order.cutLogs || []).forEach((c) => {
+    // 0. Stage Activity Logs
+    (order.activityLogs || []).forEach((act: any) => {
+      const dt = new Date(act.timestamp || act.createdAt);
+      if (act.stage === 'CANCELLED' || act.action === 'BATCH_CANCELLED') {
+        list.push({
+          id: `activity-cancel-${act.id}`,
+          type: 'cancel',
+          timestamp: dt,
+          title: `Batch Cancelled: Raw Materials Refunded to Stock`,
+          subtitle: act.notes || 'Batch cancelled and raw material allocations restored to warehouse',
+          badgeText: 'Batch Cancelled',
+          role: act.userName || 'Admin',
+        });
+        return;
+      }
+      if (act.action === 'FINALIZED') {
+        list.push({
+          id: `activity-final-${act.id}`,
+          type: 'sync',
+          timestamp: dt,
+          title: `Finalized Products: +${act.quantity} Pcs Pushed to Active Stock`,
+          subtitle: act.notes || 'Finalized finished products pushed to active sellable inventory',
+          badgeText: 'Finalized Output',
+          role: act.userName || 'Inventory Admin',
+        });
+        return;
+      }
+      if (act.action === 'RETURNED') {
+        list.push({
+          id: `activity-ret-${act.id}`,
+          type: 'scrap',
+          timestamp: dt,
+          title: `Unused Material Returned: +${act.quantity} Units`,
+          subtitle: act.notes || 'Material stock reversal recorded',
+          badgeText: 'Material Returned',
+          role: act.userName || 'Warehouse',
+        });
+        return;
+      }
+      if (act.action === 'EDIT_CUT') {
+        list.push({
+          id: `activity-editcut-${act.id}`,
+          type: 'cut',
+          timestamp: dt,
+          title: `Cut Adjusted: ${act.quantity} Units`,
+          subtitle: act.notes || 'Cutting log record updated',
+          badgeText: 'Cut Adjusted',
+          role: act.userName || 'Cutting Master',
+        });
+        return;
+      }
+
+      const isInitialCut = act.action === 'INITIAL_CUT' || (act.stage === 'CUTTING' && act.action === 'INITIAL_CUT');
+      list.push({
+        id: `activity-${act.id}`,
+        type: act.stage === 'CUTTING' ? 'cut' : act.stage === 'FINISHING' ? 'finish' : 'cut',
+        timestamp: dt,
+        title: isInitialCut
+          ? `Initial Cutting Batch Initiated: ${act.quantity} Pcs Planned`
+          : `${act.stage} - ${act.action}: ${act.quantity} Units`,
+        subtitle: act.notes || 'Initial raw fabric cutting batch initiated',
+        badgeText: isInitialCut ? 'Initial Cut Initiated' : act.stage,
+        role: act.userName || 'Cutting Master',
+      });
+    });
+
+    // 1. Initial & Additional Material Cuts (Multi-Cut logging supported)
+    (order.cutLogs || []).forEach((c: any) => {
       const dt = new Date(c.cutDate);
       list.push({
         id: `cut-${c.id}`,
         type: 'cut',
+        cutLogId: c.id,
+        rawCutLog: c,
         timestamp: dt,
         title: `Material Cut: ${c.quantityCut} ${c.rawMaterial?.unit || 'Units'}`,
         subtitle: c.rawMaterial ? `${c.rawMaterial.name} (${c.rawMaterial.code || 'RM'})` : 'Raw Material',
@@ -360,8 +464,8 @@ export const BatchActivityTimeline: React.FC<{ order: ProductionOrder }> = ({ or
     } else {
       // Fallback from materialUsages
       (order.materialUsages || [])
-        .filter((u) => u.returnedQty > 0)
-        .forEach((u) => {
+        .filter((u: any) => u.returnedQty > 0)
+        .forEach((u: any) => {
           list.push({
             id: `usage-ret-${u.id}`,
             type: 'scrap',
@@ -375,7 +479,7 @@ export const BatchActivityTimeline: React.FC<{ order: ProductionOrder }> = ({ or
     }
 
     // 3. Garments Finished
-    (order.finishLogs || []).forEach((f) => {
+    (order.finishLogs || []).forEach((f: any) => {
       const dt = new Date(f.finishDate);
       list.push({
         id: `finish-${f.id}`,
@@ -410,9 +514,35 @@ export const BatchActivityTimeline: React.FC<{ order: ProductionOrder }> = ({ or
         type: 'sync',
         timestamp: new Date(order.stockSyncedAt),
         title: `Inventory Synced: +${order.completedQty} Pcs Added to Active Stock`,
-        subtitle: `Storefront & POS sellable inventory updated for ${order.product.name}`,
+        subtitle: `Storefront & POS sellable inventory updated for ${order.product?.name || 'Garments'}`,
         badgeText: 'Confirmed In Stock',
         role: order.stockSyncedByRole || 'Inventory Admin',
+      });
+    }
+
+    // 5. Batch Cancelled fallback
+    if (order.status === 'CANCELLED' && !order.activityLogs?.some((a: any) => a.stage === 'CANCELLED' || a.action === 'BATCH_CANCELLED')) {
+      list.push({
+        id: `cancel-${order.id}`,
+        type: 'cancel',
+        timestamp: new Date(order.updatedAt || order.productionDate),
+        title: `Batch Cancelled: Raw Materials Refunded to Stock`,
+        subtitle: order.notes ? `Cancellation recorded (${order.notes})` : 'Batch cancelled and raw material allocations restored to warehouse',
+        badgeText: 'Batch Cancelled',
+        role: 'Admin',
+      });
+    }
+
+    // Fallback for active cutting batch without explicit activity log
+    if (list.length === 0 && (order.status === 'CUTTING' || (order.materialUsages && order.materialUsages.length > 0))) {
+      list.push({
+        id: `init-cut-${order.id}`,
+        type: 'cut',
+        timestamp: new Date(order.productionDate || order.createdAt),
+        title: `Initial Cutting Batch Initiated: ${order.targetQuantity || 0} Pcs Planned`,
+        subtitle: order.notes || 'Initial raw fabric cutting batch initiated',
+        badgeText: 'Initial Cut Initiated',
+        role: 'Cutting Master',
       });
     }
 
@@ -432,65 +562,90 @@ export const BatchActivityTimeline: React.FC<{ order: ProductionOrder }> = ({ or
   }
 
   return (
-    <div className="relative pl-6 border-l-2 border-slate-200 dark:border-zinc-800 space-y-3.5 my-2">
-      {events.map((ev) => {
-        let nodeBg = 'bg-indigo-600 ring-indigo-50 dark:ring-indigo-950/50';
-        let badgeStyle = 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800';
-        let IconComponent = Scissors;
+    <>
+      <div className="relative pl-6 border-l-2 border-slate-200 dark:border-zinc-800 space-y-3.5 my-2">
+        {events.map((ev) => {
+          let nodeBg = 'bg-indigo-600 ring-indigo-50 dark:ring-indigo-950/50';
+          let badgeStyle = 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800';
+          let IconComponent = Scissors;
 
-        if (ev.type === 'scrap') {
-          nodeBg = 'bg-teal-600 ring-teal-50 dark:ring-teal-950/50';
-          badgeStyle = 'bg-teal-50 text-teal-700 dark:bg-teal-950/50 dark:text-teal-300 border-teal-200 dark:border-teal-800';
-          IconComponent = RotateCcw;
-        } else if (ev.type === 'finish') {
-          nodeBg = 'bg-purple-600 ring-purple-50 dark:ring-purple-950/50';
-          badgeStyle = 'bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300 border-purple-200 dark:border-purple-800';
-          IconComponent = Shirt;
-        } else if (ev.type === 'sync') {
-          nodeBg = 'bg-emerald-600 ring-emerald-50 dark:ring-emerald-950/50';
-          badgeStyle = 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
-          IconComponent = Package;
-        }
+          if (ev.type === 'cancel') {
+            nodeBg = 'bg-rose-600 ring-rose-50 dark:ring-rose-950/50';
+            badgeStyle = 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300 border-rose-200 dark:border-rose-800';
+            IconComponent = Ban;
+          } else if (ev.type === 'scrap') {
+            nodeBg = 'bg-teal-600 ring-teal-50 dark:ring-teal-950/50';
+            badgeStyle = 'bg-teal-50 text-teal-700 dark:bg-teal-950/50 dark:text-teal-300 border-teal-200 dark:border-teal-800';
+            IconComponent = RotateCcw;
+          } else if (ev.type === 'finish') {
+            nodeBg = 'bg-purple-600 ring-purple-50 dark:ring-purple-950/50';
+            badgeStyle = 'bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300 border-purple-200 dark:border-purple-800';
+            IconComponent = Shirt;
+          } else if (ev.type === 'sync') {
+            nodeBg = 'bg-emerald-600 ring-emerald-50 dark:ring-emerald-950/50';
+            badgeStyle = 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
+            IconComponent = Package;
+          }
 
-        return (
-          <div key={ev.id} className="relative group">
-            {/* Timeline Pulsing Node */}
-            <div
-              className={`absolute -left-[31px] top-1 size-5 rounded-full border-2 border-white dark:border-zinc-950 flex items-center justify-center text-white shadow-xs ${nodeBg} ring-4`}
-            >
-              <IconComponent className="w-2.5 h-2.5" />
-            </div>
+          return (
+            <div key={ev.id} className="relative group">
+              {/* Timeline Pulsing Node */}
+              <div
+                className={`absolute -left-[31px] top-1 size-5 rounded-full border-2 border-white dark:border-zinc-950 flex items-center justify-center text-white shadow-xs ${nodeBg} ring-4`}
+              >
+                <IconComponent className="w-2.5 h-2.5" />
+              </div>
 
-            <div className="bg-white dark:bg-zinc-900/90 p-3 rounded-xl border border-slate-200/80 dark:border-zinc-800 shadow-2xs hover:border-slate-300 dark:hover:border-zinc-700 transition-colors">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <Badge
-                    variant="outline"
-                    className={`text-[10px] py-0 px-2 font-semibold ${badgeStyle}`}
-                  >
-                    {ev.badgeText}
-                  </Badge>
-                  <span className="text-xs font-bold text-slate-900 dark:text-zinc-100 font-mono">
-                    {ev.title}
+              <div className="bg-white dark:bg-zinc-900/90 p-3 rounded-xl border border-slate-200/80 dark:border-zinc-800 shadow-2xs hover:border-slate-300 dark:hover:border-zinc-700 transition-colors">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      variant="outline"
+                      className={`text-[10px] py-0 px-2 font-semibold ${badgeStyle}`}
+                    >
+                      {ev.badgeText}
+                    </Badge>
+                    <span className="text-xs font-bold text-slate-900 dark:text-zinc-100 font-mono">
+                      {ev.title}
+                    </span>
+                  </div>
+                    {/* Edit icon button on each Fabric Cutting card routing to full edit modal */}
+                    {ev.type === 'cut' && order.status !== 'CANCELLED' && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onEditBatch) {
+                            onEditBatch(order);
+                          }
+                        }}
+                        className="h-6 px-1.5 text-[11px] rounded-md hover:bg-amber-100 dark:hover:bg-amber-950/60 text-amber-700 dark:text-amber-400 flex items-center gap-1 cursor-pointer font-medium"
+                        title="Edit fabric cuts in full multi-row batch modal"
+                      >
+                        <Pencil className="w-3 h-3" />
+                        <span>Edit</span>
+                      </Button>
+                    )}
+                    <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-mono">
+                      <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
+                      <span>{formatDateTimeAmPm(ev.timestamp)}</span>
+                    </div>
+                  </div>
+
+                <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-zinc-400 mt-2 pt-1.5 border-t border-slate-100 dark:border-zinc-800/60">
+                  <span>{ev.subtitle}</span>
+                  <span className="bg-slate-100 dark:bg-zinc-800/80 px-2 py-0.5 rounded text-[10px] font-mono font-medium text-slate-700 dark:text-zinc-300 border border-slate-200/50 dark:border-zinc-700/50">
+                    Logged by: <strong>{ev.role}</strong>
                   </span>
                 </div>
-                <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-mono">
-                  <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
-                  <span>{formatDateTimeAmPm(ev.timestamp)}</span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-zinc-400 mt-2 pt-1.5 border-t border-slate-100 dark:border-zinc-800/60">
-                <span>{ev.subtitle}</span>
-                <span className="bg-slate-100 dark:bg-zinc-800/80 px-2 py-0.5 rounded text-[10px] font-mono font-medium text-slate-700 dark:text-zinc-300 border border-slate-200/50 dark:border-zinc-700/50">
-                  Logged by: <strong>{ev.role}</strong>
-                </span>
               </div>
             </div>
-          </div>
-        );
-      })}
-    </div>
+          );
+        })}
+      </div>
+    </>
   );
 };
 
@@ -578,32 +733,16 @@ export const ProductionListPage: React.FC = () => {
   // Stage 1: Unified Start / Edit Production Batch Modal State
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   const [isCutBatchModalOpen, setIsCutBatchModalOpen] = useState(false);
-  const [cutBatchProductId, setCutBatchProductId] = useState<string>('');
-  const [cutBatchVariantId, setCutBatchVariantId] = useState<string>('');
-  const [cutBatchTargetQty, setCutBatchTargetQty] = useState<number | ''>('');
-  const [cutBatchDateTime, setCutBatchDateTime] = useState<string>('');
-  const [cutBatchReason, setCutBatchReason] = useState<string>('Regular Bulk');
-  const [cutBatchNotes, setCutBatchNotes] = useState<string>('');
-  const [cutBatchMaterials, setCutBatchMaterials] = useState<Array<{ rawMaterialId: string; issuedQty: number | '' }>>([
-    { rawMaterialId: '', issuedQty: '' },
-  ]);
-  const [isSubmittingCutBatch, setIsSubmittingCutBatch] = useState(false);
+  const [isEditBatchModalOpen, setIsEditBatchModalOpen] = useState(false);
 
   // Stage 3: Dedicated Inventory Stock Sync Confirmation State
   const [orderToSyncStock, setOrderToSyncStock] = useState<ProductionOrder | null>(null);
   const [isSyncingStock, setIsSyncingStock] = useState(false);
 
-  // Asynchronous Production Progress Logging Dialog (Separate Cutting vs Finishing)
+  // Asynchronous Production Progress Logging Dialog (Finishing)
   const [isActionModalOpen, setIsActionModalOpen] = useState(false);
-  const [actionTab, setActionTab] = useState<'cut' | 'finish'>('cut');
+  const [actionTab, setActionTab] = useState<'cut' | 'finish'>('finish');
   const [isSubmittingProgress, setIsSubmittingProgress] = useState(false);
-
-  // Cut form state
-  const [cutRawMaterialId, setCutRawMaterialId] = useState<string>('');
-  const [cutQuantity, setCutQuantity] = useState<number | ''>('');
-  const [cutDateTime, setCutDateTime] = useState<string>('');
-  const [cutLoggedRole, setCutLoggedRole] = useState<string>('Cutting Master');
-  const [cutDeductStock, setCutDeductStock] = useState<boolean>(true);
 
   // Finish form state (defaults finishIncrementStock strictly to false)
   const [finishQuantity, setFinishQuantity] = useState<number | ''>('');
@@ -742,21 +881,6 @@ export const ProductionListPage: React.FC = () => {
     });
   }, [productsList]);
 
-  // Variant Options for Cut Batch Modal
-  const variantSelectOptions: SearchableSelectOption[] = useMemo(() => {
-    if (!cutBatchProductId) return [];
-    const prod = productsList.find((p) => p.id === Number(cutBatchProductId));
-    if (!prod || !prod.variants || prod.variants.length === 0) return [];
-    return [
-      { value: '', label: 'Default / No Variant' },
-      ...prod.variants.map((v) => ({
-        value: String(v.id),
-        label: [v.size && `Size ${v.size}`, v.color && `Color ${v.color}`, v.sku && `SKU: ${v.sku}`]
-          .filter(Boolean)
-          .join(' • ') + ` (In Stock: ${v.stock})`,
-      })),
-    ];
-  }, [cutBatchProductId, productsList]);
 
   // Variant Options for Record Finished Product Modal (Finishing-First)
   const recordFinishedVariantOptions: SearchableSelectOption[] = useMemo(() => {
@@ -801,35 +925,7 @@ export const ProductionListPage: React.FC = () => {
     }));
   }, [rawMaterialsList]);
 
-  // Allocated material options for the "Log Material Cut" tab (Combines allocated lines with all warehouse raw materials)
-  const allocatedMaterialSelectOptions: SearchableSelectOption[] = useMemo(() => {
-    const list: SearchableSelectOption[] = [];
-    if (selectedOrder && selectedOrder.materialUsages && selectedOrder.materialUsages.length > 0) {
-      selectedOrder.materialUsages.forEach((usage) => {
-        const totalAlreadyCut = (selectedOrder.cutLogs || [])
-          .filter((c) => c.rawMaterialId === usage.rawMaterialId)
-          .reduce((sum, c) => sum + Number(c.quantityCut || 0), 0);
-        const uncutLeft = Math.max(0, usage.issuedQty - totalAlreadyCut - usage.returnedQty);
-        list.push({
-          value: String(usage.rawMaterialId),
-          label: `${usage.rawMaterial.name} [Allocated: ${usage.issuedQty} ${usage.rawMaterial.unit} · Uncut: ${uncutLeft} ${usage.rawMaterial.unit}]`,
-        });
-      });
-    }
 
-    // Also include warehouse raw materials that are not yet allocated
-    rawMaterialsList.forEach((rm) => {
-      const alreadyIncluded = list.some((item) => item.value === String(rm.id));
-      if (!alreadyIncluded) {
-        list.push({
-          value: String(rm.id),
-          label: `${rm.name} (${rm.code || 'RM'}) — Warehouse Stock: ${rm.currentStock ?? 0} ${rm.unit}`,
-        });
-      }
-    });
-
-    return list;
-  }, [selectedOrder, rawMaterialsList]);
 
 
   // Client-side search and status filtering and sorting on records
@@ -993,121 +1089,20 @@ export const ProductionListPage: React.FC = () => {
     };
   }, [filteredRecords, summaryData?.metrics]);
 
-  // Open stage action modal (Cut vs Finish)
-  const handleOpenActionModal = (order: ProductionOrder, defaultTab: 'cut' | 'finish' = 'cut') => {
+  // Open stage action modal (Log Finished Garments) or route cutting directly to full edit modal
+  const handleOpenActionModal = (order: ProductionOrder, defaultTab: 'cut' | 'finish' = 'finish') => {
+    if (defaultTab === 'cut') {
+      handleOpenEditBatchModal(order);
+      return;
+    }
     setSelectedOrder(order);
-    setActionTab(defaultTab);
+    setActionTab('finish');
     const nowIso = new Date().toISOString().slice(0, 16);
-    setCutDateTime(nowIso);
     setFinishDateTime(nowIso);
-    setCutQuantity('');
     setFinishQuantity('');
-    setCutLoggedRole(user?.role || 'STAFF');
     setFinishLoggedRole(user?.role || 'STAFF');
-    setCutDeductStock(true);
     setFinishIncrementStock(false);
-
-    if (order.materialUsages && order.materialUsages.length > 0) {
-      setCutRawMaterialId(String(order.materialUsages[0].rawMaterialId));
-    } else if (rawMaterialsList.length > 0) {
-      setCutRawMaterialId(String(rawMaterialsList[0].id));
-    } else {
-      setCutRawMaterialId('');
-    }
     setIsActionModalOpen(true);
-  };
-
-  // Active material cutting calculation: calculates allocated, already cut, remaining uncut, and warehouse stock
-  const cutMaterialStats = useMemo(() => {
-    if (!cutRawMaterialId) return null;
-    const rawId = Number(cutRawMaterialId);
-    const rawItem = rawMaterialsList.find((m) => m.id === rawId);
-    const existingUsage = selectedOrder?.materialUsages?.find((u) => u.rawMaterialId === rawId);
-
-    if (existingUsage) {
-      const issued = Number(existingUsage.issuedQty) || 0;
-      const returned = Number(existingUsage.returnedQty) || 0;
-      const totalAlreadyCut = (selectedOrder?.cutLogs || [])
-        .filter((c) => c.rawMaterialId === rawId)
-        .reduce((sum, c) => sum + Number(c.quantityCut || 0), 0);
-      const remainingToCut = Math.max(0, issued - totalAlreadyCut - returned);
-      return {
-        isAllocated: true,
-        issued,
-        totalAlreadyCut,
-        returned,
-        remainingToCut,
-        warehouseStock: rawItem?.currentStock ?? 0,
-        unit: existingUsage.rawMaterial?.unit || rawItem?.unit || 'Units',
-      };
-    }
-
-    return {
-      isAllocated: false,
-      issued: 0,
-      totalAlreadyCut: 0,
-      returned: 0,
-      remainingToCut: 0,
-      warehouseStock: rawItem?.currentStock ?? 0,
-      unit: rawItem?.unit || 'Units',
-    };
-  }, [selectedOrder, cutRawMaterialId, rawMaterialsList]);
-
-  // Submit asynchronous material cutting log
-  const handleLogMaterialCut = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedOrder) return;
-    if (!cutRawMaterialId) {
-      toast.warn('Please select a raw material');
-      return;
-    }
-    const cutNum = Number(cutQuantity);
-    if (!cutQuantity || isNaN(cutNum) || cutNum <= 0) {
-      toast.warn('Please enter a valid cut quantity greater than 0');
-      return;
-    }
-
-    if (cutMaterialStats) {
-      if (!cutMaterialStats.isAllocated || cutDeductStock) {
-        // Cutting with warehouse deduction
-        const neededWarehouse = cutMaterialStats.isAllocated
-          ? Math.max(0, cutNum - cutMaterialStats.remainingToCut)
-          : cutNum;
-        if (neededWarehouse > cutMaterialStats.warehouseStock) {
-          toast.error(
-            `Cut quantity requires ${neededWarehouse} ${cutMaterialStats.unit} from warehouse, but only ${cutMaterialStats.warehouseStock} ${cutMaterialStats.unit} is available in stock.`
-          );
-          return;
-        }
-      } else {
-        // Cutting strictly from existing uncut allocation
-        if (cutNum > cutMaterialStats.remainingToCut) {
-          toast.error(
-            `Quantity cut (${cutNum} ${cutMaterialStats.unit}) exceeds remaining uncut allocation in batch (${cutMaterialStats.remainingToCut} ${cutMaterialStats.unit}). Please check "Deduct from warehouse raw material stock" to allocate more fabric.`
-          );
-          return;
-        }
-      }
-    }
-
-    setIsSubmittingProgress(true);
-    try {
-      await post<any>(`/production/${selectedOrder.id}/cut-logs`, {
-        rawMaterialId: Number(cutRawMaterialId),
-        quantityCut: cutNum,
-        cutDate: cutDateTime ? new Date(cutDateTime).toISOString() : new Date().toISOString(),
-        loggedByRole: user?.role || 'STAFF',
-        deductInventory: cutDeductStock,
-      });
-
-      toast.success(`Logged cutting of ${cutNum} units for Batch #${selectedOrder.productionNo}!`);
-      setIsActionModalOpen(false);
-      fetchProductionData();
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to record material cutting log');
-    } finally {
-      setIsSubmittingProgress(false);
-    }
   };
 
   /**
@@ -1387,157 +1382,26 @@ export const ProductionListPage: React.FC = () => {
     }
   };
 
-  // Open Start Batch modal in create mode
+  // Open Cut Fabric / Start Batch modal in create mode
   const handleOpenCreateBatchModal = () => {
     setEditingOrderId(null);
     setSelectedOrder(null);
-    const nowIso = new Date().toISOString().slice(0, 16);
-    setCutBatchDateTime(nowIso);
-    setCutBatchProductId('');
-    setCutBatchVariantId('');
-    setCutBatchTargetQty('');
-    setCutBatchReason('Regular Bulk');
-    setCutBatchNotes('');
-    setCutBatchMaterials([{ rawMaterialId: '', issuedQty: '' }]);
     setIsCutBatchModalOpen(true);
   };
 
-  // Open Start / Edit Batch modal in edit mode pre-populated with order data
-  const handleOpenEditBatchModal = (order: ProductionOrder) => {
+  // Open Cut Fabric / Start Batch modal in edit mode pre-populated with order data
+  const handleOpenEditBatchModal = async (order: ProductionOrder) => {
     setEditingOrderId(order.id);
     setSelectedOrder(order);
-    setCutBatchProductId(order.productId ? String(order.productId) : '');
-    setCutBatchVariantId(order.variantId ? String(order.variantId) : '');
-    setCutBatchTargetQty(order.targetQuantity || order.completedQty || '');
-    setCutBatchDateTime(
-      order.productionDate
-        ? new Date(order.productionDate).toISOString().slice(0, 16)
-        : new Date().toISOString().slice(0, 16)
-    );
-    setCutBatchReason(order.reason || 'Regular Bulk');
-    setCutBatchNotes(order.notes || '');
-    if (order.materialUsages && order.materialUsages.length > 0) {
-      setCutBatchMaterials(
-        order.materialUsages.map((u) => ({
-          rawMaterialId: String(u.rawMaterialId),
-          issuedQty: u.issuedQty,
-        }))
-      );
-    } else {
-      setCutBatchMaterials([{ rawMaterialId: '', issuedQty: '' }]);
-    }
-    setIsCutBatchModalOpen(true);
-  };
-
-  /**
-   * Start / Edit Production Batch Handler
-   * In create mode: POST /production/cut-batch
-   * In edit mode: PUT /production/:id
-   * Supports allocating additional warehouse raw materials if batch runs short on fabric.
-   */
-  const handleCreateOrUpdateBatch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!cutBatchProductId) {
-      toast.warn('Please select a target product');
-      return;
-    }
-    const targetNum = Number(cutBatchTargetQty);
-    if (!cutBatchTargetQty || isNaN(targetNum) || targetNum <= 0) {
-      toast.warn('Please enter a target planned quantity greater than 0');
-      return;
-    }
-
-    const validMaterialRows = cutBatchMaterials.filter((m) => m.rawMaterialId && m.issuedQty !== '');
-    if (!editingOrderId && validMaterialRows.length === 0) {
-      toast.warn('Please add at least one material cut row to initiate fabric cutting');
-      return;
-    }
-
-    for (let i = 0; i < validMaterialRows.length; i++) {
-      const row = validMaterialRows[i];
-      const issued = Number(row.issuedQty);
-      if (isNaN(issued) || issued <= 0) {
-        toast.warn(`Please enter a valid quantity for row #${i + 1}`);
-        return;
-      }
-      const mat = rawMaterialsList.find((m) => m.id === Number(row.rawMaterialId));
-      if (mat) {
-        if (!editingOrderId) {
-          // New batch: issued cannot exceed current warehouse stock
-          if (issued > (mat.currentStock ?? 0)) {
-            toast.error(
-              `Entered quantity (${issued} ${mat.unit}) for "${mat.name}" exceeds available warehouse stock (${mat.currentStock} ${mat.unit})`
-            );
-            return;
-          }
-        } else {
-          // Edit batch: additional delta needed cannot exceed current warehouse stock
-          const existingUsage = selectedOrder?.materialUsages?.find((u) => u.rawMaterialId === Number(row.rawMaterialId));
-          const existingIssued = existingUsage ? Number(existingUsage.issuedQty) : 0;
-          const additionalNeeded = Math.max(0, issued - existingIssued);
-          if (additionalNeeded > (mat.currentStock ?? 0)) {
-            toast.error(
-              `Additional allocation (+${additionalNeeded} ${mat.unit}) for "${mat.name}" exceeds warehouse stock (${mat.currentStock} ${mat.unit})`
-            );
-            return;
-          }
-        }
-      }
-    }
-
-    setIsSubmittingCutBatch(true);
+    setIsEditBatchModalOpen(true);
     try {
-      const formattedDate = cutBatchDateTime ? new Date(cutBatchDateTime).toISOString() : new Date().toISOString();
-
-      if (editingOrderId) {
-        await put<any>(`/production/${editingOrderId}`, {
-          productId: Number(cutBatchProductId),
-          variantId: cutBatchVariantId ? Number(cutBatchVariantId) : null,
-          targetQuantity: targetNum,
-          productionDate: formattedDate,
-          reason: cutBatchReason,
-          notes: cutBatchNotes,
-          materials: validMaterialRows.map((m) => {
-            const rmId = Number(m.rawMaterialId);
-            const existingUsage = selectedOrder?.materialUsages?.find((u) => u.rawMaterialId === rmId);
-            return {
-              rawMaterialId: rmId,
-              issuedQty: Number(m.issuedQty),
-              returnedQty: existingUsage ? existingUsage.returnedQty : 0,
-              returnReason: existingUsage ? existingUsage.returnReason : null,
-            };
-          }),
-        });
-        toast.success(`Production batch #${selectedOrder?.productionNo || editingOrderId} updated successfully!`);
-      } else {
-        await post<any>('/production/cut-batch', {
-          productId: Number(cutBatchProductId),
-          variantId: cutBatchVariantId ? Number(cutBatchVariantId) : null,
-          targetQuantity: targetNum,
-          cutDate: formattedDate,
-          reason: cutBatchReason,
-          notes: cutBatchNotes,
-          materials: validMaterialRows.map((m) => ({
-            rawMaterialId: Number(m.rawMaterialId),
-            issuedQty: Number(m.issuedQty),
-          })),
-        });
-        toast.success('Production batch started successfully! Batch status set to CUTTING.');
+      const res = await get<any>(`/production/${order.id}`);
+      const freshOrder = res?.data || res;
+      if (freshOrder && freshOrder.id === order.id) {
+        setSelectedOrder(freshOrder);
       }
-
-      setIsCutBatchModalOpen(false);
-      setEditingOrderId(null);
-      setSelectedOrder(null);
-      setCutBatchProductId('');
-      setCutBatchVariantId('');
-      setCutBatchTargetQty('');
-      setCutBatchNotes('');
-      setCutBatchMaterials([{ rawMaterialId: '', issuedQty: '' }]);
-      fetchProductionData();
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to save production batch');
-    } finally {
-      setIsSubmittingCutBatch(false);
+    } catch {
+      // keep using current order if offline
     }
   };
 
@@ -1561,49 +1425,24 @@ export const ProductionListPage: React.FC = () => {
     }
   };
 
-  /** Render standardized multi-stage manufacturing status badges */
+  /** Helper to format full Date & Time timestamps on ledger rows */
+  const formatFullDateTime = (dateStr: string | Date | undefined | null) => {
+    if (!dateStr) return '—';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+  };
+
+  /** Render standardized multi-stage manufacturing status badges with high-contrast color badges */
   const renderBatchStatusBadge = (status: string, isStockSynced?: boolean) => {
-    const st = (status || '').toUpperCase();
-    if (st === 'CUTTING') {
-      return (
-        <Badge variant="outline" className="text-[10px] font-semibold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-300 dark:border-amber-800">
-          CUTTING
-        </Badge>
-      );
-    }
-    if (st === 'IN_PROGRESS') {
-      return (
-        <Badge variant="outline" className="text-[10px] font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800">
-          SEWING / WIP
-        </Badge>
-      );
-    }
-    if (st === 'FINISHED_PENDING_STOCK' || (!isStockSynced && st === 'COMPLETED')) {
-      return (
-        <Badge variant="outline" className="text-[10px] font-semibold bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border-purple-300 dark:border-purple-800">
-          AWAITING STOCK SYNC
-        </Badge>
-      );
-    }
-    if (st === 'COMPLETED' && isStockSynced) {
-      return (
-        <Badge variant="outline" className="text-[10px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800">
-          COMPLETED &amp; IN STOCK
-        </Badge>
-      );
-    }
-    if (st === 'CANCELLED') {
-      return (
-        <Badge variant="outline" className="text-[10px] font-semibold bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border-rose-300 dark:border-rose-800">
-          CANCELLED
-        </Badge>
-      );
-    }
-    return (
-      <Badge variant="secondary" className="text-[10px]">
-        {status}
-      </Badge>
-    );
+    return <BatchStatusBadge status={status} isStockSynced={isStockSynced} />;
   };
 
   // Delete / Rollback production order
@@ -2065,34 +1904,71 @@ export const ProductionListPage: React.FC = () => {
                         key={order.id}
                         className="hover:bg-slate-50/50 dark:hover:bg-zinc-800/40 transition-colors"
                       >
-                        {/* Clickable Batch # leading to edit modal */}
+                        {/* Clickable Batch # and inline Edit icon button */}
                         <TableCell className="font-mono text-xs font-bold">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEditBatchModal(order)}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-zinc-800 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-zinc-700 border border-slate-200 dark:border-zinc-700 font-mono text-xs transition-colors cursor-pointer group"
-                            title="Edit batch and allocate materials"
-                          >
-                            <span>{order.productionNo}</span>
-                            <Pencil className="w-3 h-3 text-slate-400 group-hover:text-amber-500 transition-colors" />
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditBatchModal(order)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-zinc-800 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-zinc-700 border border-slate-200 dark:border-zinc-700 font-mono text-xs transition-colors cursor-pointer group"
+                              title="Edit batch and allocate materials"
+                            >
+                              <span>{order.productionNo}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditBatchModal(order)}
+                              className="size-6.5 rounded-lg inline-flex items-center justify-center bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/60 border border-amber-200 dark:border-amber-800/80 transition-colors cursor-pointer shadow-2xs"
+                              title={`Edit Batch #${order.productionNo}`}
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                          </div>
                         </TableCell>
 
-                        {/* Date */}
-                        <TableCell className="text-xs text-slate-600 dark:text-zinc-400">
-                          {new Date(order.productionDate).toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'short',
-                            day: 'numeric',
-                          })}
+                        {/* Full Date & Time Timestamp */}
+                        <TableCell className="text-xs text-slate-600 dark:text-zinc-400 whitespace-nowrap">
+                          <div className="flex flex-col">
+                            <span className="font-semibold text-slate-900 dark:text-zinc-100">
+                              {new Date(order.productionDate).toLocaleDateString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric',
+                              })}
+                            </span>
+                            <span className="text-[10px] font-mono text-slate-500 dark:text-zinc-400">
+                              {new Date(order.productionDate).toLocaleTimeString('en-US', {
+                                hour: 'numeric',
+                                minute: '2-digit',
+                                hour12: true,
+                              })}
+                            </span>
+                          </div>
                         </TableCell>
 
-                        {/* Product & Variant */}
+                        {/* Product & Variant / Mapped Target Products */}
                         <TableCell>
-                          <div className="space-y-0.5">
-                            <p className="text-xs font-bold text-slate-900 dark:text-white">
-                              {order.product.name}
-                            </p>
+                          <div className="space-y-1">
+                            {order.targetProducts && order.targetProducts.length > 0 ? (
+                              <div className="space-y-1 max-w-xs">
+                                <div className="flex flex-wrap gap-1">
+                                  {order.targetProducts.map((tp, idx) => (
+                                    <span
+                                      key={idx}
+                                      className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-slate-900 dark:text-zinc-100 border border-slate-200 dark:border-zinc-700"
+                                    >
+                                      <Shirt className="size-3 text-emerald-600 shrink-0" />
+                                      <span>{tp.productName || `Product #${tp.productId}`}</span>
+                                      <strong className="font-mono text-emerald-600 dark:text-emerald-400">({tp.plannedQty} Pcs)</strong>
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-xs font-bold text-slate-900 dark:text-white">
+                                {order.product?.name}
+                              </p>
+                            )}
                             {order.variant && (
                               <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-zinc-400">
                                 {order.variant.size && (
@@ -2152,18 +2028,21 @@ export const ProductionListPage: React.FC = () => {
                         <TableCell>
                           <div className="space-y-1">
                             <div className="flex flex-wrap gap-1">
-                              {order.materialUsages.slice(0, 2).map((usage) => (
+                              {order.materialUsages.slice(0, 3).map((usage) => (
                                 <span
                                   key={usage.id}
                                   className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700"
                                 >
                                   <span>{usage.rawMaterial.name}:</span>
                                   <strong className="font-mono">{usage.netConsumedQty} {usage.rawMaterial.unit}</strong>
+                                  {usage.piecesCount && usage.piecesCount > 0 ? (
+                                    <span className="text-slate-400 font-normal">({usage.piecesCount} {usage.piecesCount === 1 ? 'Roll' : 'Rolls'})</span>
+                                  ) : null}
                                 </span>
                               ))}
-                              {order.materialUsages.length > 2 && (
+                              {order.materialUsages.length > 3 && (
                                 <span className="text-[10px] text-slate-400 font-medium px-1 self-center">
-                                  +{order.materialUsages.length - 2} more
+                                  +{order.materialUsages.length - 3} more
                                 </span>
                               )}
                             </div>
@@ -2231,11 +2110,11 @@ export const ProductionListPage: React.FC = () => {
                                   <span>Log Finished Garments</span>
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
-                                  onClick={() => handleOpenActionModal(order, 'cut')}
+                                  onClick={() => handleOpenEditBatchModal(order)}
                                   className="cursor-pointer gap-2 text-xs font-medium"
                                 >
                                   <Scissors className="w-4 h-4 text-amber-600" />
-                                  <span>Add More Material Cuts</span>
+                                  <span>Cut Fabric / Edit Batch</span>
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onClick={() => handleOpenReturnModal(order)}
@@ -2257,10 +2136,10 @@ export const ProductionListPage: React.FC = () => {
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
                                   onClick={() => handleOpenEditBatchModal(order)}
-                                  className="cursor-pointer gap-2 text-xs font-medium"
+                                  className="cursor-pointer gap-2 text-xs font-medium text-amber-700 dark:text-amber-400 focus:text-amber-700"
                                 >
-                                  <Pencil className="w-4 h-4 text-slate-600" />
-                                  <span>Edit &amp; Allocate Materials</span>
+                                  <Pencil className="w-4 h-4 text-amber-600" />
+                                  <span>Edit Batch &amp; Cut Materials</span>
                                 </DropdownMenuItem>
                                 {order.status !== 'CANCELLED' && (
                                   <DropdownMenuItem
@@ -2339,31 +2218,47 @@ export const ProductionListPage: React.FC = () => {
                   >
                     {/* Header: Batch Number & Garment Style */}
                     <div className="flex items-start justify-between gap-2">
-                      <div className="space-y-1 min-w-0">
+                      <div className="space-y-1.5 min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <button
                             type="button"
                             onClick={() => handleOpenEditBatchModal(order)}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 font-mono font-bold text-xs transition-colors cursor-pointer"
-                            title="Edit production batch"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/50 dark:hover:bg-amber-900/50 text-amber-800 dark:text-amber-300 font-mono font-bold text-xs transition-colors cursor-pointer border border-amber-200 dark:border-amber-800/80 shadow-2xs"
+                            title="Edit batch and materials"
                           >
-                            <Factory className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                            <Scissors className="size-3.5 text-amber-600 dark:text-amber-400" />
                             <span>#{order.productionNo}</span>
-                            <Pencil className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                            <Pencil className="w-3 h-3 text-amber-600 dark:text-amber-400" />
                           </button>
 
-                          <Badge variant="outline" className="text-[10px] font-medium">
-                            {order.reason || 'Regular Bulk'}
-                          </Badge>
+                          <div className="text-[11px] font-mono text-slate-500 dark:text-zinc-400 flex items-center gap-1">
+                            <Clock className="size-3 text-slate-400" />
+                            <span>{formatFullDateTime(order.productionDate)}</span>
+                          </div>
                         </div>
 
-                        {/* Garment Style & Variant */}
-                        <div className="pt-1">
-                          <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">
-                            {order.product.name}
-                          </h4>
+                        {/* Garment Style & Variant or Mapped Products */}
+                        <div className="pt-0.5 space-y-1">
+                          {order.targetProducts && order.targetProducts.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {order.targetProducts.map((tp, idx) => (
+                                <span
+                                  key={idx}
+                                  className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-slate-900 dark:text-zinc-100 border border-slate-200 dark:border-zinc-700"
+                                >
+                                  <Shirt className="size-3 text-emerald-600 shrink-0" />
+                                  <span>{tp.productName || `Product #${tp.productId}`}</span>
+                                  <strong className="font-mono text-emerald-600 dark:text-emerald-400">({tp.plannedQty} Pcs)</strong>
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                              {order.product?.name}
+                            </h4>
+                          )}
                           {order.variant && (
-                            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5 flex-wrap">
+                            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-zinc-400 flex-wrap">
                               {order.variant.size && (
                                 <span className="bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-[10px] font-medium text-slate-700 dark:text-zinc-300">
                                   Size {order.variant.size}
@@ -2387,9 +2282,6 @@ export const ProductionListPage: React.FC = () => {
                       {/* Status Badge */}
                       <div className="shrink-0 text-right flex flex-col items-end">
                         {renderBatchStatusBadge(order.status, order.isStockSynced)}
-                        <span className="text-[10px] text-slate-400 font-mono mt-1">
-                          {getBatchLatestTimestamp(order)}
-                        </span>
                       </div>
                     </div>
 
@@ -2540,11 +2432,11 @@ export const ProductionListPage: React.FC = () => {
                             <span>Log Finished Garments</span>
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onClick={() => handleOpenActionModal(order, 'cut')}
+                            onClick={() => handleOpenEditBatchModal(order)}
                             className="cursor-pointer gap-2 text-xs font-medium"
                           >
                             <Scissors className="w-4 h-4 text-amber-600" />
-                            <span>Add More Material Cuts</span>
+                            <span>Cut Fabric / Edit Batch</span>
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => handleOpenReturnModal(order)}
@@ -2605,7 +2497,7 @@ export const ProductionListPage: React.FC = () => {
                           </h5>
                           <span className="text-[10px] text-slate-400 font-medium">Asynchronous Logs</span>
                         </div>
-                        <BatchActivityTimeline order={order} />
+                        <BatchActivityTimeline order={order} onRefresh={fetchProductionData} onEditBatch={handleOpenEditBatchModal} />
                       </div>
                     )}
                   </div>
@@ -2800,230 +2692,24 @@ export const ProductionListPage: React.FC = () => {
       </Dialog>
 
       {/* ─────────────────────────────────────────────────────────────
-          MODAL 1: VIEW FULL MATERIAL BREAKDOWN DETAIL
+          MODAL 1: VIEW FULL MATERIAL BREAKDOWN & TARGET OUTPUT DETAIL
       ───────────────────────────────────────────────────────────── */}
-      <Dialog open={isDetailModalOpen} onOpenChange={setIsDetailModalOpen}>
-        <DialogContent className="w-[95vw] max-w-lg sm:max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden rounded-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800">
-          <DialogHeader className="px-4 py-3 sm:px-5 sm:py-3.5 pr-12 sm:pr-14 border-b border-slate-100 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 z-10">
-            <DialogTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <Package className="w-4 h-4 text-emerald-500" />
-              Production Batch #{selectedOrder?.productionNo}
-            </DialogTitle>
-          </DialogHeader>
-
-          {selectedOrder && (
-            <div className="flex-1 overflow-y-auto p-3.5 sm:p-4 space-y-3">
-              {/* Top Overview Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-slate-50 dark:bg-zinc-900/60 p-2.5 sm:p-3 rounded-xl border border-slate-200/80 dark:border-zinc-800">
-                <div>
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">Product</span>
-                  <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                    {selectedOrder.product.name}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">Completed</span>
-                  <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 font-mono">
-                    {selectedOrder.completedQty} Units
-                  </p>
-                </div>
-                <div>
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">Date</span>
-                  <p className="text-xs font-bold text-slate-900 dark:text-white">
-                    {new Date(selectedOrder.productionDate).toLocaleDateString()}
-                  </p>
-                </div>
-                <div>
-                  <span className="text-[10px] font-bold text-slate-500 uppercase">Reason</span>
-                  <p className="text-xs font-bold text-slate-900 dark:text-white">
-                    {selectedOrder.reason || 'Regular'}
-                  </p>
-                </div>
-              </div>
-
-              {selectedOrder.notes && (
-                <div className="p-2.5 sm:p-3 bg-slate-50/70 dark:bg-zinc-900/50 rounded-xl text-xs text-slate-600 dark:text-zinc-400 border border-slate-200/60 dark:border-zinc-800/60">
-                  <strong className="text-slate-900 dark:text-white block mb-0.5">Notes:</strong>
-                  {selectedOrder.notes}
-                </div>
-              )}
-
-              {/* Material Usages: Mobile Cards + Desktop Table */}
-              <div className="space-y-2">
-                <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                  Raw Material Consumption Details
-                </h4>
-
-                {/* Mobile Cards (< sm) */}
-                <div className="block sm:hidden space-y-2.5">
-                  {selectedOrder.materialUsages.map((usage) => (
-                    <div
-                      key={usage.id}
-                      className="p-2.5 sm:p-3 bg-slate-50 dark:bg-zinc-900/60 rounded-xl border border-slate-200/80 dark:border-zinc-800 space-y-2 text-xs"
-                    >
-                      <div className="flex items-center justify-between">
-                        <strong className="text-slate-900 dark:text-white font-semibold">
-                          {usage.rawMaterial.name}
-                        </strong>
-                        {usage.rawMaterial.code && (
-                          <span className="text-[10px] text-slate-400 font-mono">
-                            {usage.rawMaterial.code}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-2 text-center pt-1 border-t border-slate-200/60 dark:border-zinc-800/60">
-                        <div className="bg-white dark:bg-zinc-950 p-1.5 rounded-lg border border-slate-100 dark:border-zinc-800">
-                          <span className="text-[9px] uppercase font-bold text-slate-400 block">Issued</span>
-                          <span className="font-mono font-bold text-slate-700 dark:text-zinc-300 text-xs">
-                            {usage.issuedQty} {usage.rawMaterial.unit}
-                          </span>
-                        </div>
-                        <div className="bg-white dark:bg-zinc-950 p-1.5 rounded-lg border border-slate-100 dark:border-zinc-800">
-                          <span className="text-[9px] uppercase font-bold text-emerald-600 block">Returned</span>
-                          <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-xs">
-                            {usage.returnedQty} {usage.rawMaterial.unit}
-                          </span>
-                        </div>
-                        <div className="bg-white dark:bg-zinc-950 p-1.5 rounded-lg border border-slate-100 dark:border-zinc-800">
-                          <span className="text-[9px] uppercase font-bold text-slate-400 block">Net</span>
-                          <span className="font-mono font-bold text-slate-900 dark:text-white text-xs">
-                            {usage.netConsumedQty} {usage.rawMaterial.unit}
-                          </span>
-                        </div>
-                      </div>
-
-                      {usage.returnReason && (
-                        <p className="text-[11px] text-slate-500 dark:text-zinc-400 italic pt-1">
-                          Scrap note: {usage.returnReason}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                {/* Desktop Table (>= sm) */}
-                <div className="hidden sm:block rounded-xl border border-slate-200 dark:border-zinc-800 overflow-x-auto">
-                  <Table className="min-w-[480px]">
-                    <TableHeader>
-                      <TableRow className="bg-slate-50 dark:bg-zinc-900">
-                        <TableHead className="text-[10px] font-bold uppercase text-slate-600 dark:text-zinc-400">
-                          Material Name
-                        </TableHead>
-                        <TableHead className="text-[10px] font-bold uppercase text-slate-600 dark:text-zinc-400 text-right">
-                          Issued
-                        </TableHead>
-                        <TableHead className="text-[10px] font-bold uppercase text-slate-600 dark:text-zinc-400 text-right">
-                          Returned
-                        </TableHead>
-                        <TableHead className="text-[10px] font-bold uppercase text-slate-600 dark:text-zinc-400 text-right">
-                          Net Consumed
-                        </TableHead>
-                        <TableHead className="text-[10px] font-bold uppercase text-slate-600 dark:text-zinc-400">
-                          Return Note
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {selectedOrder.materialUsages.map((usage) => (
-                        <TableRow key={usage.id}>
-                          <TableCell className="text-xs font-bold text-slate-900 dark:text-zinc-100">
-                            {usage.rawMaterial.name}
-                            {usage.rawMaterial.code && (
-                              <span className="text-[10px] text-slate-400 font-mono block">
-                                {usage.rawMaterial.code}
-                              </span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-xs text-right text-slate-700 dark:text-zinc-300 font-mono">
-                            {usage.issuedQty} {usage.rawMaterial.unit}
-                          </TableCell>
-                          <TableCell className="text-xs text-right text-emerald-600 dark:text-emerald-400 font-semibold font-mono">
-                            {usage.returnedQty} {usage.rawMaterial.unit}
-                          </TableCell>
-                          <TableCell className="text-xs text-right font-bold text-slate-900 dark:text-white font-mono">
-                            {usage.netConsumedQty} {usage.rawMaterial.unit}
-                          </TableCell>
-                          <TableCell className="text-xs text-slate-500 dark:text-zinc-400">
-                            {usage.returnReason || '-'}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-
-              {/* Activity Timeline (Cutting vs Finishing) */}
-              <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-zinc-800">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                      Batch Activity &amp; WIP Timeline
-                    </h4>
-                    <p className="text-[11px] text-slate-500 dark:text-zinc-400">
-                      Decoupled Material Cutting &amp; Garment Finishing log history
-                    </p>
-                  </div>
-                  {selectedOrder.status !== 'CANCELLED' && (
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setIsDetailModalOpen(false);
-                        handleOpenActionModal(selectedOrder, 'cut');
-                      }}
-                      className="h-7 text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg flex items-center gap-1.5 shadow-sm cursor-pointer"
-                    >
-                      <Scissors className="w-3.5 h-3.5" />
-                      <span>Log Progress</span>
-                    </Button>
-                  )}
-                </div>
-
-                <div className="bg-slate-50 dark:bg-zinc-900/60 p-4 rounded-xl border border-slate-200/80 dark:border-zinc-800">
-                  <BatchActivityTimeline order={selectedOrder} />
-                </div>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter className="px-4 py-3 sm:px-5 sm:py-3.5 border-t border-slate-100 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 z-10 flex flex-row items-center justify-between gap-2">
-            {selectedOrder && selectedOrder.status !== 'CANCELLED' ? (
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    setIsDetailModalOpen(false);
-                    handleOpenActionModal(selectedOrder, 'cut');
-                  }}
-                  className="h-8 text-xs bg-amber-600 hover:bg-amber-700 text-white rounded-xl flex items-center gap-1.5 shadow-sm cursor-pointer"
-                >
-                  <Scissors className="w-3.5 h-3.5" />
-                  <span>Log Cutting</span>
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    setIsDetailModalOpen(false);
-                    handleOpenActionModal(selectedOrder, 'finish');
-                  }}
-                  className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl flex items-center gap-1.5 shadow-sm cursor-pointer"
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Log Finishing</span>
-                </Button>
-              </div>
-            ) : <div />}
-            <Button
-              variant="outline"
-              onClick={() => setIsDetailModalOpen(false)}
-              className="text-xs rounded-xl"
-            >
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ProductionBatchDetailModal
+        open={isDetailModalOpen}
+        onOpenChange={setIsDetailModalOpen}
+        order={selectedOrder}
+        onAddCutting={(ord) => {
+          setIsDetailModalOpen(false);
+          handleOpenEditBatchModal(ord);
+        }}
+        onAddFinishing={(ord) => handleOpenActionModal(ord, 'finish')}
+        onOrderUpdate={(updated) => {
+          setSelectedOrder(updated);
+          fetchProductionData();
+        }}
+        onRefresh={fetchProductionData}
+        dark={dark}
+      />
 
       {/* ─────────────────────────────────────────────────────────────
           MODAL 2: RETURN LEFTOVER SCRAP MATERIALS
@@ -3150,22 +2836,20 @@ export const ProductionListPage: React.FC = () => {
       </Dialog>
 
       {/* ─────────────────────────────────────────────────────────────
-          MODAL 3: ASYNCHRONOUS PROGRESS LOGGING (CUTTING & FINISHING TABS)
+          MODAL 3: LOG FINISHED GARMENTS
       ───────────────────────────────────────────────────────────── */}
       <Dialog open={isActionModalOpen} onOpenChange={setIsActionModalOpen}>
         <DialogContent className="w-[95vw] max-w-lg sm:max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden rounded-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800">
           <DialogHeader className="px-4 py-3 sm:px-5 sm:py-3.5 pr-12 sm:pr-14 border-b border-slate-100 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 z-10">
             <div className="flex items-center gap-2.5">
-              <div className="size-9 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-100 dark:border-indigo-900/50">
-                <GitBranch className="w-4 h-4" />
+              <div className="size-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/50">
+                <Shirt className="w-4 h-4" />
               </div>
               <div>
                 <DialogTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <span>Batch #{selectedOrder?.productionNo} Progress</span>
+                  <span>Log Finished Garments — Batch #{selectedOrder?.productionNo}</span>
                   {selectedOrder && (
-                    <Badge variant="outline" className="text-[10px] font-mono uppercase bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300">
-                      {selectedOrder.status}
-                    </Badge>
+                    <BatchStatusBadge status={selectedOrder.status} isStockSynced={selectedOrder.isStockSynced} />
                   )}
                 </DialogTitle>
                 <p className="text-xs text-slate-500 dark:text-zinc-400">
@@ -3176,192 +2860,6 @@ export const ProductionListPage: React.FC = () => {
           </DialogHeader>
 
           {selectedOrder && (
-            <Tabs value={actionTab} onValueChange={(val: any) => setActionTab(val)} className="flex flex-col flex-1 min-h-0 overflow-hidden">
-              <div className="px-4 pt-3 pb-1.5 sm:px-5 sm:pt-3.5 shrink-0 bg-white dark:bg-zinc-950">
-                <TabsList className="grid grid-cols-2 w-full p-1 bg-slate-100 dark:bg-zinc-900 rounded-xl">
-                  <TabsTrigger
-                    value="cut"
-                    className="flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-zinc-800 data-[state=active]:text-amber-700 dark:data-[state=active]:text-amber-400 data-[state=active]:shadow-sm transition-all cursor-pointer"
-                  >
-                    <Scissors className="w-3.5 h-3.5" />
-                    <span>Log Material Cut</span>
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="finish"
-                    className="flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-zinc-800 data-[state=active]:text-emerald-700 dark:data-[state=active]:text-emerald-400 data-[state=active]:shadow-sm transition-all cursor-pointer"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Log Finished Garment</span>
-                  </TabsTrigger>
-                </TabsList>
-              </div>
-
-              {/* ── TAB 1: LOG MATERIAL CUT ── */}
-              <TabsContent value="cut" className="flex flex-col flex-1 min-h-0 m-0 data-[state=inactive]:hidden focus-visible:outline-none">
-                <form onSubmit={handleLogMaterialCut} className="flex flex-col flex-1 min-h-0">
-                  <div className="flex-1 overflow-y-auto p-3.5 sm:p-4 space-y-3">
-                    <div className="bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/70 dark:border-amber-900/40 p-2.5 sm:p-3 rounded-xl flex items-start gap-2.5">
-                      <Info className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                      <p className="text-xs text-amber-900 dark:text-amber-200">
-                        Record raw fabric cuts as they happen from pre-allocated materials, or allocate and cut fabrics directly from warehouse raw material stock at any time.
-                      </p>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold text-slate-700 dark:text-zinc-300 block">
-                        Select Raw Material (Allocated or Warehouse) <span className="text-rose-500">*</span>
-                      </label>
-                      <SearchableSelect
-                        options={allocatedMaterialSelectOptions}
-                        value={cutRawMaterialId}
-                        onValueChange={setCutRawMaterialId}
-                        placeholder="Select raw material..."
-                        searchPlaceholder="Search material name or code..."
-                        dark={dark}
-                      />
-
-                      {cutMaterialStats && (
-                        cutMaterialStats.isAllocated ? (
-                          <div className="p-2.5 rounded-xl bg-amber-50/80 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 text-xs space-y-1">
-                            <div className="flex items-center justify-between text-amber-900 dark:text-amber-200">
-                              <span className="font-semibold">Batch Allocation Status:</span>
-                              <span className="font-mono font-bold text-amber-700 dark:text-amber-300">
-                                Remaining Uncut: {cutMaterialStats.remainingToCut} {cutMaterialStats.unit}
-                              </span>
-                            </div>
-                            <p className="text-[11px] text-amber-800/80 dark:text-amber-300/80 font-mono">
-                              Allocated: {cutMaterialStats.issued} {cutMaterialStats.unit} | Already Cut: {cutMaterialStats.totalAlreadyCut} {cutMaterialStats.unit} | Returned: {cutMaterialStats.returned} {cutMaterialStats.unit}
-                            </p>
-                            {cutMaterialStats.warehouseStock !== undefined && (
-                              <p className="text-[10px] text-amber-700 dark:text-amber-400 font-mono pt-0.5">
-                                Warehouse Stock Available: {cutMaterialStats.warehouseStock} {cutMaterialStats.unit}
-                              </p>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="p-2.5 rounded-xl bg-sky-50/80 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-900/60 text-xs space-y-1">
-                            <div className="flex items-center justify-between text-sky-900 dark:text-sky-200">
-                              <span className="font-semibold">Warehouse Stock Available:</span>
-                              <span className="font-mono font-bold text-sky-700 dark:text-sky-300">
-                                {cutMaterialStats.warehouseStock} {cutMaterialStats.unit}
-                              </span>
-                            </div>
-                            <p className="text-[11px] text-sky-800/80 dark:text-sky-300/80">
-                              This material is not yet in this batch's allocation. Logging this cut will allocate it to batch #{selectedOrder?.productionNo} and deduct stock from warehouse inventory.
-                            </p>
-                          </div>
-                        )
-                      )}
-                    </div>
-
-                    {cutMaterialStats?.isAllocated && cutMaterialStats.remainingToCut <= 0 && (
-                      <div className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50">
-                        <Checkbox
-                          id="cutDeductStockAllocated"
-                          checked={cutDeductStock}
-                          onCheckedChange={(c) => setCutDeductStock(Boolean(c))}
-                        />
-                        <label htmlFor="cutDeductStockAllocated" className="text-xs font-medium text-amber-900 dark:text-amber-200 cursor-pointer">
-                          Allocated yardage fully cut. Deduct additional quantity directly from warehouse stock ({cutMaterialStats.warehouseStock} {cutMaterialStats.unit} available)
-                        </label>
-                      </div>
-                    )}
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <div className="space-y-1">
-                        <label className="text-[11px] font-bold text-slate-700 dark:text-zinc-300 block">
-                          Quantity Cut {cutMaterialStats ? `(${cutMaterialStats.unit})` : ''} <span className="text-rose-500">*</span>
-                        </label>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min="0.01"
-                          max={
-                            cutMaterialStats
-                              ? (cutMaterialStats.isAllocated && !cutDeductStock
-                                  ? cutMaterialStats.remainingToCut
-                                  : cutMaterialStats.warehouseStock)
-                              : undefined
-                          }
-                          required
-                          value={cutQuantity}
-                          onChange={(e) => setCutQuantity(e.target.value === '' ? '' : Number(e.target.value))}
-                          placeholder={
-                            cutMaterialStats
-                              ? (cutMaterialStats.isAllocated && !cutDeductStock
-                                  ? `Max ${cutMaterialStats.remainingToCut} ${cutMaterialStats.unit}`
-                                  : `Max ${cutMaterialStats.warehouseStock} ${cutMaterialStats.unit}`)
-                              : 'e.g. 15.5'
-                          }
-                          className="h-9 text-xs rounded-xl bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 font-mono"
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-[11px] font-bold text-slate-700 dark:text-zinc-300 block">
-                          Date &amp; Time of Cutting <span className="text-rose-500">*</span>
-                        </label>
-                        <DateTimePicker
-                          value={cutDateTime}
-                          onChange={setCutDateTime}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Authenticated Role Status Badge */}
-                    <div className="flex items-center justify-between p-2.5 sm:p-3 rounded-xl bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-xs">
-                      <span className="font-medium text-slate-600 dark:text-zinc-400">Authenticated Operator</span>
-                      <div className="flex items-center gap-1.5 font-bold">
-                        <span className="text-slate-500 text-[11px]">Logging as:</span>
-                        <Badge
-                          variant="outline"
-                          className="font-mono text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800"
-                        >
-                          {user?.role || 'STAFF'}
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-
-                  <DialogFooter className="px-4 py-3 sm:px-5 sm:py-3.5 border-t border-slate-100 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 z-10 flex-row justify-end gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setIsActionModalOpen(false)}
-                      className="text-xs rounded-xl"
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      type="submit"
-                      disabled={
-                        isSubmittingProgress ||
-                        !cutQuantity ||
-                        Number(cutQuantity) <= 0 ||
-                        (cutMaterialStats?.isAllocated && !cutDeductStock
-                          ? Number(cutQuantity) > cutMaterialStats.remainingToCut
-                          : (cutMaterialStats ? Number(cutQuantity) > (cutMaterialStats.warehouseStock ?? Infinity) : false))
-                      }
-                      className="bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs rounded-xl shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                    >
-                      {isSubmittingProgress ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          <span>Logging Cut...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Scissors className="w-3.5 h-3.5" />
-                          <span>Log Material Cut</span>
-                        </>
-                      )}
-                    </Button>
-                  </DialogFooter>
-                </form>
-              </TabsContent>
-
-              {/* ── TAB 2: LOG FINISHED GARMENT ── */}
-              <TabsContent value="finish" className="flex flex-col flex-1 min-h-0 m-0 data-[state=inactive]:hidden focus-visible:outline-none">
                 <form onSubmit={handleLogGarmentFinish} className="flex flex-col flex-1 min-h-0">
                   {(() => {
                     const actionCurrentCompleted = Math.max(
@@ -3500,8 +2998,6 @@ export const ProductionListPage: React.FC = () => {
                     );
                   })()}
                 </form>
-              </TabsContent>
-            </Tabs>
           )}
         </DialogContent>
       </Dialog>
@@ -3551,297 +3047,38 @@ export const ProductionListPage: React.FC = () => {
       )}
 
       {/* ─────────────────────────────────────────────────────────────
-          MODAL 4: MULTI-MATERIAL CUT BATCH CREATION (STAGE 1)
+          MODAL 4: MULTI-MATERIAL & MULTI-PRODUCT CUT BATCH (CREATE)
       ───────────────────────────────────────────────────────────── */}
-      <Dialog open={isCutBatchModalOpen} onOpenChange={setIsCutBatchModalOpen}>
-        <DialogContent className="w-[95vw] max-w-lg sm:max-w-3xl lg:max-w-4xl max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden rounded-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800">
-          <DialogHeader className="px-4 py-3 sm:px-5 sm:py-3.5 pr-12 sm:pr-14 border-b border-slate-100 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 z-10">
-            <div className="flex items-center gap-2.5">
-              <div className="size-9 rounded-xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-200 dark:border-amber-900/50">
-                <Scissors className="w-4 h-4" />
-              </div>
-              <div>
-                <DialogTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <span>{editingOrderId ? `Edit Production Batch #${selectedOrder?.productionNo}` : 'Start New Production Batch'}</span>
-                  <Badge variant="outline" className={`text-[10px] font-mono ${editingOrderId ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-300 dark:border-amber-800'}`}>
-                    {editingOrderId ? 'EDIT & ALLOCATE' : 'STAGE 1: CUTTING'}
-                  </Badge>
-                </DialogTitle>
-                <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
-                  {editingOrderId
-                    ? 'Adjust planned output, add notes, or allocate additional raw fabrics from warehouse inventory'
-                    : 'Select target garment style, set planned output, and issue/cut raw fabrics from warehouse inventory'}
-                </p>
-              </div>
-            </div>
-          </DialogHeader>
+      <ProductionBatchModal
+        open={isCutBatchModalOpen}
+        onOpenChange={setIsCutBatchModalOpen}
+        editingOrder={null}
+        rawMaterialsList={rawMaterialsList}
+        productsList={productsList}
+        dark={dark}
+        onSuccess={() => {
+          setEditingOrderId(null);
+          setSelectedOrder(null);
+          fetchProductionData();
+        }}
+      />
 
-          <form onSubmit={handleCreateOrUpdateBatch} className="flex flex-col flex-1 min-h-0 overflow-hidden">
-            <div className="flex-1 overflow-y-auto p-3.5 sm:p-4 space-y-3">
-              {/* Target Product Selection with Image Thumbnails */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 flex items-center gap-1.5">
-                  <Package className="w-3.5 h-3.5 text-amber-500" />
-                  Target Garment Product <span className="text-rose-500">*</span>
-                </label>
-                <SearchableSelect
-                  options={productSelectOptions}
-                  value={cutBatchProductId}
-                  onValueChange={(val) => {
-                    setCutBatchProductId(val);
-                    setCutBatchVariantId('');
-                  }}
-                  placeholder="Search and select target product..."
-                  searchPlaceholder="Search product by name..."
-                  dark={dark}
-                />
-              </div>
-
-              {/* Optional Variant Selection */}
-              {cutBatchProductId && variantSelectOptions.length > 0 && (
-                <div className="space-y-1.5 animate-in fade-in-50 duration-150">
-                  <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">
-                    Target Product Variant (Size / Color)
-                  </label>
-                  <SearchableSelect
-                    options={variantSelectOptions}
-                    value={cutBatchVariantId}
-                    onValueChange={setCutBatchVariantId}
-                    placeholder="Select variant (or leave blank for all sizes)..."
-                    searchPlaceholder="Search variant size or color..."
-                    dark={dark}
-                  />
-                </div>
-              )}
-
-              {/* Grid: Target Planned Quantity, Cut Date/Time, Reason */}
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-                <div className="space-y-1 sm:col-span-3">
-                  <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">
-                    Target Planned Qty <span className="text-rose-500">*</span>
-                  </label>
-                  <Input
-                    type="number"
-                    min="1"
-                    step="1"
-                    required
-                    value={cutBatchTargetQty}
-                    onChange={(e) => setCutBatchTargetQty(e.target.value === '' ? '' : Number(e.target.value))}
-                    placeholder="e.g. 100 Pcs"
-                    className="h-9 text-xs rounded-xl bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 font-mono"
-                  />
-                </div>
-
-                <div className="space-y-1 sm:col-span-5">
-                  <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">
-                    Batch Date &amp; Time <span className="text-rose-500">*</span>
-                  </label>
-                  <DateTimePicker
-                    value={cutBatchDateTime}
-                    onChange={setCutBatchDateTime}
-                  />
-                </div>
-
-                <div className="space-y-1 sm:col-span-4">
-                  <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">
-                    Batch Type / Reason
-                  </label>
-                  <SearchableSelect
-                    options={PRODUCTION_REASON_OPTIONS}
-                    value={cutBatchReason}
-                    onValueChange={setCutBatchReason}
-                    placeholder="Select reason..."
-                    dark={dark}
-                  />
-                </div>
-              </div>
-
-              {/* Dynamic Multi-Material Cut Rows with Strict Stock Validation */}
-              <div className="space-y-2.5 pt-3 border-t border-slate-100 dark:border-zinc-800">
-                <div>
-                  <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
-                    <Scissors className="w-3.5 h-3.5 text-amber-500" />
-                    Raw Materials to Issue &amp; Cut <span className="text-rose-500">*</span>
-                  </h4>
-                  <p className="text-[11px] text-slate-400">
-                    {editingOrderId
-                      ? 'Add fabrics/trims or allocate additional rolls from warehouse inventory'
-                      : 'Add multiple fabrics/trims. Issued quantities cannot exceed available warehouse stock.'}
-                  </p>
-                </div>
-
-                <div className="space-y-2.5">
-                  {cutBatchMaterials.map((row, idx) => {
-                    const selectedMat = rawMaterialsList.find((m) => m.id === Number(row.rawMaterialId));
-                    const initialUsage = editingOrderId && selectedOrder ? selectedOrder.materialUsages?.find((u) => u.rawMaterialId === Number(row.rawMaterialId)) : null;
-                    const initialIssued = initialUsage ? Number(initialUsage.issuedQty) : 0;
-                    const availableWarehouse = selectedMat ? (Number(selectedMat.currentStock) || 0) : 0;
-                    const maxStock = editingOrderId ? availableWarehouse + initialIssued : availableWarehouse;
-                    const enteredQty = Number(row.issuedQty) || 0;
-                    const isOverStock = selectedMat && row.issuedQty !== '' && enteredQty > maxStock;
-
-                    return (
-                      <div
-                        key={idx}
-                        className={`p-2.5 sm:p-3 rounded-xl border space-y-2 transition-colors ${
-                          isOverStock
-                            ? 'bg-rose-50/60 dark:bg-rose-950/20 border-rose-300 dark:border-rose-900/60'
-                            : 'bg-slate-50 dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="font-bold text-slate-700 dark:text-zinc-300">
-                            Material Line #{idx + 1} {initialIssued > 0 ? `(Currently Allocated: ${initialIssued} ${selectedMat?.unit})` : ''}
-                          </span>
-                          {cutBatchMaterials.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => setCutBatchMaterials((prev) => prev.filter((_, i) => i !== idx))}
-                              className="text-slate-400 hover:text-rose-600 transition-colors cursor-pointer p-0.5"
-                              title="Remove row"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                          <div className="space-y-1">
-                            <label className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400">
-                              Select Fabric / Raw Material
-                            </label>
-                            <SearchableSelect
-                              options={rawMaterialSelectOptions}
-                              value={row.rawMaterialId}
-                              onValueChange={(val) => {
-                                setCutBatchMaterials((prev) => {
-                                  const copy = [...prev];
-                                  copy[idx] = { ...copy[idx], rawMaterialId: val };
-                                  return copy;
-                                });
-                              }}
-                              placeholder="Select raw material..."
-                              searchPlaceholder="Search material name or code..."
-                              dark={dark}
-                            />
-                          </div>
-
-                          <div className="space-y-1">
-                            <label className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400">
-                              Cut / Issued Qty {selectedMat ? `(${selectedMat.unit})` : ''}
-                            </label>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0.01"
-                              max={selectedMat ? maxStock : undefined}
-                              value={row.issuedQty}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setCutBatchMaterials((prev) => {
-                                  const copy = [...prev];
-                                  copy[idx] = { ...copy[idx], issuedQty: val === '' ? '' : Number(val) };
-                                  return copy;
-                                });
-                              }}
-                              placeholder={
-                                selectedMat
-                                  ? editingOrderId && initialIssued > 0
-                                    ? `Max: ${maxStock} (Warehouse: ${availableWarehouse} + Allocated: ${initialIssued})`
-                                    : `Max available: ${maxStock} ${selectedMat.unit}`
-                                  : 'Enter quantity...'
-                              }
-                              className={`h-9 text-xs rounded-xl bg-white dark:bg-zinc-900 ${
-                                isOverStock ? 'border-rose-500 focus:ring-rose-500 text-rose-600' : 'border-slate-200 dark:border-zinc-800'
-                              }`}
-                            />
-                          </div>
-                        </div>
-
-                        {isOverStock && (
-                          <div className="flex items-center gap-1.5 text-xs text-rose-600 dark:text-rose-400 pt-1">
-                            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                            <span>
-                              Entered quantity ({enteredQty}) exceeds allowed stock ({maxStock} {selectedMat?.unit}{editingOrderId ? ' including prior allocation' : ''}). Please adjust before proceeding.
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-
-                  {/* "+ Add Material Row" Button Placed Exclusively Below The Last Item Card */}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setCutBatchMaterials((prev) => [...prev, { rawMaterialId: '', issuedQty: '' }])}
-                    className="w-full border-dashed border-2 py-2.5 h-auto text-xs rounded-xl gap-2 cursor-pointer text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800/80 hover:bg-amber-50 dark:hover:bg-amber-950/40"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>+ Add Material Row</span>
-                  </Button>
-                </div>
-              </div>
-
-              {/* Notes */}
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">
-                  Batch Notes &amp; Cutting Instructions
-                </label>
-                <Input
-                  type="text"
-                  value={cutBatchNotes}
-                  onChange={(e) => setCutBatchNotes(e.target.value)}
-                  placeholder="e.g. Marker layout pattern #4, double-ply cut on table 2"
-                  className="h-9 text-xs rounded-xl bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800"
-                />
-              </div>
-            </div>
-
-            {/* Modal Footer */}
-            <DialogFooter className="px-4 py-3 sm:px-5 sm:py-3.5 border-t border-slate-100 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 z-10 flex-row justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setIsCutBatchModalOpen(false)}
-                className="text-xs rounded-xl"
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={
-                  isSubmittingCutBatch ||
-                  !cutBatchProductId ||
-                  !cutBatchTargetQty ||
-                  cutBatchMaterials.some((r) => {
-                    if (!r.rawMaterialId || r.issuedQty === '') return true;
-                    const mat = rawMaterialsList.find((m) => m.id === Number(r.rawMaterialId));
-                    if (!mat) return false;
-                    const initialUsage = editingOrderId && selectedOrder ? selectedOrder.materialUsages?.find((u) => u.rawMaterialId === Number(r.rawMaterialId)) : null;
-                    const initialIssued = initialUsage ? Number(initialUsage.issuedQty) : 0;
-                    const maxAllowed = editingOrderId ? (mat.currentStock ?? 0) + initialIssued : (mat.currentStock ?? 0);
-                    return Number(r.issuedQty) > maxAllowed;
-                  })
-                }
-                className="bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs rounded-xl shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
-              >
-                {isSubmittingCutBatch ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>{editingOrderId ? 'Saving Batch...' : 'Initiating Cut Batch...'}</span>
-                  </>
-                ) : (
-                  <>
-                    <Scissors className="w-3.5 h-3.5" />
-                    <span>{editingOrderId ? 'Save Batch & Allocate Materials' : 'Cut Materials & Start Batch'}</span>
-                  </>
-                )}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      {/* ─────────────────────────────────────────────────────────────
+          MODAL 5: BATCH EDIT MODAL FULL HYDRATION SUPPORT
+      ───────────────────────────────────────────────────────────── */}
+      <ProductionBatchEditModal
+        open={isEditBatchModalOpen}
+        onOpenChange={setIsEditBatchModalOpen}
+        order={selectedOrder}
+        rawMaterialsList={rawMaterialsList}
+        productsList={productsList}
+        dark={dark}
+        onSuccess={() => {
+          setEditingOrderId(null);
+          setSelectedOrder(null);
+          fetchProductionData();
+        }}
+      />
 
       {/* ─────────────────────────────────────────────────────────────
           ALERT DIALOG 2: CONFIRM & SYNC FINISHED GARMENTS TO INVENTORY (STAGE 3)

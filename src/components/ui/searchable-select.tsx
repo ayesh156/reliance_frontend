@@ -2,6 +2,8 @@ import * as React from "react";
 import * as PortalPrimitive from "@radix-ui/react-portal";
 import { DismissableLayerBranch } from "@radix-ui/react-dismissable-layer";
 import { Check, ChevronsUpDown, Search, X } from "lucide-react";
+import { useSafeTheme } from "../../contexts/ThemeContext";
+
 
 /**
  * Type augmentation for React HTML attributes to accommodate Vaul drawer
@@ -62,7 +64,8 @@ export interface SearchableSelectOption {
 interface SearchableSelectProps {
   options: SearchableSelectOption[];
   value: string;
-  onValueChange: (value: string) => void;
+  onValueChange?: (value: string) => void;
+  onChange?: (value: string) => void;
   placeholder?: string;
   searchPlaceholder?: string;
   emptyMessage?: string;
@@ -100,13 +103,40 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   options,
   value,
   onValueChange,
+  onChange,
   placeholder = "Select option...",
-  searchPlaceholder = "Search role...",
+  searchPlaceholder = "Search...",
   emptyMessage = "No matching options.",
   disabled = false,
-  dark = true,
+  dark: darkProp,
   className = "", // Default empty, preserves natural component height
 }) => {
+  const safeTheme = useSafeTheme();
+  const [domIsDark, setDomIsDark] = React.useState<boolean>(() => {
+    if (typeof document !== "undefined") {
+      return document.documentElement.classList.contains("dark");
+    }
+    return false;
+  });
+
+  React.useEffect(() => {
+    if (typeof document === "undefined") return;
+    const updateThemeFromDom = () => {
+      setDomIsDark(document.documentElement.classList.contains("dark"));
+    };
+    updateThemeFromDom();
+    const observer = new MutationObserver(updateThemeFromDom);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    return () => observer.disconnect();
+  }, []);
+
+  const isDark = typeof darkProp === "boolean"
+    ? darkProp
+    : (safeTheme ? safeTheme.isDark : domIsDark);
+
   const [open, setOpen] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -139,6 +169,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       );
       setIsInModal(inModal);
     }
+
   }, [open]);
 
   // Determine whether to render inline (mobile viewports or inside ANY dialog/modal/drawer on all screens)
@@ -289,7 +320,8 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   }, [open]);
 
   const handleSelect = (optValue: string) => {
-    onValueChange(optValue);
+    if (onValueChange) onValueChange(optValue);
+    if (onChange) onChange(optValue);
     setOpen(false);
     setSearchQuery("");
   };
@@ -303,9 +335,11 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
-        className={`flex items-center gap-2 px-3 py-2 border-b shrink-0 pointer-events-auto ${dark ? "border-zinc-800" : "border-gray-100"}`}
+        className={`flex items-center gap-2 px-3 py-2 border-b shrink-0 pointer-events-auto ${
+          isDark ? "border-zinc-800 bg-zinc-950/40" : "border-slate-100 bg-slate-50/60"
+        }`}
       >
-        <Search className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+        <Search className={`w-3.5 h-3.5 shrink-0 ${isDark ? "text-zinc-500" : "text-slate-400"}`} />
         <input
           ref={inputRef}
           type="text"
@@ -325,7 +359,9 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           }}
           onKeyUp={(e) => e.stopPropagation()}
           placeholder={searchPlaceholder}
-          className="w-full bg-transparent text-xs focus:outline-none placeholder-zinc-500 text-slate-900 dark:text-zinc-100 cursor-text"
+          className={`w-full bg-transparent text-xs focus:outline-none cursor-text ${
+            isDark ? "text-zinc-100 placeholder-zinc-500" : "text-slate-900 placeholder-slate-400"
+          }`}
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}
@@ -339,7 +375,9 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
               e.stopPropagation();
               setSearchQuery("");
             }}
-            className="text-zinc-400 hover:text-zinc-200 p-0.5 cursor-pointer"
+            className={`p-0.5 cursor-pointer transition-colors ${
+              isDark ? "text-zinc-400 hover:text-zinc-200" : "text-slate-400 hover:text-slate-600"
+            }`}
             title="Clear search"
           >
             <X className="size-3" />
@@ -354,7 +392,9 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
       >
         {filteredOptions.length === 0 ? (
-          <div className="p-3 text-center text-xs text-zinc-500">{emptyMessage}</div>
+          <div className={`p-3 text-center text-xs ${isDark ? "text-zinc-500" : "text-slate-400"}`}>
+            {emptyMessage}
+          </div>
         ) : (
           filteredOptions.map((opt) => {
             const isSelected = opt.value === value;
@@ -366,17 +406,25 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                 onClick={() => handleSelect(opt.value)}
                 className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer select-none text-left ${
                   isSelected
-                    ? "bg-emerald-500/10 text-emerald-400 font-medium"
-                    : dark
+                    ? isDark
+                      ? "bg-emerald-500/15 text-emerald-400 font-semibold"
+                      : "bg-emerald-50 text-emerald-700 font-semibold"
+                    : isDark
                     ? "hover:bg-zinc-800 text-zinc-300 active:bg-zinc-800"
-                    : "hover:bg-gray-100 text-gray-700 active:bg-gray-100"
+                    : "hover:bg-slate-100 text-slate-700 active:bg-slate-200"
                 }`}
               >
                 <span className="flex items-center gap-2 truncate min-w-0">
                   {opt.icon}
                   <span className="truncate">{opt.label}</span>
                 </span>
-                {isSelected && <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 ml-1.5" />}
+                {isSelected && (
+                  <Check
+                    className={`w-3.5 h-3.5 shrink-0 ml-1.5 ${
+                      isDark ? "text-emerald-400" : "text-emerald-600"
+                    }`}
+                  />
+                )}
               </button>
             );
           })
@@ -409,18 +457,28 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           }
         }}
         className={`w-full flex items-center justify-between px-3 py-2 rounded-xl border text-xs transition-all ${
-          dark
-            ? "bg-zinc-950 border-zinc-800 text-zinc-100 focus:border-emerald-500/60"
-            : "bg-white border-gray-200 text-gray-900 focus:border-emerald-500"
+          isDark
+            ? "bg-zinc-950 border-zinc-800 text-zinc-100 hover:border-zinc-700 focus:border-emerald-500/60"
+            : "bg-white border-slate-200 text-slate-900 hover:border-slate-300 focus:border-emerald-500 shadow-2xs"
         } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"} ${className}`}
       >
         <span className="flex items-center gap-2 truncate">
           {selectedOption?.icon}
-          <span className={selectedOption ? (dark ? "text-zinc-100" : "text-gray-900") : "text-zinc-500"}>
+          <span
+            className={
+              selectedOption
+                ? isDark
+                  ? "text-zinc-100"
+                  : "text-slate-900 font-medium"
+                : isDark
+                ? "text-zinc-500"
+                : "text-slate-400"
+            }
+          >
             {selectedOption ? selectedOption.label : placeholder}
           </span>
         </span>
-        <ChevronsUpDown className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+        <ChevronsUpDown className={`w-3.5 h-3.5 shrink-0 ${isDark ? "text-zinc-500" : "text-slate-400"}`} />
       </button>
 
       {/* Hybrid Dropdown: Inline on Mobile/Touch Drawers, Body Portal on Desktop */}
@@ -431,8 +489,10 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             data-vaul-no-drag=""
             onOpenAutoFocus={(e) => e.preventDefault()}
             onCloseAutoFocus={(e) => e.preventDefault()}
-            className={`absolute left-0 right-0 top-full mt-1.5 z-[9999] rounded-xl border shadow-2xl overflow-hidden pointer-events-auto animate-in fade-in-0 zoom-in-95 duration-100 ${
-              dark ? "bg-zinc-900 border-zinc-800 text-zinc-100" : "bg-white border-gray-200 text-gray-900"
+            className={`absolute left-0 right-0 top-full mt-1.5 z-[9999] rounded-xl border shadow-xl overflow-hidden pointer-events-auto animate-in fade-in-0 zoom-in-95 duration-100 ${
+              isDark
+                ? "bg-zinc-900 border-zinc-800 text-zinc-100 shadow-black/40"
+                : "bg-white border-slate-200 text-slate-900 shadow-slate-200/60"
             }`}
           >
             {dropdownContent}
@@ -453,8 +513,10 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                   zIndex: 9999,
                   pointerEvents: "auto",
                 }}
-                className={`z-[9999] rounded-xl border shadow-2xl overflow-hidden pointer-events-auto animate-in fade-in-0 zoom-in-95 duration-100 ${
-                  dark ? "bg-zinc-900 border-zinc-800 text-zinc-100" : "bg-white border-gray-200 text-gray-900"
+                className={`z-[9999] rounded-xl border shadow-xl overflow-hidden pointer-events-auto animate-in fade-in-0 zoom-in-95 duration-100 ${
+                  isDark
+                    ? "bg-zinc-900 border-zinc-800 text-zinc-100 shadow-black/40"
+                    : "bg-white border-slate-200 text-slate-900 shadow-slate-200/60"
                 }`}
               >
                 {dropdownContent}
@@ -464,4 +526,5 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         ))}
     </div>
   );
+
 };
