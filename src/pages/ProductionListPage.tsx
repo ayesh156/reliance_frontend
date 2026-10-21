@@ -2490,6 +2490,10 @@ export const ProductionListPage: React.FC = () => {
         order={selectedOrder}
         rawMaterialsList={rawMaterialsList}
         productsList={productsList}
+        onOpenMultiWash={(batch) => {
+          setIsDetailModalOpen(false);
+          setSendToWashBatch(batch);
+        }}
         onOrderUpdate={(updated) => {
           setSelectedOrder(updated);
           fetchProductionData();

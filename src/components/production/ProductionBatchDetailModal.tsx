@@ -49,7 +49,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { BatchStatusBadge } from './BatchStatusBadge';
 import { AppendFabricModal } from './AppendFabricModal';
-import { DateTimePicker } from '../ui/date-time-picker';
+import { ReturnScrapModal } from './ReturnScrapModal';
+import { FinalizeBatchModal } from './FinalizeBatchModal';
 
 export interface ProductionBatchDetailModalProps {
   open: boolean;
@@ -57,6 +58,7 @@ export interface ProductionBatchDetailModalProps {
   order: any | null;
   rawMaterialsList?: any[];
   productsList?: any[];
+  onOpenMultiWash?: (batch: any) => void;
   onOrderUpdate?: (updatedOrder: any) => void;
   onRefresh?: () => void;
   dark?: boolean;
@@ -68,6 +70,7 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
   order: initialOrder,
   rawMaterialsList = [],
   productsList = [],
+  onOpenMultiWash,
   onOrderUpdate,
   onRefresh,
   dark,
@@ -88,33 +91,14 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
   const [isAppendFabricOpen, setIsAppendFabricOpen] = useState(false);
 
   // -------------------------------------------------------------
-  // STATE 2: SEND TO WASH MODAL
+  // STATE 2: RETURN SCRAP MODAL
   // -------------------------------------------------------------
-  const [isSendToWashOpen, setIsSendToWashOpen] = useState(false);
-  const [sewnQuantity, setSewnQuantity] = useState<number | ''>('');
-  const [washDateTime, setWashDateTime] = useState<string>('');
-  const [washNotes, setWashNotes] = useState<string>('');
-  const [isSubmittingSendToWash, setIsSubmittingSendToWash] = useState(false);
+  const [isReturnScrapModalOpen, setIsReturnScrapModalOpen] = useState(false);
 
   // -------------------------------------------------------------
-  // STATE 3: RETURN UNUSED MATERIAL SCRAP MODAL
+  // STATE 3: FINALIZE TO STOCK MODAL
   // -------------------------------------------------------------
-  const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
-  const [returnLines, setReturnLines] = useState<
-    Array<{
-      usageId: number;
-      materialId: number;
-      materialName: string;
-      unit: string;
-      issuedQty: number;
-      totalCutQty: number;
-      previouslyReturnedQty: number;
-      maxReturnable: number;
-      additionalReturnQty: number | '';
-      returnReason: string;
-    }>
-  >([]);
-  const [isSubmittingReturns, setIsSubmittingReturns] = useState(false);
+  const [isFinalizeModalOpen, setIsFinalizeModalOpen] = useState(false);
 
   // -------------------------------------------------------------
   // STATE 4: CANCEL BATCH MODAL
@@ -209,109 +193,12 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
     return targetProductsList.reduce((sum, p) => sum + (Number(p.plannedQty) || 0), 0);
   }, [targetProductsList]);
 
-  // Open "Send to Wash" Modal
-  const handleOpenSendToWash = () => {
+  // Unified routing: Close detail modal and open parent's Multi-Product SendToWashModal
+  const handleTriggerSendToWash = () => {
     if (!order) return;
-    const target = totalPlannedFromProducts || order.targetQuantity || 0;
-    const currentCompleted = order.completedQty || 0;
-    const defaultQty = currentCompleted > 0 ? currentCompleted : target;
-    setSewnQuantity(defaultQty > 0 ? defaultQty : '');
-    setWashDateTime(new Date().toISOString().slice(0, 16));
-    setWashNotes('');
-    setIsSendToWashOpen(true);
-  };
-
-  // Submit "Send to Wash"
-  const handleSubmitSendToWash = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!order?.id) return;
-    const qty = Number(sewnQuantity);
-    if (!qty || isNaN(qty) || qty <= 0) {
-      toast.error('Please enter a valid number of sewn garments produced.');
-      return;
-    }
-
-    setIsSubmittingSendToWash(true);
-    try {
-      const res: any = await post(`/production/${order.id}/send-to-wash`, {
-        sewnQuantity: qty,
-        date: washDateTime ? new Date(washDateTime).toISOString() : new Date().toISOString(),
-        notes: washNotes.trim() || undefined,
-      });
-
-      toast.success(`Batch #${order.productionNo} successfully transitioned to WASHING (${qty} garments sent)`);
-      setIsSendToWashOpen(false);
-      const updated = res?.data || res;
-      if (updated) {
-        handleBatchUpdated(updated);
-      }
-    } catch (err: any) {
-      toast.error(err?.response?.data?.message || err?.message || 'Failed to send batch to wash');
-    } finally {
-      setIsSubmittingSendToWash(false);
-    }
-  };
-
-  // Open Return Leftover Scrap Modal
-  const handleOpenReturnMaterials = () => {
-    if (!order) return;
-    const lines = (order.materialUsages || []).map((u: any) => {
-      const totalCut = (order.cutLogs || [])
-        .filter((c: any) => c.rawMaterialId === u.rawMaterialId)
-        .reduce((sum: number, c: any) => sum + Number(c.quantityCut || 0), 0);
-      const previouslyReturned = Number(u.returnedQty || 0);
-      const maxReturnable = Math.max(0, Number((u.issuedQty - totalCut - previouslyReturned).toFixed(2)));
-
-      return {
-        usageId: u.id,
-        materialId: u.rawMaterialId,
-        materialName: u.rawMaterial?.name || 'Raw Material',
-        unit: u.rawMaterial?.unit || 'Units',
-        issuedQty: u.issuedQty,
-        totalCutQty: totalCut,
-        previouslyReturnedQty: previouslyReturned,
-        maxReturnable,
-        additionalReturnQty: '' as number | '',
-        returnReason: '',
-      };
-    });
-
-    setReturnLines(lines);
-    setIsReturnModalOpen(true);
-  };
-
-  // Submit Return Leftover Scrap
-  const handleSubmitReturnMaterials = async () => {
-    if (!order?.id) return;
-    const activeReturns = returnLines
-      .filter((l) => typeof l.additionalReturnQty === 'number' && l.additionalReturnQty > 0)
-      .map((l) => ({
-        usageId: l.usageId,
-        returnedQty: Number(l.additionalReturnQty),
-        isAdditional: true,
-        returnReason: l.returnReason?.trim() || 'Uncut leftover scrap returned to warehouse inventory',
-      }));
-
-    if (activeReturns.length === 0) {
-      toast.error('Please enter a return quantity for at least one raw material line');
-      return;
-    }
-
-    setIsSubmittingReturns(true);
-    try {
-      const res: any = await put(`/api/production/${order.id}/return-materials`, {
-        returns: activeReturns,
-      });
-      toast.success('Unused material returned to stock and ledger updated!');
-      setIsReturnModalOpen(false);
-      const updatedBatch = res?.data || res;
-      if (updatedBatch) {
-        handleBatchUpdated(updatedBatch);
-      }
-    } catch (err: any) {
-      toast.error(err?.response?.data?.message || err?.message || 'Failed to return materials');
-    } finally {
-      setIsSubmittingReturns(false);
+    onOpenChange(false);
+    if (onOpenMultiWash) {
+      onOpenMultiWash(order);
     }
   };
 
@@ -412,11 +299,11 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
                         <span>Add Fabric</span>
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        onClick={handleOpenReturnMaterials}
+                        onClick={() => setIsReturnScrapModalOpen(true)}
                         className="cursor-pointer gap-2 text-xs font-medium text-teal-700 dark:text-teal-400"
                       >
                         <RotateCcw className="w-4 h-4 text-teal-600" />
-                        <span>Return Unused Material</span>
+                        <span>Return Scrap Material</span>
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
@@ -537,7 +424,7 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={handleOpenReturnMaterials}
+                      onClick={() => setIsReturnScrapModalOpen(true)}
                       className="h-7 text-xs rounded-lg text-teal-700 dark:text-teal-400 border-teal-300 dark:border-teal-800 hover:bg-teal-50 dark:hover:bg-teal-950/50 flex items-center gap-1.5 font-semibold cursor-pointer shadow-2xs"
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
@@ -587,7 +474,7 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
                           {usage.issuedQty} {usage.rawMaterial?.unit}
                         </TableCell>
                         <TableCell className="text-xs text-right text-emerald-600 dark:text-emerald-400 font-semibold font-mono">
-                          {usage.returnedQty} {usage.rawMaterial?.unit}
+                          {(usage.returnedScrap ?? usage.returnedQty ?? 0)} {usage.rawMaterial?.unit}
                         </TableCell>
                         <TableCell className="text-xs text-right font-bold text-slate-900 dark:text-white font-mono">
                           {usage.netConsumedQty} {usage.rawMaterial?.unit}
@@ -603,14 +490,27 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
                 SECTION 2: TARGET FINISHED PRODUCTS (PLANNED OUTPUT)
             ═════════════════════════════════════════════════════════════════ */}
             <div className="space-y-2.5">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
-                  <Shirt className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Target Finished Garments</span>
-                </h4>
-                <Badge variant="outline" className="text-[10px] text-emerald-600 dark:text-emerald-400">
-                  {targetProductsList.length} Garment Style(s)
-                </Badge>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+                    <Shirt className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>Target Finished Garments</span>
+                  </h4>
+                  <Badge variant="outline" className="text-[10px] text-emerald-600 dark:text-emerald-400">
+                    {targetProductsList.length} Garment Style(s)
+                  </Badge>
+                </div>
+
+                {!isCancelled && !order.isStockSynced && (
+                  <Button
+                    size="sm"
+                    onClick={() => setIsFinalizeModalOpen(true)}
+                    className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg flex items-center gap-1.5 font-semibold cursor-pointer shadow-2xs"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Finalize &amp; Sync Stock</span>
+                  </Button>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -680,11 +580,11 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
                   <span>Add Fabric</span>
                 </Button>
 
-                {/* Send to Wash Button (End of Day Workflow) */}
+                {/* Send to Wash Button (Unified routing to parent Multi-Product SendToWashModal) */}
                 {isCutting && (
                   <Button
                     size="sm"
-                    onClick={handleOpenSendToWash}
+                    onClick={handleTriggerSendToWash}
                     className="h-8 text-xs bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl flex items-center gap-1.5 shadow-sm cursor-pointer font-semibold"
                   >
                     <Waves className="w-3.5 h-3.5" />
@@ -750,242 +650,31 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
       />
 
       {/* ─────────────────────────────────────────────────────────────
-          STREAMLINED MODAL 2: SEND TO WASH (END-OF-DAY WORKFLOW)
+          STREAMLINED MODAL 2: RETURN SCRAP / MATERIAL RELEASE
       ───────────────────────────────────────────────────────────── */}
-      <Dialog open={isSendToWashOpen} onOpenChange={setIsSendToWashOpen}>
-        <DialogContent className="w-[95vw] max-w-md bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-5 shadow-2xl">
-          <DialogHeader>
-            <div className="flex items-center gap-2.5">
-              <div className="size-9 rounded-xl bg-cyan-50 dark:bg-cyan-950/50 text-cyan-600 dark:text-cyan-400 flex items-center justify-center border border-cyan-200 dark:border-cyan-900/50">
-                <Waves className="w-4 h-4" />
-              </div>
-              <div>
-                <DialogTitle className="text-base font-bold text-slate-900 dark:text-white">
-                  Send to Wash Stage
-                </DialogTitle>
-                <p className="text-xs text-slate-500 dark:text-zinc-400">
-                  Batch #{order.productionNo} · {order.product?.name}
-                </p>
-              </div>
-            </div>
-          </DialogHeader>
-
-          <form onSubmit={handleSubmitSendToWash} className="space-y-3.5 pt-2">
-            <div className="p-3 rounded-xl bg-cyan-50/70 dark:bg-cyan-950/30 border border-cyan-200 dark:border-cyan-900/50 text-xs text-cyan-950 dark:text-cyan-200 space-y-1">
-              <div className="flex items-center gap-1.5 font-semibold">
-                <Waves className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
-                <span>End-of-Day Factory Handover:</span>
-              </div>
-              <p>
-                Enter the actual count of completed sewn garments ready for the washing plant today. This will transition the batch status to <strong>WASHING</strong>.
-              </p>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 block">
-                Actual Sewn Garments Produced Today <span className="text-rose-500">*</span>
-              </label>
-              <Input
-                type="number"
-                min="1"
-                step="1"
-                required
-                value={sewnQuantity}
-                onChange={(e) => setSewnQuantity(e.target.value === '' ? '' : Number(e.target.value))}
-                placeholder={`Planned target: ${totalPlannedFromProducts || order.targetQuantity} pcs`}
-                className="h-9 text-xs rounded-xl bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 font-mono font-bold text-cyan-700 dark:text-cyan-300"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 block">
-                Handover Date &amp; Time
-              </label>
-              <DateTimePicker
-                value={washDateTime}
-                onChange={setWashDateTime}
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 block">
-                Handover Remarks / Notes <span className="text-slate-400 font-normal">(Optional)</span>
-              </label>
-              <Input
-                type="text"
-                value={washNotes}
-                onChange={(e) => setWashNotes(e.target.value)}
-                placeholder="e.g. Sent 50 pcs to industrial washing plant"
-                className="h-9 text-xs rounded-xl bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800"
-              />
-            </div>
-
-            <DialogFooter className="gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800 flex-row justify-end">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setIsSendToWashOpen(false)}
-                className="text-xs rounded-xl"
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                size="sm"
-                disabled={isSubmittingSendToWash || !sewnQuantity}
-                className="bg-cyan-600 hover:bg-cyan-700 text-white text-xs rounded-xl font-semibold shadow-sm flex items-center gap-1.5 cursor-pointer"
-              >
-                {isSubmittingSendToWash ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Transitioning Status...</span>
-                  </>
-                ) : (
-                  <>
-                    <Waves className="w-3.5 h-3.5" />
-                    <span>Confirm &amp; Send to Wash</span>
-                  </>
-                )}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <ReturnScrapModal
+        open={isReturnScrapModalOpen}
+        onOpenChange={setIsReturnScrapModalOpen}
+        order={order}
+        dark={dark}
+        onSuccess={(updated) => {
+          handleBatchUpdated(updated);
+        }}
+      />
 
       {/* ─────────────────────────────────────────────────────────────
-          STREAMLINED MODAL 3: RETURN UNUSED MATERIAL SCRAP
+          STREAMLINED MODAL 3: FINALIZE TO STOCK SHORTCUT
       ───────────────────────────────────────────────────────────── */}
-      <Dialog open={isReturnModalOpen} onOpenChange={setIsReturnModalOpen}>
-        <DialogContent className="w-[95vw] max-w-lg sm:max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden rounded-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 shadow-2xl">
-          <DialogHeader className="px-5 py-4 border-b border-slate-100 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 z-10">
-            <div className="flex items-center gap-2.5">
-              <div className="size-9 rounded-xl bg-teal-50 dark:bg-teal-950/50 text-teal-600 dark:text-teal-400 flex items-center justify-center border border-teal-200 dark:border-teal-900/50">
-                <RotateCcw className="w-4 h-4" />
-              </div>
-              <div>
-                <DialogTitle className="text-base font-bold text-slate-900 dark:text-white">
-                  Return Unused Material to Inventory
-                </DialogTitle>
-                <p className="text-xs text-slate-500 dark:text-zinc-400">
-                  Batch #{order.productionNo} — Restores uncut fabric back into warehouse stock
-                </p>
-              </div>
-            </div>
-          </DialogHeader>
-
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {returnLines.length === 0 ? (
-              <div className="p-4 text-center text-xs text-slate-500">
-                No raw material lines found in this production batch.
-              </div>
-            ) : (
-              returnLines.map((line, idx) => (
-                <div
-                  key={line.usageId}
-                  className="p-3 bg-slate-50 dark:bg-zinc-900/60 rounded-xl border border-slate-200/80 dark:border-zinc-800 space-y-2 text-xs"
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-900 dark:text-white">
-                        {line.materialName}
-                      </h4>
-                      <p className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5">
-                        Issued: <span className="font-mono font-medium">{line.issuedQty} {line.unit}</span> · Previously Returned: <span className="font-mono font-medium text-teal-600">{line.previouslyReturnedQty} {line.unit}</span>
-                      </p>
-                    </div>
-                    <Badge variant="outline" className="text-[10px] font-mono text-emerald-700 dark:text-emerald-300">
-                      Max Returnable: {line.maxReturnable} {line.unit}
-                    </Badge>
-                  </div>
-
-                  {line.maxReturnable > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 border-t border-slate-200/60 dark:border-zinc-800/60">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-400 uppercase tracking-wider block">
-                          Quantity to Return ({line.unit})
-                        </label>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          min="0.01"
-                          max={line.maxReturnable}
-                          value={line.additionalReturnQty}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setReturnLines((prev) => {
-                              const copy = [...prev];
-                              copy[idx].additionalReturnQty = val === '' ? '' : Number(val);
-                              return copy;
-                            });
-                          }}
-                          placeholder={`Max ${line.maxReturnable} ${line.unit}`}
-                          className="h-8 text-xs rounded-lg bg-white dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 font-mono"
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-400 uppercase tracking-wider block">
-                          Return Scrap Reason / Note
-                        </label>
-                        <Input
-                          type="text"
-                          value={line.returnReason}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setReturnLines((prev) => {
-                              const copy = [...prev];
-                              copy[idx].returnReason = val;
-                              return copy;
-                            });
-                          }}
-                          placeholder="e.g. Uncut end roll saved"
-                          className="h-8 text-xs rounded-lg bg-white dark:bg-zinc-950 border-slate-200 dark:border-zinc-800"
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-[11px] text-slate-400 dark:text-zinc-500 italic pt-1 border-t border-slate-100 dark:border-zinc-800">
-                      All issued material for this line has been fully used or returned.
-                    </p>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-
-          <DialogFooter className="px-5 py-3.5 border-t border-slate-100 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 z-10 flex-row justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setIsReturnModalOpen(false)}
-              className="text-xs rounded-xl"
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              disabled={isSubmittingReturns}
-              onClick={handleSubmitReturnMaterials}
-              className="bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs rounded-xl shadow-sm flex items-center gap-1.5 cursor-pointer"
-            >
-              {isSubmittingReturns ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Restoring Stock...</span>
-                </>
-              ) : (
-                <>
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Restore Scrap to Inventory</span>
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <FinalizeBatchModal
+        open={isFinalizeModalOpen}
+        onOpenChange={setIsFinalizeModalOpen}
+        order={order}
+        productsList={productsList}
+        dark={dark}
+        onSuccess={(updated) => {
+          handleBatchUpdated(updated);
+        }}
+      />
 
       {/* ─────────────────────────────────────────────────────────────
           STREAMLINED MODAL 4: CANCEL BATCH CONFIRMATION
