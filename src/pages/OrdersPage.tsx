@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
-import { Badge } from '../components/ui/badge';
 import { DateRangePicker } from '../components/ui/date-range-picker';
 import { OrderDetailModal } from '../components/orders/OrderDetailModal';
 import {
@@ -15,7 +14,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../components/ui/alert-dialog';
-import { get, downloadBlob, post, del } from '../lib/api';
+import { get, downloadBlob, del } from '../lib/api';
 import { toast } from 'react-toastify';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -29,24 +28,26 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '../components/ui/dropdown-menu';
+import { TooltipSimple } from '../components/ui/Tooltip';
 import {
   Search,
   Plus,
   RefreshCw,
   FileDown,
+  Download,
   MessageSquare,
+  MessageCircle,
   ArrowRightCircle,
   Eye,
   Loader2,
-  Calendar,
   User,
   Phone,
-  Package,
   ShoppingCart,
   ChevronLeft,
   ChevronRight,
   MoreVertical,
   Edit,
+  Pencil,
   Banknote,
   Clock,
   SlidersHorizontal,
@@ -89,7 +90,7 @@ const formatLocalDate = (d: Date | undefined): string | undefined => {
 
 export const OrdersPage: React.FC = () => {
   const navigate = useNavigate();
-  const { user, isRep } = useAuth();
+  const { user } = useAuth();
   const { resolvedTheme } = useTheme();
   const dark = resolvedTheme === 'dark';
 
@@ -535,47 +536,59 @@ export const OrdersPage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── 2. Summary KPI Cards Grid (Fluid 3 Columns on Tablet Portrait ~534px) ── */}
+      {/* ── 2. Summary KPI Cards Grid (Dense, Zero-Overflow Responsive 3 Columns on Tablet ~534px) ── */}
       <div className="grid grid-cols-1 xs:grid-cols-3 gap-2 sm:gap-4 w-full">
         {/* Card 1: Total Presales Orders */}
-        <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
-          <div>
-            <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Presales Orders</span>
-            <h3 className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{totalOrdersCount}</h3>
-            <span className="text-[11px] text-slate-400 font-medium">All registered bookings</span>
+        <div className="overflow-hidden rounded-2xl border p-2.5 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center gap-2">
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <span className="text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-zinc-400 truncate block">
+              Total Presales Orders
+            </span>
+            <h3 className="text-lg xs:text-xl sm:text-2xl font-bold text-slate-900 dark:text-white mt-0.5 sm:mt-1 truncate leading-tight">
+              {totalOrdersCount}
+            </h3>
+            <span className="text-[10px] sm:text-[11px] text-slate-400 font-medium truncate block">
+              All registered bookings
+            </span>
           </div>
-          <div className="p-3 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-xl">
-            <ShoppingCart className="size-5" />
+          <div className="p-1.5 sm:p-3 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-lg sm:rounded-xl shrink-0 self-center">
+            <ShoppingCart className="size-4 sm:size-5" />
           </div>
         </div>
 
         {/* Card 2: Total Pipeline Value */}
-        <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
-          <div>
-            <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Pipeline Value</span>
-            <h3 className="text-2xl font-bold text-emerald-600 mt-1 font-mono">
+        <div className="overflow-hidden rounded-2xl border p-2.5 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center gap-2">
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <span className="text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-zinc-400 truncate block">
+              Total Pipeline Value
+            </span>
+            <h3 className="text-base xs:text-lg sm:text-2xl font-bold text-emerald-600 mt-0.5 sm:mt-1 font-mono truncate leading-tight">
               Rs. {totalPipelineValue.toLocaleString('en-LK')}
             </h3>
-            <span className="text-[11px] text-slate-400 font-medium">Active pipeline orders</span>
+            <span className="text-[10px] sm:text-[11px] text-slate-400 font-medium truncate block">
+              Active pipeline orders
+            </span>
           </div>
-          <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-xl">
-            <Banknote className="size-5" />
+          <div className="p-1.5 sm:p-3 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-lg sm:rounded-xl shrink-0 self-center">
+            <Banknote className="size-4 sm:size-5" />
           </div>
         </div>
 
         {/* Card 3: Pending Conversion Value */}
-        <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
-          <div>
-            <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Pending Conversion Value</span>
-            <h3 className="text-2xl font-bold mt-1 font-mono text-amber-600 dark:text-amber-400">
+        <div className="overflow-hidden rounded-2xl border p-2.5 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center gap-2">
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <span className="text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-zinc-400 truncate block">
+              Pending Conversion
+            </span>
+            <h3 className="text-base xs:text-lg sm:text-2xl font-bold mt-0.5 sm:mt-1 font-mono text-amber-600 dark:text-amber-400 truncate leading-tight">
               Rs. {pendingTotalValue.toLocaleString('en-LK')}
             </h3>
-            <span className="text-[11px] text-slate-400 font-medium">
+            <span className="text-[10px] sm:text-[11px] text-slate-400 font-medium truncate block">
               {pendingCount} {pendingCount === 1 ? 'order pending' : 'orders pending'}
             </span>
           </div>
-          <div className="p-3 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 rounded-xl">
-            <Clock className="size-5" />
+          <div className="p-1.5 sm:p-3 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 rounded-lg sm:rounded-xl shrink-0 self-center">
+            <Clock className="size-4 sm:size-5" />
           </div>
         </div>
       </div>
@@ -817,11 +830,16 @@ export const OrdersPage: React.FC = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 xs:grid-cols-2 gap-2.5 sm:gap-3.5">
-            {/* Order Cards: Fluid 2 columns on tablet portrait ~534px to eliminate excessive vertical scroll fatigue */}
+            {/* Order Cards: Fluid 2 columns on tablet portrait ~534px mirroring InvoicesPage layout */}
             {orders.map((order) => {
               const statusClass =
                 statusColors[order.status] ||
                 'bg-slate-100 text-slate-800 dark:bg-zinc-800 dark:text-zinc-300';
+              const subtotalAmt = Number(order.subtotal ?? (Number(order.totalAmount || 0) + Number(order.discount || 0)));
+              const discountAmt = Number(order.discount || 0);
+              const totalAmt = Number(order.totalAmount || 0);
+              const itemsCount = order.items?.length || 0;
+              const formattedDate = new Date(order.createdAt).toISOString().split('T')[0];
 
               return (
                 <div
@@ -830,73 +848,203 @@ export const OrdersPage: React.FC = () => {
                     setSelectedOrder(order);
                     setIsDetailModalOpen(true);
                   }}
-                  className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/70 p-3 sm:p-4 shadow-xs space-y-2.5 sm:space-y-3 cursor-pointer hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-md transition-all active:scale-[0.99] flex flex-col justify-between"
+                  className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/90 p-3 sm:p-3.5 shadow-xs space-y-2.5 sm:space-y-3 hover:border-slate-300 dark:hover:border-zinc-700 transition-colors w-full cursor-pointer flex flex-col justify-between"
                 >
-                  {/* Card Header: Clickable Order Ref, Role Badge, Date, Status & Action Menu */}
-                  <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-zinc-800">
-                    <div>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {/* Interactive Clickable Order ID for direct navigation to Edit Order */}
-                        <button
-                          type="button"
-                          onClick={(e) => handleEditOrder(e, order)}
-                          className="font-mono text-xs font-bold text-slate-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer text-left transition-colors"
-                          title={`Click to edit order #${order.orderNumber ? String(order.orderNumber).replace(/^#/, '') : `ORD-${order.id}`}`}
-                        >
-                          {order.orderNumber
-                            ? (String(order.orderNumber).startsWith('#') ? order.orderNumber : `#${order.orderNumber}`)
-                            : `#ORD-${order.id}`}
-                        </button>
-                        {getRoleBadge(order.user?.role)}
-                      </div>
-                      <span className="text-[11px] text-slate-400 block mt-0.5">
-                        {new Date(order.createdAt).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
-                        })}
+                  {/* Top Row: #ORD-id badge, Presale pill, Creator Role badge, Date, and status badge */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditOrder(e, order);
+                        }}
+                        className="font-mono font-bold text-xs px-2.5 py-1 rounded bg-slate-100 dark:bg-zinc-800 text-slate-900 dark:text-white cursor-pointer hover:underline hover:text-indigo-600 dark:hover:text-indigo-400 select-none"
+                        title="Click to edit presales order"
+                      >
+                        {order.orderNumber
+                          ? (String(order.orderNumber).startsWith('#') ? order.orderNumber : `#${order.orderNumber}`)
+                          : `#ORD-${order.id}`}
                       </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                      <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${statusClass}`}>
-                        {order.status}
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                        Presale
                       </span>
-                      {renderActionMenu(order)}
-                    </div>
-                  </div>
-
-                  {/* Customer Information & Sales Rep */}
-                  <div className="space-y-1 text-xs">
-                    <p className="font-bold text-slate-900 dark:text-white truncate">
-                      {order.customerName || order.customer?.name || 'Guest Customer'}
-                    </p>
-                    <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-zinc-400">
-                      <span className="font-mono flex items-center gap-1">
-                        <Phone className="size-3 text-slate-400" />
-                        {order.customerPhone || order.customer?.phone || 'No phone'}
-                      </span>
-                      {order.user?.name && (
-                        <span className="flex items-center gap-1 text-slate-600 dark:text-zinc-400 font-medium truncate max-w-[130px]">
-                          <User className="size-3 text-slate-400 shrink-0" />
-                          <span className="truncate">{order.user.name}</span>
+                      {order.user?.role && (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700">
+                          {order.user.role}
                         </span>
                       )}
                     </div>
-                  </div>
-
-                  {/* Financial & Items Summary */}
-                  <div className="flex items-center justify-between pt-2.5 border-t border-slate-100 dark:border-zinc-800 text-xs">
-                    <div className="flex items-center gap-1.5 text-slate-500">
-                      <Package className="size-3.5 text-slate-400" />
-                      <span>{order.items?.length || 0} line items</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 block leading-tight">Total</span>
-                      <span className="text-sm font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                        Rs. {Number(order.totalAmount || 0).toLocaleString('en-LK')}
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-slate-500 font-mono">
+                        {formattedDate}
+                      </span>
+                      <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${statusClass}`}>
+                        {order.status}
                       </span>
                     </div>
+                  </div>
+
+                  {/* Customer Info: Name, phone, and Sales Rep */}
+                  <div className="flex items-start justify-between gap-2 pt-1 border-t border-slate-100 dark:border-zinc-800/60">
+                    <div className="min-w-0">
+                      <h4
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditOrder(e, order);
+                        }}
+                        className="font-bold text-sm text-slate-900 dark:text-white truncate cursor-pointer hover:underline hover:text-indigo-600 dark:hover:text-indigo-400"
+                        title="Click to edit order"
+                      >
+                        {order.customerName || order.customer?.name || 'Guest Customer'}
+                      </h4>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-xs font-bold text-slate-800 dark:text-zinc-200 font-mono">
+                          {order.customerPhone || order.customer?.phone || 'No Contact'}
+                        </span>
+                      </div>
+                    </div>
+                    {order.user?.name && (
+                      <div className="text-right shrink-0">
+                        <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Sales Rep</span>
+                        <span className="text-xs font-medium text-slate-700 dark:text-zinc-300 truncate max-w-[120px] block">
+                          {order.user.name}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Financials & Items: Subtotal, Discount, Items Count, and Total Amount (mirroring InvoicesPage financials card) */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50/90 dark:bg-zinc-950/60 p-2.5 rounded-lg text-xs border border-slate-100 dark:border-zinc-800/60">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block uppercase">Subtotal</span>
+                      <span className="font-mono font-semibold text-slate-800 dark:text-zinc-200">
+                        Rs. {subtotalAmt.toLocaleString('en-LK')}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block uppercase">Discount</span>
+                      <span className="font-mono font-semibold text-slate-800 dark:text-zinc-200">
+                        Rs. {discountAmt.toLocaleString('en-LK')}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block uppercase">Items</span>
+                      <span className="font-mono font-bold text-slate-900 dark:text-white block">
+                        {itemsCount} {itemsCount === 1 ? 'line item' : 'line items'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block uppercase">Total Amount</span>
+                      <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 block">
+                        Rs. {totalAmt.toLocaleString('en-LK')}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Icon-Only Bottom Action Bar (< 1024px Cards):
+                      Identical to InvoicesPage Action Bar (WhatsApp, PDF, Edit, plus MoreVertical 3-dots) */}
+                  <div
+                    className="flex items-center justify-end gap-1.5 sm:gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800/60"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {/* Priority 1A: WhatsApp Share Action */}
+                    <TooltipSimple content="Send WhatsApp Order Message" side="top">
+                      <button
+                        type="button"
+                        onClick={(e) => handleShareWhatsApp(e, order)}
+                        className="size-9 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 shadow-2xs shrink-0"
+                        title="Send WhatsApp Order Message"
+                        aria-label="Send WhatsApp Order Message"
+                      >
+                        <MessageCircle className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                      </button>
+                    </TooltipSimple>
+
+                    {/* Priority 1B: PDF Download Action */}
+                    <TooltipSimple content="Download Order PDF" side="top">
+                      <button
+                        type="button"
+                        disabled={activePdfLoadingId === order.id}
+                        onClick={(e) => handleDownloadPdf(e, order)}
+                        className="size-9 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 dark:text-blue-400 flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 shadow-2xs shrink-0"
+                        title="Download Order PDF"
+                        aria-label="Download Order PDF"
+                      >
+                        {activePdfLoadingId === order.id ? (
+                          <Loader2 className="size-4 animate-spin text-blue-600 dark:text-blue-400" />
+                        ) : (
+                          <Download className="size-4 shrink-0 text-blue-600 dark:text-blue-400" />
+                        )}
+                      </button>
+                    </TooltipSimple>
+
+                    {/* Priority 2: Direct Edit Presales Order Action */}
+                    <TooltipSimple content="Edit Presales Order" side="top">
+                      <button
+                        type="button"
+                        onClick={(e) => handleEditOrder(e, order)}
+                        className="size-9 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 shadow-2xs shrink-0"
+                        title="Edit Presales Order"
+                        aria-label={`Edit Order ORD-${order.id}`}
+                      >
+                        <Pencil className="size-4 shrink-0 text-slate-600 dark:text-zinc-300" />
+                      </button>
+                    </TooltipSimple>
+
+                    {/* Priority 3: Consolidated 3-Dots Dropdown Menu for Secondary Actions */}
+                    <DropdownMenu modal={false}>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className="size-9 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-600 dark:text-zinc-300 flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 shadow-2xs shrink-0"
+                          title="More Order Actions"
+                          aria-label="More Order Actions"
+                        >
+                          <MoreVertical className="size-4.5" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" sideOffset={6} className="w-56 text-xs font-medium z-50">
+                        {/* 1. View Details Modal */}
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setSelectedOrder(order);
+                            setIsDetailModalOpen(true);
+                          }}
+                          className="gap-2.5 cursor-pointer py-2 text-slate-700 dark:text-zinc-200 font-medium"
+                        >
+                          <Eye className="size-4 text-slate-500" />
+                          <span>View Details</span>
+                        </DropdownMenuItem>
+
+                        {/* 2. Convert to Wholesale Invoice (if not yet converted) */}
+                        {order.status !== 'CONVERTED' && (
+                          <DropdownMenuItem
+                            onClick={(e) => handleConvertToInvoice(e, order)}
+                            className="gap-2.5 cursor-pointer py-2 text-emerald-600 dark:text-emerald-400 focus:text-emerald-700 font-semibold"
+                          >
+                            <ArrowRightCircle className="size-4 text-emerald-600 dark:text-emerald-400" />
+                            <span>Convert to Invoice</span>
+                          </DropdownMenuItem>
+                        )}
+
+                        {/* 3. Delete Order (Permission checked) */}
+                        {(user?.role === 'ADMIN' || (user?.role === 'REP' && (Number(order.userId) === Number(user?.id) || Number(order.userId) === Number((user as any)?.userId)))) && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOrderToDelete(order);
+                              }}
+                              className="gap-2.5 cursor-pointer py-2 text-rose-600 dark:text-rose-400 focus:text-rose-700 dark:focus:text-rose-300 font-medium"
+                            >
+                              <Trash2 className="size-4 text-rose-600 dark:text-rose-400" />
+                              <span>Delete Order</span>
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
               );

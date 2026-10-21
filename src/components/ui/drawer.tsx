@@ -39,8 +39,8 @@ const DrawerContent = React.forwardRef<
       )}
       {...props}
     >
-      {/* Visual drag handle indicator for touch ergonomics */}
-      <div className="mx-auto mt-2.5 mb-1 h-1.5 w-12 rounded-full bg-slate-300 dark:bg-zinc-700 shrink-0" />
+      {/* Visual drag handle indicator for touch ergonomics - remains white in light theme */}
+      <div className="mx-auto mt-2.5 mb-1 h-1.5 w-12 rounded-full bg-white dark:bg-zinc-700 border border-slate-200/90 dark:border-transparent shrink-0 shadow-xs" />
       {children}
     </DialogPrimitive.Content>
   </DrawerPortal>

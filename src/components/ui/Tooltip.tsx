@@ -35,24 +35,28 @@ const TooltipContent = React.forwardRef<
 ));
 TooltipContent.displayName = TooltipPrimitive.Content.displayName;
 
-/** Convenient Wrapper */
+/**
+ * Sleek, lightweight Tooltip wrapper taking content and children
+ */
 export function TooltipSimple({
   children,
   content,
-  side = 'right',
+  side = 'top',
   disabled = false,
+  className,
 }: {
   children: React.ReactNode;
   content: React.ReactNode;
   side?: 'top' | 'right' | 'bottom' | 'left';
   disabled?: boolean;
+  className?: string;
 }) {
   if (disabled || !content) return <>{children}</>;
 
   return (
     <Tooltip delayDuration={50}>
       <TooltipTrigger asChild>{children}</TooltipTrigger>
-      <TooltipContent side={side}>{content}</TooltipContent>
+      <TooltipContent side={side} className={className}>{content}</TooltipContent>
     </Tooltip>
   );
 }

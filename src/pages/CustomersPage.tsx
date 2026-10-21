@@ -40,6 +40,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '../components/ui/dropdown-menu';
+import { TooltipSimple } from '../components/ui/Tooltip';
 import {
   Search,
   Plus,
@@ -47,16 +48,14 @@ import {
   Edit2,
   Building,
   UserCheck,
+  Users,
   Loader2,
   X,
   MoreVertical,
   Receipt,
   MessageSquare,
   FileText, // ⭐ WhatsApp Action Icon
-  Phone,
-  MapPin,
   CreditCard,
-  Clock,
   Download,
   SlidersHorizontal,
 } from 'lucide-react';
@@ -212,7 +211,8 @@ export const CustomersPage: React.FC = () => {
   };
 
   /**
-   * Fetch customer's pending invoices and open WhatsApp account statement
+   * Fetch customer's pending invoices and in-hand uncleared cheques to open WhatsApp account statement.
+   * Leverages comprehensive due bills endpoint with fallback to pending invoices.
    */
   const handleSendCustomerDebtWhatsApp = async (cust: CustomerItem) => {
     if (!cust.phone) {
@@ -222,16 +222,33 @@ export const CustomersPage: React.FC = () => {
 
     const toastId = toast.loading(`Preparing debt statement for ${cust.name}...`);
     try {
-      // Fetch active unpaid invoices for itemized ledger breakdown
-      const invoices = await get<any[]>(`/orders/customers/${cust.id}/pending-invoices`);
-      const waMsg = generateCustomerDebtSummaryWhatsAppMessage(cust, Array.isArray(invoices) ? invoices : []);
+      // 1. Fetch live credit ledger including pending in-hand cheques & active bills
+      const dueData = await get<any>(`/credit/customers/${cust.id}/due-bills`);
+      const bills = Array.isArray(dueData?.bills) ? dueData.bills : [];
+      const pendingCheques = Array.isArray(dueData?.pendingCheques) ? dueData.pendingCheques : [];
+      const waCustomer = {
+        name: cust.name,
+        phone: cust.phone,
+        outstandingBalance: dueData?.customer?.outstandingBalance !== undefined ? dueData.customer.outstandingBalance : cust.outstandingBalance,
+      };
+      const waMsg = generateCustomerDebtSummaryWhatsAppMessage(waCustomer, bills, pendingCheques);
       toast.dismiss(toastId);
       openWhatsAppChat(cust.phone, waMsg);
     } catch {
-      toast.dismiss(toastId);
-      // Fallback statement if invoices endpoint fails
-      const waMsg = generateCustomerDebtSummaryWhatsAppMessage(cust, []);
-      openWhatsAppChat(cust.phone, waMsg);
+      try {
+        // Fallback: Fetch pending invoices endpoint
+        const invoices = await get<any>(`/orders/customers/${cust.id}/pending-invoices`);
+        const invList = Array.isArray(invoices) ? invoices : (invoices?.invoices || []);
+        const pendingCheques = invoices?.pendingCheques || [];
+        const waMsg = generateCustomerDebtSummaryWhatsAppMessage(cust, invList, pendingCheques);
+        toast.dismiss(toastId);
+        openWhatsAppChat(cust.phone, waMsg);
+      } catch {
+        toast.dismiss(toastId);
+        // Clean zero/standard fallback statement
+        const waMsg = generateCustomerDebtSummaryWhatsAppMessage(cust, []);
+        openWhatsAppChat(cust.phone, waMsg);
+      }
     }
   };
 
@@ -255,24 +272,27 @@ export const CustomersPage: React.FC = () => {
   }, []);
 
   /**
-   * Reset form fields for Add or Edit dialog
+   * Reset or populate customer creation/edit modal state.
+   * Automatically defaults and locks type to 'WHOLESALE' for Sales Representatives (REP).
    */
   const openModal = (cust?: CustomerItem) => {
     if (cust) {
       setEditingCustomer(cust);
       setName(cust.name);
       setPhone(cust.phone);
-      setType(cust.type);
+      // For REP, enforce WHOLESALE partner type silently; non-REP respects existing customer type
+      setType(isRep ? 'WHOLESALE' : cust.type);
       setNic(cust.nic || '');
       setCreditLimit(cust.creditLimit || '');
       setOutstandingBalance(cust.outstandingBalance !== undefined ? cust.outstandingBalance : '');
-      setAddress(cust.address || '');
+      setAddress(cust.address || cust.city || '');
       setNotes(cust.notes || '');
     } else {
       setEditingCustomer(null);
       setName('');
       setPhone('');
-      setType('RETAIL');
+      // Sales Representatives default strictly to wholesale partners
+      setType(isRep ? 'WHOLESALE' : 'RETAIL');
       setNic('');
       setCreditLimit('');
       setOutstandingBalance('');
@@ -283,7 +303,8 @@ export const CustomersPage: React.FC = () => {
   };
 
   /**
-   * Handle create or update customer form submission with Sri Lankan format assertions
+   * Handle create or update customer form submission with Sri Lankan format assertions.
+   * Silently enforces type: 'WHOLESALE' in payload when user has REP role.
    */
   const handleSaveCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -309,7 +330,8 @@ export const CustomersPage: React.FC = () => {
       const payload = {
         name: name.trim(),
         phone: phone.trim(),
-        type,
+        // Silently default and enforce type: 'WHOLESALE' for Sales Representatives
+        type: isRep ? 'WHOLESALE' : type,
         nic: nic.trim() || undefined,
         creditLimit: creditLimit ? Number(creditLimit) : 0,
         outstandingBalance: outstandingBalance !== '' ? Number(outstandingBalance) : 0,
@@ -401,23 +423,60 @@ export const CustomersPage: React.FC = () => {
         </Button>
       </div>
 
-      {/* Metrics Row: Fluid 3 columns on tablet portrait (~534px) */}
-      <div className="grid grid-cols-1 xs:grid-cols-3 gap-2 sm:gap-4">
-        <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800">
-          <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Customers</span>
-          <h3 className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{customers.length}</h3>
+      {/* ── Summary KPI Cards Grid (Dense, Zero-Overflow Responsive 3 Columns on Tablet ~534px) ── */}
+      <div className="grid grid-cols-1 xs:grid-cols-3 gap-2 sm:gap-4 w-full">
+        {/* Card 1: Total Customers */}
+        <div className="overflow-hidden rounded-2xl border p-2.5 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center gap-2">
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <span className="text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-zinc-400 truncate block">
+              Total Customers
+            </span>
+            <h3 className="text-lg xs:text-xl sm:text-2xl font-bold text-slate-900 dark:text-white mt-0.5 sm:mt-1 truncate leading-tight">
+              {customers.length}
+            </h3>
+            <span className="text-[10px] sm:text-[11px] text-slate-400 font-medium truncate block">
+              Registered accounts
+            </span>
+          </div>
+          <div className="p-1.5 sm:p-3 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-lg sm:rounded-xl shrink-0 self-center">
+            <Users className="size-4 sm:size-5" />
+          </div>
         </div>
-        <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800">
-          <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Retail Shoppers</span>
-          <h3 className="text-2xl font-bold text-emerald-600 mt-1">
-            {customers.filter(c => c.type === 'RETAIL').length}
-          </h3>
+
+        {/* Card 2: Retail Shoppers */}
+        <div className="overflow-hidden rounded-2xl border p-2.5 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center gap-2">
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <span className="text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-zinc-400 truncate block">
+              Retail Shoppers
+            </span>
+            <h3 className="text-lg xs:text-xl sm:text-2xl font-bold text-emerald-600 mt-0.5 sm:mt-1 truncate leading-tight">
+              {customers.filter(c => c.type === 'RETAIL').length}
+            </h3>
+            <span className="text-[10px] sm:text-[11px] text-slate-400 font-medium truncate block">
+              Active walk-in buyers
+            </span>
+          </div>
+          <div className="p-1.5 sm:p-3 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-lg sm:rounded-xl shrink-0 self-center">
+            <UserCheck className="size-4 sm:size-5" />
+          </div>
         </div>
-        <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800">
-          <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Outstanding Credit</span>
-          <h3 className="text-2xl font-bold text-rose-600 mt-1">
-            Rs. {totalOutstanding.toLocaleString()}
-          </h3>
+
+        {/* Card 3: Total Outstanding Credit */}
+        <div className="overflow-hidden rounded-2xl border p-2.5 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center gap-2">
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <span className="text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-zinc-400 truncate block">
+              Outstanding Credit
+            </span>
+            <h3 className="text-base xs:text-lg sm:text-2xl font-bold text-rose-600 mt-0.5 sm:mt-1 font-mono truncate leading-tight">
+              Rs. {totalOutstanding.toLocaleString()}
+            </h3>
+            <span className="text-[10px] sm:text-[11px] text-slate-400 font-medium truncate block">
+              Accumulated balance
+            </span>
+          </div>
+          <div className="p-1.5 sm:p-3 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 rounded-lg sm:rounded-xl shrink-0 self-center">
+            <CreditCard className="size-4 sm:size-5" />
+          </div>
         </div>
       </div>
 
@@ -685,46 +744,52 @@ export const CustomersPage: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Mobile Card Action Bar with Minimum 44x44px Accessible Touch Targets */}
-                    <div className="flex items-center gap-1.5 pt-2 border-t border-slate-100 dark:border-zinc-800/80">
-                      {/* Unified Bill History & Profile Action Button */}
-                      <button
-                        type="button"
-                        onClick={() => handleOpenCustomerBillHistory(cust)}
-                        className="flex-1 min-h-[44px] px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-800 dark:text-zinc-200 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer select-none active:scale-[0.98]"
-                        title="View customer bill history and profile"
-                      >
-                        <FileText className="size-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                        <span>Bill History &amp; Profile</span>
-                      </button>
-
-                      {/* Settle Due Action Button (shown when debt exists) */}
-                      {hasDebt && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedSettlementCustomer(cust);
-                            setIsDueSettlementOpen(true);
-                          }}
-                          className="min-h-[44px] px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer select-none active:scale-[0.98]"
-                          title="Settle Due Bills"
-                        >
-                          <Receipt className="size-4 shrink-0" />
-                          <span>Settle</span>
-                        </button>
-                      )}
-
-                      {/* Complete 3-Dots Dropdown Menu for Mobile Parity */}
-                      <DropdownMenu modal={false}>
-                        <DropdownMenuTrigger asChild>
+                    {/* Streamlined Icon-Only Action Bar: Compact 36x36px buttons cleanly aligned in a single row */}
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-zinc-800/80">
+                      <span className="text-[11px] font-medium text-slate-400 dark:text-zinc-500 truncate max-w-[150px]">
+                        {cust.city || 'Quick Actions'}
+                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {/* Bill History & Ledger Icon-Only Button */}
+                        <TooltipSimple content="Bill History & Ledger" side="top">
                           <button
                             type="button"
-                            className="min-h-[44px] min-w-[44px] px-2 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-600 dark:text-zinc-300 flex items-center justify-center transition-colors cursor-pointer select-none"
-                            title="More Customer Options"
+                            onClick={() => handleOpenCustomerBillHistory(cust)}
+                            className="size-9 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 flex items-center justify-center transition-colors cursor-pointer select-none active:scale-95 border border-slate-200/50 dark:border-zinc-700/50 shadow-2xs"
+                            title="Bill History & Ledger"
                           >
-                            <MoreVertical className="size-4" />
+                            <FileText className="size-4 text-blue-600 dark:text-blue-400 shrink-0" />
                           </button>
-                        </DropdownMenuTrigger>
+                        </TooltipSimple>
+
+                        {/* Settle Due Balance Icon-Only Button (shown when debt exists) */}
+                        {hasDebt && (
+                          <TooltipSimple content="Settle Due Balance" side="top">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedSettlementCustomer(cust);
+                                setIsDueSettlementOpen(true);
+                              }}
+                              className="size-9 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center transition-colors cursor-pointer select-none active:scale-95 shadow-2xs shadow-emerald-950/20"
+                              title="Settle Due Balance"
+                            >
+                              <CreditCard className="size-4 shrink-0" />
+                            </button>
+                          </TooltipSimple>
+                        )}
+
+                        {/* Complete 3-Dots Dropdown Menu */}
+                        <DropdownMenu modal={false}>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              className="size-9 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-600 dark:text-zinc-300 flex items-center justify-center transition-colors cursor-pointer select-none border border-slate-200/50 dark:border-zinc-700/50 shadow-2xs"
+                              title="More Customer Options"
+                            >
+                              <MoreVertical className="size-4" />
+                            </button>
+                          </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-52 text-xs font-medium">
                           <DropdownMenuItem
                             onClick={() => handleOpenCustomerBillHistory(cust)}
@@ -794,8 +859,9 @@ export const CustomersPage: React.FC = () => {
                       </DropdownMenu>
                     </div>
                   </div>
-                );
-              })}
+                </div>
+              );
+            })}
             </div>
           )}
         </div>
@@ -970,100 +1036,194 @@ export const CustomersPage: React.FC = () => {
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSaveCustomer} className="space-y-3 py-2">
-            <div className="space-y-1">
-              <label className="text-xs font-semibold">Customer / Shop Name *</label>
-              <Input
-                required
-                value={name}
-                onChange={e => setName(e.target.value)}
-                placeholder="e.g. Kasun Perera or Modern Textile"
-              />
-            </div>
+            {isRep ? (
+              /* REP-Specific Compact 2-Column Registration Layout: Eliminates Account Type dropdown & optimizes vertical height */
+              <div className="space-y-3">
+                {/* Row 1 (Full Width): Customer / Shop Name * */}
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold">Customer / Shop Name *</label>
+                  <Input
+                    required
+                    value={name}
+                    onChange={e => setName(e.target.value)}
+                    placeholder="e.g. Kasun Perera or Modern Textile"
+                  />
+                </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-xs font-semibold">Phone Number *</label>
-                <Input
-                  required
-                  value={phone}
-                  onChange={e => setPhone(e.target.value)}
-                  placeholder="0771234567"
-                />
+                {/* Row 2 (2 Columns): Phone Number * (left) | NIC Number (right) */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold">Phone Number *</label>
+                    <Input
+                      required
+                      value={phone}
+                      onChange={e => setPhone(e.target.value)}
+                      placeholder="0771234567"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold">NIC Number</label>
+                    <Input
+                      value={nic}
+                      onChange={e => setNic(e.target.value)}
+                      placeholder="e.g. 199512345678"
+                    />
+                  </div>
+                </div>
+
+                {/* Row 3 (2 Columns): Credit Limit (Rs) (left) | Opening / Old Due Balance (Rs) (right) */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold">Credit Limit (Rs)</label>
+                    <Input
+                      type="number"
+                      value={creditLimit}
+                      onChange={e => setCreditLimit(e.target.value ? Number(e.target.value) : '')}
+                      placeholder="e.g. 50000"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+                      Opening / Old Due Balance (Rs)
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={outstandingBalance}
+                      onChange={e => setOutstandingBalance(e.target.value ? Number(e.target.value) : '')}
+                      placeholder="0.00"
+                      className="font-mono"
+                      aria-label="Opening / Old Due Balance (Rs)"
+                    />
+                  </div>
+                </div>
+
+                {/* Row 4 (Full Width): Address / City */}
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold">Address / City</label>
+                  <Input
+                    value={address}
+                    onChange={e => setAddress(e.target.value)}
+                    placeholder="Street address and city"
+                  />
+                </div>
+
+                {/* Row 5 (Full Width): Notes */}
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold">Notes</label>
+                  <Input
+                    value={notes}
+                    onChange={e => setNotes(e.target.value)}
+                    placeholder="Customer preferences or credit terms"
+                  />
+                </div>
               </div>
-              <div className="space-y-1">
-                <label className="text-xs font-semibold">Account Type</label>
-                {/* SearchableSelect integration for standard Shadcn combobox appearance */}
-                {/* SearchableSelect adapts dynamically to active Light or Dark system theme */}
-                <SearchableSelect
-                  value={type}
-                  onValueChange={(val) => setType(val as 'RETAIL' | 'WHOLESALE')}
-                  options={[
-                    {
-                      value: 'RETAIL',
-                      label: 'Retail Shopper',
-                      icon: <UserCheck className="size-3.5 text-emerald-500" />,
-                    },
-                    {
-                      value: 'WHOLESALE',
-                      label: 'Wholesale (Shop Partner)',
-                      icon: <Building className="size-3.5 text-blue-500" />,
-                    },
-                  ]}
-                  placeholder="Select Account Type"
-                  searchPlaceholder="Search account type..."
-                  dark={dark}
-                />
+            ) : (
+              /* Non-REP Users (Admin / Staff): Full form with Account Type dropdown selector */
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold">Customer / Shop Name *</label>
+                  <Input
+                    required
+                    value={name}
+                    onChange={e => setName(e.target.value)}
+                    placeholder="e.g. Kasun Perera or Modern Textile"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold">Phone Number *</label>
+                    <Input
+                      required
+                      value={phone}
+                      onChange={e => setPhone(e.target.value)}
+                      placeholder="0771234567"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold">Account Type</label>
+                    <SearchableSelect
+                      value={type}
+                      onValueChange={(val) => setType(val as 'RETAIL' | 'WHOLESALE')}
+                      options={[
+                        {
+                          value: 'RETAIL',
+                          label: 'Retail Shopper',
+                          icon: <UserCheck className="size-3.5 text-emerald-500" />,
+                        },
+                        {
+                          value: 'WHOLESALE',
+                          label: 'Wholesale (Shop Partner)',
+                          icon: <Building className="size-3.5 text-blue-500" />,
+                        },
+                      ]}
+                      placeholder="Select Account Type"
+                      searchPlaceholder="Search account type..."
+                      dark={dark}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold">NIC Number</label>
+                    <Input
+                      value={nic}
+                      onChange={e => setNic(e.target.value)}
+                      placeholder="e.g. 199512345678"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold">Credit Limit (Rs)</label>
+                    <Input
+                      type="number"
+                      value={creditLimit}
+                      onChange={e => setCreditLimit(e.target.value ? Number(e.target.value) : '')}
+                      placeholder="e.g. 50000"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+                    Opening / Old Due Balance (Rs)
+                  </label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={outstandingBalance}
+                    onChange={e => setOutstandingBalance(e.target.value ? Number(e.target.value) : '')}
+                    placeholder="0.00"
+                    className="font-mono"
+                    aria-label="Opening / Old Due Balance (Rs)"
+                  />
+                  <p className="text-[10px] text-slate-400 dark:text-zinc-500">
+                    Initial debt ledger brought forward from prior invoices or legacy records.
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold">Address / City</label>
+                  <Input
+                    value={address}
+                    onChange={e => setAddress(e.target.value)}
+                    placeholder="Street address and city"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold">Notes</label>
+                  <Input
+                    value={notes}
+                    onChange={e => setNotes(e.target.value)}
+                    placeholder="Customer preferences or credit terms"
+                  />
+                </div>
               </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-xs font-semibold">NIC Number</label>
-                <Input
-                  value={nic}
-                  onChange={e => setNic(e.target.value)}
-                  placeholder="e.g. 199512345678"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-semibold">Credit Limit (Rs)</label>
-                <Input
-                  type="number"
-                  value={creditLimit}
-                  onChange={e => setCreditLimit(e.target.value ? Number(e.target.value) : '')}
-                  placeholder="e.g. 50000"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-semibold">Opening / Old Due Balance (Rs)</label>
-              <Input
-                type="number"
-                step="0.01"
-                value={outstandingBalance}
-                onChange={e => setOutstandingBalance(e.target.value ? Number(e.target.value) : '')}
-                placeholder="0.00"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-semibold">Address</label>
-              <Input
-                value={address}
-                onChange={e => setAddress(e.target.value)}
-                placeholder="Street address and city"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-semibold">Notes</label>
-              <Input
-                value={notes}
-                onChange={e => setNotes(e.target.value)}
-                placeholder="Customer preferences or credit terms"
-              />
-            </div>
+            )}
 
             <DialogFooter className="pt-2">
               <Button

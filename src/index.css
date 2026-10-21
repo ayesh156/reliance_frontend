@@ -180,6 +180,20 @@ html[data-scroll-locked] {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   }
+
+  /**
+   * Adaptive Invoice Card Container Query (Action Bar Dynamic Priority Slotting)
+   * Collapses lower-priority secondary actions when individual card width <= 270px
+   */
+  .invoice-card {
+    container-type: inline-size;
+  }
+}
+
+@container (max-width: 270px) {
+  .invoice-card .action-slot-collapsible {
+    display: none !important;
+  }
 }
 
 /* 80mm POS Receipt Print */

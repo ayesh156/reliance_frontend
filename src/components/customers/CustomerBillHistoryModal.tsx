@@ -341,7 +341,7 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
   };
 
   /**
-   * Dispatch WhatsApp statement summary for this customer.
+   * Dispatch WhatsApp statement summary for this customer including itemized invoices and pending cheques.
    */
   const handleWhatsAppStatement = () => {
     if (!customer) return;
@@ -350,12 +350,13 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
       return;
     }
     const dueInvoices = invoices.filter((i) => Math.max(0, i.totalAmount - i.paidAmount) > 0);
+    const pendingUnclearedCheques = customerCheques.filter((c) => c.statusLabel === 'PENDING' || c.status === 'PENDING');
     const waCustomer = {
       name: customer.name,
       outstandingBalance: Number(customer.outstandingBalance !== undefined ? customer.outstandingBalance : totalDue),
       phone: customer.phone,
     };
-    const waMsg = generateCustomerDebtSummaryWhatsAppMessage(waCustomer, dueInvoices);
+    const waMsg = generateCustomerDebtSummaryWhatsAppMessage(waCustomer, dueInvoices, pendingUnclearedCheques);
     openWhatsAppChat(customer.phone, waMsg);
   };
 

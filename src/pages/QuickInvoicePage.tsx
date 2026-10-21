@@ -17,7 +17,10 @@ import {
 } from '../components/ui/drawer';
 import { get, post, put } from '../lib/api';
 import { toast } from 'react-toastify';
-import { printInvoiceDirectly } from '../utils/print';
+import { printInvoiceDirectly, print80mmThermalReceiptDirectly } from '../utils/print';
+import { ThermalReceipt80mm } from '../components/pos/ThermalReceipt80mm';
+import { ProductPreviewModal } from '../components/pos/ProductPreviewModal';
+import { AnimatedInlineQtyInput } from '../components/pos/AnimatedInlineQtyInput';
 import { SplitPaymentModal, type SplitPaymentItem } from '../components/pos/SplitPaymentModal';
 import { isValidSriLankanNIC, isValidSriLankanPhone } from '../utils/validators';
 import { useTheme } from '../contexts/ThemeContext';
@@ -51,6 +54,7 @@ import {
   FileDown,
   MessageSquare,
   Percent,
+  Eye,
 } from 'lucide-react';
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../utils/whatsapp';
@@ -151,9 +155,10 @@ export const QuickInvoicePage: React.FC = () => {
   const [tempQtyInput, setTempQtyInput] = useState<string>('');
 
 
-  // Pagination state for product grid
+  // Pagination state for product grid:
+  // Set to 9 items per page to achieve an exact, symmetrical 3x3 layout in 3-column tablet view (grid-cols-3)
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 8;
+  const itemsPerPage = 9;
 
   // Checkout and Customer states
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('walk-in');
@@ -195,6 +200,8 @@ export const QuickInvoicePage: React.FC = () => {
   const [newCustPhone, setNewCustPhone] = useState('');
   const [newCustAddress, setNewCustAddress] = useState('');
   const [newCustNic, setNewCustNic] = useState('');
+  const [newCustCreditLimit, setNewCustCreditLimit] = useState('');
+  const [newCustNotes, setNewCustNotes] = useState('');
   const [newCustOutstandingBalance, setNewCustOutstandingBalance] = useState('');
   const [creatingCustomer, setCreatingCustomer] = useState(false);
 
@@ -204,6 +211,11 @@ export const QuickInvoicePage: React.FC = () => {
   const [updatingPrevDue, setUpdatingPrevDue] = useState(false);
 
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
+
+  // ⭐ Tablet Viewport (534x893) REP Optimizations: Preview Modal & 80mm Print Layout States
+  const [previewVariant, setPreviewVariant] = useState<CatalogVariant | null>(null);
+  const [previewModalOpen, setPreviewModalOpen] = useState<boolean>(false);
+  const [savedOrderForPrint, setSavedOrderForPrint] = useState<any | null>(null);
 
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
@@ -999,6 +1011,71 @@ export const QuickInvoicePage: React.FC = () => {
   };
 
   /**
+   * ⭐ Retrieve the current quantity of a specific variant already assigned to the order cart
+   */
+  const getVariantCartQty = (variantId: number): number => {
+    return cart.find((i) => i.variantId === variantId)?.quantity || 0;
+  };
+
+  /**
+   * ⭐ Set specific quantity for variant in cart directly with full inventory validation
+   * Seamlessly synchronized with both AnimatedInlineQtyInput (3-col grid) and ProductPreviewModal.
+   */
+  const setVariantQuantity = (variant: CatalogVariant, targetQty: number) => {
+    if (targetQty <= 0) {
+      setCart((prev) => prev.filter((i) => i.variantId !== variant.id));
+      return;
+    }
+
+    if (targetQty > variant.stock) {
+      toast.warn(`Only ${variant.stock} available in stock for "${variant.product.name}"`);
+      targetQty = variant.stock;
+    }
+
+    const price = pricingMode === 'WHOLESALE' ? variant.wholesalePrice : variant.retailPrice;
+    const sizeText = (variant as any).sizes || variant.size || '';
+    const colorText = (variant as any).colors || variant.color || '';
+
+    setCart((prev) => {
+      const existingIndex = prev.findIndex((i) => i.variantId === variant.id);
+      if (existingIndex > -1) {
+        const next = [...prev];
+        const existing = next[existingIndex];
+        const updatedDisc = calculateLineDiscount(
+          existing.unitPrice,
+          targetQty,
+          existing.discountType,
+          existing.discountInput
+        );
+        next[existingIndex] = {
+          ...existing,
+          quantity: targetQty,
+          discount: updatedDisc,
+        };
+        return next;
+      } else {
+        return [
+          ...prev,
+          {
+            variantId: variant.id,
+            name: variant.product.name,
+            size: sizeText,
+            color: colorText,
+            selectedSize: sizeText,
+            selectedColor: colorText,
+            sku: variant.sku,
+            imageUrl: variant.product.images?.[0]?.imageUrl,
+            unitPrice: price,
+            quantity: targetQty,
+            maxStock: variant.stock,
+            itemKey: `${variant.id}_${Date.now()}`,
+          },
+        ];
+      }
+    });
+  };
+
+  /**
    * Handle Click on Catalog Product:
    * Immediately adds product variant to cart without prompt.
    */
@@ -1320,16 +1397,24 @@ export const QuickInvoicePage: React.FC = () => {
   /**
    * Filter and paginate catalog items
    */
+  /**
+   * Universal Global Product Search Filter:
+   * Inspects each catalog variant and matches search queries against product name, SKU, or barcode.
+   * Fully case-insensitive and whitespace-trimmed to guarantee instant real-time filtering
+   * across barcode scans, alphanumeric SKUs, and partial garment titles.
+   */
   const filteredCatalog = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return catalog;
-    return catalog.filter(
-      (v) =>
-        v.product.name.toLowerCase().includes(q) ||
-        v.sku.toLowerCase().includes(q) ||
-        (v.barcode && v.barcode.toLowerCase().includes(q)) ||
-        (v.product.searchKey && v.product.searchKey.toLowerCase().includes(q))
-    );
+    return catalog.filter((v) => {
+      const nameMatch = v.product?.name ? v.product.name.toLowerCase().includes(q) : false;
+      const skuMatch = v.sku ? v.sku.toLowerCase().includes(q) : false;
+      const barcodeMatch = v.barcode ? v.barcode.toLowerCase().includes(q) : false;
+      const searchKeyMatch = v.product?.searchKey ? v.product.searchKey.toLowerCase().includes(q) : false;
+      const sizeMatch = v.size ? v.size.toLowerCase().includes(q) : false;
+      const colorMatch = v.color ? v.color.toLowerCase().includes(q) : false;
+      return nameMatch || skuMatch || barcodeMatch || searchKeyMatch || sizeMatch || colorMatch;
+    });
   }, [catalog, searchQuery]);
 
   const totalPages = Math.ceil(filteredCatalog.length / itemsPerPage) || 1;
@@ -1363,8 +1448,11 @@ export const QuickInvoicePage: React.FC = () => {
   // Subtotal and Net Payable Total calculation
   // Gross Subtotal (sum of unitPrice * quantity across all items)
   const grossSubtotal = useMemo(() => cart.reduce((acc, curr) => acc + curr.unitPrice * curr.quantity, 0), [cart]);
-  // Total Item-level discounts
-  const totalItemDiscounts = useMemo(() => cart.reduce((acc, curr) => acc + (Number(curr.discount) || 0), 0), [cart]);
+  // Total Item-level discounts (sum of all line-item discounts)
+  const totalItemDiscounts = useMemo(
+    () => cart.reduce((acc, curr) => acc + (Number((curr as any).discountAmount ?? curr.discount ?? 0)), 0),
+    [cart]
+  );
   // Net Subtotal after deducting item-level discounts
   const subtotal = Math.max(0, grossSubtotal - totalItemDiscounts);
 
@@ -1577,22 +1665,39 @@ export const QuickInvoicePage: React.FC = () => {
 
     setCreatingCustomer(true);
     try {
+      const parsedBalance = newCustOutstandingBalance !== '' ? Number(newCustOutstandingBalance) : 0;
       const created = await post<any>('/customers', {
         name: newCustName.trim(),
         phone: newCustPhone.trim(),
         address: newCustAddress.trim() || undefined,
         nic: newCustNic.trim() || undefined,
-        outstandingBalance: newCustOutstandingBalance ? Number(newCustOutstandingBalance) : 0,
-        type: pricingMode === 'WHOLESALE' ? 'WHOLESALE' : 'RETAIL',
+        creditLimit: newCustCreditLimit ? Number(newCustCreditLimit) : 0,
+        notes: newCustNotes.trim() || undefined,
+        outstandingBalance: parsedBalance,
+        // REP users strictly create wholesale customer partner accounts
+        type: isRepUser ? 'WHOLESALE' : (pricingMode === 'WHOLESALE' ? 'WHOLESALE' : 'RETAIL'),
       });
       toast.success(`Customer "${created.name}" registered!`);
-      setCustomers((prev) => [created, ...prev]);
+      const effectiveCustBal = Number(created.outstandingBalance) || parsedBalance;
+      const newCustomerObj: PosCustomer = {
+        id: created.id,
+        name: created.name,
+        phone: created.phone || '',
+        address: created.address || '',
+        city: created.city || '',
+        creditLimit: Number(created.creditLimit) || 0,
+        outstandingBalance: effectiveCustBal,
+      };
+      setCustomers((prev) => [newCustomerObj, ...prev]);
       setSelectedCustomerId(String(created.id));
+      setPreviousDue(effectiveCustBal);
       setCustomerModalOpen(false);
       setNewCustName('');
       setNewCustPhone('');
       setNewCustAddress('');
       setNewCustNic('');
+      setNewCustCreditLimit('');
+      setNewCustNotes('');
       setNewCustOutstandingBalance('');
     } catch (err: any) {
       toast.error(err.message || 'Failed to add customer');
@@ -1754,8 +1859,8 @@ export const QuickInvoicePage: React.FC = () => {
           selectedSize: i.size,
           selectedColor: i.color,
         })),
-        subtotal,
-        discount: discountAmount,
+        subtotal: grossSubtotal,
+        discount: totalItemDiscounts + discountAmount,
         discountType,
         discountInput,
         discountRate: discountType === 'PERCENT' ? (discountInput > 0 ? discountInput : undefined) : undefined,
@@ -1837,17 +1942,38 @@ export const QuickInvoicePage: React.FC = () => {
 
         const completeOrderObj = {
           ...resultOrder,
-          items: (resultOrder?.items || []).map((ri: any, rIdx: number) => ({
-            ...ri,
-            discount: checkoutCartSnapshot[rIdx]?.discount !== undefined ? checkoutCartSnapshot[rIdx]?.discount : (ri.discount || 0),
-            discountType: checkoutCartSnapshot[rIdx]?.discountType || ri.discountType,
-            discountInput: checkoutCartSnapshot[rIdx]?.discountInput,
-            price: checkoutCartSnapshot[rIdx]?.unitPrice ? Math.max(0, (checkoutCartSnapshot[rIdx].unitPrice * checkoutCartSnapshot[rIdx].quantity) - (checkoutCartSnapshot[rIdx].discount || 0)) : ri.price,
-            size: checkoutCartSnapshot[rIdx]?.size || ri.size || ri.variant?.size,
-            color: checkoutCartSnapshot[rIdx]?.color || ri.color || ri.variant?.color,
-            selectedSize: checkoutCartSnapshot[rIdx]?.size || ri.size || ri.variant?.size,
-            selectedColor: checkoutCartSnapshot[rIdx]?.color || ri.color || ri.variant?.color,
-          })),
+          items: (resultOrder?.items || []).map((ri: any, rIdx: number) => {
+            const snap = checkoutCartSnapshot[rIdx] as any;
+            const resolvedName =
+              snap?.name ||
+              snap?.productName ||
+              snap?.product?.name ||
+              ri.variant?.product?.name ||
+              ri.product?.name ||
+              ri.name ||
+              ri.title ||
+              'Item';
+            return {
+              ...ri,
+              name: resolvedName,
+              title: resolvedName,
+              productName: resolvedName,
+              product: {
+                ...(ri.product || {}),
+                name: resolvedName,
+              },
+              unitPrice: snap?.unitPrice || ri.unitPrice || ri.wholesalePrice || (ri.quantity ? ((ri.price || 0) + (ri.discount || 0)) / ri.quantity : 0),
+              wholesalePrice: snap?.unitPrice || ri.wholesalePrice || ri.unitPrice,
+              discount: snap?.discount !== undefined ? snap?.discount : (ri.discount || 0),
+              discountType: snap?.discountType || ri.discountType,
+              discountInput: snap?.discountInput,
+              price: snap?.unitPrice ? Math.max(0, (snap.unitPrice * snap.quantity) - (snap.discount || 0)) : ri.price,
+              size: snap?.size || ri.size || ri.variant?.size,
+              color: snap?.color || ri.color || ri.variant?.color,
+              selectedSize: snap?.size || ri.size || ri.variant?.size,
+              selectedColor: snap?.color || ri.color || ri.variant?.color,
+            };
+          }),
           customer: resultOrder.customer || (targetCustomer ? {
             id: targetCustomer.id,
             name: targetCustomer.name,
@@ -1859,24 +1985,36 @@ export const QuickInvoicePage: React.FC = () => {
           tenderedAmount: resolvedTendered,
           paidAmount: resolvedPaid,
           settledDueAmount: finalSettledDue,
-          discount: discountAmount,
+          subtotal: grossSubtotal,
+          discount: totalItemDiscounts + discountAmount,
           discountAmount: discountAmount,
           discountType,
           discountRate: discountType === 'PERCENT' ? (discountInput > 0 ? discountInput : undefined) : undefined,
         };
 
         setMobileCartOpen(false);
+        setSavedOrderForPrint(completeOrderObj);
 
         // Technical Print Trigger: Immediately open native browser print dialogue via headless hidden iframe.
-        // Bypasses intermediate preview modal popup, providing an immediate Pay Now & Print / Update & Print experience.
-        // Upon print completion or dismissal, safely redirects back to invoices list or resets the POS state.
-        printInvoiceDirectly(completeOrderObj, () => {
-          if (isEditing) {
-            navigate('/system/invoices');
-          } else {
-            bootstrapPos();
-          }
-        });
+        // For Sales Reps (REP role), targets dedicated 80mm thermal receipt layout (X-Printer format).
+        // For Cashier/Desktop users, targets standard A4 invoice document.
+        if (isRepUser) {
+          print80mmThermalReceiptDirectly(completeOrderObj, () => {
+            if (isEditing) {
+              navigate('/system/invoices');
+            } else {
+              bootstrapPos();
+            }
+          });
+        } else {
+          printInvoiceDirectly(completeOrderObj, () => {
+            if (isEditing) {
+              navigate('/system/invoices');
+            } else {
+              bootstrapPos();
+            }
+          });
+        }
       } else if (mode === 'SAVE_AND_WHATSAPP') {
         const targetCustomer = customers.find((c) => String(c.id) === String(selectedCustomerId));
         const updatedCustomerBal = resultOrder?.customer?.outstandingBalance !== undefined
@@ -1907,7 +2045,8 @@ export const QuickInvoicePage: React.FC = () => {
           tenderedAmount: resolvedTendered,
           paidAmount: resolvedPaid,
           settledDueAmount: finalSettledDue,
-          discount: discountAmount,
+          subtotal: grossSubtotal,
+          discount: totalItemDiscounts + discountAmount,
           discountAmount: discountAmount,
           discountType,
           discountRate: discountType === 'PERCENT' ? (discountInput > 0 ? discountInput : undefined) : undefined,
@@ -1949,81 +2088,166 @@ export const QuickInvoicePage: React.FC = () => {
     <div className="flex flex-col lg:flex-row gap-2.5 sm:gap-3 h-[calc(100vh-64px)] max-h-[calc(100vh-64px)] -mx-2 -my-3 sm:-mx-4 sm:-my-4 lg:-mx-8 lg:-my-8 p-2 sm:p-2.5 lg:p-3 overflow-hidden pb-16 lg:pb-0">
       {/* Left Column: Catalog Browser & Quick Scanner */}
       <div className="flex-1 flex flex-col gap-2 min-w-0 bg-white dark:bg-zinc-900/60 p-2.5 sm:p-3 rounded-2xl border border-slate-200 dark:border-zinc-800 overflow-hidden">
-        {/* Top Controls: Search, Barcode & Pricing Mode */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Barcode Quick Scanner Form */}
-          <form onSubmit={handleBarcodeScan} className="relative flex-1 min-w-[200px]">
-            <Barcode className="absolute left-3 top-2.5 size-4 text-slate-400" />
-            <Input
-              ref={barcodeInputRef}
-              value={barcodeInput}
-              onChange={(e) => setBarcodeInput(e.target.value)}
-              placeholder="Scan Barcode / SKU..."
-              className="pl-9 h-9 text-xs font-mono"
-            />
-          </form>
+        {/* Top Controls: Conditional Header Architecture */}
+        {isRepUser ? (
+          /* =========================================================================
+           * 1. Top Header & Customer Selection Overhaul for REP (534px Tablet Viewport):
+           * Completely hides "Scan Barcode" input and "Wholesale (Locked)" toggle.
+           * Features a highly prominent Customer Selection component with inline Due Balance.
+           * ========================================================================= */
+          <div className="flex flex-col gap-2 p-2 sm:p-2.5 rounded-xl bg-slate-50 dark:bg-zinc-950/70 border border-slate-200/80 dark:border-zinc-800/80 shadow-2xs">
+            {/* Prominent Customer Selection Row: Exact matching input and button heights */}
+            <div className="flex items-stretch gap-2">
+              <div className="flex-1 min-w-0">
+                <SearchableSelect
+                  className="h-10 rounded-xl"
+                  value={selectedCustomerId}
+                  onValueChange={setSelectedCustomerId}
+                  options={[
+                    { value: 'walk-in', label: 'Walk-in Customer (General)' },
+                    ...customers.map((c) => {
+                      const effectiveDue = computeCustomerPreviousDue(c, isEditing, originalInvoice);
+                      return {
+                        value: String(c.id),
+                        label: `${c.name} (${c.phone})${effectiveDue > 0 ? ` · Due: Rs. ${Number(effectiveDue).toLocaleString()}` : ''}`,
+                      };
+                    }),
+                  ]}
+                  placeholder="Select customer / account..."
+                  searchPlaceholder="Search customer by name or phone..."
+                  dark={dark}
+                />
+              </div>
 
-          {/* Keyword Search */}
-          <div className="relative flex-1 min-w-[180px]">
-            <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
-            <Input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Filter by title, size, tags..."
-              className="pl-9 h-9 text-xs"
-            />
-          </div>
+              {/* Quick Customer Registration Trigger (Height explicitly 40px to match input exactly) */}
+              <Button
+                type="button"
+                onClick={() => setCustomerModalOpen(true)}
+                className="h-10 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-xl gap-1.5 shrink-0 shadow-2xs active:scale-95 transition-all cursor-pointer"
+                title="Register New Customer"
+              >
+                <UserPlus className="size-4" />
+                <span className="hidden sm:inline">+ Customer</span>
+              </Button>
+            </div>
 
-          {/* Pricing Mode Toggle: Retail vs Wholesale */}
-          <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 shrink-0">
-            {isRepUser ? (
-              <span className="px-3 py-1.5 min-h-[44px] sm:min-h-[36px] text-xs font-bold rounded-lg bg-blue-600 text-white shadow-sm flex items-center justify-center gap-1.5 select-none" title="Pricing mode locked to Wholesale for Representatives">
-                Wholesale (Locked)
-              </span>
-            ) : (
-              <>
+            {/* Inline Customer Live Status & Due Balance Strip */}
+            {selectedCustomer && (
+              <div
+                className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg border text-xs transition-all ${
+                  previousDue > 0
+                    ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/50 text-amber-900 dark:text-amber-200'
+                    : 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/40 text-emerald-900 dark:text-emerald-200'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <User className="size-3.5 shrink-0 opacity-70" />
+                  <span className="font-bold text-xs truncate">{selectedCustomer.name}</span>
+                  <span className="text-[10.5px] opacity-75 truncate">
+                    ({selectedCustomer.phone}{selectedCustomer.city ? ` · ${selectedCustomer.city}` : ''})
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="text-[10px] font-bold uppercase tracking-wider opacity-80">Due Balance:</span>
+                  <span className="font-mono font-extrabold text-xs sm:text-sm">
+                    {previousDue > 0 ? `Rs. ${previousDue.toLocaleString()}` : 'Rs. 0 (Cleared)'}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Catalog Keyword Search */}
+            <div className="relative w-full">
+              <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Filter catalog by product title, size, tags..."
+                className="pl-9 h-9 text-xs"
+              />
+              {searchQuery && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setPricingMode('RETAIL');
-                    // Dynamically reprice cart items to Retail prices
-                    setCart(prev => prev.map(item => {
-                      const matched = catalog.find(c => c.id === item.variantId);
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 cursor-pointer"
+                  title="Clear search"
+                >
+                  <X className="size-4" />
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          /* Standard Cashier Desktop Top Controls */
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Barcode Quick Scanner Form */}
+            <form onSubmit={handleBarcodeScan} className="relative flex-1 min-w-[200px]">
+              <Barcode className="absolute left-3 top-2.5 size-4 text-slate-400" />
+              <Input
+                ref={barcodeInputRef}
+                value={barcodeInput}
+                onChange={(e) => setBarcodeInput(e.target.value)}
+                placeholder="Scan Barcode / SKU..."
+                className="pl-9 h-9 text-xs font-mono"
+              />
+            </form>
+
+            {/* Keyword Search */}
+            <div className="relative flex-1 min-w-[180px]">
+              <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Filter by title, size, tags..."
+                className="pl-9 h-9 text-xs"
+              />
+            </div>
+
+            {/* Pricing Mode Toggle: Retail vs Wholesale */}
+            <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setPricingMode('RETAIL');
+                  setCart((prev) =>
+                    prev.map((item) => {
+                      const matched = catalog.find((c) => c.id === item.variantId);
                       const newPrice = matched ? matched.retailPrice : item.unitPrice;
                       return { ...item, unitPrice: newPrice };
-                    }));
-                  }}
-                  className={`px-3 py-1.5 min-h-[44px] sm:min-h-[36px] text-xs font-bold rounded-lg transition-colors cursor-pointer ${pricingMode === 'RETAIL'
-                      ? 'bg-emerald-600 text-white shadow-sm'
-                      : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
-                    }`}
-                >
-                  Retail
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPricingMode('WHOLESALE');
-                    // Dynamically reprice cart items to Wholesale prices
-                    setCart(prev => prev.map(item => {
-                      const matched = catalog.find(c => c.id === item.variantId);
+                    })
+                  );
+                }}
+                className={`px-3 py-1.5 min-h-[44px] sm:min-h-[36px] text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                  pricingMode === 'RETAIL'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
+                }`}
+              >
+                Retail
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPricingMode('WHOLESALE');
+                  setCart((prev) =>
+                    prev.map((item) => {
+                      const matched = catalog.find((c) => c.id === item.variantId);
                       const newPrice = matched ? matched.wholesalePrice : item.unitPrice;
                       return { ...item, unitPrice: newPrice };
-                    }));
-                  }}
-                  className={`px-3 py-1.5 min-h-[44px] sm:min-h-[36px] text-xs font-bold rounded-lg transition-colors cursor-pointer ${pricingMode === 'WHOLESALE'
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
-                    }`}
-                >
-                  Wholesale
-                </button>
-              </>
-            )}
-          </div>
+                    })
+                  );
+                }}
+                className={`px-3 py-1.5 min-h-[44px] sm:min-h-[36px] text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                  pricingMode === 'WHOLESALE'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
+                }`}
+              >
+                Wholesale
+              </button>
+            </div>
 
-          {/* Quick Register Product Button - Hidden for REP (read-only catalog) */}
-          {!isRepUser && (
+            {/* Quick Register Product Button */}
             <Button
               type="button"
               variant="outline"
@@ -2034,8 +2258,8 @@ export const QuickInvoicePage: React.FC = () => {
             >
               <Plus className="size-3.5" /> Product
             </Button>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Product Visual Grid (With Images) */}
         <div className="flex-1 overflow-y-auto pr-1">
@@ -2050,13 +2274,15 @@ export const QuickInvoicePage: React.FC = () => {
               <p className="text-xs">No products matched current search.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+            /* =========================================================================
+             * 2. Forced 3-Column Product Grid in 534px Tablet Viewport (`grid-cols-3`):
+             * Features a subtle top-left "Eye" icon to open the full-display preview modal.
+             * 3. Animated Inline Quantity Input:
+             * Current Stock placed clearly at bottom-left, modern Add/Input icon with smooth
+             * right-to-left slide/expand numerical input box at bottom-right.
+             * ========================================================================= */
+            <div className="grid grid-cols-3 xl:grid-cols-4 gap-2">
               {paginatedCatalog.map((v) => {
-                // Production-safe dynamic API URL resolution
-                const apiHost = import.meta.env.VITE_API_URL
-                  ? import.meta.env.VITE_API_URL.replace(/\/api\/?$/, '')
-                  : window.location.origin;
-
                 // Priority 1: Variant directly bound imageUrl or images array
                 const variantDirectImage = (v as any).imageUrl || (v as any).images?.[0]?.imageUrl;
 
@@ -2077,24 +2303,40 @@ export const QuickInvoicePage: React.FC = () => {
                 const resolvedUrl = targetImg ? resolveImageUrl(targetImg) : null;
 
                 const currentPrice = pricingMode === 'WHOLESALE' ? v.wholesalePrice : v.retailPrice;
+                const cartQty = getVariantCartQty(v.id);
 
                 const sizesList = (v.size || '').split(',').map((s) => s.trim()).filter(Boolean);
                 const colorsList = (v.color || '').split(',').map((c) => c.trim()).filter(Boolean);
                 const isMultiOption = sizesList.length > 1 || colorsList.length > 1;
 
                 return (
-                  <button
+                  <div
                     key={v.id}
-                    type="button"
-                    disabled={v.stock <= 0}
-                    onClick={() => handleCatalogItemClick(v)}
-                    className={`flex flex-col text-left rounded-xl border p-2.5 transition-all group relative overflow-hidden cursor-pointer ${v.stock <= 0
-                        ? 'opacity-40 cursor-not-allowed border-slate-200 dark:border-zinc-800'
-                        : 'border-slate-200 dark:border-zinc-800 hover:border-emerald-500 hover:shadow-md bg-white dark:bg-zinc-950'
-                      }`}
+                    className={`flex flex-col text-left rounded-xl border p-2 transition-all group relative overflow-hidden bg-white dark:bg-zinc-950 ${
+                      v.stock <= 0
+                        ? 'opacity-40 border-slate-200 dark:border-zinc-800'
+                        : 'border-slate-200 dark:border-zinc-800 hover:border-emerald-500 hover:shadow-md'
+                    }`}
                   >
+                    {/* Subtle Eye Icon for Full Specs & Preview Modal (Top-Left) */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPreviewVariant(v);
+                        setPreviewModalOpen(true);
+                      }}
+                      className="absolute top-1.5 left-1.5 z-10 size-6 rounded-md bg-black/40 hover:bg-black/70 text-white/90 hover:text-white backdrop-blur-xs flex items-center justify-center transition-all cursor-pointer shadow-xs active:scale-95"
+                      title="Quick Preview & Specs"
+                    >
+                      <Eye className="size-3.5" />
+                    </button>
+
                     {/* Thumbnail Image */}
-                    <div className="w-full aspect-square rounded-lg bg-slate-100 dark:bg-zinc-900 mb-2 overflow-hidden flex items-center justify-center relative">
+                    <div
+                      onClick={() => handleCatalogItemClick(v)}
+                      className="w-full aspect-square rounded-lg bg-slate-100 dark:bg-zinc-900 mb-1.5 overflow-hidden flex items-center justify-center relative cursor-pointer"
+                    >
                       {resolvedUrl ? (
                         <img 
                           src={resolvedUrl} 
@@ -2105,33 +2347,60 @@ export const QuickInvoicePage: React.FC = () => {
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform" 
                         />
                       ) : (
-                        <Package className="size-8 text-slate-300 dark:text-zinc-700" />
+                        <Package className="size-6 text-slate-300 dark:text-zinc-700" />
                       )}
                       {isMultiOption && (
-                        <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-emerald-600/90 text-white font-bold text-[8px] tracking-wide uppercase backdrop-blur-xs shadow-xs">
-                          Multi-Option
+                        <span className="absolute bottom-1 right-1 px-1 py-0.5 rounded bg-emerald-600/90 text-white font-bold text-[7.5px] tracking-wide uppercase backdrop-blur-xs shadow-xs">
+                          Multi
                         </span>
                       )}
                     </div>
 
-                    <h4 className="font-semibold text-xs text-slate-900 dark:text-white line-clamp-1">{v.product.name}</h4>
+                    {/* Product Name */}
+                    <h4
+                      onClick={() => handleCatalogItemClick(v)}
+                      className="font-semibold text-[11px] text-slate-900 dark:text-white line-clamp-1 leading-tight cursor-pointer"
+                      title={v.product.name}
+                    >
+                      {v.product.name}
+                    </h4>
 
-                    <div className="flex flex-wrap items-center gap-1 my-1">
-                      <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-zinc-900 text-slate-700 dark:text-zinc-300 truncate max-w-[110px]" title={v.size || 'FREE'}>
-                        {sizesList.length > 2 ? `${sizesList.slice(0, 2).join(', ')}...` : (v.size || 'FREE')}
+                    {/* Variants pill & subtle Product Number / SKU badge */}
+                    <div className="flex items-center justify-between gap-1 my-0.5">
+                      <span className="font-mono text-[9px] font-bold px-1 py-0.5 rounded bg-slate-100 dark:bg-zinc-900 text-slate-700 dark:text-zinc-300 truncate max-w-[55%]">
+                        {v.size || 'FREE'} {v.color ? `· ${v.color}` : ''}
                       </span>
-                      <span className="text-[10px] text-slate-500 truncate max-w-[90px]" title={v.color || 'Default'}>
-                        {colorsList.length > 2 ? `${colorsList.slice(0, 2).join(', ')}...` : (v.color || 'Default')}
-                      </span>
+                      {(v.sku || v.barcode) && (
+                        <span
+                          className="text-[10px] font-mono text-slate-400 dark:text-zinc-500 bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded truncate max-w-[45%] shrink-0"
+                          title={`Product / SKU: ${v.sku || v.barcode}`}
+                        >
+                          {v.sku || v.barcode}
+                        </span>
+                      )}
                     </div>
 
-                    <div className="flex items-center justify-between mt-auto pt-1">
-                      <span className="font-mono font-bold text-xs text-emerald-600 dark:text-emerald-400">
-                        Rs. {Number(currentPrice).toLocaleString()}
-                      </span>
-                      <span className="text-[10px] font-mono text-slate-400">Stock: {v.stock}</span>
+                    {/* Price display */}
+                    <div className="font-mono font-bold text-[11px] text-emerald-600 dark:text-emerald-400 mt-0.5">
+                      Rs. {Number(currentPrice).toLocaleString()}
                     </div>
-                  </button>
+
+                    {/* Bottom Row: Current Stock & Zero-Shift Animated Inline Quantity Input */}
+                    <div className="flex items-center justify-between mt-auto pt-1 border-t border-slate-100 dark:border-zinc-900 min-h-[32px]">
+                      <span className="text-[10px] font-mono text-slate-500 dark:text-zinc-400 font-medium">
+                        Stock: {v.stock}
+                      </span>
+
+                      {/* Zero-Layout-Shift Inline Quantity Input */}
+                      <AnimatedInlineQtyInput
+                        maxStock={v.stock}
+                        currentQty={cartQty}
+                        onApplyQty={(qty) => setVariantQuantity(v, qty)}
+                        productName={v.product.name}
+                        overlayBottom={true}
+                      />
+                    </div>
+                  </div>
                 );
               })}
             </div>
@@ -2529,21 +2798,29 @@ export const QuickInvoicePage: React.FC = () => {
             )}
           </div>
 
-          {/* Subtotal & Discount Breakdown */}
-          <div className="flex flex-col gap-1 text-xs bg-slate-50/60 dark:bg-zinc-950/40 p-2 rounded-lg border border-slate-100 dark:border-zinc-800">
-            {/* Sub Total */}
+          {/* Subtotal & Discount Breakdown: Visually separated into Item Total Discount and Bill Discount */}
+          <div className="flex flex-col gap-1.5 text-xs bg-slate-50/60 dark:bg-zinc-950/40 p-2.5 rounded-lg border border-slate-100 dark:border-zinc-800">
+            {/* Row 1: Sub Total (Gross before line discounts) */}
             <div className="flex items-center justify-between text-slate-600 dark:text-zinc-400">
               <span className="font-semibold text-slate-700 dark:text-zinc-300">Sub Total:</span>
-              <span className="font-mono font-bold text-slate-900 dark:text-white">Rs. {subtotal.toLocaleString()}</span>
+              <span className="font-mono font-bold text-slate-900 dark:text-white">Rs. {grossSubtotal.toLocaleString()}</span>
             </div>
 
-            {/* Order Discount Controls */}
+            {/* Row 2: Item Total Discount (Sum of all line-item discounts) */}
+            <div className="flex items-center justify-between text-slate-600 dark:text-zinc-400 pt-1 border-t border-slate-200/60 dark:border-zinc-800/60">
+              <span className="text-[11px] font-medium text-slate-600 dark:text-zinc-400">Item Total Discount:</span>
+              <span className={`font-mono font-bold text-[11px] ${totalItemDiscounts > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
+                {totalItemDiscounts > 0 ? `- Rs. ${totalItemDiscounts.toLocaleString()}` : 'Rs. 0'}
+              </span>
+            </div>
+
+            {/* Row 3: Bill Discount Controls (Order-level discount) */}
             <div className="flex flex-wrap items-center justify-between gap-1 pt-1 border-t border-slate-200/60 dark:border-zinc-800/60">
               <div className="flex items-center gap-1">
-                <span className="text-slate-600 dark:text-zinc-400 font-medium text-[11px]">Disc:</span>
+                <span className="text-slate-600 dark:text-zinc-400 font-medium text-[11px]">Bill Discount:</span>
                 <div 
                   className="inline-flex rounded border border-slate-200 dark:border-zinc-800 p-0.5 bg-slate-100 dark:bg-zinc-900 shrink-0"
-                  title={`Total Discount Mode: ${discountType === 'PERCENT' ? 'Percentage (%)' : 'Fixed Amount (Rs)'} (Auto-detected)`}
+                  title={`Bill Discount Mode: ${discountType === 'PERCENT' ? 'Percentage (%)' : 'Fixed Amount (Rs)'} (Auto-detected)`}
                 >
                   <button
                     type="button"
@@ -2907,9 +3184,9 @@ export const QuickInvoicePage: React.FC = () => {
       </div>
 
       {/* Floating Bottom Sticky Cart Bar (< 1024px) */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 p-3 bg-zinc-950/90 border-t border-zinc-800 z-40 backdrop-blur-md flex items-center justify-between gap-3 shadow-2xl">
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 p-3 bg-white dark:bg-zinc-900 border-t border-slate-200 dark:border-zinc-800 z-40 backdrop-blur-md flex items-center justify-between gap-3 shadow-2xl">
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="relative p-2 rounded-xl bg-zinc-900 text-emerald-400 border border-zinc-800 shrink-0">
+          <div className="relative p-2 rounded-xl bg-slate-100 dark:bg-zinc-800 text-emerald-600 dark:text-emerald-400 border border-slate-200 dark:border-zinc-700 shrink-0">
             <ShoppingCart className="size-5" />
             {cart.length > 0 && (
               <span className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 rounded-full bg-emerald-600 text-white font-mono font-bold text-[10px] flex items-center justify-center shadow-xs">
@@ -2918,10 +3195,10 @@ export const QuickInvoicePage: React.FC = () => {
             )}
           </div>
           <div className="min-w-0">
-            <div className="text-[11px] text-zinc-400 truncate font-medium">
+            <div className="text-[11px] text-slate-600 dark:text-zinc-400 truncate font-medium">
               {selectedCustomer ? selectedCustomer.name : 'Walk-in Customer'}
             </div>
-            <div className="font-mono font-extrabold text-sm sm:text-base text-emerald-400 leading-tight">
+            <div className="font-mono font-extrabold text-sm sm:text-base text-emerald-600 dark:text-emerald-400 leading-tight">
               Rs. {total.toLocaleString()}
             </div>
           </div>
@@ -2930,7 +3207,7 @@ export const QuickInvoicePage: React.FC = () => {
         <Button
           type="button"
           onClick={() => setMobileCartOpen(true)}
-          className="min-h-[48px] h-12 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-lg shadow-emerald-950/40 shrink-0 cursor-pointer active:scale-95 transition-all"
+          className="min-h-[48px] h-12 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-lg shadow-emerald-950/20 dark:shadow-emerald-950/40 shrink-0 cursor-pointer active:scale-95 transition-all"
         >
           <ShoppingCart className="size-4" />
           <span>Review Order &amp; Checkout</span>
@@ -3313,21 +3590,29 @@ export const QuickInvoicePage: React.FC = () => {
 
             {/* Financial Ledger & Payment Method in Mobile Drawer (Zone 2 scrollable workspace) */}
             <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-2">
-              {/* Subtotal & Discount Breakdown */}
-              <div className="flex flex-col gap-1 text-xs bg-slate-50/60 dark:bg-zinc-950/40 p-1.5 rounded-lg border border-slate-100 dark:border-zinc-800">
-                {/* Row 1: Sub Total */}
+              {/* Subtotal & Discount Breakdown: Visually separated into Item Total Discount and Bill Discount */}
+              <div className="flex flex-col gap-1.5 text-xs bg-slate-50/60 dark:bg-zinc-950/40 p-2 rounded-lg border border-slate-100 dark:border-zinc-800">
+                {/* Row 1: Sub Total (Gross) */}
                 <div className="flex items-center justify-between text-slate-600 dark:text-zinc-400">
                   <span className="font-semibold text-slate-700 dark:text-zinc-300">Sub Total:</span>
-                  <span className="font-mono font-bold text-slate-900 dark:text-white">Rs. {subtotal.toLocaleString()}</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-white">Rs. {grossSubtotal.toLocaleString()}</span>
                 </div>
 
-                {/* Row 2: Order Discount Controls & Dynamic Badge in Mobile Drawer */}
-                <div className="flex flex-wrap items-center justify-between gap-1 pt-0.5 border-t border-slate-200/60 dark:border-zinc-800/60">
+                {/* Row 2: Item Total Discount */}
+                <div className="flex items-center justify-between text-slate-600 dark:text-zinc-400 pt-1 border-t border-slate-200/60 dark:border-zinc-800/60">
+                  <span className="text-[11px] font-medium text-slate-600 dark:text-zinc-400">Item Total Discount:</span>
+                  <span className={`font-mono font-bold text-[11px] ${totalItemDiscounts > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
+                    {totalItemDiscounts > 0 ? `- Rs. ${totalItemDiscounts.toLocaleString()}` : 'Rs. 0'}
+                  </span>
+                </div>
+
+                {/* Row 3: Bill Discount Controls & Dynamic Badge in Mobile Drawer */}
+                <div className="flex flex-wrap items-center justify-between gap-1 pt-1 border-t border-slate-200/60 dark:border-zinc-800/60">
                   <div className="flex items-center gap-1">
-                    <span className="text-slate-600 dark:text-zinc-400 font-medium text-[11px]">Disc:</span>
+                    <span className="text-slate-600 dark:text-zinc-400 font-medium text-[11px]">Bill Discount:</span>
                     <div 
                       className="inline-flex rounded border border-slate-200 dark:border-zinc-800 p-0.5 bg-slate-100 dark:bg-zinc-900 shrink-0"
-                      title={`Total Discount Mode: ${discountType === 'PERCENT' ? 'Percentage (%)' : 'Fixed Amount (Rs)'} (Auto-detected)`}
+                      title={`Bill Discount Mode: ${discountType === 'PERCENT' ? 'Percentage (%)' : 'Fixed Amount (Rs)'} (Auto-detected)`}
                     >
                       <button
                         type="button"
@@ -3629,49 +3914,114 @@ export const QuickInvoicePage: React.FC = () => {
 
           {/* Zone 3: Bottom Sticky Action Bar (shrink-0 sticky bottom-0 bg-white dark:bg-zinc-950 border-t pt-2.5 pb-3 px-3 z-10 shadow-sm) */}
             <div className="shrink-0 sticky bottom-0 bg-white dark:bg-zinc-950 border-t border-slate-100 dark:border-zinc-800 pt-2.5 pb-3 px-3 z-10 shadow-sm space-y-1.5">
-              {/* Action Buttons in Mobile Drawer (Compact 2-Column Grid) */}
-              <div className="grid grid-cols-2 gap-1.5 w-full">
-                <Button
-                  type="button"
-                  disabled={cart.length === 0 || submitting}
-                  onClick={() => handleCheckout('SAVE_ONLY')}
-                  className="h-9 min-h-[36px] gap-1 bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-100 dark:border-zinc-700 text-xs font-semibold rounded-lg shadow-2xs cursor-pointer transition-all active:scale-[0.98]"
-                >
-                  {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3 text-slate-700 dark:text-zinc-300" />}
-                  <span>{isEditing ? 'Save Only' : 'Save Invoice'}</span>
-                </Button>
-                <Button
-                  type="button"
-                  disabled={cart.length === 0 || submitting}
-                  onClick={() => handleCheckout('SAVE_AND_PDF')}
-                  className="h-9 min-h-[36px] gap-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-2xs cursor-pointer transition-all active:scale-[0.98]"
-                >
-                  {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <FileDown className="size-3 text-white" />}
-                  <span>Download PDF</span>
-                </Button>
-              </div>
-              <div className="flex items-center justify-center gap-2.5 pt-0.5 pb-0">
-                <button
-                  type="button"
-                  disabled={cart.length === 0 || submitting}
-                  onClick={() => handleCheckout('SAVE_AND_WHATSAPP')}
-                  className="text-[10.5px] font-semibold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[22px] py-0"
-                >
-                  <MessageSquare className="size-2.5" />
-                  <span>Save &amp; WhatsApp</span>
-                </button>
-                <span className="text-slate-300 dark:text-zinc-700 text-xs">|</span>
-                <button
-                  type="button"
-                  disabled={cart.length === 0 || submitting}
-                  onClick={() => handleCheckout('SAVE_AND_PRINT')}
-                  className="text-[10.5px] font-semibold text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[22px] py-0"
-                  title="Direct Native Print Receipt"
-                >
-                  <Printer className="size-2.5" />
-                  <span>{isEditing ? 'Update & Print' : 'Pay Now & Print'}</span>
-                </button>
-              </div>
+              {/* =========================================================================
+               * 6. "Pay Now & Print" Workflow:
+               * In the checkout drawer for REPs, replace standard "Save Invoice" with primary
+               * "Pay Now & Print" action button triggering save API & 80mm thermal receipt print.
+               * ========================================================================= */}
+              {isRepUser ? (
+                <div className="space-y-1.5 w-full">
+                  {/* Primary "Pay Now & Print" and "Save & PDF" Action Buttons Row */}
+                  <div className="grid grid-cols-2 gap-2 w-full">
+                    {/* Pay Now & Print Button */}
+                    <Button
+                      type="button"
+                      disabled={cart.length === 0 || submitting}
+                      onClick={() => handleCheckout('SAVE_AND_PRINT')}
+                      className="h-11 min-h-[44px] gap-1.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold text-xs sm:text-sm rounded-xl shadow-md shadow-emerald-950/20 cursor-pointer transition-all active:scale-[0.98] px-2 truncate"
+                    >
+                      {submitting ? (
+                        <Loader2 className="size-4 animate-spin shrink-0" />
+                      ) : (
+                        <Printer className="size-4 text-white shrink-0" />
+                      )}
+                      <span className="truncate">{isEditing ? 'Update & Print' : 'Pay Now & Print'}</span>
+                    </Button>
+
+                    {/* Save & PDF Button */}
+                    <Button
+                      type="button"
+                      disabled={cart.length === 0 || submitting}
+                      onClick={() => handleCheckout('SAVE_AND_PDF')}
+                      className="h-11 min-h-[44px] gap-1.5 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-bold text-xs sm:text-sm rounded-xl shadow-md shadow-blue-950/20 cursor-pointer transition-all active:scale-[0.98] px-2 truncate"
+                    >
+                      {submitting ? (
+                        <Loader2 className="size-4 animate-spin shrink-0" />
+                      ) : (
+                        <FileDown className="size-4 text-white shrink-0" />
+                      )}
+                      <span className="truncate">Save &amp; PDF</span>
+                    </Button>
+                  </div>
+
+                  {/* Secondary REP Fast Actions */}
+                  <div className="grid grid-cols-2 gap-1.5 w-full">
+                    <Button
+                      type="button"
+                      disabled={cart.length === 0 || submitting}
+                      onClick={() => handleCheckout('SAVE_ONLY')}
+                      className="h-8 min-h-[32px] gap-1 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-200 dark:border-zinc-700 text-xs font-semibold rounded-lg shadow-2xs cursor-pointer transition-all"
+                    >
+                      <Save className="size-3" />
+                      <span>Save Only</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      disabled={cart.length === 0 || submitting}
+                      onClick={() => handleCheckout('SAVE_AND_WHATSAPP')}
+                      className="h-8 min-h-[32px] gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 dark:text-emerald-300 dark:border-emerald-800 text-xs font-semibold rounded-lg shadow-2xs cursor-pointer transition-all"
+                    >
+                      <MessageSquare className="size-3" />
+                      <span>WhatsApp</span>
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                /* Standard Desktop/Cashier Drawer Action Buttons */
+                <>
+                  <div className="grid grid-cols-2 gap-2 w-full">
+                    <Button
+                      type="button"
+                      disabled={cart.length === 0 || submitting}
+                      onClick={() => handleCheckout('SAVE_AND_PRINT')}
+                      className="h-10 min-h-[40px] gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-2xs cursor-pointer transition-all active:scale-[0.98]"
+                    >
+                      {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <Printer className="size-3.5 text-white" />}
+                      <span className="truncate">{isEditing ? 'Update & Print' : 'Pay Now & Print'}</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      disabled={cart.length === 0 || submitting}
+                      onClick={() => handleCheckout('SAVE_AND_PDF')}
+                      className="h-10 min-h-[40px] gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-2xs cursor-pointer transition-all active:scale-[0.98]"
+                    >
+                      {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <FileDown className="size-3.5 text-white" />}
+                      <span className="truncate">Save &amp; PDF</span>
+                    </Button>
+                  </div>
+                  <div className="flex items-center justify-center gap-2.5 pt-0.5 pb-0">
+                    <button
+                      type="button"
+                      disabled={cart.length === 0 || submitting}
+                      onClick={() => handleCheckout('SAVE_ONLY')}
+                      className="text-[10.5px] font-semibold text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[22px] py-0"
+                    >
+                      <Save className="size-2.5" />
+                      <span>{isEditing ? 'Save Only' : 'Save Invoice'}</span>
+                    </button>
+                    <span className="text-slate-300 dark:text-zinc-700 text-xs">|</span>
+                    <button
+                      type="button"
+                      disabled={cart.length === 0 || submitting}
+                      onClick={() => handleCheckout('SAVE_AND_WHATSAPP')}
+                      className="text-[10.5px] font-semibold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[22px] py-0"
+                    >
+                      <MessageSquare className="size-2.5" />
+                      <span>Save &amp; WhatsApp</span>
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </DrawerContent>
@@ -3679,38 +4029,74 @@ export const QuickInvoicePage: React.FC = () => {
 
       {/* Quick Customer Add Modal within POS Terminal */}
       <Dialog open={customerModalOpen} onOpenChange={setCustomerModalOpen}>
-        <DialogContent className="sm:max-w-[400px]">
+        <DialogContent className="sm:max-w-[460px]">
           <DialogHeader>
             <DialogTitle>Quick Register Customer</DialogTitle>
           </DialogHeader>
+          {/* Compact 2-column layout to eliminate unnecessary height */}
           <form onSubmit={handleQuickAddCustomer} className="space-y-3 py-2">
+            {/* Row 1 (Full Width): Customer / Shop Name * */}
             <div className="space-y-1">
               <label className="text-xs font-semibold">Customer / Shop Name *</label>
               <Input
                 required
                 value={newCustName}
                 onChange={(e) => setNewCustName(e.target.value)}
-                placeholder="e.g. Kasun Perera"
+                placeholder="e.g. Kasun Perera or Modern Textile"
                 autoFocus
               />
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-semibold">Phone Number *</label>
-              <Input
-                required
-                value={newCustPhone}
-                onChange={(e) => setNewCustPhone(e.target.value)}
-                placeholder="0771234567"
-              />
+
+            {/* Row 2 (2 Columns): Phone Number * (left) | NIC Number (right) */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold">Phone Number *</label>
+                <Input
+                  required
+                  value={newCustPhone}
+                  onChange={(e) => setNewCustPhone(e.target.value)}
+                  placeholder="0771234567"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold">NIC Number</label>
+                <Input
+                  value={newCustNic}
+                  onChange={(e) => setNewCustNic(e.target.value)}
+                  placeholder="e.g. 199012345678"
+                />
+              </div>
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-semibold">NIC Number (Optional)</label>
-              <Input
-                value={newCustNic}
-                onChange={(e) => setNewCustNic(e.target.value)}
-                placeholder="e.g. 199012345678"
-              />
+
+            {/* Row 3 (2 Columns): Credit Limit (Rs) (left) | Opening / Old Due Balance (Rs) (right) */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold">Credit Limit (Rs)</label>
+                <Input
+                  type="number"
+                  value={newCustCreditLimit}
+                  onChange={(e) => setNewCustCreditLimit(e.target.value)}
+                  placeholder="e.g. 50000"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+                  Opening / Old Due Balance (Rs)
+                </label>
+                <Input
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={newCustOutstandingBalance}
+                  onChange={(e) => setNewCustOutstandingBalance(e.target.value)}
+                  placeholder="0.00"
+                  className="font-mono"
+                  aria-label="Opening / Old Due Balance (Rs)"
+                />
+              </div>
             </div>
+
+            {/* Row 4 (Full Width): Address / City */}
             <div className="space-y-1">
               <label className="text-xs font-semibold">Address / City</label>
               <Input
@@ -3719,16 +4105,14 @@ export const QuickInvoicePage: React.FC = () => {
                 placeholder="e.g. Makandura, Matara"
               />
             </div>
+
+            {/* Row 5 (Full Width): Notes */}
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-amber-700 dark:text-amber-400">Opening / Old Due Balance (Rs)</label>
+              <label className="text-xs font-semibold">Notes</label>
               <Input
-                type="number"
-                step="any"
-                min="0"
-                value={newCustOutstandingBalance}
-                onChange={(e) => setNewCustOutstandingBalance(e.target.value)}
-                placeholder="0.00"
-                className="font-mono"
+                value={newCustNotes}
+                onChange={(e) => setNewCustNotes(e.target.value)}
+                placeholder="Customer preferences or credit terms"
               />
             </div>
             <DialogFooter className="pt-2">
@@ -3765,6 +4149,22 @@ export const QuickInvoicePage: React.FC = () => {
         onApply={handleApplySplitPayments}
         dark={dark}
       />
+
+      {/* Product Detailed Specs & Preview Modal (Eye Icon Trigger) */}
+      <ProductPreviewModal
+        open={previewModalOpen}
+        onOpenChange={setPreviewModalOpen}
+        variant={previewVariant}
+        currentCartQty={previewVariant ? getVariantCartQty(previewVariant.id) : 0}
+        onApplyQty={(qty) => {
+          if (previewVariant) {
+            setVariantQuantity(previewVariant, qty);
+          }
+        }}
+      />
+
+      {/* Dedicated Hidden 80mm Thermal Receipt Layout (X-Printer format) */}
+      <ThermalReceipt80mm order={savedOrderForPrint} />
     </div>
   );
 };

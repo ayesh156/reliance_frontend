@@ -83,19 +83,23 @@ export const generatePrintableInvoiceHtml = (order: any): string => {
     const grandTotalCreditDue = Math.max(0, Math.round((currentBillCredit + truePreviousDue - settledDue) * 100) / 100);
 
     // ⭐ 2. Resolve discount label dynamically based on effective discount percentage or flat mode
+    const lineItemDiscountTotal = (order.items || []).reduce((sum: number, it: any) => sum + (Number(it.discountAmount ?? it.discount ?? 0)), 0);
     const discountAmount = Number(order.discountAmount ?? order.discount ?? 0);
+    const billDiscountVal = discountAmount > lineItemDiscountTotal && (order.items?.some((i: any) => (i.discountAmount || i.discount) > 0))
+      ? discountAmount - lineItemDiscountTotal
+      : discountAmount;
     const subtotalVal = Number(order.subtotal || (total + discountAmount) || 0);
     const isFlatDiscount = order.discountType === 'FIXED';
     const discountPercent = !isFlatDiscount
-      ? (Number(order.discountRate) || (subtotalVal > 0 ? ((discountAmount / subtotalVal) * 100) : 0))
+      ? (Number(order.discountRate) || (subtotalVal > 0 ? ((billDiscountVal / subtotalVal) * 100) : 0))
       : 0;
 
-    let discountDisplay = 'Discount:';
-    if (discountAmount > 0) {
+    let discountDisplay = 'Bill Discount:';
+    if (billDiscountVal > 0) {
       if (discountPercent > 0) {
-        discountDisplay = `Discount (${discountPercent.toFixed(1).replace(/\.0$/, '')}%):`;
+        discountDisplay = `Bill Discount (${discountPercent.toFixed(1).replace(/\.0$/, '')}%):`;
       } else {
-        discountDisplay = 'Discount:';
+        discountDisplay = 'Bill Discount:';
       }
     }
 
@@ -756,10 +760,16 @@ export const generatePrintableInvoiceHtml = (order: any): string => {
                   <td class="label">Sub Total</td>
                   <td class="value">Rs ${subtotalVal.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
                 </tr>
-                ${discountAmount > 0 ? `
+                ${lineItemDiscountTotal > 0 ? `
+                <tr>
+                  <td class="label">Item Total Discount</td>
+                  <td class="value">- Rs ${lineItemDiscountTotal.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                ` : ''}
+                ${billDiscountVal > 0 ? `
                 <tr>
                   <td class="label">${discountDisplay}</td>
-                  <td class="value">- Rs ${discountAmount.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                  <td class="value">- Rs ${billDiscountVal.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
                 </tr>
                 ` : ''}
                 ${hasReturns ? `

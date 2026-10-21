@@ -158,6 +158,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
 
   const [deletingPayment, setDeletingPayment] = useState<PaymentHistoryItem | null>(null);
   const [isSubmittingDelete, setIsSubmittingDelete] = useState(false);
+  const [pendingCheques, setPendingCheques] = useState<any[]>([]);
 
   // බිල්පත් දත්ත backend එකෙන් ලබා ගැනීම
   const fetchDueBills = async () => {
@@ -168,10 +169,12 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
         success: boolean;
         customer: { id?: number; name?: string; phone?: string; outstandingBalance: number; computedTotalDue: number };
         bills: DueBill[];
+        pendingCheques?: any[];
       }>(`/credit/customers/${customerId}/due-bills`);
 
       if (res && res.bills) {
         setBills(res.bills);
+        setPendingCheques(res.pendingCheques || []);
         setTotalOutstanding(res.customer.computedTotalDue || 0);
         if (res.customer.phone) {
           setCustomerPhoneState(res.customer.phone);
@@ -420,7 +423,8 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
           paidAmount: b.paidAmount,
           dueAmount: b.dueAmount,
           source: b.source,
-        }))
+        })),
+        pendingCheques
       );
       openWhatsAppChat(manual.trim(), waMsg);
       return;
@@ -438,7 +442,8 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
         paidAmount: b.paidAmount,
         dueAmount: b.dueAmount,
         source: b.source,
-      }))
+      })),
+      pendingCheques
     );
     openWhatsAppChat(activePhone, waMsg);
   };

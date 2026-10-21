@@ -318,10 +318,15 @@ export const generateCustomerInvoiceWhatsAppMessage = (order: any): string => {
 
 /**
  * 2. Build Comprehensive Customer Outstanding Account Statement with Detailed Invoice Breakdown
+ * 
+ * Inspects customer debt ledger, itemized pending invoices, and in-hand unrealized cheques.
+ * Formats an elegant WhatsApp summary including uncleared cheques even when outstanding balance is zero.
+ * If both balance and pending cheques are cleared, outputs a clean "No Outstanding Dues" statement.
  */
 export const generateCustomerDebtSummaryWhatsAppMessage = (
-  cust: { name: string; outstandingBalance: number; phone?: string },
-  invoices: any[] = []
+  cust: { name: string; outstandingBalance: number; phone?: string; pendingCheques?: any[] },
+  invoices: any[] = [],
+  pendingCheques: any[] = []
 ): string => {
   const currentDate = new Date().toISOString().split('T')[0];
   const currentTime = new Date().toLocaleTimeString('en-US', {
@@ -330,14 +335,69 @@ export const generateCustomerDebtSummaryWhatsAppMessage = (
     hour12: true,
   });
 
+  const rawBalance = Number(cust.outstandingBalance || 0);
+  const outstandingBal = isNaN(rawBalance) ? 0 : Math.max(0, rawBalance);
+
+  // Extract and normalize pending/unrealized in-hand cheques from arguments or nested properties
+  const rawCheques = (pendingCheques && pendingCheques.length > 0)
+    ? pendingCheques
+    : (Array.isArray(cust.pendingCheques) ? cust.pendingCheques : (Array.isArray((invoices as any)?.pendingCheques) ? (invoices as any).pendingCheques : []));
+
+  const chequesList = rawCheques.map((c: any) => {
+    let chqNo = c.chequeNumber || c.number || '';
+    let bank = c.bank || c.bankName || '';
+    const ref = c.reference || '';
+
+    if (!chqNo && ref) {
+      const chqMatch = /Cheque\s*#?([^\s(]+)/i.exec(ref);
+      if (chqMatch) {
+        chqNo = chqMatch[1];
+      } else {
+        chqNo = ref.replace(/\s*\[Edit:.*?\]$/, '').slice(0, 25);
+      }
+    }
+    if ((!bank || bank === '-') && ref) {
+      const bankMatch = /\(([^)]+)\)/.exec(ref);
+      if (bankMatch) {
+        bank = bankMatch[1];
+      }
+    }
+
+    chqNo = String(chqNo || '-').replace(/^#/, '').trim();
+    bank = String(bank || '-').trim();
+
+    const rawDate = c.realizeDate || c.chequeDate || c.date || c.createdAt;
+    let dateStr = '-';
+    if (rawDate) {
+      try {
+        dateStr = new Date(rawDate).toISOString().split('T')[0];
+      } catch {
+        dateStr = String(rawDate);
+      }
+    }
+
+    const amt = Number(c.amount || 0);
+    return {
+      chequeNumber: chqNo || '-',
+      bank: bank || '-',
+      realizeDate: dateStr,
+      amount: isNaN(amt) ? 0 : amt,
+    };
+  }).filter((c: any) => c.amount > 0 || c.chequeNumber !== '-');
+
+  const hasPendingCheques = chequesList.length > 0;
+  const isZeroBalance = outstandingBal <= 0;
+  const hasNoInvoices = !Array.isArray(invoices) || invoices.length === 0;
+
   let text = `*RELIANCE CLOTHING - OUTSTANDING DUE STATEMENT*\n`;
   text += `-------------------------------------------\n`;
   text += `*Customer:* ${cust.name}\n`;
   if (cust.phone) text += `*Contact:* ${cust.phone}\n`;
   text += `*Statement Date:* ${currentDate} (${currentTime})\n`;
-  text += `*TOTAL OUTSTANDING BALANCE:* *Rs. ${Number(cust.outstandingBalance || 0).toLocaleString('en-LK', { minimumFractionDigits: 2 })}*\n`;
+  text += `*TOTAL OUTSTANDING BALANCE:* *Rs. ${outstandingBal.toLocaleString('en-LK', { minimumFractionDigits: 2 })}*\n`;
   text += `-------------------------------------------\n\n`;
 
+  // Itemized Invoices Breakdown
   if (Array.isArray(invoices) && invoices.length > 0) {
     text += `*PENDING UNPAID INVOICES (${invoices.length}):*\n`;
     invoices.forEach((inv, i) => {
@@ -353,12 +413,28 @@ export const generateCustomerDebtSummaryWhatsAppMessage = (
       text += `   Date: ${invDate} | Bill: Rs. ${total} | Paid: Rs. ${paid}\n`;
       text += `   *Remaining Due: Rs. ${due}*\n\n`;
     });
+  } else if (isZeroBalance && !hasPendingCheques) {
+    // Retain clean "No Outstanding Dues" statement when debt is 0 and no cheques exist
+    text += `*ACCOUNT STATUS: NO OUTSTANDING DUES*\n`;
+    text += `_All prior invoices, credits, and ledger bills are fully settled._\n\n`;
   } else {
     text += `_All prior invoices are fully settled._\n\n`;
   }
 
+  // Pending / Unrealized Cheques Section
+  if (hasPendingCheques) {
+    const totalChequesAmount = chequesList.reduce((sum: number, c: any) => sum + c.amount, 0);
+    text += `*PENDING / UNREALIZED CHEQUES:*\n`;
+    chequesList.forEach((c: any) => {
+      text += `• Chq #${c.chequeNumber} | ${c.bank} | Realize: ${c.realizeDate} | Rs. ${c.amount.toLocaleString('en-LK', { minimumFractionDigits: 2 })}\n`;
+    });
+    text += `*Total In-Hand Cheques:* Rs. ${totalChequesAmount.toLocaleString('en-LK', { minimumFractionDigits: 2 })}\n\n`;
+  }
+
   text += `-------------------------------------------\n`;
-  text += `Please arrange settlement at your earliest convenience.\n`;
+  if (!isZeroBalance || hasPendingCheques) {
+    text += `Please arrange settlement at your earliest convenience.\n`;
+  }
   text += `*Bank Transfer / Inquiries:* 041-2268739 / 071-1350123\n`;
   text += `*Store:* Mawarala Road, Makandura, Matara.\n`;
   text += `_Thank you for your valued partnership!_`;

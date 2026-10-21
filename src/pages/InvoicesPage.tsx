@@ -29,6 +29,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '../components/ui/dropdown-menu';
+import { TooltipSimple } from '../components/ui/Tooltip';
 import {
   Search,
   Printer,
@@ -711,39 +712,50 @@ export const InvoicesPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Metrics Row: Fluid 3 columns on tablet portrait (~534px) instead of single-column stacking */}
+      {/* ── Summary KPI Cards Grid (Dense, Zero-Overflow Responsive 3 Columns on Tablet ~534px) ── */}
       <div className="grid grid-cols-1 xs:grid-cols-3 gap-2 sm:gap-4 w-full">
-        <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
-          <div>
-            <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Invoices</span>
-            <h3 className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{totalInvoicesGenerated}</h3>
+        {/* Card 1: Total Invoices */}
+        <div className="overflow-hidden rounded-2xl border p-2.5 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center gap-2">
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <span className="text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-zinc-400 truncate block">
+              Total Invoices
+            </span>
+            <h3 className="text-lg xs:text-xl sm:text-2xl font-bold text-slate-900 dark:text-white mt-0.5 sm:mt-1 truncate leading-tight">
+              {totalInvoicesGenerated}
+            </h3>
           </div>
-          <div className="p-3 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-xl">
-            <FileText className="size-5" />
+          <div className="p-1.5 sm:p-3 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-lg sm:rounded-xl shrink-0 self-center">
+            <FileText className="size-4 sm:size-5" />
           </div>
         </div>
 
-        <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
-          <div>
-            <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Revenue Generated</span>
-            <h3 className="text-2xl font-bold text-emerald-600 mt-1 font-mono">
+        {/* Card 2: Total Revenue Generated */}
+        <div className="overflow-hidden rounded-2xl border p-2.5 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center gap-2">
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <span className="text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-zinc-400 truncate block">
+              Total Revenue Generated
+            </span>
+            <h3 className="text-base xs:text-lg sm:text-2xl font-bold text-emerald-600 mt-0.5 sm:mt-1 font-mono truncate leading-tight">
               Rs. {totalInvoiceRevenue.toLocaleString()}
             </h3>
           </div>
-          <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-xl">
-            <Banknote className="size-5" />
+          <div className="p-1.5 sm:p-3 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-lg sm:rounded-xl shrink-0 self-center">
+            <Banknote className="size-4 sm:size-5" />
           </div>
         </div>
 
-        <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
-          <div>
-            <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Outstanding Due (Customers)</span>
-            <h3 className={`text-2xl font-bold mt-1 font-mono ${totalCustomerDebt > 0 ? 'text-rose-600' : 'text-slate-900 dark:text-white'}`}>
+        {/* Card 3: Outstanding Customer Debt */}
+        <div className="overflow-hidden rounded-2xl border p-2.5 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center gap-2">
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <span className="text-[11px] sm:text-xs font-semibold text-slate-500 dark:text-zinc-400 truncate block">
+              Outstanding Due
+            </span>
+            <h3 className={`text-base xs:text-lg sm:text-2xl font-bold mt-0.5 sm:mt-1 font-mono truncate leading-tight ${totalCustomerDebt > 0 ? 'text-rose-600' : 'text-slate-900 dark:text-white'}`}>
               Rs. {totalCustomerDebt.toLocaleString()}
             </h3>
           </div>
-          <div className={`p-3 rounded-xl ${totalCustomerDebt > 0 ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600' : 'bg-slate-100 dark:bg-zinc-800 text-slate-500'}`}>
-            <CreditCard className="size-5" />
+          <div className={`p-1.5 sm:p-3 rounded-lg sm:rounded-xl shrink-0 self-center ${totalCustomerDebt > 0 ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600' : 'bg-slate-100 dark:bg-zinc-800 text-slate-500'}`}>
+            <CreditCard className="size-4 sm:size-5" />
           </div>
         </div>
       </div>
@@ -1011,16 +1023,34 @@ export const InvoicesPage: React.FC = () => {
                 : creditDue;
               const canDelete = canDeleteInvoice(inv);
 
+              /**
+               * Dynamic Action Deduplication Logic:
+               * Coordinates direct card action shortcuts (<1024px) with the 3-dots dropdown menu.
+               * - Direct Card Bar: Displays WhatsApp Share & PDF Download, plus ONE primary operational action:
+               *     * When creditDue > 0: "Payment / Settle Due" (Wallet button).
+               *     * When creditDue === 0: "Edit Invoice" (Pencil button).
+               * - 3-Dots Dropdown Menu:
+               *     * Any action directly visible on the card is automatically excluded to prevent redundancy.
+               *     * If debt exists (creditDue > 0), "Payment / Settle Due" is on the card bar, so it is hidden
+               *       from the dropdown, while "Edit Invoice" is moved into the dropdown as a secondary option.
+               *     * If debt is settled (creditDue === 0), "Edit Invoice" is on the card bar, so it is hidden
+               *       from the dropdown.
+               *     * Non-redundant secondary actions (View Summary & Cheques, Print Preview, Process Return,
+               *       and Delete Invoice) remain permanently in the dropdown.
+               */
+              const isDirectSettleVisible = creditDue > 0;
+              const isDirectEditVisible = creditDue === 0;
+
               return (
                 <div
                   key={inv.id}
-                  className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/90 p-3 sm:p-3.5 shadow-sm space-y-2.5 sm:space-y-3 hover:border-slate-300 dark:hover:border-zinc-700 transition-colors w-full"
+                  className="invoice-card rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/90 p-3 sm:p-3.5 shadow-sm space-y-2.5 sm:space-y-3 hover:border-slate-300 dark:hover:border-zinc-700 transition-colors w-full"
                 >
                   {/* Top Row: #INV{id} badge, Wholesale/Retail pill, Date, and payment status badge */}
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span
-                        onClick={() => navigate(`/system/quick-checkout?editInvoiceId=${inv.id}`)}
+                        onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}`)}
                         className="font-mono font-bold text-xs px-2.5 py-1 rounded bg-slate-100 dark:bg-zinc-800 text-slate-900 dark:text-white cursor-pointer hover:underline hover:text-emerald-600 dark:hover:text-emerald-400 select-none"
                         title="Click to edit invoice in POS"
                       >
@@ -1102,7 +1132,7 @@ export const InvoicesPage: React.FC = () => {
                   <div className="flex items-start justify-between gap-2 pt-1 border-t border-slate-100 dark:border-zinc-800/60">
                     <div className="min-w-0">
                       <h4
-                        onClick={() => navigate(`/system/quick-checkout?editInvoiceId=${inv.id}`)}
+                        onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}`)}
                         className="font-bold text-sm text-slate-900 dark:text-white truncate cursor-pointer hover:underline hover:text-emerald-600 dark:hover:text-emerald-400"
                         title="Click to edit invoice in POS"
                       >
@@ -1165,63 +1195,95 @@ export const InvoicesPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Touch-Friendly Action Bar (Minimum 44x44px Tap Targets) with Complete 7-Action Desktop Parity */}
-                  <div className="flex items-center gap-2 pt-1 border-t border-slate-100 dark:border-zinc-800/60">
-                    {/* Direct 1-tap WhatsApp Dispatch */}
-                    <button
-                      type="button"
-                      onClick={() => handleInitiateWhatsApp(inv)}
-                      className="flex-1 min-h-[44px] px-3 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer select-none active:scale-[0.98]"
-                      title="Send WhatsApp Invoice Message"
-                    >
-                      <MessageCircle className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                      <span>WhatsApp</span>
-                    </button>
+                  {/* Action Bar (< 1024px Cards):
+                      - Priority 1: High-Frequency Direct Actions (WhatsApp & PDF Download) - Always visible on card bar.
+                      - Priority 2: Primary Operational Action (Pay Due Balance if debt exists, otherwise Edit Invoice).
+                      - Priority 3: Consolidated 3-Dots Menu (Deduplicated with direct buttons, plus secondary/destructive actions). */}
+                  <div className="flex items-center justify-end gap-1.5 sm:gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800/60">
+                    {/* Priority 1A: WhatsApp Share Action (Always direct) */}
+                    <TooltipSimple content="Send WhatsApp Invoice Message" side="top">
+                      <button
+                        type="button"
+                        onClick={() => handleInitiateWhatsApp(inv)}
+                        className="size-9 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 shadow-2xs shrink-0"
+                        title="Send WhatsApp Invoice Message"
+                        aria-label="Send WhatsApp Invoice Message"
+                      >
+                        <MessageCircle className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                      </button>
+                    </TooltipSimple>
 
-                    {/* Single-tap trigger to download official invoice PDF */}
-                    <button
-                      type="button"
-                      onClick={() => handleDownloadPdf(inv.id)}
-                      className="flex-1 min-h-[44px] px-3 py-2 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 dark:text-blue-400 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer select-none active:scale-[0.98]"
-                      title="Download Official Invoice PDF"
-                    >
-                      <Download className="size-4 shrink-0 text-blue-600 dark:text-blue-400" />
-                      <span>PDF</span>
-                    </button>
+                    {/* Priority 1B: Official PDF Download Action (Always direct) */}
+                    <TooltipSimple content="Download Official Invoice PDF" side="top">
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadPdf(inv.id)}
+                        className="size-9 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 dark:text-blue-400 flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 shadow-2xs shrink-0"
+                        title="Download Official Invoice PDF"
+                        aria-label="Download Official Invoice PDF"
+                      >
+                        <Download className="size-4 shrink-0 text-blue-600 dark:text-blue-400" />
+                      </button>
+                    </TooltipSimple>
 
-                    {/* Quick POS Edit Action */}
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/system/quick-checkout?editInvoiceId=${inv.id}`)}
-                      className="min-h-[44px] min-w-[44px] px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer select-none"
-                      title="Edit Invoice in Quick Checkout"
-                    >
-                      <Pencil className="size-4 shrink-0" />
-                      <span className="hidden sm:inline">Edit</span>
-                    </button>
+                    {/* Priority 2: Primary Operational Action Slot
+                        - When creditDue > 0: Direct "Payment / Settle Due" (Wallet) button
+                        - When creditDue === 0: Direct "Edit Invoice" (Pencil) button */}
+                    {isDirectSettleVisible ? (
+                      <TooltipSimple content={`Pay Due Balance (Rs. ${creditDue.toLocaleString()})`} side="top">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSettlingInvoice(inv);
+                            setSettleAmount(String(creditDue));
+                            setSettleMethod('CASH');
+                            setSettleDateTime(getCurrentLocalISOString());
+                            setSettleReference('');
+                          }}
+                          className="size-9 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 shadow-2xs shrink-0"
+                          title={`Pay Due Balance (Rs. ${creditDue.toLocaleString()})`}
+                          aria-label={`Pay Due Balance for Invoice INV${inv.id}`}
+                        >
+                          <Wallet className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                        </button>
+                      </TooltipSimple>
+                    ) : (
+                      <TooltipSimple content="Edit Invoice in POS" side="top">
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}`)}
+                          className="size-9 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 shadow-2xs shrink-0"
+                          title="Edit Invoice in POS"
+                          aria-label={`Edit Invoice INV${inv.id}`}
+                        >
+                          <Pencil className="size-4 shrink-0 text-slate-600 dark:text-zinc-300" />
+                        </button>
+                      </TooltipSimple>
+                    )}
 
-                    {/* Full 3-Dots DropdownMenu (All 7 Desktop Actions for 100% Mobile Parity) */}
+                    {/* Priority 3: Consolidated 3-Dots DropdownMenu (Seamlessly anchored to right edge) */}
                     <DropdownMenu modal={false}>
                       <DropdownMenuTrigger asChild>
                         <button
                           type="button"
-                          className="min-h-[44px] min-w-[44px] px-2.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-600 dark:text-zinc-300 flex items-center justify-center transition-colors cursor-pointer select-none"
+                          className="size-9 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-600 dark:text-zinc-300 flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 shadow-2xs shrink-0"
                           title="More Invoice Actions"
+                          aria-label="More Invoice Actions"
                         >
                           <MoreVertical className="size-4.5" />
                         </button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-56 text-xs font-medium">
-                        {/* Dedicated Invoice Summary & Cheques Action */}
+                      <DropdownMenuContent align="end" sideOffset={6} className="w-56 text-xs font-medium z-50">
+                        {/* 1. View Summary & Cheques (Always non-redundant secondary action) */}
                         <DropdownMenuItem
                           onClick={() => setSummaryModalInvoice(inv)}
                           className="gap-2.5 cursor-pointer py-2 text-blue-600 focus:text-blue-700 font-semibold"
                         >
                           <ReceiptText className="size-4 text-blue-600" />
-                          <span>Invoice Summary &amp; Cheques</span>
+                          <span>View Summary &amp; Cheques</span>
                         </DropdownMenuItem>
 
-                        {/* 1. A4 Print Preview */}
+                        {/* 2. View A4 Print Preview (Always non-redundant secondary action) */}
                         <DropdownMenuItem
                           onClick={() => {
                             setPrintInvoice(inv);
@@ -1230,61 +1292,50 @@ export const InvoicesPage: React.FC = () => {
                           className="gap-2.5 cursor-pointer py-2"
                         >
                           <Printer className="size-4 text-slate-500" />
-                          <span>A4 Print Preview</span>
+                          <span>Print Preview</span>
                         </DropdownMenuItem>
 
-                        {/* 2. Direct PDF Download */}
-                        <DropdownMenuItem
-                          onClick={() => handleDownloadPdf(inv.id)}
-                          className="gap-2.5 cursor-pointer py-2 text-blue-600 focus:text-blue-700 font-medium"
-                        >
-                          <Download className="size-4 text-blue-600" />
-                          <span>Direct PDF Download</span>
-                        </DropdownMenuItem>
+                        {/* 3. Edit Invoice in POS:
+                            Deduplicated: Hidden when already rendered directly on the card bar (when creditDue === 0).
+                            Displayed here when creditDue > 0 so the invoice can still be edited in POS. */}
+                        {!isDirectEditVisible && (
+                          <DropdownMenuItem
+                            onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}`)}
+                            className="gap-2.5 cursor-pointer py-2 text-slate-700 dark:text-zinc-200 font-medium"
+                          >
+                            <Pencil className="size-4 text-slate-600" />
+                            <span>Edit Invoice</span>
+                          </DropdownMenuItem>
+                        )}
 
-                        {/* 3. WhatsApp Invoice Slip */}
-                        <DropdownMenuItem
-                          onClick={() => handleInitiateWhatsApp(inv)}
-                          className="gap-2.5 cursor-pointer py-2 text-emerald-600 focus:text-emerald-700 font-medium"
-                        >
-                          <MessageCircle className="size-4 text-emerald-600" />
-                          <span>WhatsApp Invoice Slip</span>
-                        </DropdownMenuItem>
+                        {/* 4. Payment / Settle Due Balance:
+                            Deduplicated: Hidden when already rendered as a direct button on the card action bar. */}
+                        {!isDirectSettleVisible && creditDue > 0 && (
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setSettlingInvoice(inv);
+                              setSettleAmount(String(creditDue));
+                              setSettleMethod('CASH');
+                              setSettleDateTime(getCurrentLocalISOString());
+                              setSettleReference('');
+                            }}
+                            className="gap-2.5 cursor-pointer py-2 text-amber-600 focus:text-amber-700 font-semibold"
+                          >
+                            <Wallet className="size-4 text-amber-600" />
+                            <span>Payment / Settle Due (Rs. {creditDue.toLocaleString()})</span>
+                          </DropdownMenuItem>
+                        )}
 
-                        {/* 4. Pay Due / Settle Customer Balance */}
-                        <DropdownMenuItem
-                          onClick={() => {
-                            setSettlingInvoice(inv);
-                            setSettleAmount(String(creditDue > 0 ? creditDue : customerBal));
-                            setSettleMethod('CASH');
-                            setSettleDateTime(getCurrentLocalISOString());
-                            setSettleReference('');
-                          }}
-                          className="gap-2.5 cursor-pointer py-2 text-amber-600 focus:text-amber-700 font-semibold"
-                        >
-                          <Wallet className="size-4 text-amber-600" />
-                          <span>Pay Due / Settle Balance {creditDue > 0 ? `(Rs. ${creditDue.toLocaleString()})` : ''}</span>
-                        </DropdownMenuItem>
-
-                        {/* 5. Return & Exchange */}
+                        {/* 5. Process Return & Exchange (Always non-redundant secondary action) */}
                         <DropdownMenuItem
                           onClick={() => handleOpenReturnModal(inv)}
                           className="gap-2.5 cursor-pointer py-2 text-indigo-600 focus:text-indigo-700 font-medium"
                         >
                           <RotateCcw className="size-4 text-indigo-600" />
-                          <span>Return &amp; Exchange</span>
+                          <span>Process Return</span>
                         </DropdownMenuItem>
 
-                        {/* 6. Edit Invoice */}
-                        <DropdownMenuItem
-                          onClick={() => navigate(`/system/quick-checkout?editInvoiceId=${inv.id}`)}
-                          className="gap-2.5 cursor-pointer py-2 text-slate-700 dark:text-zinc-200 font-medium"
-                        >
-                          <Pencil className="size-4 text-slate-600" />
-                          <span>Edit Invoice</span>
-                        </DropdownMenuItem>
-
-                        {/* 7. Delete Invoice */}
+                        {/* 6. Delete Invoice (Permission-restricted destructive action) */}
                         {canDelete && (
                           <>
                             <DropdownMenuSeparator />

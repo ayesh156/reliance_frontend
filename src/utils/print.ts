@@ -1,37 +1,27 @@
 import { generatePrintableInvoiceHtml } from '../components/pos/A4InvoiceModal';
+import { generate80mmThermalReceiptHtml } from './thermalReceipt';
 
 /**
  * Technical Specification for Headless Direct Browser Printing:
  *
  * Instead of mounting an intermediate UI modal dialog (which forces the cashier/user
  * to view an on-screen preview and subsequently click 'Close' or 'Print'), this utility
- * generates the exact A4 invoice HTML document and injects it into a transient,
+ * generates the exact invoice HTML document and injects it into a transient,
  * off-screen hidden <iframe>.
  *
  * Lifecycle Execution Flow:
  * 1. Creates a transient sandbox iframe positioned offscreen (0x0px, hidden visibility, aria-hidden).
- * 2. Injects the self-contained printable A4 invoice HTML document generated from the saved order entity.
- * 3. Sets the window/iframe title to `Invoice-INV${order.id}` so native "Save as PDF" / print drivers
- *    automatically propose the clean invoice filename.
+ * 2. Injects the self-contained printable HTML document generated from the saved order entity.
+ * 3. Sets the window/iframe title to `Invoice-INV${order.id}` or `Receipt-INV${order.id}` so native
+ *    "Save as PDF" / print drivers automatically propose the clean filename.
  * 4. Allows a brief delay (300ms) for printer fonts, layout box trees, and assets to rasterize.
  * 5. Focuses the iframe window and invokes native `iframeWin.print()`.
  * 6. Listens for the standard `afterprint` event on both iframe and parent window to cleanly remove
  *    the transient iframe from the DOM and invoke `onComplete` (e.g. redirecting to /system/invoices
  *    when editing, or bootstrapping POS for the next order).
- *
- * @param order - Fully hydrated invoice order object containing customer, items, and totals
- * @param onComplete - Optional callback invoked after printing completes or is dismissed
  */
-export const printInvoiceDirectly = (order: any, onComplete?: () => void): void => {
-  if (!order) {
-    if (onComplete) onComplete();
-    return;
-  }
-
+function printHtmlDirectly(html: string, suggestedFileName: string, onComplete?: () => void): void {
   try {
-    const html = generatePrintableInvoiceHtml(order);
-    const invoiceNo = `INV${order.id || String(Date.now()).slice(-4)}`;
-    const suggestedFileName = `Invoice-${invoiceNo}`;
     const originalDocTitle = document.title;
 
     // Create a hidden, sandboxed off-screen iframe
@@ -132,4 +122,32 @@ export const printInvoiceDirectly = (order: any, onComplete?: () => void): void 
       onComplete();
     }
   }
+}
+
+/**
+ * Prints standard A4 customer invoice directly via offscreen headless iframe.
+ */
+export const printInvoiceDirectly = (order: any, onComplete?: () => void): void => {
+  if (!order) {
+    if (onComplete) onComplete();
+    return;
+  }
+  const html = generatePrintableInvoiceHtml(order);
+  const invoiceNo = `INV${order.id || String(Date.now()).slice(-4)}`;
+  printHtmlDirectly(html, `Invoice-${invoiceNo}`, onComplete);
+};
+
+/**
+ * Prints 80mm POS Thermal Receipt directly via offscreen headless iframe.
+ * Specifically optimized for Sales Rep portable and counter X-Printers with 80mm roll width.
+ * Strictly formats Wholesale prices and excludes signature blocks.
+ */
+export const print80mmThermalReceiptDirectly = (order: any, onComplete?: () => void): void => {
+  if (!order) {
+    if (onComplete) onComplete();
+    return;
+  }
+  const html = generate80mmThermalReceiptHtml(order);
+  const invoiceNo = `INV${order.id || String(Date.now()).slice(-4)}`;
+  printHtmlDirectly(html, `Receipt-80mm-${invoiceNo}`, onComplete);
 };
