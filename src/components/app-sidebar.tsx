@@ -13,6 +13,7 @@ import {
   ShoppingCart,
   Factory,
   BarChart3,
+  Waves,
 } from "lucide-react"
 import { useAuth } from "../contexts/AuthContext"
 
@@ -43,6 +44,7 @@ const navItems: NavItem[] = [
   { label: "Suppliers (Shops)", path: "/system/raw-material-shops", icon: Building2, roles: ["ADMIN"] },
   { label: "Raw Materials", path: "/system/raw-material-items", icon: Boxes, roles: ["ADMIN"] }, 
   { label: "Production", path: "/system/production", icon: Factory, roles: ["ADMIN", "STAFF"] },
+  { label: "Wash", path: "/system/wash", icon: Waves, roles: ["ADMIN", "STAFF"] },
   { label: "Reports & Analytics", path: "/system/reports", icon: BarChart3, roles: ["ADMIN", "STAFF"] },
   { label: "Settings", path: "/system/settings", icon: Settings, roles: ["ADMIN"] },
 ];

@@ -23,7 +23,9 @@ function notifyNetworkOffline(error: unknown): void {
 }
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const url = `${BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+  // Strip duplicate '/api' prefix if caller already included it
+  const cleanEndpoint = endpoint.replace(/^\/?api\//, '/');
+  const url = `${BASE_URL}${cleanEndpoint.startsWith('/') ? cleanEndpoint : `/${cleanEndpoint}`}`;
 
   // 1. LocalStorage එකෙන් Token එක ලබා ගැනීම
   const token = localStorage.getItem('auth_token');

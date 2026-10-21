@@ -9,7 +9,6 @@ import {
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Input } from '../ui/input';
-import { Checkbox } from '../ui/checkbox';
 import {
   Table,
   TableBody,
@@ -25,9 +24,8 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '../ui/dropdown-menu';
-import { SearchableSelect, type SearchableSelectOption } from '../ui/searchable-select';
 import { getProductImageUrl } from '../../lib/utils';
-import { get, post, put } from '../../lib/api';
+import { post, put } from '../../lib/api';
 import { toast } from 'react-toastify';
 import {
   Package,
@@ -43,17 +41,22 @@ import {
   MoreVertical,
   AlertCircle,
   Loader2,
-  Clock,
+  Waves,
+  ArrowRight,
+  Plus,
+  Pencil,
 } from 'lucide-react';
-import { BatchActivityTimeline } from '../../pages/ProductionListPage';
+import { useNavigate } from 'react-router-dom';
 import { BatchStatusBadge } from './BatchStatusBadge';
+import { AppendFabricModal } from './AppendFabricModal';
+import { DateTimePicker } from '../ui/date-time-picker';
 
 export interface ProductionBatchDetailModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   order: any | null;
-  onAddCutting?: (order: any) => void;
-  onAddFinishing?: (order: any) => void;
+  rawMaterialsList?: any[];
+  productsList?: any[];
   onOrderUpdate?: (updatedOrder: any) => void;
   onRefresh?: () => void;
   dark?: boolean;
@@ -63,12 +66,13 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
   open,
   onOpenChange,
   order: initialOrder,
-  onAddCutting,
-  onAddFinishing,
+  rawMaterialsList = [],
+  productsList = [],
   onOrderUpdate,
   onRefresh,
   dark,
 }) => {
+  const navigate = useNavigate();
   // Local active order state synchronized with initialOrder
   const [currentOrder, setCurrentOrder] = useState<any | null>(initialOrder);
 
@@ -79,7 +83,21 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
   const order = currentOrder || initialOrder;
 
   // -------------------------------------------------------------
-  // STATE 1: RETURN UNUSED MATERIAL SCRAP MODAL
+  // STATE 1: APPEND FABRIC MODAL
+  // -------------------------------------------------------------
+  const [isAppendFabricOpen, setIsAppendFabricOpen] = useState(false);
+
+  // -------------------------------------------------------------
+  // STATE 2: SEND TO WASH MODAL
+  // -------------------------------------------------------------
+  const [isSendToWashOpen, setIsSendToWashOpen] = useState(false);
+  const [sewnQuantity, setSewnQuantity] = useState<number | ''>('');
+  const [washDateTime, setWashDateTime] = useState<string>('');
+  const [washNotes, setWashNotes] = useState<string>('');
+  const [isSubmittingSendToWash, setIsSubmittingSendToWash] = useState(false);
+
+  // -------------------------------------------------------------
+  // STATE 3: RETURN UNUSED MATERIAL SCRAP MODAL
   // -------------------------------------------------------------
   const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
   const [returnLines, setReturnLines] = useState<
@@ -99,15 +117,7 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
   const [isSubmittingReturns, setIsSubmittingReturns] = useState(false);
 
   // -------------------------------------------------------------
-  // STATE 2: FINALIZE PRODUCTS MODAL
-  // -------------------------------------------------------------
-  const [isFinalizeModalOpen, setIsFinalizeModalOpen] = useState(false);
-  const [finalPiecesQty, setFinalPiecesQty] = useState<number | ''>('');
-  const [finalizeNotes, setFinalizeNotes] = useState<string>('');
-  const [isSubmittingFinalize, setIsSubmittingFinalize] = useState(false);
-
-  // -------------------------------------------------------------
-  // STATE 3: CANCEL BATCH MODAL
+  // STATE 4: CANCEL BATCH MODAL
   // -------------------------------------------------------------
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState<string>('');
@@ -199,6 +209,49 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
     return targetProductsList.reduce((sum, p) => sum + (Number(p.plannedQty) || 0), 0);
   }, [targetProductsList]);
 
+  // Open "Send to Wash" Modal
+  const handleOpenSendToWash = () => {
+    if (!order) return;
+    const target = totalPlannedFromProducts || order.targetQuantity || 0;
+    const currentCompleted = order.completedQty || 0;
+    const defaultQty = currentCompleted > 0 ? currentCompleted : target;
+    setSewnQuantity(defaultQty > 0 ? defaultQty : '');
+    setWashDateTime(new Date().toISOString().slice(0, 16));
+    setWashNotes('');
+    setIsSendToWashOpen(true);
+  };
+
+  // Submit "Send to Wash"
+  const handleSubmitSendToWash = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!order?.id) return;
+    const qty = Number(sewnQuantity);
+    if (!qty || isNaN(qty) || qty <= 0) {
+      toast.error('Please enter a valid number of sewn garments produced.');
+      return;
+    }
+
+    setIsSubmittingSendToWash(true);
+    try {
+      const res: any = await post(`/production/${order.id}/send-to-wash`, {
+        sewnQuantity: qty,
+        date: washDateTime ? new Date(washDateTime).toISOString() : new Date().toISOString(),
+        notes: washNotes.trim() || undefined,
+      });
+
+      toast.success(`Batch #${order.productionNo} successfully transitioned to WASHING (${qty} garments sent)`);
+      setIsSendToWashOpen(false);
+      const updated = res?.data || res;
+      if (updated) {
+        handleBatchUpdated(updated);
+      }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err?.message || 'Failed to send batch to wash');
+    } finally {
+      setIsSubmittingSendToWash(false);
+    }
+  };
+
   // Open Return Leftover Scrap Modal
   const handleOpenReturnMaterials = () => {
     if (!order) return;
@@ -262,45 +315,6 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
     }
   };
 
-  // Open Finalize Products Modal
-  const handleOpenFinalize = () => {
-    if (!order) return;
-    const planned = totalPlannedFromProducts || order.targetQuantity;
-    const currentCompleted = order.completedQty > 0 ? order.completedQty : planned;
-    setFinalPiecesQty(currentCompleted);
-    setFinalizeNotes('');
-    setIsFinalizeModalOpen(true);
-  };
-
-  // Submit Finalize Products
-  const handleSubmitFinalize = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!order?.id) return;
-    const finalQty = Number(finalPiecesQty);
-    if (!finalQty || isNaN(finalQty) || finalQty <= 0) {
-      toast.error('Please enter a valid final finished quantity');
-      return;
-    }
-
-    setIsSubmittingFinalize(true);
-    try {
-      const res: any = await post(`/api/production/${order.id}/finalize`, {
-        finalQuantity: finalQty,
-        notes: finalizeNotes?.trim() || undefined,
-      });
-      toast.success('Batch finished products finalized and added to sellable active stock!');
-      setIsFinalizeModalOpen(false);
-      const updatedBatch = res?.data || res;
-      if (updatedBatch) {
-        handleBatchUpdated(updatedBatch);
-      }
-    } catch (err: any) {
-      toast.error(err?.response?.data?.message || err?.message || 'Failed to finalize products');
-    } finally {
-      setIsSubmittingFinalize(false);
-    }
-  };
-
   // Submit Cancel Batch
   const handleConfirmCancelBatch = async () => {
     if (!order?.id) return;
@@ -324,7 +338,16 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
 
   if (!order) return null;
 
-  const isAwaitingSync = !order.isStockSynced && order.status !== 'CANCELLED';
+  const isWashing = order.status === 'WASHING';
+  const isCutting = order.status === 'CUTTING';
+  const isCompleted = order.status === 'COMPLETED';
+  const isCancelled = order.status === 'CANCELLED';
+
+  const totalSentToWash = order.sentToWashQty > 0
+    ? order.sentToWashQty
+    : (order.targetQuantity > 0 ? order.targetQuantity : order.completedQty);
+  const washedSoFar = order.washedQty || 0;
+  const remainingInWash = Math.max(0, totalSentToWash - washedSoFar);
 
   return (
     <>
@@ -334,61 +357,63 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
           <DialogHeader className="px-5 py-4 border-b border-slate-100 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 z-10">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="size-10 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-500/20 shadow-xs">
-                  <Package className="w-5 h-5" />
+                <div className={`size-10 rounded-xl flex items-center justify-center border shadow-xs ${
+                  isWashing
+                    ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20'
+                    : isCompleted
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                    : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
+                }`}>
+                  {isWashing ? <Waves className="w-5 h-5" /> : <Package className="w-5 h-5" />}
                 </div>
                 <div>
                   <DialogTitle className="text-base sm:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2.5 flex-wrap">
-                    <span>Production Batch #{order.productionNo}</span>
+                    <span>Batch #{order.productionNo}</span>
                     <BatchStatusBadge status={order.status} isStockSynced={order.isStockSynced} />
                   </DialogTitle>
                   <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
-                    Decoupled Many-to-Many Garment Cutting &amp; Finishing Activity Log
+                    Streamlined Production Batch &amp; Factory Workflow
                   </p>
                 </div>
               </div>
 
               {/* Right Side Header Controls */}
               <div className="flex items-center gap-2">
-                {/* Total Planned Output Badge */}
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300">
-                  <Shirt className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300">
+                  <Shirt className="size-4 shrink-0 text-slate-500" />
                   <div className="text-right">
-                    <div className="text-[9px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-                      Total Output
+                    <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                      Planned Output
                     </div>
                     <div className="text-xs sm:text-sm font-extrabold font-mono leading-none">
-                      {order.completedQty} / {totalPlannedFromProducts || order.targetQuantity} Pcs
+                      {totalPlannedFromProducts || order.targetQuantity} Pcs
                     </div>
                   </div>
                 </div>
 
-                {/* Actions Dropdown (Cancel Batch, Finalize, etc.) */}
-                {order.status !== 'CANCELLED' && (
+                {!isCancelled && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button
                         variant="ghost"
                         size="sm"
                         className="h-8 w-8 p-0 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-600 dark:text-zinc-300 cursor-pointer"
-                        title="Batch Actions"
+                        title="More Actions"
                       >
                         <MoreVertical className="w-4 h-4" />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-48 rounded-xl shadow-lg">
-                      {isAwaitingSync && (
-                        <DropdownMenuItem
-                          onClick={handleOpenFinalize}
-                          className="cursor-pointer gap-2 text-xs font-medium text-emerald-700 dark:text-emerald-400 focus:text-emerald-700"
-                        >
-                          <Sparkles className="w-4 h-4 text-emerald-600" />
-                          <span>Finalize Products</span>
-                        </DropdownMenuItem>
-                      )}
+                      <DropdownMenuItem
+                        onClick={() => setIsAppendFabricOpen(true)}
+                        className="cursor-pointer gap-2 text-xs font-medium text-amber-700 dark:text-amber-400"
+                      >
+                        <Scissors className="w-4 h-4 text-amber-600" />
+                        <span>Add Fabric</span>
+                      </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={handleOpenReturnMaterials}
-                        className="cursor-pointer gap-2 text-xs font-medium text-teal-700 dark:text-teal-400 focus:text-teal-700"
+                        className="cursor-pointer gap-2 text-xs font-medium text-teal-700 dark:text-teal-400"
                       >
                         <RotateCcw className="w-4 h-4 text-teal-600" />
                         <span>Return Unused Material</span>
@@ -396,7 +421,7 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
                         onClick={() => setIsCancelModalOpen(true)}
-                        className="cursor-pointer gap-2 text-xs font-medium text-rose-600 dark:text-rose-400 focus:text-rose-600"
+                        className="cursor-pointer gap-2 text-xs font-medium text-rose-600 dark:text-rose-400"
                       >
                         <Ban className="w-4 h-4 text-rose-600" />
                         <span>Cancel Batch</span>
@@ -409,58 +434,66 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
           </DialogHeader>
 
           {/* Scrollable Content */}
-          <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5">
-            {/* Finalize Notification Banner when Awaiting Sync */}
-            {isAwaitingSync && (
-              <div className="p-3 sm:p-3.5 bg-gradient-to-r from-purple-50 via-indigo-50 to-emerald-50 dark:from-purple-950/30 dark:via-indigo-950/30 dark:to-emerald-950/30 rounded-xl border border-purple-200/80 dark:border-purple-800/60 flex items-center justify-between gap-3 shadow-2xs flex-wrap sm:flex-nowrap">
-                <div className="flex items-center gap-2.5">
-                  <div className="size-8 rounded-lg bg-purple-600 text-white flex items-center justify-center shrink-0 shadow-xs">
-                    <Sparkles className="w-4 h-4" />
+          <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+            {/* WASHING STAGE PROGRESS BANNER */}
+            {isWashing && (
+              <div className="p-3.5 bg-gradient-to-r from-cyan-50 via-sky-50 to-blue-50 dark:from-cyan-950/40 dark:via-sky-950/30 dark:to-blue-950/30 rounded-xl border border-cyan-200 dark:border-cyan-800/60 shadow-xs flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <div className="size-9 rounded-xl bg-cyan-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <Waves className="w-5 h-5 animate-pulse" />
                   </div>
                   <div>
-                    <h5 className="text-xs font-bold text-slate-900 dark:text-white">
-                      Finished Garments Awaiting Inventory Finalization
+                    <h5 className="text-xs font-bold text-cyan-950 dark:text-cyan-100 flex items-center gap-2">
+                      <span>Currently in Wash Stage</span>
+                      <Badge variant="outline" className="text-[10px] bg-white/80 dark:bg-zinc-900 border-cyan-300 dark:border-cyan-700 text-cyan-700 dark:text-cyan-300 font-mono">
+                        {remainingInWash} Pcs Remaining to Wash
+                      </Badge>
                     </h5>
-                    <p className="text-[11px] text-slate-600 dark:text-zinc-400 mt-0.5">
-                      Confirm the exact sellable finished pieces to push them into store and POS inventory.
+                    <p className="text-[11px] text-cyan-800/80 dark:text-cyan-300/80 mt-0.5">
+                      Sent to wash: <strong>{totalSentToWash}</strong> · Washed &amp; sold: <strong>{washedSoFar}</strong>
                     </p>
                   </div>
                 </div>
+
                 <Button
                   size="sm"
-                  onClick={handleOpenFinalize}
-                  className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl flex items-center gap-1.5 shadow-sm shrink-0 cursor-pointer"
+                  onClick={() => {
+                    onOpenChange(false);
+                    navigate('/system/wash');
+                  }}
+                  className="h-8 text-xs bg-cyan-600 hover:bg-cyan-700 text-white font-semibold rounded-xl flex items-center gap-1.5 shadow-sm shrink-0 cursor-pointer"
                 >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Finalize Products</span>
+                  <Waves className="w-3.5 h-3.5" />
+                  <span>Go to Wash Page</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
                 </Button>
               </div>
             )}
 
-            {/* Top Overview Cards */}
+            {/* Overview Cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-slate-50 dark:bg-zinc-900/60 p-3 rounded-xl border border-slate-200/80 dark:border-zinc-800">
               <div>
-                <span className="text-[10px] font-bold text-slate-500 uppercase">Target Output</span>
-                <p className="text-xs font-bold text-slate-900 dark:text-white font-mono">
-                  {totalPlannedFromProducts || order.targetQuantity} Garments
+                <span className="text-[10px] font-bold text-slate-500 uppercase">Single Batch Status</span>
+                <div className="text-xs font-bold text-slate-900 dark:text-white mt-0.5">
+                  <BatchStatusBadge status={order.status} isStockSynced={order.isStockSynced} />
+                </div>
+              </div>
+              <div>
+                <span className="text-[10px] font-bold text-slate-500 uppercase">Sewn Output Today</span>
+                <p className="text-xs font-bold text-cyan-600 dark:text-cyan-400 font-mono mt-0.5">
+                  {order.sentToWashQty || order.completedQty || 0} Units
                 </p>
               </div>
               <div>
-                <span className="text-[10px] font-bold text-slate-500 uppercase">Completed</span>
-                <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 font-mono">
-                  {order.completedQty} Units
-                </p>
-              </div>
-              <div>
-                <span className="text-[10px] font-bold text-slate-500 uppercase">Cutting Date</span>
-                <p className="text-xs font-bold text-slate-900 dark:text-white">
+                <span className="text-[10px] font-bold text-slate-500 uppercase">Batch Creation Date</span>
+                <p className="text-xs font-bold text-slate-900 dark:text-white mt-0.5">
                   {new Date(order.productionDate).toLocaleDateString()}
                 </p>
               </div>
               <div>
-                <span className="text-[10px] font-bold text-slate-500 uppercase">Order Type</span>
-                <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                  {order.reason || 'Multi-Product Batch'}
+                <span className="text-[10px] font-bold text-slate-500 uppercase">Production Type</span>
+                <p className="text-xs font-bold text-slate-900 dark:text-white truncate mt-0.5">
+                  {order.reason || 'Standard Factory Order'}
                 </p>
               </div>
             </div>
@@ -476,89 +509,46 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
             )}
 
             {/* ═════════════════════════════════════════════════════════════════
-                SECTION A: RAW MATERIAL INPUTS BREAKDOWN
+                SECTION 1: RAW MATERIAL & FABRIC ALLOCATIONS
             ═════════════════════════════════════════════════════════════════ */}
             <div className="space-y-2.5">
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-2">
                   <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
                     <Layers className="w-3.5 h-3.5 text-amber-500" />
-                    <span>Raw Material Inputs Breakdown</span>
+                    <span>Fabric &amp; Raw Material Allocations</span>
                   </h4>
                   <Badge variant="outline" className="text-[10px] text-slate-500">
                     {order.materialUsages?.length || 0} Material Line(s)
                   </Badge>
                 </div>
 
-                {order.status !== 'CANCELLED' && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleOpenReturnMaterials}
-                    className="h-7 text-xs rounded-lg text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 flex items-center gap-1.5 font-semibold cursor-pointer shadow-2xs"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span>Return Unused Material</span>
-                  </Button>
+                {!isCancelled && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setIsAppendFabricOpen(true)}
+                      className="h-7 text-xs rounded-lg text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800 hover:bg-amber-50 dark:hover:bg-amber-950/50 flex items-center gap-1.5 font-semibold cursor-pointer shadow-2xs"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Fabric</span>
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleOpenReturnMaterials}
+                      className="h-7 text-xs rounded-lg text-teal-700 dark:text-teal-400 border-teal-300 dark:border-teal-800 hover:bg-teal-50 dark:hover:bg-teal-950/50 flex items-center gap-1.5 font-semibold cursor-pointer shadow-2xs"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Return Scrap</span>
+                    </Button>
+                  </div>
                 )}
               </div>
 
-              {/* Mobile Cards (< sm) */}
-              <div className="block sm:hidden space-y-2.5">
-                {(order.materialUsages || []).map((usage: any) => (
-                  <div
-                    key={usage.id}
-                    className="p-3 bg-slate-50 dark:bg-zinc-900/60 rounded-xl border border-slate-200/80 dark:border-zinc-800 space-y-2 text-xs"
-                  >
-                    <div className="flex items-center justify-between">
-                      <strong className="text-slate-900 dark:text-white font-semibold">
-                        {usage.rawMaterial?.name || 'Raw Material'}
-                      </strong>
-                      {usage.rawMaterial?.code && (
-                        <span className="text-[10px] text-slate-400 font-mono">
-                          {usage.rawMaterial.code}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="grid grid-cols-4 gap-1.5 text-center pt-1 border-t border-slate-200/60 dark:border-zinc-800/60">
-                      <div className="bg-white dark:bg-zinc-950 p-1 rounded-lg border border-slate-100 dark:border-zinc-800">
-                        <span className="text-[8px] uppercase font-bold text-slate-400 block">Pieces</span>
-                        <span className="font-mono font-bold text-slate-700 dark:text-zinc-300 text-[11px]">
-                          {usage.piecesCount || 1}
-                        </span>
-                      </div>
-                      <div className="bg-white dark:bg-zinc-950 p-1 rounded-lg border border-slate-100 dark:border-zinc-800">
-                        <span className="text-[8px] uppercase font-bold text-slate-400 block">Issued</span>
-                        <span className="font-mono font-bold text-slate-700 dark:text-zinc-300 text-[11px]">
-                          {usage.issuedQty} {usage.rawMaterial?.unit}
-                        </span>
-                      </div>
-                      <div className="bg-white dark:bg-zinc-950 p-1 rounded-lg border border-slate-100 dark:border-zinc-800">
-                        <span className="text-[8px] uppercase font-bold text-emerald-600 block">Scrap</span>
-                        <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-[11px]">
-                          {usage.returnedQty} {usage.rawMaterial?.unit}
-                        </span>
-                      </div>
-                      <div className="bg-white dark:bg-zinc-950 p-1 rounded-lg border border-slate-100 dark:border-zinc-800">
-                        <span className="text-[8px] uppercase font-bold text-slate-400 block">Net</span>
-                        <span className="font-mono font-bold text-slate-900 dark:text-white text-[11px]">
-                          {usage.netConsumedQty} {usage.rawMaterial?.unit}
-                        </span>
-                      </div>
-                    </div>
-
-                    {usage.returnReason && (
-                      <p className="text-[10px] text-slate-500 dark:text-zinc-400 italic">
-                        Scrap note: {usage.returnReason}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {/* Desktop Table (>= sm) */}
-              <div className="hidden sm:block rounded-xl border border-slate-200 dark:border-zinc-800 overflow-hidden shadow-2xs">
+              {/* Table of Raw Materials */}
+              <div className="rounded-xl border border-slate-200 dark:border-zinc-800 overflow-hidden shadow-2xs">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-slate-50 dark:bg-zinc-900">
@@ -566,19 +556,16 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
                         Material Name
                       </TableHead>
                       <TableHead className="text-[10px] font-bold uppercase text-slate-600 dark:text-zinc-400 text-center">
-                        Rolls/Pcs
+                        Rolls / Pcs
                       </TableHead>
                       <TableHead className="text-[10px] font-bold uppercase text-slate-600 dark:text-zinc-400 text-right">
-                        Issued Cut Qty
+                        Total Cut / Issued
                       </TableHead>
                       <TableHead className="text-[10px] font-bold uppercase text-slate-600 dark:text-zinc-400 text-right">
                         Returned Scrap
                       </TableHead>
                       <TableHead className="text-[10px] font-bold uppercase text-slate-600 dark:text-zinc-400 text-right">
                         Net Consumed
-                      </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase text-slate-600 dark:text-zinc-400">
-                        Scrap Notes
                       </TableHead>
                     </TableRow>
                   </TableHeader>
@@ -596,7 +583,7 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
                         <TableCell className="text-xs text-center font-mono text-slate-600 dark:text-zinc-400">
                           {usage.piecesCount || 1}
                         </TableCell>
-                        <TableCell className="text-xs text-right text-slate-700 dark:text-zinc-300 font-mono">
+                        <TableCell className="text-xs text-right text-slate-700 dark:text-zinc-300 font-mono font-medium">
                           {usage.issuedQty} {usage.rawMaterial?.unit}
                         </TableCell>
                         <TableCell className="text-xs text-right text-emerald-600 dark:text-emerald-400 font-semibold font-mono">
@@ -604,9 +591,6 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
                         </TableCell>
                         <TableCell className="text-xs text-right font-bold text-slate-900 dark:text-white font-mono">
                           {usage.netConsumedQty} {usage.rawMaterial?.unit}
-                        </TableCell>
-                        <TableCell className="text-xs text-slate-500 dark:text-zinc-400">
-                          {usage.returnReason || '-'}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -616,13 +600,13 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
             </div>
 
             {/* ═════════════════════════════════════════════════════════════════
-                SECTION B: TARGET FINISHED PRODUCTS (PLANNED OUTPUT) SUMMARY
+                SECTION 2: TARGET FINISHED PRODUCTS (PLANNED OUTPUT)
             ═════════════════════════════════════════════════════════════════ */}
             <div className="space-y-2.5">
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
                   <Shirt className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Target Finished Products (Planned Output)</span>
+                  <span>Target Finished Garments</span>
                 </h4>
                 <Badge variant="outline" className="text-[10px] text-emerald-600 dark:text-emerald-400">
                   {targetProductsList.length} Garment Style(s)
@@ -679,101 +663,56 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
                 })}
               </div>
             </div>
-
-            {/* ═════════════════════════════════════════════════════════════════
-                SECTION C: BATCH ACTIVITY & WIP TIMELINE
-            ═════════════════════════════════════════════════════════════════ */}
-            <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-zinc-800">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                    Batch Activity &amp; WIP Timeline
-                  </h4>
-                  <p className="text-[11px] text-slate-500 dark:text-zinc-400">
-                    Decoupled Material Cutting &amp; Garment Finishing history with inline log editing
-                  </p>
-                </div>
-                {order.status !== 'CANCELLED' && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      onOpenChange(false);
-                      onAddCutting?.(order);
-                    }}
-                    className="h-7 text-xs text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/50 rounded-lg flex items-center gap-1 font-semibold cursor-pointer"
-                  >
-                    <Scissors className="w-3.5 h-3.5" />
-                    <span>Add Cutting</span>
-                  </Button>
-                )}
-              </div>
-
-              <div className="bg-slate-50 dark:bg-zinc-900/60 p-4 rounded-xl border border-slate-200/80 dark:border-zinc-800">
-                <BatchActivityTimeline
-                  order={order}
-                  onOrderUpdate={handleBatchUpdated}
-                  onRefresh={onRefresh}
-                  onEditBatch={(ord) => {
-                    onOpenChange(false);
-                    onAddCutting?.(ord);
-                  }}
-                />
-              </div>
-            </div>
           </div>
 
-          {/* Footer with Verified Action Buttons */}
+          {/* Footer Actions */}
           <DialogFooter className="px-5 py-3.5 border-t border-slate-100 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 z-10 flex-row justify-between items-center gap-2">
-            {order.status !== 'CANCELLED' ? (
+            {!isCancelled ? (
               <div className="flex items-center gap-2 flex-wrap">
-                {/* Action Button: Add Cutting (Directly opens full ProductionBatchEditModal) */}
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    onOpenChange(false);
-                    onAddCutting?.(order);
-                  }}
-                  className="h-8 text-xs bg-amber-600 hover:bg-amber-700 text-white rounded-xl flex items-center gap-1.5 shadow-sm cursor-pointer font-semibold"
-                >
-                  <Scissors className="w-3.5 h-3.5" />
-                  <span>Add Cutting</span>
-                </Button>
-
-                {/* Action Button: Add Finishing */}
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    onOpenChange(false);
-                    if (onAddFinishing) onAddFinishing(order);
-                  }}
-                  className="h-8 text-xs bg-purple-600 hover:bg-purple-700 text-white rounded-xl flex items-center gap-1.5 shadow-sm cursor-pointer font-semibold"
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Add Finishing</span>
-                </Button>
-
-                {/* Action Button: Return Unused Material */}
+                {/* Append Fabric Action */}
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={handleOpenReturnMaterials}
-                  className="h-8 text-xs text-teal-700 dark:text-teal-400 border-teal-300 dark:border-teal-800 hover:bg-teal-50 dark:hover:bg-teal-950/50 rounded-xl flex items-center gap-1.5 font-semibold cursor-pointer"
+                  onClick={() => setIsAppendFabricOpen(true)}
+                  className="h-8 text-xs border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/50 rounded-xl flex items-center gap-1.5 cursor-pointer font-semibold"
                 >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Return Material</span>
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Fabric</span>
                 </Button>
 
-                {/* Action Button: Finalize Products (when awaiting sync) */}
-                {isAwaitingSync && (
+                {/* Send to Wash Button (End of Day Workflow) */}
+                {isCutting && (
                   <Button
                     size="sm"
-                    onClick={handleOpenFinalize}
-                    className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl flex items-center gap-1.5 shadow-sm cursor-pointer font-semibold"
+                    onClick={handleOpenSendToWash}
+                    className="h-8 text-xs bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl flex items-center gap-1.5 shadow-sm cursor-pointer font-semibold"
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>Finalize Products</span>
+                    <Waves className="w-3.5 h-3.5" />
+                    <span>Send to Wash</span>
                   </Button>
+                )}
+
+                {/* If already in wash, link to wash page */}
+                {isWashing && (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      onOpenChange(false);
+                      navigate('/system/wash');
+                    }}
+                    className="h-8 text-xs bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl flex items-center gap-1.5 shadow-sm cursor-pointer font-semibold"
+                  >
+                    <Waves className="w-3.5 h-3.5" />
+                    <span>Manage in Wash Stage</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </Button>
+                )}
+
+                {isCompleted && (
+                  <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Batch Completed &amp; Stock Synced</span>
+                  </span>
                 )}
               </div>
             ) : (
@@ -796,7 +735,126 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
       </Dialog>
 
       {/* ─────────────────────────────────────────────────────────────
-          STREAMLINED MODAL 1: RETURN UNUSED MATERIAL TO STOCK
+          STREAMLINED MODAL 1: APPEND FABRIC MODAL
+      ───────────────────────────────────────────────────────────── */}
+      <AppendFabricModal
+        open={isAppendFabricOpen}
+        onOpenChange={setIsAppendFabricOpen}
+        order={order}
+        rawMaterialsList={rawMaterialsList}
+        productsList={productsList}
+        dark={dark}
+        onSuccess={(updated) => {
+          handleBatchUpdated(updated);
+        }}
+      />
+
+      {/* ─────────────────────────────────────────────────────────────
+          STREAMLINED MODAL 2: SEND TO WASH (END-OF-DAY WORKFLOW)
+      ───────────────────────────────────────────────────────────── */}
+      <Dialog open={isSendToWashOpen} onOpenChange={setIsSendToWashOpen}>
+        <DialogContent className="w-[95vw] max-w-md bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-5 shadow-2xl">
+          <DialogHeader>
+            <div className="flex items-center gap-2.5">
+              <div className="size-9 rounded-xl bg-cyan-50 dark:bg-cyan-950/50 text-cyan-600 dark:text-cyan-400 flex items-center justify-center border border-cyan-200 dark:border-cyan-900/50">
+                <Waves className="w-4 h-4" />
+              </div>
+              <div>
+                <DialogTitle className="text-base font-bold text-slate-900 dark:text-white">
+                  Send to Wash Stage
+                </DialogTitle>
+                <p className="text-xs text-slate-500 dark:text-zinc-400">
+                  Batch #{order.productionNo} · {order.product?.name}
+                </p>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <form onSubmit={handleSubmitSendToWash} className="space-y-3.5 pt-2">
+            <div className="p-3 rounded-xl bg-cyan-50/70 dark:bg-cyan-950/30 border border-cyan-200 dark:border-cyan-900/50 text-xs text-cyan-950 dark:text-cyan-200 space-y-1">
+              <div className="flex items-center gap-1.5 font-semibold">
+                <Waves className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
+                <span>End-of-Day Factory Handover:</span>
+              </div>
+              <p>
+                Enter the actual count of completed sewn garments ready for the washing plant today. This will transition the batch status to <strong>WASHING</strong>.
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 block">
+                Actual Sewn Garments Produced Today <span className="text-rose-500">*</span>
+              </label>
+              <Input
+                type="number"
+                min="1"
+                step="1"
+                required
+                value={sewnQuantity}
+                onChange={(e) => setSewnQuantity(e.target.value === '' ? '' : Number(e.target.value))}
+                placeholder={`Planned target: ${totalPlannedFromProducts || order.targetQuantity} pcs`}
+                className="h-9 text-xs rounded-xl bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 font-mono font-bold text-cyan-700 dark:text-cyan-300"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 block">
+                Handover Date &amp; Time
+              </label>
+              <DateTimePicker
+                value={washDateTime}
+                onChange={setWashDateTime}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 block">
+                Handover Remarks / Notes <span className="text-slate-400 font-normal">(Optional)</span>
+              </label>
+              <Input
+                type="text"
+                value={washNotes}
+                onChange={(e) => setWashNotes(e.target.value)}
+                placeholder="e.g. Sent 50 pcs to industrial washing plant"
+                className="h-9 text-xs rounded-xl bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800"
+              />
+            </div>
+
+            <DialogFooter className="gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800 flex-row justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsSendToWashOpen(false)}
+                className="text-xs rounded-xl"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={isSubmittingSendToWash || !sewnQuantity}
+                className="bg-cyan-600 hover:bg-cyan-700 text-white text-xs rounded-xl font-semibold shadow-sm flex items-center gap-1.5 cursor-pointer"
+              >
+                {isSubmittingSendToWash ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Transitioning Status...</span>
+                  </>
+                ) : (
+                  <>
+                    <Waves className="w-3.5 h-3.5" />
+                    <span>Confirm &amp; Send to Wash</span>
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─────────────────────────────────────────────────────────────
+          STREAMLINED MODAL 3: RETURN UNUSED MATERIAL SCRAP
       ───────────────────────────────────────────────────────────── */}
       <Dialog open={isReturnModalOpen} onOpenChange={setIsReturnModalOpen}>
         <DialogContent className="w-[95vw] max-w-lg sm:max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden rounded-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 shadow-2xl">
@@ -810,7 +868,7 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
                   Return Unused Material to Inventory
                 </DialogTitle>
                 <p className="text-xs text-slate-500 dark:text-zinc-400">
-                  Batch #{order.productionNo} — Securely restores uncut fabric back into warehouse stock
+                  Batch #{order.productionNo} — Restores uncut fabric back into warehouse stock
                 </p>
               </div>
             </div>
@@ -833,7 +891,7 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
                         {line.materialName}
                       </h4>
                       <p className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5">
-                        Issued: <span className="font-mono font-medium">{line.issuedQty} {line.unit}</span> · Cut Used: <span className="font-mono font-medium text-amber-600">{line.totalCutQty} {line.unit}</span> · Previously Returned: <span className="font-mono font-medium text-teal-600">{line.previouslyReturnedQty} {line.unit}</span>
+                        Issued: <span className="font-mono font-medium">{line.issuedQty} {line.unit}</span> · Previously Returned: <span className="font-mono font-medium text-teal-600">{line.previouslyReturnedQty} {line.unit}</span>
                       </p>
                     </div>
                     <Badge variant="outline" className="text-[10px] font-mono text-emerald-700 dark:text-emerald-300">
@@ -888,7 +946,7 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
                     </div>
                   ) : (
                     <p className="text-[11px] text-slate-400 dark:text-zinc-500 italic pt-1 border-t border-slate-100 dark:border-zinc-800">
-                      All issued material for this line has been fully cut or already returned.
+                      All issued material for this line has been fully used or returned.
                     </p>
                   )}
                 </div>
@@ -930,100 +988,6 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
       </Dialog>
 
       {/* ─────────────────────────────────────────────────────────────
-          STREAMLINED MODAL 3: FINALIZE FINISHED PRODUCTS
-      ───────────────────────────────────────────────────────────── */}
-      <Dialog open={isFinalizeModalOpen} onOpenChange={setIsFinalizeModalOpen}>
-        <DialogContent className="w-[95vw] max-w-lg bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-5 shadow-2xl">
-          <DialogHeader>
-            <div className="flex items-center gap-2.5">
-              <div className="size-9 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-500/20">
-                <Sparkles className="w-4 h-4" />
-              </div>
-              <div>
-                <DialogTitle className="text-base font-bold text-slate-900 dark:text-white">
-                  Finalize Finished Products — Batch #{order.productionNo}
-                </DialogTitle>
-                <p className="text-xs text-slate-500 dark:text-zinc-400">
-                  {order.product?.name} · Planned Target: {totalPlannedFromProducts || order.targetQuantity} Pcs
-                </p>
-              </div>
-            </div>
-          </DialogHeader>
-
-          <form onSubmit={handleSubmitFinalize} className="space-y-3.5 pt-2">
-            <div className="p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-xs text-emerald-900 dark:text-emerald-200 space-y-1">
-              <div className="flex items-center gap-1.5 font-semibold">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span>Active Inventory Sync:</span>
-              </div>
-              <p>
-                Enter the verified final piece count ready for sale. Submitting will push these pieces directly to active sellable product stock and complete the batch.
-              </p>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block">
-                Actual Final Finished Pieces <span className="text-rose-500">*</span>
-              </label>
-              <Input
-                type="number"
-                min="1"
-                step="1"
-                required
-                value={finalPiecesQty}
-                onChange={(e) => setFinalPiecesQty(e.target.value === '' ? '' : Number(e.target.value))}
-                placeholder={`Planned: ${totalPlannedFromProducts || order.targetQuantity}`}
-                className="h-9 text-xs rounded-xl bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 font-mono font-bold"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block">
-                Finalization Notes / Quality Check <span className="text-slate-400">(Optional)</span>
-              </label>
-              <Input
-                type="text"
-                value={finalizeNotes}
-                onChange={(e) => setFinalizeNotes(e.target.value)}
-                placeholder="e.g. 100% Passed QA inspection"
-                className="h-9 text-xs rounded-xl bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800"
-              />
-            </div>
-
-            <DialogFooter className="gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800 flex-row justify-end">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setIsFinalizeModalOpen(false)}
-                className="text-xs rounded-xl"
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                size="sm"
-                disabled={isSubmittingFinalize}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs rounded-xl font-semibold shadow-sm flex items-center gap-1.5 cursor-pointer"
-              >
-                {isSubmittingFinalize ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Finalizing Stock...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>Confirm &amp; Push to Stock</span>
-                  </>
-                )}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* ─────────────────────────────────────────────────────────────
           STREAMLINED MODAL 4: CANCEL BATCH CONFIRMATION
       ───────────────────────────────────────────────────────────── */}
       <Dialog open={isCancelModalOpen} onOpenChange={setIsCancelModalOpen}>
@@ -1051,13 +1015,8 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
                 <span>Automatic Stock Reversal:</span>
               </div>
               <p>
-                • All raw materials consumed or allocated to Batch #{order.productionNo} will be refunded and restored directly into warehouse stock.
+                • All raw materials consumed or allocated to Batch #{order.productionNo} will be refunded directly into warehouse stock.
               </p>
-              {order.isStockSynced && order.completedQty > 0 && (
-                <p>
-                  • Completed garments (+{order.completedQty} units) previously synced to active inventory will be safely reversed.
-                </p>
-              )}
               <p>
                 • Batch status changes to <strong>CANCELLED</strong> while preserving audit history.
               </p>

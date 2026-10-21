@@ -436,7 +436,7 @@ export const ProductionBatchEditModal: React.FC<ProductionBatchEditModalProps> =
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[96vw] max-w-4xl lg:max-w-5xl max-h-[92vh] flex flex-col p-0 gap-0 overflow-hidden rounded-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 shadow-2xl">
+      <DialogContent className="w-[96vw] max-w-4xl lg:max-w-5xl max-h-[92vh] flex flex-col p-0 gap-0 rounded-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 shadow-2xl">
         {/* Header */}
         <DialogHeader className="px-5 py-4 border-b border-slate-100 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 z-10 flex flex-col gap-2.5">
           <div className="flex items-center justify-between">
@@ -513,12 +513,12 @@ export const ProductionBatchEditModal: React.FC<ProductionBatchEditModalProps> =
         </DialogHeader>
 
         {/* Scrollable Form Body */}
-        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
-          <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5">
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-visible">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-5 pb-24 sm:pb-28 space-y-5 overflow-visible">
             {/* ═════════════════════════════════════════════════════════════════
                 SECTION A: RAW MATERIALS TO CUT & ISSUE (INPUTS)
             ═════════════════════════════════════════════════════════════════ */}
-            <div className="p-4 rounded-2xl bg-slate-50/80 dark:bg-zinc-900/40 border border-slate-200 dark:border-zinc-800 space-y-3.5 shadow-2xs">
+            <div className="p-4 rounded-2xl bg-slate-50/80 dark:bg-zinc-900/40 border border-slate-200 dark:border-zinc-800 space-y-3.5 shadow-2xs overflow-visible">
               <div className="flex items-center justify-between pb-2 border-b border-slate-200/80 dark:border-zinc-800">
                 <div className="flex items-center gap-2">
                   <div className="size-7 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-xs">
@@ -548,7 +548,7 @@ export const ProductionBatchEditModal: React.FC<ProductionBatchEditModalProps> =
               </div>
 
               {/* Material Rows */}
-              <div className="space-y-3">
+              <div className="space-y-3 overflow-visible">
                 {materials.map((matRow, idx) => {
                   const selectedMat = rawMaterialsList.find(
                     (m) => m.id === Number(matRow.rawMaterialId)
@@ -567,7 +567,7 @@ export const ProductionBatchEditModal: React.FC<ProductionBatchEditModalProps> =
                   return (
                     <div
                       key={matRow.rowId}
-                      className={`p-3 rounded-xl border transition-all space-y-2.5 ${
+                      className={`p-3 rounded-xl border transition-all space-y-2.5 overflow-visible relative ${
                         isOverStock
                           ? 'bg-rose-50/60 dark:bg-rose-950/20 border-rose-300 dark:border-rose-900/60'
                           : 'bg-white dark:bg-zinc-950 border-slate-200/90 dark:border-zinc-800 shadow-2xs'
@@ -601,9 +601,9 @@ export const ProductionBatchEditModal: React.FC<ProductionBatchEditModalProps> =
                         )}
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-start overflow-visible">
                         {/* Material Selector */}
-                        <div className="sm:col-span-6 space-y-1">
+                        <div className="sm:col-span-6 space-y-1 overflow-visible relative">
                           <label className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400">
                             Fabric / Raw Material <span className="text-rose-500">*</span>
                           </label>
@@ -614,28 +614,7 @@ export const ProductionBatchEditModal: React.FC<ProductionBatchEditModalProps> =
                             placeholder="Select fabric or trim..."
                             searchPlaceholder="Type fabric name or code..."
                             dark={isDark}
-                            className="h-9 text-xs"
-                          />
-                        </div>
-
-                        {/* Pieces / Rolls Count */}
-                        <div className="sm:col-span-3 space-y-1">
-                          <label className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400">
-                            Pieces / Rolls Count
-                          </label>
-                          <Input
-                            type="number"
-                            min={1}
-                            placeholder="1"
-                            value={matRow.piecesCount}
-                            onChange={(e) =>
-                              handleMaterialChange(
-                                idx,
-                                'piecesCount',
-                                e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value) || 1)
-                              )
-                            }
-                            className="h-9 text-xs font-mono"
+                            className="h-10 text-xs"
                           />
                         </div>
 
@@ -643,7 +622,7 @@ export const ProductionBatchEditModal: React.FC<ProductionBatchEditModalProps> =
                         <div className="sm:col-span-3 space-y-1">
                           <div className="flex items-center justify-between">
                             <label className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400">
-                              Cutting Qty <span className="text-rose-500">*</span>
+                              Quantity Cut <span className="text-rose-500">*</span>
                             </label>
                             {selectedMat && (
                               <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400">
@@ -676,6 +655,27 @@ export const ProductionBatchEditModal: React.FC<ProductionBatchEditModalProps> =
                             </div>
                           </div>
                         </div>
+
+                        {/* Pieces / Rolls Count */}
+                        <div className="sm:col-span-3 space-y-1">
+                          <label className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400">
+                            Rolls / Pcs
+                          </label>
+                          <Input
+                            type="number"
+                            min={1}
+                            placeholder="1"
+                            value={matRow.piecesCount}
+                            onChange={(e) =>
+                              handleMaterialChange(
+                                idx,
+                                'piecesCount',
+                                e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value) || 1)
+                              )
+                            }
+                            className="h-9 text-xs font-mono"
+                          />
+                        </div>
                       </div>
 
                       {/* Overstock Warning */}
@@ -696,7 +696,7 @@ export const ProductionBatchEditModal: React.FC<ProductionBatchEditModalProps> =
             {/* ═════════════════════════════════════════════════════════════════
                 SECTION B: TARGET FINISHED PRODUCTS (PLANNED OUTPUT)
             ═════════════════════════════════════════════════════════════════ */}
-            <div className="p-4 rounded-2xl bg-slate-50/80 dark:bg-zinc-900/40 border border-slate-200 dark:border-zinc-800 space-y-3.5 shadow-2xs">
+            <div className="p-4 rounded-2xl bg-slate-50/80 dark:bg-zinc-900/40 border border-slate-200 dark:border-zinc-800 space-y-3.5 shadow-2xs overflow-visible">
               <div className="flex items-center justify-between pb-2 border-b border-slate-200/80 dark:border-zinc-800">
                 <div className="flex items-center gap-2">
                   <div className="size-7 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold text-xs">
@@ -726,12 +726,12 @@ export const ProductionBatchEditModal: React.FC<ProductionBatchEditModalProps> =
               </div>
 
               {/* Product Rows */}
-              <div className="space-y-3">
+              <div className="space-y-3 overflow-visible">
                 {targetProducts.map((prodRow, pIdx) => {
                   return (
                     <div
                       key={prodRow.rowId}
-                      className="p-3 rounded-xl bg-white dark:bg-zinc-950 border border-slate-200/90 dark:border-zinc-800 shadow-2xs space-y-2.5"
+                      className="p-3 rounded-xl bg-white dark:bg-zinc-950 border border-slate-200/90 dark:border-zinc-800 shadow-2xs space-y-2.5 overflow-visible relative"
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
@@ -755,9 +755,9 @@ export const ProductionBatchEditModal: React.FC<ProductionBatchEditModalProps> =
                         )}
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-start overflow-visible">
                         {/* Garment Product Selector with Image Thumbnail & Barcode Search */}
-                        <div className="sm:col-span-8 space-y-1">
+                        <div className="sm:col-span-8 space-y-1 overflow-visible relative">
                           <label className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400">
                             Target Garment Product <span className="text-rose-500">*</span>
                           </label>
@@ -768,7 +768,7 @@ export const ProductionBatchEditModal: React.FC<ProductionBatchEditModalProps> =
                             placeholder="Select target garment style (thumbnail, SKU, barcode)..."
                             searchPlaceholder="Type product name, SKU, or barcode..."
                             dark={isDark}
-                            className="h-9 text-xs"
+                            className="h-10 text-xs"
                           />
                         </div>
 

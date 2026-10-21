@@ -1,9 +1,8 @@
 import * as React from "react";
-import * as PortalPrimitive from "@radix-ui/react-portal";
+import { createPortal } from "react-dom";
 import { DismissableLayerBranch } from "@radix-ui/react-dismissable-layer";
 import { Check, ChevronsUpDown, Search, X } from "lucide-react";
 import { useSafeTheme } from "../../contexts/ThemeContext";
-
 
 /**
  * Type augmentation for React HTML attributes to accommodate Vaul drawer
@@ -12,6 +11,8 @@ import { useSafeTheme } from "../../contexts/ThemeContext";
 declare module "react" {
   interface HTMLAttributes<T> {
     "data-vaul-no-drag"?: string | boolean;
+    "data-radix-portal"?: string | boolean;
+    "data-searchable-select-portal"?: string | boolean;
     onOpenAutoFocus?: (event: React.SyntheticEvent | Event) => void;
     onCloseAutoFocus?: (event: React.SyntheticEvent | Event) => void;
   }
@@ -40,19 +41,6 @@ export const PopoverContent = React.forwardRef<
 ));
 PopoverContent.displayName = "PopoverContent";
 
-/**
- * PopoverPrimitive portal wrapper mounted directly to document.body.
- * Guarantees that the select dropdown breaks out of any stacking context
- * or overflow-hidden container on desktop tables and wide viewports.
- */
-const PopoverPrimitive = {
-  Portal: ({ children, container }: { children: React.ReactNode; container?: HTMLElement | null }) => (
-    <PortalPrimitive.Portal container={container ?? (typeof document !== "undefined" ? document.body : undefined)}>
-      {children}
-    </PortalPrimitive.Portal>
-  ),
-};
-
 export interface SearchableSelectOption {
   value: string;
   label: string;
@@ -72,32 +60,15 @@ interface SearchableSelectProps {
   disabled?: boolean;
   dark?: boolean;
   className?: string; // Optional custom height/style prop
+  inline?: boolean;   // Optional manual override for inline rendering
 }
 
 /**
  * SearchableSelect
  * 
- * Touch-optimized and keyboard-accessible searchable dropdown select component
- * engineered with a Hybrid Viewport Architecture:
- * 
- * ### Hybrid Viewport Architecture:
- * 1. **Mobile / Touch Viewports (< 768px or inside Drawer/Modal containers)**:
- *    - Renders as an **Inline Absolute Container** (`absolute left-0 right-0 top-full mt-1.5 z-[9999]`).
- *    - By staying within the parent DOM subtree, Radix Dialog / Vaul Drawer focus traps never
- *      intercept input focus, completely eliminating software keyboard rejection and immediate blur on iOS/Android.
- *    - Attaches `data-vaul-no-drag=""` to both the dropdown wrapper and options list so parent bottom sheet
- *      drawers never hijack vertical scroll swipes.
- *    - Employs native momentum touch scrolling with `touchAction: 'pan-y'` and `WebkitOverflowScrolling: 'touch'`,
- *      free of gesture-locking event cancellation.
- * 
- * 2. **Desktop Viewports (>= 768px)**:
- *    - Mounts via `<PopoverPrimitive.Portal>` into `document.body` wrapped in `<DismissableLayerBranch asChild>`.
- *    - Dynamically computes bounding coordinates (`coords.top`, `coords.left`, `coords.width`) with intelligent
- *      vertical flipping and viewport edge clamping, guaranteeing zero clipping inside overflow-hidden data tables.
- * 
- * 3. **Unified Outside-Interaction Cleanup**:
- *    - Listens to both `mousedown` and `{ passive: true }` `touchstart` events on `document` to cleanly dismiss
- *      the dropdown without conflicting with child selections.
+ * High-performance, keyboard-accessible searchable dropdown select component.
+ * Portals directly into document.body with z-[999999] and dynamic getBoundingClientRect
+ * positioning to eliminate all modal/drawer overflow clipping and focus trap conflicts.
  */
 export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   options,
@@ -109,7 +80,8 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   emptyMessage = "No matching options.",
   disabled = false,
   dark: darkProp,
-  className = "", // Default empty, preserves natural component height
+  className = "",
+  inline = false,
 }) => {
   const safeTheme = useSafeTheme();
   const [domIsDark, setDomIsDark] = React.useState<boolean>(() => {
@@ -133,9 +105,12 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
     return () => observer.disconnect();
   }, []);
 
-  const isDark = typeof darkProp === "boolean"
-    ? darkProp
-    : (safeTheme ? safeTheme.isDark : domIsDark);
+  const isDark =
+    typeof darkProp === "boolean"
+      ? darkProp
+      : safeTheme
+      ? safeTheme.isDark
+      : domIsDark;
 
   const [open, setOpen] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
@@ -144,53 +119,12 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   const dropdownRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
-  // Viewport mode tracking: mobile (<768px) vs desktop (>=768px)
-  const [isMobileViewport, setIsMobileViewport] = React.useState<boolean>(() => {
-    return typeof window !== "undefined" ? window.innerWidth < 768 : false;
-  });
-
-  React.useEffect(() => {
-    const handleResize = () => {
-      setIsMobileViewport(window.innerWidth < 768);
-    };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
-  // Check if component is rendered inside a Dialog, Modal, or Drawer
-  const [isInModal, setIsInModal] = React.useState<boolean>(false);
-
-  React.useEffect(() => {
-    if (containerRef.current) {
-      const inModal = Boolean(
-        containerRef.current.closest(
-          '[data-vaul-drawer], [data-radix-dialog-content], [role="dialog"], [aria-modal="true"]'
-        )
-      );
-      setIsInModal(inModal);
-    }
-
-  }, [open]);
-
-  // Determine whether to render inline (mobile viewports or inside ANY dialog/modal/drawer on all screens)
-  const isInline = React.useMemo(() => {
-    if (isMobileViewport) return true;
-    if (isInModal) return true;
-    if (containerRef.current) {
-      const inDrawerOrModal = Boolean(
-        containerRef.current.closest(
-          '[data-vaul-drawer], [data-radix-dialog-content], [role="dialog"], [aria-modal="true"]'
-        )
-      );
-      if (inDrawerOrModal) {
-        return true;
-      }
-    }
-    return false;
-  }, [isMobileViewport, isInModal, open]);
-
-  // Real-time dynamic screen coordinates for desktop portaled dropdown
-  const [coords, setCoords] = React.useState<{ top: number; left: number; width: number }>({
+  // Dynamic positioning coordinates for portaled dropdown
+  const [coords, setCoords] = React.useState<{
+    top: number;
+    left: number;
+    width: number;
+  }>({
     top: 0,
     left: 0,
     width: 200,
@@ -221,53 +155,63 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
     });
   }, [options, searchQuery]);
 
-  // Dynamically calculate coordinates attached precisely to trigger button on desktop
+  // Dynamic positioning calculation pinned directly to trigger button
   const updatePosition = React.useCallback(() => {
-    if (isInline) return;
-    if (triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect();
-      // Measure actual rendered dropdown height if available, fallback to 260
-      const actualHeight = dropdownRef.current ? dropdownRef.current.offsetHeight : 260;
-      const spaceBelow = window.innerHeight - rect.bottom;
-      const spaceAbove = rect.top;
+    if (inline || !triggerRef.current) return;
 
-      let top = rect.bottom + 4;
-      // Only flip up if bottom space is genuinely restricted and top has ample clearance
-      if (spaceBelow < actualHeight && spaceAbove > actualHeight) {
-        top = Math.max(8, rect.top - actualHeight - 4);
-      } else {
-        // Clamp so dropdown bottom never overflows screen
-        top = Math.max(8, Math.min(top, window.innerHeight - actualHeight - 8));
-      }
+    const rect = triggerRef.current.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) return;
 
-      // Responsive width: match trigger width, but at least 200px and no wider than viewport - 16px
-      const minWidth = Math.max(rect.width, 200);
-      const width = Math.min(minWidth, window.innerWidth - 16);
-      let left = rect.left;
-      if (left + width > window.innerWidth - 8) {
-        left = window.innerWidth - width - 8;
-      }
-      left = Math.max(8, left);
-
-      setCoords({
-        top,
-        left,
-        width,
-      });
+    // If trigger has scrolled completely offscreen, close dropdown
+    if (rect.bottom < 0 || rect.top > window.innerHeight) {
+      setOpen(false);
+      return;
     }
-  }, [isInline]);
 
-  // Update position when opened or query changes on desktop
+    const estimatedHeight = 280;
+    const actualHeight = dropdownRef.current
+      ? dropdownRef.current.offsetHeight
+      : estimatedHeight;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+
+    let top = rect.bottom + 4;
+    // Flip upwards only if restricted space below and ample clearance above
+    if (spaceBelow < actualHeight && spaceAbove > actualHeight) {
+      top = Math.max(8, rect.top - actualHeight - 4);
+    } else {
+      // Clamp so dropdown never overflows viewport bottom
+      top = Math.max(8, Math.min(top, window.innerHeight - actualHeight - 8));
+    }
+
+    // Width matches trigger width, with min 200px and max viewport width - 16px
+    const minWidth = Math.max(rect.width, 200);
+    const width = Math.min(minWidth, window.innerWidth - 16);
+    let left = rect.left;
+    if (left + width > window.innerWidth - 8) {
+      left = window.innerWidth - width - 8;
+    }
+    left = Math.max(8, left);
+
+    setCoords({
+      top,
+      left,
+      width,
+    });
+  }, [inline]);
+
+  // Synchronous position update on open and query change
   React.useLayoutEffect(() => {
-    if (open && !isInline) {
+    if (open && !inline) {
       updatePosition();
     }
-  }, [open, isInline, searchQuery, updatePosition]);
+  }, [open, inline, searchQuery, filteredOptions.length, updatePosition]);
 
-  // Synchronize desktop coordinates on page scroll or resize
+  // Real-time position tracking on scroll and resize
   React.useEffect(() => {
-    if (open && !isInline) {
+    if (open && !inline) {
       const handleScrollResize = () => updatePosition();
+      // Capture phase is crucial to track scrolling inside modal scroll containers
       window.addEventListener("scroll", handleScrollResize, true);
       window.addEventListener("resize", handleScrollResize);
       return () => {
@@ -275,21 +219,27 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         window.removeEventListener("resize", handleScrollResize);
       };
     }
-  }, [open, isInline, updatePosition]);
+  }, [open, inline, updatePosition]);
 
-  // Focus the search input smoothly on open without jumping viewport
+  // Smooth auto-focus on open without jumping viewport
   React.useEffect(() => {
     if (open) {
+      const raf = requestAnimationFrame(() => {
+        inputRef.current?.focus({ preventScroll: true });
+      });
       const timer = setTimeout(() => {
         inputRef.current?.focus({ preventScroll: true });
-      }, 50);
-      return () => clearTimeout(timer);
+      }, 40);
+      return () => {
+        cancelAnimationFrame(raf);
+        clearTimeout(timer);
+      };
     } else {
       setSearchQuery("");
     }
   }, [open]);
 
-  // Unified outside-click & outside-touch handler
+  // Outside-click & touch dismiss handler
   React.useEffect(() => {
     if (!open) return;
 
@@ -297,12 +247,12 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       const target = event.target as Node;
       if (!target) return;
 
-      // Click or touch inside container wrapper (trigger or inline dropdown)
+      // Click or touch inside trigger container
       if (containerRef.current && containerRef.current.contains(target)) {
         return;
       }
 
-      // Click or touch inside portaled desktop dropdown
+      // Click or touch inside portaled dropdown
       if (dropdownRef.current && dropdownRef.current.contains(target)) {
         return;
       }
@@ -311,7 +261,9 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
     };
 
     document.addEventListener("mousedown", handleOutsideClick);
-    document.addEventListener("touchstart", handleOutsideClick, { passive: true });
+    document.addEventListener("touchstart", handleOutsideClick, {
+      passive: true,
+    });
 
     return () => {
       document.removeEventListener("mousedown", handleOutsideClick);
@@ -326,20 +278,26 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
     setSearchQuery("");
   };
 
-  // Shared dropdown content: Search input and option items list
+  // Dropdown content: Search input and option items list
   const dropdownContent = (
     <>
-      {/* Search Input with Native Touch-Friendly Focus & Event Isolation from Parent Dialogs */}
+      {/* Search Input with event isolation from parent Radix Dialog focus traps */}
       <div
         onPointerDown={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
+        onFocus={(e) => e.stopPropagation()}
         className={`flex items-center gap-2 px-3 py-2 border-b shrink-0 pointer-events-auto ${
-          isDark ? "border-zinc-800 bg-zinc-950/40" : "border-slate-100 bg-slate-50/60"
+          isDark
+            ? "border-zinc-800 bg-zinc-950/60"
+            : "border-slate-100 bg-slate-50/80"
         }`}
       >
-        <Search className={`w-3.5 h-3.5 shrink-0 ${isDark ? "text-zinc-500" : "text-slate-400"}`} />
+        <Search
+          className={`w-3.5 h-3.5 shrink-0 ${
+            isDark ? "text-zinc-500" : "text-slate-400"
+          }`}
+        />
         <input
           ref={inputRef}
           type="text"
@@ -348,9 +306,13 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           onPointerDown={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
+          onFocus={(e) => e.stopPropagation()}
           onKeyDown={(e) => {
             e.stopPropagation();
-            if (e.key === "Enter") {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              setOpen(false);
+            } else if (e.key === "Enter") {
               e.preventDefault();
               if (filteredOptions.length > 0) {
                 handleSelect(filteredOptions[0].value);
@@ -360,7 +322,9 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           onKeyUp={(e) => e.stopPropagation()}
           placeholder={searchPlaceholder}
           className={`w-full bg-transparent text-xs focus:outline-none cursor-text ${
-            isDark ? "text-zinc-100 placeholder-zinc-500" : "text-slate-900 placeholder-slate-400"
+            isDark
+              ? "text-zinc-100 placeholder-zinc-500"
+              : "text-slate-900 placeholder-slate-400"
           }`}
           autoComplete="off"
           autoCorrect="off"
@@ -376,7 +340,9 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
               setSearchQuery("");
             }}
             className={`p-0.5 cursor-pointer transition-colors ${
-              isDark ? "text-zinc-400 hover:text-zinc-200" : "text-slate-400 hover:text-slate-600"
+              isDark
+                ? "text-zinc-400 hover:text-zinc-200"
+                : "text-slate-400 hover:text-slate-600"
             }`}
             title="Clear search"
           >
@@ -385,14 +351,18 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         )}
       </div>
 
-      {/* List Options with Vaul Drawer Isolation & Momentum Touch Scroll */}
+      {/* List Options with momentum scroll */}
       <div
         data-vaul-no-drag=""
         className="max-h-[220px] sm:max-h-[260px] overflow-y-auto overscroll-contain p-1 space-y-0.5 pointer-events-auto"
         style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
       >
         {filteredOptions.length === 0 ? (
-          <div className={`p-3 text-center text-xs ${isDark ? "text-zinc-500" : "text-slate-400"}`}>
+          <div
+            className={`p-3 text-center text-xs ${
+              isDark ? "text-zinc-500" : "text-slate-400"
+            }`}
+          >
             {emptyMessage}
           </div>
         ) : (
@@ -403,6 +373,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                 key={opt.value}
                 type="button"
                 disabled={opt.disabled}
+                onPointerDown={(e) => e.stopPropagation()}
                 onClick={() => handleSelect(opt.value)}
                 className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer select-none text-left ${
                   isSelected
@@ -434,24 +405,39 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   );
 
   return (
-    <div ref={containerRef} className="relative w-full">
-      {/* Trigger Button with attached triggerRef */}
+    <div
+      ref={containerRef}
+      className={`relative w-full ${open ? "z-[999999]" : "z-auto"}`}
+    >
+      {/* Trigger Button */}
       <button
         ref={triggerRef}
         type="button"
         disabled={disabled}
         onClick={() => {
           if (!disabled) {
-            if (containerRef.current) {
-              const inModal = Boolean(
-                containerRef.current.closest(
-                  '[data-vaul-drawer], [data-radix-dialog-content], [role="dialog"], [aria-modal="true"]'
-                )
-              );
-              setIsInModal(inModal);
-            }
-            if (!isInline) {
-              updatePosition();
+            if (!inline && triggerRef.current) {
+              const rect = triggerRef.current.getBoundingClientRect();
+              const spaceBelow = window.innerHeight - rect.bottom;
+              const spaceAbove = rect.top;
+              const estHeight = 280;
+              let top = rect.bottom + 4;
+              if (spaceBelow < estHeight && spaceAbove > estHeight) {
+                top = Math.max(8, rect.top - estHeight - 4);
+              } else {
+                top = Math.max(
+                  8,
+                  Math.min(top, window.innerHeight - estHeight - 8)
+                );
+              }
+              const minWidth = Math.max(rect.width, 200);
+              const width = Math.min(minWidth, window.innerWidth - 16);
+              let left = rect.left;
+              if (left + width > window.innerWidth - 8) {
+                left = window.innerWidth - width - 8;
+              }
+              left = Math.max(8, left);
+              setCoords({ top, left, width });
             }
             setOpen((prev) => !prev);
           }
@@ -460,7 +446,9 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           isDark
             ? "bg-zinc-950 border-zinc-800 text-zinc-100 hover:border-zinc-700 focus:border-emerald-500/60"
             : "bg-white border-slate-200 text-slate-900 hover:border-slate-300 focus:border-emerald-500 shadow-2xs"
-        } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"} ${className}`}
+        } ${
+          disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
+        } ${className}`}
       >
         <span className="flex items-center gap-2 truncate">
           {selectedOption?.icon}
@@ -478,18 +466,24 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             {selectedOption ? selectedOption.label : placeholder}
           </span>
         </span>
-        <ChevronsUpDown className={`w-3.5 h-3.5 shrink-0 ${isDark ? "text-zinc-500" : "text-slate-400"}`} />
+        <ChevronsUpDown
+          className={`w-3.5 h-3.5 shrink-0 ${
+            isDark ? "text-zinc-500" : "text-slate-400"
+          }`}
+        />
       </button>
 
-      {/* Hybrid Dropdown: Inline on Mobile/Touch Drawers, Body Portal on Desktop */}
+      {/* Portaled Dropdown Menu mounted directly to document.body */}
       {open &&
-        (isInline ? (
+        (inline ? (
           <PopoverContent
             ref={dropdownRef}
             data-vaul-no-drag=""
+            role="listbox"
             onOpenAutoFocus={(e) => e.preventDefault()}
             onCloseAutoFocus={(e) => e.preventDefault()}
-            className={`absolute left-0 right-0 top-full mt-1.5 z-[9999] rounded-xl border shadow-xl overflow-hidden pointer-events-auto animate-in fade-in-0 zoom-in-95 duration-100 ${
+            onPointerDown={(e) => e.stopPropagation()}
+            className={`absolute z-[999999] w-full left-0 right-0 top-full mt-1.5 rounded-xl border shadow-xl overflow-hidden pointer-events-auto animate-in fade-in-0 zoom-in-95 duration-100 ${
               isDark
                 ? "bg-zinc-900 border-zinc-800 text-zinc-100 shadow-black/40"
                 : "bg-white border-slate-200 text-slate-900 shadow-slate-200/60"
@@ -497,34 +491,39 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           >
             {dropdownContent}
           </PopoverContent>
-        ) : (
-          <PopoverPrimitive.Portal>
+        ) : typeof document !== "undefined" ? (
+          createPortal(
             <DismissableLayerBranch asChild>
               <PopoverContent
                 ref={dropdownRef}
                 data-vaul-no-drag=""
+                data-radix-portal=""
+                data-searchable-select-portal=""
+                role="listbox"
                 onOpenAutoFocus={(e) => e.preventDefault()}
                 onCloseAutoFocus={(e) => e.preventDefault()}
+                onPointerDown={(e) => e.stopPropagation()}
+                onFocusCapture={(e) => e.stopPropagation()}
                 style={{
                   position: "fixed",
                   top: `${coords.top}px`,
                   left: `${coords.left}px`,
                   width: `${coords.width}px`,
-                  zIndex: 9999,
+                  zIndex: 999999,
                   pointerEvents: "auto",
                 }}
-                className={`z-[9999] rounded-xl border shadow-xl overflow-hidden pointer-events-auto animate-in fade-in-0 zoom-in-95 duration-100 ${
+                className={`z-[999999] rounded-xl border shadow-2xl overflow-hidden pointer-events-auto animate-in fade-in-0 zoom-in-95 duration-100 ${
                   isDark
-                    ? "bg-zinc-900 border-zinc-800 text-zinc-100 shadow-black/40"
-                    : "bg-white border-slate-200 text-slate-900 shadow-slate-200/60"
+                    ? "bg-zinc-900 border-zinc-800 text-zinc-100 shadow-black/60"
+                    : "bg-white border-slate-200 text-slate-900 shadow-slate-300/80"
                 }`}
               >
                 {dropdownContent}
               </PopoverContent>
-            </DismissableLayerBranch>
-          </PopoverPrimitive.Portal>
-        ))}
+            </DismissableLayerBranch>,
+            document.body
+          )
+        ) : null)}
     </div>
   );
-
 };

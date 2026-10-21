@@ -48,6 +48,8 @@ import { toast } from 'react-toastify';
 import ProductionBatchModal from '../components/production/ProductionBatchModal';
 import ProductionBatchEditModal from '../components/production/ProductionBatchEditModal';
 import ProductionBatchDetailModal from '../components/production/ProductionBatchDetailModal';
+import SendToWashModal from '../components/production/SendToWashModal';
+import DirectFinishingModal from '../components/production/DirectFinishingModal';
 import { BatchStatusBadge } from '../components/production/BatchStatusBadge';
 import {
   Factory,
@@ -79,6 +81,7 @@ import {
   GitBranch,
   MoreVertical,
   Ban,
+  Waves,
 } from 'lucide-react';
 
 interface ProductImageItem {
@@ -238,6 +241,7 @@ interface ProductionSummaryResponse {
 const BATCH_STATUS_OPTIONS: SearchableSelectOption[] = [
   { value: 'ALL', label: 'All Statuses' },
   { value: 'CUTTING', label: 'Cutting' },
+  { value: 'WASHING', label: 'Washing' },
   { value: 'IN_PROGRESS', label: 'Sewing / WIP' },
   { value: 'FINISHED_PENDING_STOCK', label: 'Awaiting Stock Sync' },
   { value: 'COMPLETED', label: 'Completed & In Stock' },
@@ -676,6 +680,7 @@ export const ProductionListPage: React.FC = () => {
 
   // Modals
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [sendToWashBatch, setSendToWashBatch] = useState<ProductionOrder | null>(null);
   const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
   const [isGarmentsModalOpen, setIsGarmentsModalOpen] = useState(false);
   const [garmentsSearch, setGarmentsSearch] = useState('');
@@ -690,24 +695,8 @@ export const ProductionListPage: React.FC = () => {
   const [cancelReason, setCancelReason] = useState<string>('');
   const [isCancelling, setIsCancelling] = useState(false);
 
-  // Record Finished Product Modal State (Supports bi-directional finishing-first or logging to existing batch)
-  const [isRecordFinishedModalOpen, setIsRecordFinishedModalOpen] = useState(false);
-  const [recordFinishedMode, setRecordFinishedMode] = useState<'new' | 'existing'>('new');
-  // Existing batch mode
-  const [recordFinishedExistingOrderId, setRecordFinishedExistingOrderId] = useState<string>('');
-  const [recordFinishedExistingQty, setRecordFinishedExistingQty] = useState<number | ''>('');
-  const [recordFinishedExistingDateTime, setRecordFinishedExistingDateTime] = useState<string>('');
-  const [recordFinishedExistingSyncStock, setRecordFinishedExistingSyncStock] = useState<boolean>(false);
-  // New batch mode (finishing-first)
-  const [recordFinishedProductId, setRecordFinishedProductId] = useState<string>('');
-  const [recordFinishedVariantId, setRecordFinishedVariantId] = useState<string>('');
-  const [recordFinishedTargetQty, setRecordFinishedTargetQty] = useState<number | ''>('');
-  const [recordFinishedQty, setRecordFinishedQty] = useState<number | ''>('');
-  const [recordFinishedDateTime, setRecordFinishedDateTime] = useState<string>('');
-  const [recordFinishedReason, setRecordFinishedReason] = useState<string>('Regular Bulk');
-  const [recordFinishedNotes, setRecordFinishedNotes] = useState<string>('');
-  const [recordFinishedSyncStock, setRecordFinishedSyncStock] = useState<boolean>(false);
-  const [isSubmittingRecordFinished, setIsSubmittingRecordFinished] = useState(false);
+  // Simplified Direct Finishing Modal State (Finishing-First Retroactive Production)
+  const [isDirectFinishingModalOpen, setIsDirectFinishingModalOpen] = useState(false);
 
   // Return leftover scrap modal state
   const [returnFormLines, setReturnFormLines] = useState<
@@ -739,16 +728,7 @@ export const ProductionListPage: React.FC = () => {
   const [orderToSyncStock, setOrderToSyncStock] = useState<ProductionOrder | null>(null);
   const [isSyncingStock, setIsSyncingStock] = useState(false);
 
-  // Asynchronous Production Progress Logging Dialog (Finishing)
-  const [isActionModalOpen, setIsActionModalOpen] = useState(false);
-  const [actionTab, setActionTab] = useState<'cut' | 'finish'>('finish');
-  const [isSubmittingProgress, setIsSubmittingProgress] = useState(false);
 
-  // Finish form state (defaults finishIncrementStock strictly to false)
-  const [finishQuantity, setFinishQuantity] = useState<number | ''>('');
-  const [finishDateTime, setFinishDateTime] = useState<string>('');
-  const [finishLoggedRole, setFinishLoggedRole] = useState<string>('Finishing / QA');
-  const [finishIncrementStock, setFinishIncrementStock] = useState<boolean>(false);
 
   // Expanded mobile card timeline
   const [expandedTimelineBatchId, setExpandedTimelineBatchId] = useState<number | null>(null);
@@ -881,41 +861,6 @@ export const ProductionListPage: React.FC = () => {
     });
   }, [productsList]);
 
-
-  // Variant Options for Record Finished Product Modal (Finishing-First)
-  const recordFinishedVariantOptions: SearchableSelectOption[] = useMemo(() => {
-    if (!recordFinishedProductId) return [];
-    const prod = productsList.find((p) => p.id === Number(recordFinishedProductId));
-    if (!prod || !prod.variants || prod.variants.length === 0) return [];
-    return [
-      { value: '', label: 'Default / No Variant' },
-      ...prod.variants.map((v) => ({
-        value: String(v.id),
-        label: [v.size && `Size ${v.size}`, v.color && `Color ${v.color}`, v.sku && `SKU: ${v.sku}`]
-          .filter(Boolean)
-          .join(' • ') + ` (In Stock: ${v.stock})`,
-      })),
-    ];
-  }, [recordFinishedProductId, productsList]);
-
-  // Active production batches for "Log to Existing Batch" in Record Finished modal
-  const activeBatchOptions: SearchableSelectOption[] = useMemo(() => {
-    if (!summaryData?.records) return [];
-    return summaryData.records
-      .filter((r) => r.status !== 'CANCELLED')
-      .map((r) => ({
-        value: String(r.id),
-        label: `#${r.productionNo} — ${r.product.name}${
-          r.variant ? ` (${[r.variant.size && `Size ${r.variant.size}`, r.variant.color].filter(Boolean).join(' ')})` : ''
-        } [Finished: ${r.completedQty}/${r.targetQuantity || r.completedQty} Pcs]`,
-      }));
-  }, [summaryData?.records]);
-
-  // Selected existing batch details for Record Finished modal
-  const selectedExistingRecordBatch = useMemo(() => {
-    if (!recordFinishedExistingOrderId || !summaryData?.records) return null;
-    return summaryData.records.find((r) => r.id === Number(recordFinishedExistingOrderId)) || null;
-  }, [recordFinishedExistingOrderId, summaryData?.records]);
 
   // Raw Material Options with live warehouse available stock
   const rawMaterialSelectOptions: SearchableSelectOption[] = useMemo(() => {
@@ -1089,147 +1034,9 @@ export const ProductionListPage: React.FC = () => {
     };
   }, [filteredRecords, summaryData?.metrics]);
 
-  // Open stage action modal (Log Finished Garments) or route cutting directly to full edit modal
-  const handleOpenActionModal = (order: ProductionOrder, defaultTab: 'cut' | 'finish' = 'finish') => {
-    if (defaultTab === 'cut') {
-      handleOpenEditBatchModal(order);
-      return;
-    }
-    setSelectedOrder(order);
-    setActionTab('finish');
-    const nowIso = new Date().toISOString().slice(0, 16);
-    setFinishDateTime(nowIso);
-    setFinishQuantity('');
-    setFinishLoggedRole(user?.role || 'STAFF');
-    setFinishIncrementStock(false);
-    setIsActionModalOpen(true);
-  };
 
-  /**
-   * Open Record Finished Product Modal
-   * Supports pre-selecting an active batch or creating a new finishing-first batch
-   */
-  const handleOpenRecordFinishedModal = (preselectedOrder?: ProductionOrder) => {
-    const nowIso = new Date().toISOString().slice(0, 16);
-    if (preselectedOrder) {
-      setRecordFinishedMode('existing');
-      setRecordFinishedExistingOrderId(String(preselectedOrder.id));
-      setRecordFinishedExistingQty('');
-      setRecordFinishedExistingDateTime(nowIso);
-      setRecordFinishedExistingSyncStock(false);
-    } else {
-      setRecordFinishedMode('new');
-      setRecordFinishedExistingOrderId('');
-      setRecordFinishedExistingQty('');
-      setRecordFinishedExistingDateTime(nowIso);
-      setRecordFinishedExistingSyncStock(false);
-    }
-    setRecordFinishedProductId('');
-    setRecordFinishedVariantId('');
-    setRecordFinishedTargetQty('');
-    setRecordFinishedQty('');
-    setRecordFinishedDateTime(nowIso);
-    setRecordFinishedReason('Regular Bulk');
-    setRecordFinishedNotes('');
-    setRecordFinishedSyncStock(false);
-    setIsRecordFinishedModalOpen(true);
-  };
 
-  /**
-   * Submit Handler for "Record Finished Product"
-   * Mode 'existing': Logs finished garments to selected active batch
-   * Mode 'new': Creates brand new Finishing-First batch with 0 raw materials
-   */
-  const handleSubmitRecordFinished = async (e: React.FormEvent) => {
-    e.preventDefault();
 
-    if (recordFinishedMode === 'existing') {
-      if (!recordFinishedExistingOrderId) {
-        toast.warn('Please select an active production batch');
-        return;
-      }
-      const finishNum = Math.floor(Number(recordFinishedQty));
-      if (!recordFinishedQty || isNaN(finishNum) || finishNum <= 0) {
-        toast.warn('Please enter a valid finished quantity greater than 0');
-        return;
-      }
-
-      const targetBatch = selectedExistingRecordBatch;
-      if (targetBatch && targetBatch.targetQuantity > 0) {
-        const currentCompleted = Math.max(
-          targetBatch.completedQty || 0,
-          (targetBatch.finishLogs || []).reduce((sum, f) => sum + Number(f.quantityFinished || 0), 0)
-        );
-        if (currentCompleted + finishNum > targetBatch.targetQuantity) {
-          const remaining = Math.max(0, targetBatch.targetQuantity - currentCompleted);
-          toast.error(
-            `Finished quantity (${finishNum}) exceeds remaining target capacity (${remaining} Pcs). Target is ${targetBatch.targetQuantity} Pcs.`
-          );
-          return;
-        }
-      }
-
-      setIsSubmittingRecordFinished(true);
-      try {
-        await post<any>(`/production/${recordFinishedExistingOrderId}/finish-logs`, {
-          quantityFinished: finishNum,
-          finishDate: recordFinishedDateTime ? new Date(recordFinishedDateTime).toISOString() : new Date().toISOString(),
-          loggedByRole: user?.role || 'Finishing Supervisor',
-          incrementInventory: recordFinishedSyncStock,
-        });
-
-        toast.success(
-          `Logged ${finishNum} finished garments for Batch #${targetBatch?.productionNo || recordFinishedExistingOrderId}!${
-            recordFinishedSyncStock ? ' Added to product inventory immediately.' : ' Awaiting stock sync.'
-          }`
-        );
-        setIsRecordFinishedModalOpen(false);
-        fetchProductionData();
-      } catch (err: any) {
-        toast.error(err.message || 'Failed to log finished garments');
-      } finally {
-        setIsSubmittingRecordFinished(false);
-      }
-    } else {
-      // New Batch (Finishing-First Workflow)
-      if (!recordFinishedProductId) {
-        toast.warn('Please select a target product');
-        return;
-      }
-      const finishedNum = Math.floor(Number(recordFinishedQty));
-      if (!recordFinishedQty || isNaN(finishedNum) || finishedNum <= 0) {
-        toast.warn('Please enter a valid finished quantity greater than 0');
-        return;
-      }
-      const targetNum = recordFinishedTargetQty !== '' ? Math.max(finishedNum, Number(recordFinishedTargetQty)) : finishedNum;
-
-      setIsSubmittingRecordFinished(true);
-      try {
-        const res = await post<any>('/production/finish-batch', {
-          productId: Number(recordFinishedProductId),
-          variantId: recordFinishedVariantId ? Number(recordFinishedVariantId) : null,
-          targetQuantity: targetNum,
-          completedQty: finishedNum,
-          finishDate: recordFinishedDateTime ? new Date(recordFinishedDateTime).toISOString() : new Date().toISOString(),
-          reason: recordFinishedReason,
-          notes: recordFinishedNotes,
-          loggedByRole: user?.role || 'Finishing Supervisor',
-          syncToStock: recordFinishedSyncStock,
-        });
-
-        const createdOrder = res?.data || res;
-        toast.success(
-          `Production Batch #${createdOrder?.productionNo || 'new'} recorded with ${finishedNum} finished garments! (Finishing-First: Raw materials can be allocated anytime later).`
-        );
-        setIsRecordFinishedModalOpen(false);
-        fetchProductionData();
-      } catch (err: any) {
-        toast.error(err.message || 'Failed to create finishing-first production batch');
-      } finally {
-        setIsSubmittingRecordFinished(false);
-      }
-    }
-  };
 
   /**
    * Cancel Production Batch Confirmation Handler
@@ -1253,50 +1060,7 @@ export const ProductionListPage: React.FC = () => {
     }
   };
 
-  // Submit asynchronous garment finishing log
-  const handleLogGarmentFinish = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedOrder) return;
-    const finishNum = Math.floor(Number(finishQuantity));
-    if (!finishQuantity || isNaN(finishNum) || finishNum <= 0) {
-      toast.warn('Please enter a valid finished quantity greater than 0');
-      return;
-    }
 
-    const currentCompleted = Math.max(
-      selectedOrder.completedQty || 0,
-      (selectedOrder.finishLogs || []).reduce((sum, f) => sum + Number(f.quantityFinished || 0), 0)
-    );
-    const target = Number(selectedOrder.targetQuantity || 0);
-    const remaining = Math.max(0, target - currentCompleted);
-
-    if (target > 0 && currentCompleted + finishNum > target) {
-      toast.error(`Cannot finish more garments than the target quantity (${target}). Remaining allowed: ${remaining}`);
-      return;
-    }
-
-    setIsSubmittingProgress(true);
-    try {
-      await post<any>(`/production/${selectedOrder.id}/finish-logs`, {
-        quantityFinished: finishNum,
-        finishDate: finishDateTime ? new Date(finishDateTime).toISOString() : new Date().toISOString(),
-        loggedByRole: user?.role || 'STAFF',
-        incrementInventory: finishIncrementStock,
-      });
-
-      if (finishIncrementStock) {
-        toast.success(`Logged finishing of ${finishNum} garments for Batch #${selectedOrder.productionNo}! Added to active product inventory immediately.`);
-      } else {
-        toast.success(`Logged finishing of ${finishNum} garments for Batch #${selectedOrder.productionNo}! Batch output updated (Awaiting stock sync via Stage 3).`);
-      }
-      setIsActionModalOpen(false);
-      fetchProductionData();
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to record garment finishing log');
-    } finally {
-      setIsSubmittingProgress(false);
-    }
-  };
 
   // Pagination slice
   const totalPages = Math.ceil(filteredRecords.length / itemsPerPage) || 1;
@@ -1489,7 +1253,7 @@ export const ProductionListPage: React.FC = () => {
             <Scissors className="size-4" /> Cut Fabrics
           </Button>
           <Button
-            onClick={() => handleOpenRecordFinishedModal()}
+            onClick={() => setIsDirectFinishingModalOpen(true)}
             className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs cursor-pointer font-semibold"
           >
             <Shirt className="size-4" /> Record Finished Product
@@ -2102,13 +1866,26 @@ export const ProductionListPage: React.FC = () => {
                                     <span>Add to Product Stock</span>
                                   </DropdownMenuItem>
                                 )}
-                                <DropdownMenuItem
-                                  onClick={() => handleOpenActionModal(order, 'finish')}
-                                  className="cursor-pointer gap-2 text-xs font-medium"
-                                >
-                                  <Shirt className="w-4 h-4 text-emerald-600" />
-                                  <span>Log Finished Garments</span>
-                                </DropdownMenuItem>
+                                {order.status !== 'COMPLETED' && order.status !== 'CANCELLED' && (
+                                  <DropdownMenuItem
+                                    onClick={() => {
+                                      setSendToWashBatch(order);
+                                    }}
+                                    className="cursor-pointer gap-2 text-xs font-medium text-cyan-600 dark:text-cyan-400"
+                                  >
+                                    <Waves className="w-4 h-4 text-cyan-600" />
+                                    <span>Send to Wash</span>
+                                  </DropdownMenuItem>
+                                )}
+                                {order.status === 'WASHING' && (
+                                  <DropdownMenuItem
+                                    onClick={() => navigate('/system/wash')}
+                                    className="cursor-pointer gap-2 text-xs font-medium text-cyan-600 dark:text-cyan-400"
+                                  >
+                                    <Waves className="w-4 h-4 text-cyan-600" />
+                                    <span>Manage in Wash Stage</span>
+                                  </DropdownMenuItem>
+                                )}
                                 <DropdownMenuItem
                                   onClick={() => handleOpenEditBatchModal(order)}
                                   className="cursor-pointer gap-2 text-xs font-medium"
@@ -2424,13 +2201,26 @@ export const ProductionListPage: React.FC = () => {
                               <span>Add to Product Stock</span>
                             </DropdownMenuItem>
                           )}
-                          <DropdownMenuItem
-                            onClick={() => handleOpenActionModal(order, 'finish')}
-                            className="cursor-pointer gap-2 text-xs font-medium"
-                          >
-                            <Shirt className="w-4 h-4 text-emerald-600" />
-                            <span>Log Finished Garments</span>
-                          </DropdownMenuItem>
+                          {order.status !== 'COMPLETED' && order.status !== 'CANCELLED' && (
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setSendToWashBatch(order);
+                              }}
+                              className="cursor-pointer gap-2 text-xs font-medium text-cyan-600 dark:text-cyan-400"
+                            >
+                              <Waves className="w-4 h-4 text-cyan-600" />
+                              <span>Send to Wash</span>
+                            </DropdownMenuItem>
+                          )}
+                          {order.status === 'WASHING' && (
+                            <DropdownMenuItem
+                              onClick={() => navigate('/system/wash')}
+                              className="cursor-pointer gap-2 text-xs font-medium text-cyan-600 dark:text-cyan-400"
+                            >
+                              <Waves className="w-4 h-4 text-cyan-600" />
+                              <span>Manage in Wash Stage</span>
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem
                             onClick={() => handleOpenEditBatchModal(order)}
                             className="cursor-pointer gap-2 text-xs font-medium"
@@ -2698,17 +2488,31 @@ export const ProductionListPage: React.FC = () => {
         open={isDetailModalOpen}
         onOpenChange={setIsDetailModalOpen}
         order={selectedOrder}
-        onAddCutting={(ord) => {
-          setIsDetailModalOpen(false);
-          handleOpenEditBatchModal(ord);
-        }}
-        onAddFinishing={(ord) => handleOpenActionModal(ord, 'finish')}
+        rawMaterialsList={rawMaterialsList}
+        productsList={productsList}
         onOrderUpdate={(updated) => {
           setSelectedOrder(updated);
           fetchProductionData();
         }}
         onRefresh={fetchProductionData}
         dark={dark}
+      />
+
+      {/* ─────────────────────────────────────────────────────────────
+          MODAL: DIRECT SEND TO WASH (INDEPENDENT FROM DETAIL MODAL)
+      ───────────────────────────────────────────────────────────── */}
+      <SendToWashModal
+        open={Boolean(sendToWashBatch)}
+        onOpenChange={(open) => {
+          if (!open) setSendToWashBatch(null);
+        }}
+        batch={sendToWashBatch}
+        productsList={productsList}
+        dark={dark}
+        onSuccess={() => {
+          setSendToWashBatch(null);
+          fetchProductionData();
+        }}
       />
 
       {/* ─────────────────────────────────────────────────────────────
@@ -2835,172 +2639,7 @@ export const ProductionListPage: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* ─────────────────────────────────────────────────────────────
-          MODAL 3: LOG FINISHED GARMENTS
-      ───────────────────────────────────────────────────────────── */}
-      <Dialog open={isActionModalOpen} onOpenChange={setIsActionModalOpen}>
-        <DialogContent className="w-[95vw] max-w-lg sm:max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden rounded-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800">
-          <DialogHeader className="px-4 py-3 sm:px-5 sm:py-3.5 pr-12 sm:pr-14 border-b border-slate-100 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 z-10">
-            <div className="flex items-center gap-2.5">
-              <div className="size-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/50">
-                <Shirt className="w-4 h-4" />
-              </div>
-              <div>
-                <DialogTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <span>Log Finished Garments — Batch #{selectedOrder?.productionNo}</span>
-                  {selectedOrder && (
-                    <BatchStatusBadge status={selectedOrder.status} isStockSynced={selectedOrder.isStockSynced} />
-                  )}
-                </DialogTitle>
-                <p className="text-xs text-slate-500 dark:text-zinc-400">
-                  {selectedOrder?.product.name} {selectedOrder?.variant ? `(${selectedOrder.variant.size || ''} ${selectedOrder.variant.color || ''})` : ''} · Target: {selectedOrder?.targetQuantity} pcs
-                </p>
-              </div>
-            </div>
-          </DialogHeader>
 
-          {selectedOrder && (
-                <form onSubmit={handleLogGarmentFinish} className="flex flex-col flex-1 min-h-0">
-                  {(() => {
-                    const actionCurrentCompleted = Math.max(
-                      selectedOrder.completedQty || 0,
-                      (selectedOrder.finishLogs || []).reduce((sum, f) => sum + Number(f.quantityFinished || 0), 0)
-                    );
-                    const actionTarget = Number(selectedOrder.targetQuantity || 0);
-                    const actionRemaining = Math.max(0, actionTarget - actionCurrentCompleted);
-                    const isActionOverTarget = actionTarget > 0 && finishQuantity !== '' && Number(finishQuantity) > actionRemaining;
-
-                    return (
-                      <>
-                        <div className="flex-1 overflow-y-auto p-3.5 sm:p-4 space-y-3">
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                            <div className="space-y-1">
-                              <label className="text-[11px] font-bold text-slate-700 dark:text-zinc-300 block">
-                                Quantity Finished (Pcs) <span className="text-rose-500">*</span>
-                              </label>
-                              <Input
-                                type="number"
-                                step="1"
-                                min="1"
-                                max={actionTarget > 0 ? actionRemaining : undefined}
-                                required
-                                value={finishQuantity}
-                                onChange={(e) => setFinishQuantity(e.target.value === '' ? '' : Number(e.target.value))}
-                                placeholder={actionTarget > 0 ? `Remaining: ${actionRemaining} pcs` : `Target: ${selectedOrder.targetQuantity} pcs`}
-                                className={`h-9 text-xs rounded-xl bg-white dark:bg-zinc-900 border font-mono ${
-                                  isActionOverTarget
-                                    ? 'border-rose-500 dark:border-rose-500 ring-1 ring-rose-500'
-                                    : 'border-slate-200 dark:border-zinc-800'
-                                }`}
-                              />
-                              <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-zinc-400 mt-1">
-                                <span>Current output: {actionCurrentCompleted} / {actionTarget} pcs</span>
-                                <span className={`font-semibold ${actionRemaining === 0 ? 'text-amber-600' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                                  Remaining: {actionRemaining} pcs
-                                </span>
-                              </div>
-                              {isActionOverTarget && (
-                                <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-400 mt-1 flex items-center gap-1">
-                                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                                  Cannot finish more garments than the target quantity ({actionTarget}). Remaining allowed: {actionRemaining}
-                                </p>
-                              )}
-                            </div>
-
-                            <div className="space-y-1">
-                              <label className="text-[11px] font-bold text-slate-700 dark:text-zinc-300 block">
-                                Date &amp; Time of Finishing <span className="text-rose-500">*</span>
-                              </label>
-                              <DateTimePicker
-                                value={finishDateTime}
-                                onChange={setFinishDateTime}
-                              />
-                            </div>
-                          </div>
-
-                          {/* Authenticated Role Status Badge */}
-                          <div className="flex items-center justify-between p-2.5 sm:p-3 rounded-xl bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-xs">
-                            <span className="font-medium text-slate-600 dark:text-zinc-400">Authenticated Operator</span>
-                            <div className="flex items-center gap-1.5 font-bold">
-                              <span className="text-slate-500 text-[11px]">Logging as:</span>
-                              <Badge
-                                variant="outline"
-                                className="font-mono text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
-                              >
-                                {user?.role || 'STAFF'}
-                              </Badge>
-                            </div>
-                          </div>
-
-                          {/* Inventory Increment Checkbox - Defaults strictly to false */}
-                          <label className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/80 dark:bg-zinc-900/80 cursor-pointer text-xs min-w-0 w-full select-none hover:bg-slate-100/80 dark:hover:bg-zinc-900 transition-colors">
-                            <input
-                              type="checkbox"
-                              checked={finishIncrementStock}
-                              onChange={(e) => setFinishIncrementStock(e.target.checked)}
-                              className="size-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                            />
-                            <span className="font-semibold text-slate-800 dark:text-zinc-200">
-                              Immediately add finished pieces to active product inventory
-                            </span>
-                          </label>
-
-                          {/* Dynamic Information Banner */}
-                          <div
-                            className={`border p-3 rounded-xl flex items-start gap-2.5 min-w-0 w-full transition-colors ${
-                              finishIncrementStock
-                                ? 'bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-200/70 dark:border-emerald-900/40 text-emerald-900 dark:text-emerald-200'
-                                : 'bg-purple-50/60 dark:bg-purple-950/20 border-purple-200/70 dark:border-purple-900/40 text-purple-900 dark:text-purple-200'
-                            }`}
-                          >
-                            {finishIncrementStock ? (
-                              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                            ) : (
-                              <Info className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0 mt-0.5" />
-                            )}
-                            <p className="text-xs">
-                              {finishIncrementStock
-                                ? 'Finished garments will immediately increment active product inventory and complete the batch run when the target quantity is met.'
-                                : 'Batch completed output will update and status will transition to "Awaiting Stock Sync" (FINISHED_PENDING_STOCK). Product inventory will remain unchanged until explicitly synced via "Add to Product Stock" (Stage 3).'}
-                            </p>
-                          </div>
-                        </div>
-
-                        <DialogFooter className="px-4 py-3 sm:px-5 sm:py-3.5 border-t border-slate-100 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 z-10 flex-row justify-end gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => setIsActionModalOpen(false)}
-                            className="text-xs rounded-xl"
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            type="submit"
-                            disabled={isSubmittingProgress || !finishQuantity || isActionOverTarget}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {isSubmittingProgress ? (
-                              <>
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                <span>Logging Finishing...</span>
-                              </>
-                            ) : (
-                              <>
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>Log Finished Garment</span>
-                              </>
-                            )}
-                          </Button>
-                        </DialogFooter>
-                      </>
-                    );
-                  })()}
-                </form>
-          )}
-        </DialogContent>
-      </Dialog>
 
       {/* ─────────────────────────────────────────────────────────────
           ALERT DIALOG: ROLLBACK & DELETE PRODUCTION RUN (Admin Only)
@@ -3148,277 +2787,15 @@ export const ProductionListPage: React.FC = () => {
       </AlertDialog>
 
       {/* ─────────────────────────────────────────────────────────────
-          MODAL 5: RECORD FINISHED PRODUCT (FINISHING-FIRST WORKFLOW OR LOG TO EXISTING BATCH)
+          MODAL 5: RECORD FINISHED PRODUCT (SIMPLIFIED DIRECT FINISHING-FIRST WORKFLOW)
       ───────────────────────────────────────────────────────────── */}
-      <Dialog open={isRecordFinishedModalOpen} onOpenChange={setIsRecordFinishedModalOpen}>
-        <DialogContent className="w-[95vw] max-w-lg sm:max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden rounded-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800">
-          <DialogHeader className="px-4 py-3 sm:px-5 sm:py-3.5 pr-12 sm:pr-14 border-b border-slate-100 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 z-10">
-            <div className="flex items-center gap-2.5">
-              <div className="size-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-200 dark:border-emerald-900/50">
-                <Shirt className="w-4 h-4" />
-              </div>
-              <div>
-                <DialogTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <span>Record Finished Product</span>
-                  <Badge variant="outline" className="text-[10px] font-mono uppercase bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800">
-                    {recordFinishedMode === 'new' ? 'FINISHING-FIRST RUN' : 'ACTIVE BATCH LOG'}
-                  </Badge>
-                </DialogTitle>
-                <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
-                  Log finished garment output directly or initiate a new production batch without cutting upfront.
-                </p>
-              </div>
-            </div>
-          </DialogHeader>
-
-          {/* Mode Switcher */}
-          <div className="px-4 pt-3 pb-1.5 sm:px-5 sm:pt-3.5 shrink-0 bg-white dark:bg-zinc-950">
-            <div className="grid grid-cols-2 w-full p-1 bg-slate-100 dark:bg-zinc-900 rounded-xl text-xs font-semibold">
-              <button
-                type="button"
-                onClick={() => setRecordFinishedMode('new')}
-                className={`flex items-center justify-center gap-2 py-2 rounded-lg transition-all cursor-pointer ${
-                  recordFinishedMode === 'new'
-                    ? 'bg-white dark:bg-zinc-800 text-emerald-700 dark:text-emerald-400 shadow-sm'
-                    : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Start New Batch (Finishing-First)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setRecordFinishedMode('existing')}
-                className={`flex items-center justify-center gap-2 py-2 rounded-lg transition-all cursor-pointer ${
-                  recordFinishedMode === 'existing'
-                    ? 'bg-white dark:bg-zinc-800 text-emerald-700 dark:text-emerald-400 shadow-sm'
-                    : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                <Layers className="w-3.5 h-3.5" />
-                <span>Log to Existing Batch</span>
-              </button>
-            </div>
-          </div>
-
-          <form onSubmit={handleSubmitRecordFinished} className="flex flex-col flex-1 min-h-0 overflow-hidden">
-            <div className="flex-1 overflow-y-auto p-3.5 sm:p-4 space-y-3.5">
-              {recordFinishedMode === 'new' ? (
-                <>
-                  <div className="bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/70 dark:border-emerald-900/40 p-2.5 sm:p-3 rounded-xl flex items-start gap-2.5">
-                    <Info className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                    <p className="text-xs text-emerald-900 dark:text-emerald-200">
-                      <strong>Finishing-First Workflow:</strong> Record finished garments immediately without logging raw material fabric cuts first. You can allocate and cut materials anytime later via "Edit &amp; Allocate Materials" or "Add More Material Cuts".
-                    </p>
-                  </div>
-
-                  {/* Product Selection */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 flex items-center gap-1.5">
-                      <Package className="w-3.5 h-3.5 text-emerald-600" />
-                      Target Garment Product <span className="text-rose-500">*</span>
-                    </label>
-                    <SearchableSelect
-                      options={productSelectOptions}
-                      value={recordFinishedProductId}
-                      onValueChange={(val) => {
-                        setRecordFinishedProductId(val);
-                        setRecordFinishedVariantId('');
-                      }}
-                      placeholder="Search and select finished garment product..."
-                      searchPlaceholder="Search product by name..."
-                      dark={dark}
-                    />
-                  </div>
-
-                  {/* Variant Selection if available */}
-                  {recordFinishedVariantOptions.length > 0 && (
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-700 dark:text-zinc-300">
-                        Product Variant (Size / Color) <span className="text-xs font-normal text-slate-400">(Optional)</span>
-                      </label>
-                      <SearchableSelect
-                        options={recordFinishedVariantOptions}
-                        value={recordFinishedVariantId}
-                        onValueChange={setRecordFinishedVariantId}
-                        placeholder="Select variant (or leave general)..."
-                        searchPlaceholder="Filter size / color..."
-                        dark={dark}
-                      />
-                    </div>
-                  )}
-
-                  {/* Target Qty & Finished Qty */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 block">
-                        Target Planned Quantity (Pcs) <span className="text-rose-500">*</span>
-                      </label>
-                      <Input
-                        type="number"
-                        min="1"
-                        step="1"
-                        required
-                        value={recordFinishedTargetQty}
-                        onChange={(e) => setRecordFinishedTargetQty(e.target.value === '' ? '' : Number(e.target.value))}
-                        placeholder="e.g. 50"
-                        className="h-9 text-xs rounded-xl bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 font-mono"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-emerald-700 dark:text-emerald-400 block">
-                        Finished Output Recorded Now (Pcs) <span className="text-rose-500">*</span>
-                      </label>
-                      <Input
-                        type="number"
-                        min="1"
-                        step="1"
-                        required
-                        value={recordFinishedQty}
-                        onChange={(e) => setRecordFinishedQty(e.target.value === '' ? '' : Number(e.target.value))}
-                        placeholder="e.g. 50"
-                        className="h-9 text-xs rounded-xl bg-white dark:bg-zinc-900 border-emerald-300 dark:border-emerald-800 font-mono font-bold"
-                      />
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="bg-sky-50/60 dark:bg-sky-950/20 border border-sky-200/70 dark:border-sky-900/40 p-2.5 sm:p-3 rounded-xl flex items-start gap-2.5">
-                    <Info className="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0 mt-0.5" />
-                    <p className="text-xs text-sky-900 dark:text-sky-200">
-                      Select an existing active production run to log newly completed garment pieces.
-                    </p>
-                  </div>
-
-                  {/* Active Batch Selection */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 flex items-center gap-1.5">
-                      <Layers className="w-3.5 h-3.5 text-sky-600" />
-                      Select Active Production Batch <span className="text-rose-500">*</span>
-                    </label>
-                    <SearchableSelect
-                      options={activeBatchOptions}
-                      value={recordFinishedExistingOrderId}
-                      onValueChange={setRecordFinishedExistingOrderId}
-                      placeholder="Select active batch #..."
-                      searchPlaceholder="Search batch number or style..."
-                      dark={dark}
-                    />
-                  </div>
-
-                  {/* Selected Batch Preview Card */}
-                  {selectedExistingRecordBatch && (
-                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/80 border border-slate-200 dark:border-zinc-800 text-xs space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-slate-700 dark:text-zinc-300">Target Product:</span>
-                        <span className="font-bold text-slate-900 dark:text-white">
-                          {selectedExistingRecordBatch.product.name}
-                          {selectedExistingRecordBatch.variant ? ` (${selectedExistingRecordBatch.variant.size || ''} ${selectedExistingRecordBatch.variant.color || ''})` : ''}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between font-mono text-[11px]">
-                        <span>Target: {selectedExistingRecordBatch.targetQuantity} pcs</span>
-                        <span className="text-emerald-600">Already Finished: {selectedExistingRecordBatch.completedQty} pcs</span>
-                        <span className="text-amber-600">
-                          WIP: {Math.max(0, (selectedExistingRecordBatch.targetQuantity || 0) - (selectedExistingRecordBatch.completedQty || 0))} pcs
-                        </span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Finished Qty for Existing Batch */}
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-emerald-700 dark:text-emerald-400 block">
-                      Quantity Finished This Session (Pcs) <span className="text-rose-500">*</span>
-                    </label>
-                    <Input
-                      type="number"
-                      min="1"
-                      step="1"
-                      required
-                      value={recordFinishedQty}
-                      onChange={(e) => setRecordFinishedQty(e.target.value === '' ? '' : Number(e.target.value))}
-                      placeholder="e.g. 20"
-                      className="h-9 text-xs rounded-xl bg-white dark:bg-zinc-900 border-emerald-300 dark:border-emerald-800 font-mono font-bold"
-                    />
-                  </div>
-                </>
-              )}
-
-              {/* Shared Date & Time Picker */}
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 block">
-                  Date &amp; Time of Finishing <span className="text-rose-500">*</span>
-                </label>
-                <DateTimePicker
-                  value={recordFinishedDateTime}
-                  onChange={setRecordFinishedDateTime}
-                />
-              </div>
-
-              {/* Shared Notes */}
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 block">
-                  Finishing Notes / Batch Remarks <span className="text-xs font-normal text-slate-400">(Optional)</span>
-                </label>
-                <Input
-                  value={recordFinishedNotes}
-                  onChange={(e) => setRecordFinishedNotes(e.target.value)}
-                  placeholder="e.g. QC passed, buttons attached, ready for packaging"
-                  className="h-9 text-xs rounded-xl bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800"
-                />
-              </div>
-
-              {/* Optional Immediate Stock Sync Toggle (defaults to false) */}
-              <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40">
-                <Checkbox
-                  id="recordFinishedSyncStock"
-                  checked={recordFinishedSyncStock}
-                  onCheckedChange={(c) => setRecordFinishedSyncStock(Boolean(c))}
-                />
-                <label htmlFor="recordFinishedSyncStock" className="text-xs font-medium text-emerald-900 dark:text-emerald-200 cursor-pointer">
-                  Sync to active storefront &amp; POS product inventory immediately (Default: false, can sync later at any time)
-                </label>
-              </div>
-            </div>
-
-            <DialogFooter className="px-4 py-3 sm:px-5 sm:py-3.5 border-t border-slate-100 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 z-10 flex-row justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setIsRecordFinishedModalOpen(false)}
-                className="text-xs rounded-xl"
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={
-                  isSubmittingRecordFinished ||
-                  (recordFinishedMode === 'new'
-                    ? !recordFinishedProductId || !recordFinishedTargetQty || !recordFinishedQty || Number(recordFinishedQty) <= 0
-                    : !recordFinishedExistingOrderId || !recordFinishedQty || Number(recordFinishedQty) <= 0)
-                }
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl shadow-sm flex items-center gap-2 cursor-pointer disabled:opacity-50"
-              >
-                {isSubmittingRecordFinished ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Saving Finished Goods...</span>
-                  </>
-                ) : (
-                  <>
-                    <Shirt className="w-3.5 h-3.5" />
-                    <span>{recordFinishedMode === 'new' ? 'Create Finishing Batch' : 'Log Finished Garments'}</span>
-                  </>
-                )}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <DirectFinishingModal
+        open={isDirectFinishingModalOpen}
+        onOpenChange={setIsDirectFinishingModalOpen}
+        productsList={productsList}
+        dark={dark}
+        onSuccess={() => fetchProductionData()}
+      />
 
       {/* ─────────────────────────────────────────────────────────────
           ALERT DIALOG 3: CANCEL PRODUCTION BATCH

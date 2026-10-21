@@ -40,6 +40,17 @@ export const BatchStatusBadge: React.FC<BatchStatusBadgeProps> = ({
     );
   }
 
+  if (st === 'WASHING') {
+    return (
+      <Badge
+        variant="outline"
+        className={`text-[11px] font-bold px-2.5 py-0.5 rounded-md bg-cyan-100 text-cyan-950 dark:bg-cyan-950 dark:text-cyan-200 border-cyan-400 dark:border-cyan-700 shadow-2xs ${className}`}
+      >
+        WASHING
+      </Badge>
+    );
+  }
+
   if (st === 'FINISHED_PENDING_STOCK' || (!isStockSynced && st === 'COMPLETED')) {
     return (
       <Badge

@@ -29,6 +29,7 @@ import { OrderCreatePage } from './pages/OrderCreatePage';
 import { BuyRawMaterialsPage } from './pages/BuyRawMaterialsPage';
 import BuyRawMaterialFormPage from './pages/BuyRawMaterialFormPage';
 import { ProductionListPage } from './pages/ProductionListPage';
+import { WashPage } from './pages/WashPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { Dashboard } from './pages/Dashboard';
 
@@ -291,6 +292,21 @@ export function App() {
               <Route
                 path="/system/production/edit/:id"
                 element={<Navigate to="/system/production" replace />}
+              />
+
+              {/* Direct Root Shortcuts for Wash */}
+              <Route path="/wash" element={<Navigate to="/system/wash" replace />} />
+
+              {/* Garment Wash Stage & Sellable Stock Sync */}
+              <Route
+                path="/system/wash"
+                element={
+                  <ProtectedRoute requiredRole={['ADMIN', 'STAFF']}>
+                    <AdminPage>
+                      <WashPage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
               />
 
               {/* Raw Material Stock Purchases Route */}
