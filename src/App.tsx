@@ -12,6 +12,7 @@ import { TooltipProvider } from './components/ui/tooltip';
 import { OfflineSentinel } from './components/common/OfflineSentinel';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { AttributesPage } from './pages/AttributesPage';
+import { useVersionCheck } from './hooks/useVersionCheck';
 
 // Active Pages (Phase 1 & Phase 2)
 import { Login } from './pages/Login';
@@ -70,6 +71,8 @@ function AdminPage({ children }: { children: React.ReactNode }) {
 }
 
 export function App() {
+  useVersionCheck();
+
   return (
     <ThemeProvider>
       <AuthProvider>

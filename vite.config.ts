@@ -32,9 +32,13 @@ export default defineConfig({
         enabled: false,
       },
       workbox: {
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api/],
         globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,jpeg,woff2}'],
+        globIgnores: ['**/version.json'],
       },
       manifest: {
         short_name: 'Reliance POS',
