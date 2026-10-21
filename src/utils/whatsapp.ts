@@ -637,4 +637,96 @@ export const generateSalesOrderWhatsAppMessage = (order: any): string => {
   text += `_Thank you for your order! This booking will be processed and dispatched soon._`;
 
   return text;
+};
+
+/**
+ * 6. Build Formatted Return Credit Note / Restock Confirmation WhatsApp Message.
+ * Formats itemized return adjustments, reasons, credit note reference, and adjusted invoice totals
+ * without standard debt notices or due demands.
+ *
+ * @param order Invoice/order object containing return details, returnedItems, and customer information
+ * @returns Clean, formatted WhatsApp Return Credit Note message string
+ */
+export const generateReturnCreditNoteWhatsAppMessage = (order: any): string => {
+  const createdDate = order.createdAt ? new Date(order.createdAt) : new Date();
+  const formattedDate = formatWhatsAppReturnDate(createdDate);
+  const formattedTime = createdDate.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+
+  const invoiceNo = order.invoiceNumber || order.id || '';
+  const custName = order.customerName || order.customer?.name || 'Valued Customer';
+  const custPhone = order.customerPhone || order.customer?.phone || '';
+
+  // Extract return records
+  let returnsList: any[] = [];
+  if (Array.isArray(order.returns) && order.returns.length > 0) {
+    returnsList = order.returns;
+  } else if (order.notes) {
+    try {
+      let current = order.notes;
+      while (typeof current === 'string' && current.trim().startsWith('{')) {
+        current = JSON.parse(current);
+      }
+      if (typeof current === 'object' && current !== null && Array.isArray(current.returns)) {
+        returnsList = current.returns;
+      }
+    } catch {}
+  }
+
+  let totalReturnCredit = 0;
+  const returnLines: string[] = [];
+
+  returnsList.forEach((ret: any) => {
+    const retDate = formatWhatsAppReturnDate(ret.returnDate || ret.createdAt || ret.date || order.createdAt);
+    const retReason = (ret.reason || 'Restock / Return').trim();
+    totalReturnCredit += Number(ret.totalReturnRefund || 0);
+
+    if (Array.isArray(ret.returnedItems) && ret.returnedItems.length > 0) {
+      ret.returnedItems.forEach((item: any) => {
+        const prodName = item.productName || item.name || 'Garment Item';
+        const vDesc = item.variantName
+          ? ` (${item.variantName})`
+          : item.size || item.color
+          ? ` (${item.size || ''}/${item.color || ''})`
+          : '';
+        const qty = Number(item.returnQty ?? item.quantity ?? 1);
+        const refundAmt = Number(item.refundAmount ?? item.amount ?? 0);
+        const reason = item.reason ? item.reason.trim() : retReason;
+        returnLines.push(
+          `• [${retDate}] *${prodName}*${vDesc} [${reason}] - ${qty} pcs (- Rs. ${refundAmt.toLocaleString('en-LK')})`
+        );
+      });
+    } else {
+      returnLines.push(
+        `• [${retDate}] Return Adjustment [${retReason}] - Rs. ${Number(ret.totalReturnRefund || 0).toLocaleString('en-LK')}`
+      );
+    }
+  });
+
+  const netTotal = Number(order.totalAmount || 0);
+
+  let text = `*RELIANCE CLOTHING - RETURN CREDIT NOTE / RESTOCK RECEIPT*\n`;
+  text += `-------------------------------------------\n`;
+  text += `*Credit Note Ref:* #RET-INV${invoiceNo}\n`;
+  text += `*Original Invoice:* #INV${invoiceNo}\n`;
+  text += `*Date:* ${formattedDate} (${formattedTime})\n`;
+  text += `*Customer:* ${custName}\n`;
+  if (custPhone) {
+    text += `*Contact:* ${custPhone}\n`;
+  }
+  text += `-------------------------------------------\n\n`;
+  text += `*RETURNED & RESTOCKED ITEMS:*\n`;
+  text += `${returnLines.length > 0 ? returnLines.join('\n') : '- No return line details recorded -\n'}\n\n`;
+  text += `-------------------------------------------\n`;
+  text += `*Total Return Credit Value:* *Rs. ${totalReturnCredit.toLocaleString('en-LK')}*\n`;
+  text += `*Adjusted Net Invoice Amount:* Rs. ${netTotal.toLocaleString('en-LK')}\n`;
+  text += `-------------------------------------------\n`;
+  text += `*Reliance Clothing*, Makandura, Matara.\n`;
+  text += `*Tel:* 041-2268739 / 071-1350123\n`;
+  text += `_Official Return Credit Note & Restock receipt issued by Reliance Clothing._`;
+
+  return text;
 };

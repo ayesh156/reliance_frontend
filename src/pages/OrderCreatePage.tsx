@@ -1078,8 +1078,8 @@ export const OrderCreatePage: React.FC = () => {
    */
   const renderCartWorkspace = (isMobileDrawer = false) => (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-      {/* Zone 1: Customer Selection & Order Header */}
-      <div className="p-3 pb-2 border-b border-slate-100 dark:border-zinc-800/80 shrink-0 space-y-2">
+      {/* Zone 1: Customer Selection & Order Header (Pinned strictly at top) */}
+      <div className="p-3 pb-2 border-b border-slate-100 dark:border-zinc-800/80 shrink-0 space-y-2 sticky top-0 bg-white dark:bg-zinc-950 z-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
             <div className={`p-1.5 rounded-lg ${isEditMode ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' : 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'}`}>
@@ -1212,8 +1212,8 @@ export const OrderCreatePage: React.FC = () => {
         </div>
       </div>
 
-      {/* Zone 2: Scrollable Cart Items List */}
-      <div className="flex-1 overflow-y-auto p-2.5 sm:p-3 space-y-2">
+      {/* Zone 2: Scrollable Cart Workspace - Item list, '+ Add Products' ribbon, and Financial Breakdown scroll cohesively */}
+      <div className="flex-1 overflow-y-auto min-h-0 p-2.5 sm:p-3 space-y-2.5 scrollbar-thin">
         {cart.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center gap-1.5 text-slate-400 dark:text-zinc-500 text-xs py-8">
             <ShoppingCart className="size-10 opacity-25" />
@@ -1221,180 +1221,196 @@ export const OrderCreatePage: React.FC = () => {
             <span className="text-[10.5px] opacity-75">Click catalog products to add them to this order</span>
           </div>
         ) : (
-          cart.map((item, idx) => (
-            <div
-              key={`${item.variantId}_${idx}`}
-              className="py-2 px-2.5 rounded-xl border border-slate-100 dark:border-zinc-800/80 bg-slate-50/50 dark:bg-zinc-900/40 hover:bg-slate-100/60 dark:hover:bg-zinc-800/40 transition-colors flex flex-col gap-1.5"
-            >
-              {/* Row 1: Product Name, Variant Details, Unit Price & Delete */}
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0 flex-1 space-y-0.5">
-                  <h5 className="font-bold text-xs text-slate-900 dark:text-white leading-tight break-words">
-                    {item.productName}
-                  </h5>
-                  <div className="flex items-center flex-wrap gap-1.5">
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-200/70 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300">
-                      {item.size} · {item.color}
-                    </span>
-                    <span className="text-[11px] text-slate-500 dark:text-zinc-400 font-mono">
-                      @ Rs. {item.unitPrice.toLocaleString()}
-                    </span>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => removeFromCart(idx)}
-                  className="text-slate-400 hover:text-rose-500 dark:text-zinc-500 dark:hover:text-rose-400 p-1 rounded-lg transition-colors cursor-pointer shrink-0 -mt-0.5 -mr-0.5"
-                  title="Remove item"
-                >
-                  <Trash2 className="size-4" />
-                </button>
-              </div>
-
-              {/* Row 2: Quantity Stepper, Item Discount Toggle Button & Line Total */}
-              <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-zinc-800/40">
-                {/* Stepper with click-to-edit inline numerical input */}
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => updateCartItemQty(idx, -1)}
-                    className="size-7 h-7 w-7 rounded-lg bg-slate-200/70 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200 hover:bg-slate-300 dark:hover:bg-zinc-700 transition-colors cursor-pointer select-none active:scale-95"
-                    title="Decrease quantity"
-                  >
-                    <Minus className="size-3" />
-                  </button>
-
-                  {editingQtyIndex === idx ? (
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      autoFocus
-                      value={tempQtyInput}
-                      onChange={(e) => {
-                        const val = e.target.value.replace(/[^0-9.]/g, '');
-                        const parts = val.split('.');
-                        const cleanVal = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join('')}` : val;
-                        setTempQtyInput(cleanVal);
-                      }}
-                      onFocus={(e) => e.target.select()}
-                      onBlur={() => handleApplyDirectCartQty(idx)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleApplyDirectCartQty(idx);
-                        } else if (e.key === 'Escape') {
-                          setEditingQtyIndex(null);
-                        }
-                      }}
-                      className="w-12 h-7 text-center font-mono text-xs font-bold bg-white dark:bg-zinc-900 border border-indigo-500 rounded text-indigo-600 dark:text-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingQtyIndex(idx);
-                        setTempQtyInput(String(item.quantity));
-                      }}
-                      className="min-w-8 h-7 px-1.5 rounded hover:bg-indigo-50 dark:hover:bg-indigo-950/60 font-mono text-xs font-bold text-slate-800 dark:text-zinc-200 flex items-center justify-center cursor-pointer transition-colors border border-transparent select-none"
-                      title="Click to type quantity directly"
-                    >
-                      {item.quantity}
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => updateCartItemQty(idx, 1)}
-                    className="size-7 h-7 w-7 rounded-lg bg-slate-200/70 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200 hover:bg-slate-300 dark:hover:bg-zinc-700 transition-colors cursor-pointer select-none active:scale-95"
-                    title="Increase quantity"
-                  >
-                    <Plus className="size-3" />
-                  </button>
-                </div>
-
-                {/* Line Item Discount Toggle & Line Total */}
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => toggleItemDiscount(idx)}
-                    className={`size-7 h-7 w-7 rounded-lg flex items-center justify-center transition-all cursor-pointer select-none shrink-0 ${
-                      item.discount && item.discount > 0
-                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 font-bold border border-emerald-300 dark:border-emerald-700 shadow-2xs'
-                        : item.showDiscount
-                        ? 'bg-slate-300 text-slate-800 dark:bg-zinc-700 dark:text-zinc-200'
-                        : 'bg-slate-200/70 text-slate-500 dark:bg-zinc-800 dark:text-zinc-400 hover:text-indigo-600'
-                    }`}
-                    title={item.showDiscount ? 'Hide item discount' : 'Add item discount'}
-                  >
-                    <Percent className="size-3" />
-                  </button>
-
-                  <div className="flex items-center gap-1.5 text-right">
-                    <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-400 dark:text-zinc-500">
-                      Total:
-                    </span>
-                    <span className="font-mono font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
-                      Rs. {Math.max(0, item.unitPrice * item.quantity - (item.discount || 0)).toLocaleString()}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Inline Item Discount Expand Tray */}
-              {item.showDiscount && (
-                <div className="pt-1.5 mt-1 border-t border-dashed border-slate-200 dark:border-zinc-800/80 flex items-center justify-between gap-2 text-xs bg-slate-100/60 dark:bg-zinc-900/60 p-1.5 rounded-lg">
-                  <div className="flex items-center gap-1">
-                    <span className="text-[11px] font-semibold text-slate-600 dark:text-zinc-300">Item Disc:</span>
-                    <div className="inline-flex rounded border border-slate-200 dark:border-zinc-800 p-0.5 bg-white dark:bg-zinc-900">
-                      <button
-                        type="button"
-                        onClick={() => handleItemDiscountTypeChange(idx, 'PERCENT')}
-                        className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${
-                          (item.discountType || 'PERCENT') === 'PERCENT'
-                            ? 'bg-indigo-600 text-white'
-                            : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
-                        }`}
-                      >
-                        %
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleItemDiscountTypeChange(idx, 'FIXED')}
-                        className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${
-                          item.discountType === 'FIXED'
-                            ? 'bg-indigo-600 text-white'
-                            : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
-                        }`}
-                      >
-                        Rs
-                      </button>
+          <div className="space-y-2">
+            {cart.map((item, idx) => (
+              <div
+                key={`${item.variantId}_${idx}`}
+                className="py-2 px-2.5 rounded-xl border border-slate-100 dark:border-zinc-800/80 bg-slate-50/50 dark:bg-zinc-900/40 hover:bg-slate-100/60 dark:hover:bg-zinc-800/40 transition-colors flex flex-col gap-1.5"
+              >
+                {/* Row 1: Product Name, Variant Details, Unit Price & Delete */}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <h5 className="font-bold text-xs text-slate-900 dark:text-white leading-tight break-words">
+                      {item.productName}
+                    </h5>
+                    <div className="flex items-center flex-wrap gap-1.5">
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-200/70 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300">
+                        {item.size} · {item.color}
+                      </span>
+                      <span className="text-[11px] text-slate-500 dark:text-zinc-400 font-mono">
+                        @ Rs. {item.unitPrice.toLocaleString()}
+                      </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    {item.discountType === 'PERCENT' && Number(item.discount || 0) > 0 && (
-                      <span className="text-[10px] font-mono text-emerald-600 font-semibold">
-                        (-Rs. {Number(item.discount).toLocaleString()})
-                      </span>
+
+                  <button
+                    type="button"
+                    onClick={() => removeFromCart(idx)}
+                    className="text-slate-400 hover:text-rose-500 dark:text-zinc-500 dark:hover:text-rose-400 p-1 rounded-lg transition-colors cursor-pointer shrink-0 -mt-0.5 -mr-0.5"
+                    title="Remove item"
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                </div>
+
+                {/* Row 2: Quantity Stepper, Item Discount Toggle Button & Line Total */}
+                <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-zinc-800/40">
+                  {/* Stepper with click-to-edit inline numerical input */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => updateCartItemQty(idx, -1)}
+                      className="size-7 h-7 w-7 rounded-lg bg-slate-200/70 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200 hover:bg-slate-300 dark:hover:bg-zinc-700 transition-colors cursor-pointer select-none active:scale-95"
+                      title="Decrease quantity"
+                    >
+                      <Minus className="size-3" />
+                    </button>
+
+                    {editingQtyIndex === idx ? (
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        autoFocus
+                        value={tempQtyInput}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/[^0-9.]/g, '');
+                          const parts = val.split('.');
+                          const cleanVal = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join('')}` : val;
+                          setTempQtyInput(cleanVal);
+                        }}
+                        onFocus={(e) => e.target.select()}
+                        onBlur={() => handleApplyDirectCartQty(idx)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleApplyDirectCartQty(idx);
+                          } else if (e.key === 'Escape') {
+                            setEditingQtyIndex(null);
+                          }
+                        }}
+                        className="w-12 h-7 text-center font-mono text-xs font-bold bg-white dark:bg-zinc-900 border border-indigo-500 rounded text-indigo-600 dark:text-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingQtyIndex(idx);
+                          setTempQtyInput(String(item.quantity));
+                        }}
+                        className="min-w-8 h-7 px-1.5 rounded hover:bg-indigo-50 dark:hover:bg-indigo-950/60 font-mono text-xs font-bold text-slate-800 dark:text-zinc-200 flex items-center justify-center cursor-pointer transition-colors border border-transparent select-none"
+                        title="Click to type quantity directly"
+                      >
+                        {item.quantity}
+                      </button>
                     )}
-                    <Input
-                      type="text"
-                      value={item.discountInput !== undefined && item.discountInput !== '' ? String(item.discountInput) : ''}
-                      onChange={(e) => handleItemDiscountInputChange(idx, e.target.value)}
-                      placeholder="0"
-                      className="w-16 h-7 text-xs text-right font-mono p-1 bg-white dark:bg-zinc-900 border-slate-300 dark:border-zinc-700"
-                    />
+
+                    <button
+                      type="button"
+                      onClick={() => updateCartItemQty(idx, 1)}
+                      className="size-7 h-7 w-7 rounded-lg bg-slate-200/70 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200 hover:bg-slate-300 dark:hover:bg-zinc-700 transition-colors cursor-pointer select-none active:scale-95"
+                      title="Increase quantity"
+                    >
+                      <Plus className="size-3" />
+                    </button>
+                  </div>
+
+                  {/* Line Item Discount Toggle & Line Total */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => toggleItemDiscount(idx)}
+                      className={`size-7 h-7 w-7 rounded-lg flex items-center justify-center transition-all cursor-pointer select-none shrink-0 ${
+                        item.discount && item.discount > 0
+                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 font-bold border border-emerald-300 dark:border-emerald-700 shadow-2xs'
+                          : item.showDiscount
+                          ? 'bg-slate-300 text-slate-800 dark:bg-zinc-700 dark:text-zinc-200'
+                          : 'bg-slate-200/70 text-slate-500 dark:bg-zinc-800 dark:text-zinc-400 hover:text-indigo-600'
+                      }`}
+                      title={item.showDiscount ? 'Hide item discount' : 'Add item discount'}
+                    >
+                      <Percent className="size-3" />
+                    </button>
+
+                    <div className="flex items-center gap-1.5 text-right">
+                      <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-400 dark:text-zinc-500">
+                        Total:
+                      </span>
+                      <span className="font-mono font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
+                        Rs. {Math.max(0, item.unitPrice * item.quantity - (item.discount || 0)).toLocaleString()}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              )}
-            </div>
-          ))
-        )}
-      </div>
 
-      {/* Zone 3: Financial Summary & Notes (STRICTLY PRESALES ORDER - ZERO PAYMENT FIELDS) */}
-      <div className="shrink-0 bg-white dark:bg-zinc-950 border-t border-slate-100 dark:border-zinc-800 p-3 space-y-2.5">
-        {/* Financial Breakdown */}
+                {/* Inline Item Discount Expand Tray */}
+                {item.showDiscount && (
+                  <div className="pt-1.5 mt-1 border-t border-dashed border-slate-200 dark:border-zinc-800/80 flex items-center justify-between gap-2 text-xs bg-slate-100/60 dark:bg-zinc-900/60 p-1.5 rounded-lg">
+                    <div className="flex items-center gap-1">
+                      <span className="text-[11px] font-semibold text-slate-600 dark:text-zinc-300">Item Disc:</span>
+                      <div className="inline-flex rounded border border-slate-200 dark:border-zinc-800 p-0.5 bg-white dark:bg-zinc-900">
+                        <button
+                          type="button"
+                          onClick={() => handleItemDiscountTypeChange(idx, 'PERCENT')}
+                          className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${
+                            (item.discountType || 'PERCENT') === 'PERCENT'
+                              ? 'bg-indigo-600 text-white'
+                              : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
+                          }`}
+                        >
+                          %
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleItemDiscountTypeChange(idx, 'FIXED')}
+                          className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${
+                            item.discountType === 'FIXED'
+                              ? 'bg-indigo-600 text-white'
+                              : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
+                          }`}
+                        >
+                          Rs
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {item.discountType === 'PERCENT' && Number(item.discount || 0) > 0 && (
+                        <span className="text-[10px] font-mono text-emerald-600 font-semibold">
+                          (-Rs. {Number(item.discount).toLocaleString()})
+                        </span>
+                      )}
+                      <Input
+                        type="text"
+                        value={item.discountInput !== undefined && item.discountInput !== '' ? String(item.discountInput) : ''}
+                        onChange={(e) => handleItemDiscountInputChange(idx, e.target.value)}
+                        placeholder="0"
+                        className="w-16 h-7 text-xs text-right font-mono p-1 bg-white dark:bg-zinc-900 border-slate-300 dark:border-zinc-700"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* "+ Add Products" Ribbon Action - Prominently positioned between items and financial breakdown */}
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            if (isMobileDrawer) setMobileCartOpen(false);
+            else {
+              const searchInput = document.querySelector('input[placeholder*="Search product"]') as HTMLInputElement;
+              if (searchInput) searchInput.focus();
+            }
+          }}
+          className="w-full h-9 rounded-xl border-dashed border-indigo-300 dark:border-indigo-700/60 bg-indigo-50/50 hover:bg-indigo-100/70 dark:bg-indigo-950/30 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 font-semibold text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-2xs my-1"
+        >
+          <Plus className="size-4 shrink-0" />
+          <span>+ Add Products</span>
+        </Button>
+
+        {/* Financial Breakdown (Scrolls cohesively with cart items and '+ Add Products' ribbon) */}
         <div className="flex flex-col gap-1 text-xs bg-slate-50/60 dark:bg-zinc-900/40 p-2 rounded-lg border border-slate-100 dark:border-zinc-800">
           <div className="flex items-center justify-between text-slate-600 dark:text-zinc-400">
             <span className="font-semibold text-slate-700 dark:text-zinc-300">Sub Total:</span>
@@ -1470,9 +1486,12 @@ export const OrderCreatePage: React.FC = () => {
             className="h-8 text-xs bg-slate-50/50 dark:bg-zinc-900/50"
           />
         </div>
+      </div>
 
+      {/* Zone 3: Bottom Sticky Action Bar (STRICTLY PRESALES ORDER - ZERO PAYMENT FIELDS) */}
+      <div className="shrink-0 bg-white dark:bg-zinc-950 border-t border-slate-100 dark:border-zinc-800 p-2.5 sm:p-3 sticky bottom-0 z-10">
         {/* Action Buttons: Confirm Presales Order & Convert to Wholesale Invoice */}
-        <div className="grid grid-cols-2 gap-2 pt-1">
+        <div className="grid grid-cols-2 gap-2">
           <Button
             type="button"
             disabled={cart.length === 0 || isSubmitting}

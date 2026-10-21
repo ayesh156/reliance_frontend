@@ -2439,8 +2439,8 @@ export const QuickInvoicePage: React.FC = () => {
 
       {/* Right Column: Checkout Cart & A4 Billing (Desktop Layout - Viewport Locked 3-Zone Architecture) */}
       <div className="hidden lg:flex lg:w-[380px] xl:w-[410px] h-full flex-col overflow-hidden bg-white dark:bg-zinc-900/70 rounded-2xl border border-slate-200 dark:border-zinc-800 shrink-0 shadow-sm">
-        {/* Zone 1: Top Sticky Header (shrink-0) - Order Title & Customer Selector */}
-        <div className="p-3 pb-2 border-b border-slate-100 dark:border-zinc-800/80 shrink-0 space-y-2">
+        {/* Zone 1: Top Sticky Header (shrink-0) - Order Title & Customer Selector (Pinned strictly at top) */}
+        <div className="p-3 pb-2 border-b border-slate-100 dark:border-zinc-800/80 shrink-0 space-y-2 sticky top-0 bg-white dark:bg-zinc-900 z-10">
           {/* Order Title Row */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 min-w-0">
@@ -2512,7 +2512,7 @@ export const QuickInvoicePage: React.FC = () => {
         </div>
 
         {/* Zone 2: Middle Scrollable Workspace (flex-1 overflow-y-auto min-h-0 px-3 py-2 space-y-3) */}
-        {/* Unifies Previous Due banner, Cart items, Subtotal/Discounts, Ledger, and Payment Methods */}
+        {/* Unifies Previous Due banner, Cart items, '+ Add Products' ribbon, Subtotal/Discounts, Ledger, and Payment Methods */}
         <div className="flex-1 overflow-y-auto min-h-0 px-3 py-2 space-y-3 scrollbar-thin">
           {/* Consolidated Customer Live Status Banner */}
           {selectedCustomer && (
@@ -2797,6 +2797,20 @@ export const QuickInvoicePage: React.FC = () => {
               })
             )}
           </div>
+
+          {/* '+ Add Products' Ribbon Action - Desktop prominent compact button */}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              const searchInput = document.querySelector('input[placeholder*="Search product"]') as HTMLInputElement;
+              if (searchInput) searchInput.focus();
+            }}
+            className="w-full h-8.5 rounded-xl border-dashed border-emerald-300 dark:border-emerald-700/60 bg-emerald-50/50 hover:bg-emerald-100/70 dark:bg-emerald-950/30 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 font-semibold text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-2xs"
+          >
+            <Plus className="size-4 shrink-0" />
+            <span>+ Add Products</span>
+          </Button>
 
           {/* Subtotal & Discount Breakdown: Visually separated into Item Total Discount and Bill Discount */}
           <div className="flex flex-col gap-1.5 text-xs bg-slate-50/60 dark:bg-zinc-950/40 p-2.5 rounded-lg border border-slate-100 dark:border-zinc-800">
@@ -3267,8 +3281,8 @@ export const QuickInvoicePage: React.FC = () => {
               </div>
             </div>
 
-            {/* Customer Selection in Mobile Drawer */}
-            <div className="py-1.5 border-b border-slate-100 dark:border-zinc-800/80 shrink-0">
+            {/* Customer Selection in Mobile Drawer (Pinned strictly at top) */}
+            <div className="py-1.5 border-b border-slate-100 dark:border-zinc-800/80 shrink-0 sticky top-0 bg-white dark:bg-zinc-950 z-10">
               <div className="flex items-center justify-between mb-1">
                 <label className="text-[9.5px] font-bold uppercase tracking-wider text-slate-400">Customer / Account</label>
                 <button
@@ -3587,6 +3601,17 @@ export const QuickInvoicePage: React.FC = () => {
                 })
               )}
             </div>
+
+            {/* "+ Add Products" Ribbon Action - Dismisses mobile cart drawer to return reps smoothly to catalog */}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setMobileCartOpen(false)}
+              className="w-full h-9 rounded-xl border-dashed border-emerald-300 dark:border-emerald-700/60 bg-emerald-50/50 hover:bg-emerald-100/70 dark:bg-emerald-950/30 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 font-semibold text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-2xs my-1"
+            >
+              <Plus className="size-4 shrink-0" />
+              <span>+ Add Products</span>
+            </Button>
 
             {/* Financial Ledger & Payment Method in Mobile Drawer (Zone 2 scrollable workspace) */}
             <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-2">

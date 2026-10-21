@@ -750,13 +750,13 @@ export const CustomersPage: React.FC = () => {
                         {cust.city || 'Quick Actions'}
                       </span>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        {/* Bill History & Ledger Icon-Only Button */}
-                        <TooltipSimple content="Bill History & Ledger" side="top">
+                        {/* Bill History Icon-Only Button */}
+                        <TooltipSimple content="Bill History" side="top">
                           <button
                             type="button"
                             onClick={() => handleOpenCustomerBillHistory(cust)}
                             className="size-9 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 flex items-center justify-center transition-colors cursor-pointer select-none active:scale-95 border border-slate-200/50 dark:border-zinc-700/50 shadow-2xs"
-                            title="Bill History & Ledger"
+                            title="Bill History"
                           >
                             <FileText className="size-4 text-blue-600 dark:text-blue-400 shrink-0" />
                           </button>
@@ -779,7 +779,9 @@ export const CustomersPage: React.FC = () => {
                           </TooltipSimple>
                         )}
 
-                        {/* Complete 3-Dots Dropdown Menu */}
+                        {/* Deduplicated 3-Dots Dropdown Menu:
+                            Actions already present as direct card buttons (Bill History and Settle Due)
+                            are strictly excluded from this menu to eliminate UI redundancy. */}
                         <DropdownMenu modal={false}>
                           <DropdownMenuTrigger asChild>
                             <button
@@ -791,26 +793,14 @@ export const CustomersPage: React.FC = () => {
                             </button>
                           </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-52 text-xs font-medium">
+                          {/* Edit Customer Profile: Accessible to both Sales Reps and Admins */}
                           <DropdownMenuItem
-                            onClick={() => handleOpenCustomerBillHistory(cust)}
-                            className="gap-2 cursor-pointer font-semibold text-slate-900 dark:text-zinc-100 py-2"
+                            onClick={() => openModal(cust)}
+                            className="gap-2 cursor-pointer text-slate-700 dark:text-zinc-300 py-2 font-medium"
                           >
-                            <FileText className="size-3.5 text-blue-600 dark:text-blue-400" />
-                            Bill History &amp; Profile
+                            <Edit2 className="size-3.5 text-slate-500" />
+                            Edit Profile
                           </DropdownMenuItem>
-
-                          {hasDebt && (
-                            <DropdownMenuItem
-                              onClick={() => {
-                                setSelectedSettlementCustomer(cust);
-                                setIsDueSettlementOpen(true);
-                              }}
-                              className="gap-2 cursor-pointer text-emerald-600 focus:text-emerald-700 font-semibold py-2"
-                            >
-                              <Receipt className="size-3.5 text-emerald-600" />
-                              Settle Due Bills
-                            </DropdownMenuItem>
-                          )}
 
                           <DropdownMenuItem
                             onClick={() => handleDownloadCustomerStatement(cust)}
@@ -828,19 +818,6 @@ export const CustomersPage: React.FC = () => {
                               <MessageSquare className="size-3.5 text-emerald-600" />
                               WhatsApp Due Statement
                             </DropdownMenuItem>
-                          )}
-
-                          {!isRep && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() => openModal(cust)}
-                                className="gap-2 cursor-pointer text-slate-700 dark:text-zinc-300 py-2"
-                              >
-                                <Edit2 className="size-3.5 text-slate-500" />
-                                Edit Profile
-                              </DropdownMenuItem>
-                            </>
                           )}
 
                           {isAdmin && !isRep && (
@@ -949,13 +926,13 @@ export const CustomersPage: React.FC = () => {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-48 text-xs font-medium">
-                          {/* Unified Bill History & Profile Option */}
+                          {/* Unified Bill History Option */}
                           <DropdownMenuItem
                             onClick={() => handleOpenCustomerBillHistory(cust)}
                             className="gap-2 cursor-pointer font-semibold text-slate-900 dark:text-zinc-100 py-1.5"
                           >
                             <FileText className="size-3.5 text-blue-600 dark:text-blue-400" />
-                            Bill History &amp; Profile
+                            Bill History
                           </DropdownMenuItem>
 
                           {/* Itemized Due Bills Settlement Modal Action (Shown when debt exists) */}
@@ -994,15 +971,14 @@ export const CustomersPage: React.FC = () => {
 
                           <DropdownMenuSeparator />
 
-                          {!isRep && (
-                            <DropdownMenuItem
-                              onClick={() => openModal(cust)}
-                              className="gap-2 cursor-pointer text-slate-700 dark:text-zinc-300 py-1.5"
-                            >
-                              <Edit2 className="size-3.5 text-slate-500" />
-                              Edit Profile
-                            </DropdownMenuItem>
-                          )}
+                          {/* Edit Customer Profile (Accessible to Admins & Sales Reps) */}
+                          <DropdownMenuItem
+                            onClick={() => openModal(cust)}
+                            className="gap-2 cursor-pointer text-slate-700 dark:text-zinc-300 py-1.5 font-medium"
+                          >
+                            <Edit2 className="size-3.5 text-slate-500" />
+                            Edit Profile
+                          </DropdownMenuItem>
 
                           {isAdmin && !isRep && (
                             <>

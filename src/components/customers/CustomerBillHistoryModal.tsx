@@ -40,8 +40,13 @@ import {
 } from 'lucide-react';
 import { get, put, post, del } from '../../lib/api';
 import { toast } from 'react-toastify';
+import {
+  openWhatsAppChat,
+  generateCustomerInvoiceWhatsAppMessage,
+  generateCustomerDebtSummaryWhatsAppMessage,
+  generateReturnCreditNoteWhatsAppMessage,
+} from '../../utils/whatsapp';
 import { getInvoiceAgeInfo } from '../../utils/invoiceAge';
-import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage, generateCustomerDebtSummaryWhatsAppMessage } from '../../utils/whatsapp';
 
 /**
  * Customer profile summary definition required for billing history scoping.
@@ -262,11 +267,12 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
 
   /**
    * Stream generated Invoice PDF directly to browser download.
+   * If isReturnItem is true, streams the specific Return Credit Note PDF.
    */
-  const handleDownloadInvoicePdf = async (invoiceId: number) => {
+  const handleDownloadInvoicePdf = async (invoiceId: number, isReturnItem: boolean = false) => {
     setDownloadingId(invoiceId);
     try {
-      toast.info(`Preparing Invoice #INV${invoiceId} PDF...`);
+      toast.info(isReturnItem ? `Preparing Return Credit Note for #INV${invoiceId}...` : `Preparing Invoice #INV${invoiceId} PDF...`);
       const apiHost = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
       const token =
         localStorage.getItem('token') ||
@@ -289,12 +295,12 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Invoice-INV${invoiceId}.pdf`;
+      a.download = isReturnItem ? `Return-Credit-Note-INV${invoiceId}.pdf` : `Invoice-INV${invoiceId}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       window.URL.revokeObjectURL(url);
-      toast.success(`Invoice #INV${invoiceId} PDF downloaded!`);
+      toast.success(isReturnItem ? `Return Credit Note #INV${invoiceId} PDF downloaded!` : `Invoice #INV${invoiceId} PDF downloaded!`);
     } catch (err: any) {
       toast.error(err.message || 'Invoice download failed');
     } finally {
@@ -361,9 +367,9 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
   };
 
   /**
-   * Dispatch single invoice slip via WhatsApp.
+   * Dispatch single invoice slip or return credit note receipt via WhatsApp.
    */
-  const handleWhatsAppInvoice = (inv: CustomerInvoiceItem) => {
+  const handleWhatsAppInvoice = (inv: CustomerInvoiceItem, isReturnItem: boolean = false) => {
     const phone = customer?.phone;
     if (!phone) {
       toast.error('Customer phone number not available');
@@ -374,7 +380,9 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
       customerName: customer.name,
       customerPhone: customer.phone,
     };
-    const msg = generateCustomerInvoiceWhatsAppMessage(invData);
+    const msg = isReturnItem
+      ? generateReturnCreditNoteWhatsAppMessage(invData)
+      : generateCustomerInvoiceWhatsAppMessage(invData);
     openWhatsAppChat(phone, msg);
   };
 
@@ -1196,37 +1204,37 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                           : 'POS Checkout Order'}
                       </span>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        {/* WhatsApp Receipt Trigger */}
+                        {/* WhatsApp Receipt / Return Credit Note Trigger */}
                         {customer?.phone && (
                           <button
                             type="button"
-                            onClick={() => handleWhatsAppInvoice(inv)}
+                            onClick={() => handleWhatsAppInvoice(inv, activeFilter === 'RETURNS')}
                             className="h-7 px-2 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border border-emerald-500/20 flex items-center gap-1 font-semibold text-[11px] cursor-pointer"
-                            title="WhatsApp Invoice Receipt"
+                            title={activeFilter === 'RETURNS' ? "WhatsApp Return Credit Note" : "WhatsApp Invoice Receipt"}
                           >
                             <MessageSquare className="size-3" />
-                            <span>WhatsApp</span>
+                            <span>{activeFilter === 'RETURNS' ? "Credit Note" : "WhatsApp"}</span>
                           </button>
                         )}
 
                         {/* PDF Download Trigger */}
                         <button
                           type="button"
-                          onClick={() => handleDownloadInvoicePdf(inv.id)}
+                          onClick={() => handleDownloadInvoicePdf(inv.id, activeFilter === 'RETURNS')}
                           disabled={downloadingId === inv.id}
                           className="h-7 px-2 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-blue-500/20 flex items-center gap-1 font-semibold text-[11px] cursor-pointer"
-                          title="Download Invoice PDF"
+                          title={activeFilter === 'RETURNS' ? "Download Return Credit Note PDF" : "Download Invoice PDF"}
                         >
                           {downloadingId === inv.id ? (
                             <Loader2 className="size-3 animate-spin" />
                           ) : (
                             <Download className="size-3" />
                           )}
-                          <span>PDF</span>
+                          <span>{activeFilter === 'RETURNS' ? "Credit Note PDF" : "PDF"}</span>
                         </button>
 
-                        {/* Quick Settle Trigger if due */}
-                        {creditDue > 0 && onOpenSettlement && customer && (
+                        {/* Quick Settle Trigger if due (Strictly excluded in Returns tab) */}
+                        {activeFilter !== 'RETURNS' && creditDue > 0 && onOpenSettlement && customer && (
                           <button
                             type="button"
                             onClick={() => {
@@ -1414,7 +1422,8 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
             </Button>
 
             <div className="flex items-center gap-2">
-              {effectiveOutstanding > 0 && onOpenSettlement && customer && (
+              {/* Settle Due action is strictly excluded in the Returns tab */}
+              {activeFilter !== 'RETURNS' && effectiveOutstanding > 0 && onOpenSettlement && customer && (
                 <Button
                   size="sm"
                   onClick={() => {

@@ -1044,146 +1044,150 @@ export const InvoicesPage: React.FC = () => {
               return (
                 <div
                   key={inv.id}
-                  className="invoice-card rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/90 p-3 sm:p-3.5 shadow-sm space-y-2.5 sm:space-y-3 hover:border-slate-300 dark:hover:border-zinc-700 transition-colors w-full"
+                  className="invoice-card rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/90 p-2.5 sm:p-3 shadow-sm space-y-1.5 hover:border-slate-300 dark:hover:border-zinc-700 transition-colors w-full"
                 >
-                  {/* Top Row: #INV{id} badge, Wholesale/Retail pill, Date, and payment status badge */}
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span
-                        onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}`)}
-                        className="font-mono font-bold text-xs px-2.5 py-1 rounded bg-slate-100 dark:bg-zinc-800 text-slate-900 dark:text-white cursor-pointer hover:underline hover:text-emerald-600 dark:hover:text-emerald-400 select-none"
-                        title="Click to edit invoice in POS"
-                      >
-                        #INV{inv.id}
-                      </span>
-                      {inv.source === 'POS_WHOLESALE' ? (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-                          Wholesale
-                        </span>
-                      ) : (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">
-                          Retail
-                        </span>
-                      )}
-                      {/* Creator Role Badge inline with Invoice Type */}
-                      {inv.user?.role && (
-                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700">
-                          {inv.user.role}
-                        </span>
-                      )}
-                      {inv.returns && inv.returns.length > 0 && (
-                        <span
-                          onClick={() => handleOpenReturnModal(inv)}
-                          className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1 cursor-pointer"
-                          title="Click to view returns history"
-                        >
-                          <RotateCcw className="size-2.5" />
-                          Returns ({inv.returns.length})
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex flex-col sm:flex-row sm:items-center items-end gap-1.5">
-                      {/* Shipped / Dispatch Checkbox Tracker */}
-                      <label
-                        onClick={(e) => e.stopPropagation()}
-                        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium border cursor-pointer select-none transition-colors ${
-                          inv.isDispatched
-                            ? getRoleBadgeStyle(inv.dispatchedByRole)
-                            : 'bg-slate-50 text-slate-500 border-slate-200 dark:bg-zinc-800/60 dark:text-zinc-400 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800'
-                        }`}
-                        title="Shipped / Dispatch Tracking"
-                      >
-                        <Checkbox
-                          checked={!!inv.isDispatched}
-                          disabled={togglingDispatchId === inv.id}
-                          onCheckedChange={(checked) => handleToggleDispatch(inv, Boolean(checked))}
-                          className="size-3.5 data-[state=checked]:bg-zinc-900 data-[state=checked]:border-zinc-900 data-[state=checked]:text-white dark:data-[state=checked]:bg-white dark:data-[state=checked]:border-white dark:data-[state=checked]:text-zinc-900"
-                        />
-                        <span className="font-semibold">
-                          {inv.isDispatched ? `Shipped (${inv.dispatchedByRole || 'ADMIN'})` : 'Shipped'}
-                        </span>
-                      </label>
+                  {/* Compact Top Metadata Row: Aligned tightly into a single-line inline flex container */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {/* #INV Badge */}
+                    <span
+                      onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}`)}
+                      className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 text-slate-900 dark:text-white cursor-pointer hover:underline hover:text-emerald-600 dark:hover:text-emerald-400 select-none"
+                      title="Click to edit invoice in POS"
+                    >
+                      #INV{inv.id}
+                    </span>
 
-                      <div className="flex items-center gap-2">
-                        <span className="text-[11px] text-slate-500 font-mono">
-                          {new Date(inv.createdAt).toISOString().split('T')[0]}
-                        </span>
-                        <Badge
-                          variant="outline"
-                          className={`text-[10px] font-bold uppercase ${
-                            inv.paymentMethod === 'CHEQUE' || getInvoiceChequeList(inv).length > 0
-                              ? 'border-amber-500 text-amber-600 bg-amber-500/10'
-                              : inv.paymentMethod === 'CREDIT' || isUnderpaid
-                              ? 'border-rose-500 text-rose-600 bg-rose-500/10'
-                              : 'border-emerald-500 text-emerald-600 bg-emerald-500/10'
-                          }`}
-                        >
-                          {getInvoiceChequeList(inv).length > 1
-                            ? 'SPLIT'
-                            : (getInvoiceChequeList(inv).length === 1 && inv.paymentMethod !== 'SPLIT'
-                            ? 'CHEQUE'
-                            : inv.paymentMethod)}
-                        </Badge>
-                      </div>
-                    </div>
+                    {/* WS / RET Badge */}
+                    {inv.source === 'POS_WHOLESALE' ? (
+                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                        WS
+                      </span>
+                    ) : (
+                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">
+                        RET
+                      </span>
+                    )}
+
+                    {/* REP / Creator Role Badge */}
+                    {inv.user?.role && (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider uppercase bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700">
+                        {inv.user.role}
+                      </span>
+                    )}
+
+                    {/* Returns Pill */}
+                    {inv.returns && inv.returns.length > 0 && (
+                      <span
+                        onClick={() => handleOpenReturnModal(inv)}
+                        className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1 cursor-pointer"
+                        title="Click to view returns history"
+                      >
+                        <RotateCcw className="size-2.5" />
+                        Returns ({inv.returns.length})
+                      </span>
+                    )}
+
+                    {/* Shipped / Dispatch Checkbox Tracker */}
+                    <label
+                      onClick={(e) => e.stopPropagation()}
+                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] sm:text-[11px] font-medium border cursor-pointer select-none transition-colors ${
+                        inv.isDispatched
+                          ? getRoleBadgeStyle(inv.dispatchedByRole)
+                          : 'bg-slate-50 text-slate-500 border-slate-200 dark:bg-zinc-800/60 dark:text-zinc-400 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800'
+                      }`}
+                      title="Shipped / Dispatch Tracking"
+                    >
+                      <Checkbox
+                        checked={!!inv.isDispatched}
+                        disabled={togglingDispatchId === inv.id}
+                        onCheckedChange={(checked) => handleToggleDispatch(inv, Boolean(checked))}
+                        className="size-3 sm:size-3.5 data-[state=checked]:bg-zinc-900 data-[state=checked]:border-zinc-900 data-[state=checked]:text-white dark:data-[state=checked]:bg-white dark:data-[state=checked]:border-white dark:data-[state=checked]:text-zinc-900"
+                      />
+                      <span className="font-semibold">
+                        {inv.isDispatched ? `Shipped (${inv.dispatchedByRole || 'ADMIN'})` : 'Shipped'}
+                      </span>
+                    </label>
+
+                    {/* Payment Method Badge */}
+                    <Badge
+                      variant="outline"
+                      className={`text-[9px] sm:text-[10px] px-1.5 py-0.5 font-bold uppercase ${
+                        inv.paymentMethod === 'CHEQUE' || getInvoiceChequeList(inv).length > 0
+                          ? 'border-amber-500 text-amber-600 bg-amber-500/10'
+                          : inv.paymentMethod === 'CREDIT' || isUnderpaid
+                          ? 'border-rose-500 text-rose-600 bg-rose-500/10'
+                          : 'border-emerald-500 text-emerald-600 bg-emerald-500/10'
+                      }`}
+                    >
+                      {getInvoiceChequeList(inv).length > 1
+                        ? 'SPLIT'
+                        : (getInvoiceChequeList(inv).length === 1 && inv.paymentMethod !== 'SPLIT'
+                        ? 'CHEQUE'
+                        : inv.paymentMethod)}
+                    </Badge>
+
+                    {/* Creation Date (aligned right in flex row) */}
+                    <span className="text-[10.5px] text-slate-400 font-mono ml-auto">
+                      {new Date(inv.createdAt).toISOString().split('T')[0]}
+                    </span>
                   </div>
 
                   {/* Customer Info: Name, bold contact number, and accumulated credit balance */}
-                  <div className="flex items-start justify-between gap-2 pt-1 border-t border-slate-100 dark:border-zinc-800/60">
+                  <div className="flex items-center justify-between gap-1.5 pt-1 border-t border-slate-100 dark:border-zinc-800/60">
                     <div className="min-w-0">
                       <h4
                         onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}`)}
-                        className="font-bold text-sm text-slate-900 dark:text-white truncate cursor-pointer hover:underline hover:text-emerald-600 dark:hover:text-emerald-400"
+                        className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white truncate cursor-pointer hover:underline hover:text-emerald-600 dark:hover:text-emerald-400"
                         title="Click to edit invoice in POS"
                       >
                         {inv.customerName}
                       </h4>
                       <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-xs font-bold text-slate-800 dark:text-zinc-200 font-mono">
+                        <span className="text-[11px] font-bold text-slate-700 dark:text-zinc-300 font-mono">
                           {inv.customerPhone || inv.customer?.phone || 'No Contact'}
                         </span>
                       </div>
                     </div>
                     <div className="text-right shrink-0">
-                      <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Credit Balance</span>
-                      <span className={`text-xs font-mono font-bold ${customerBal > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                      <span className="text-[9.5px] text-slate-400 uppercase tracking-wider block">Credit Balance</span>
+                      <span className={`text-[11px] font-mono font-bold ${customerBal > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
                         {customerBal > 0 ? `Rs. ${customerBal.toLocaleString()}` : 'Rs. 0.00'}
                       </span>
                     </div>
                   </div>
 
                   {/* Financials: Subtotal, Discount, Net Amount, Paid, and Credit Due in high-contrast legible font */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50/90 dark:bg-zinc-950/60 p-2.5 rounded-lg text-xs border border-slate-100 dark:border-zinc-800/60">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 bg-slate-50/90 dark:bg-zinc-950/60 p-2 rounded-lg text-xs border border-slate-100 dark:border-zinc-800/60">
                     <div>
-                      <span className="text-[10px] text-slate-400 block uppercase">Subtotal</span>
+                      <span className="text-[9.5px] text-slate-400 block uppercase">Subtotal</span>
                       <span className="font-mono font-semibold text-slate-800 dark:text-zinc-200">
                         Rs. {subtotalAmt.toLocaleString()}
                       </span>
                     </div>
                     <div>
-                      <span className="text-[10px] text-slate-400 block uppercase">Discount</span>
+                      <span className="text-[9.5px] text-slate-400 block uppercase">Discount</span>
                       <span className="font-mono font-semibold text-slate-800 dark:text-zinc-200">
                         Rs. {discountAmt.toLocaleString()}
                       </span>
                     </div>
                     <div>
-                      <span className="text-[10px] text-slate-400 block uppercase">Net Total / Paid</span>
+                      <span className="text-[9.5px] text-slate-400 block uppercase">Net Total / Paid</span>
                       <span className="font-mono font-bold text-slate-900 dark:text-white block">
                         Rs. {Number(inv.totalAmount).toLocaleString()}
                       </span>
-                      <span className="font-mono text-[11px] text-emerald-600 font-semibold block">
+                      <span className="font-mono text-[10.5px] text-emerald-600 font-semibold block">
                         Paid: Rs. {Number(inv.paidAmount).toLocaleString()}
                       </span>
                     </div>
                     <div>
-                      <span className="text-[10px] text-slate-400 block uppercase">Credit Due</span>
+                      <span className="text-[9.5px] text-slate-400 block uppercase">Credit Due</span>
                       {creditDue > 0 ? (
-                        <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                        <div className="flex flex-wrap items-center gap-1 mt-0.5">
                           <span className="font-mono font-bold text-rose-600 dark:text-rose-400">
                             - Rs. {creditDue.toLocaleString()}
                           </span>
                           <span
-                            className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-tight ${ageInfo.badgeClassName}`}
+                            className={`inline-flex items-center px-1 py-0.2 rounded text-[9.5px] font-semibold tracking-tight ${ageInfo.badgeClassName}`}
                             title={`Issued ${ageInfo.days} days ago (${new Date(inv.createdAt).toISOString().split('T')[0]})`}
                           >
                             {ageInfo.label}
@@ -1195,17 +1199,14 @@ export const InvoicesPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Action Bar (< 1024px Cards):
-                      - Priority 1: High-Frequency Direct Actions (WhatsApp & PDF Download) - Always visible on card bar.
-                      - Priority 2: Primary Operational Action (Pay Due Balance if debt exists, otherwise Edit Invoice).
-                      - Priority 3: Consolidated 3-Dots Menu (Deduplicated with direct buttons, plus secondary/destructive actions). */}
-                  <div className="flex items-center justify-end gap-1.5 sm:gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800/60">
+                  {/* Compact Action Bar: Maximizes screen real estate with tightened pt-1.5 spacing and sleek buttons */}
+                  <div className="flex items-center justify-end gap-1.5 pt-1.5 border-t border-slate-100 dark:border-zinc-800/60">
                     {/* Priority 1A: WhatsApp Share Action (Always direct) */}
                     <TooltipSimple content="Send WhatsApp Invoice Message" side="top">
                       <button
                         type="button"
                         onClick={() => handleInitiateWhatsApp(inv)}
-                        className="size-9 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 shadow-2xs shrink-0"
+                        className="size-8 sm:size-8.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 shadow-2xs shrink-0"
                         title="Send WhatsApp Invoice Message"
                         aria-label="Send WhatsApp Invoice Message"
                       >
@@ -1218,7 +1219,7 @@ export const InvoicesPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => handleDownloadPdf(inv.id)}
-                        className="size-9 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 dark:text-blue-400 flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 shadow-2xs shrink-0"
+                        className="size-8 sm:size-8.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 dark:text-blue-400 flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 shadow-2xs shrink-0"
                         title="Download Official Invoice PDF"
                         aria-label="Download Official Invoice PDF"
                       >
@@ -1240,7 +1241,7 @@ export const InvoicesPage: React.FC = () => {
                             setSettleDateTime(getCurrentLocalISOString());
                             setSettleReference('');
                           }}
-                          className="size-9 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 shadow-2xs shrink-0"
+                          className="size-8 sm:size-8.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 shadow-2xs shrink-0"
                           title={`Pay Due Balance (Rs. ${creditDue.toLocaleString()})`}
                           aria-label={`Pay Due Balance for Invoice INV${inv.id}`}
                         >
@@ -1252,7 +1253,7 @@ export const InvoicesPage: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}`)}
-                          className="size-9 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 shadow-2xs shrink-0"
+                          className="size-8 sm:size-8.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 shadow-2xs shrink-0"
                           title="Edit Invoice in POS"
                           aria-label={`Edit Invoice INV${inv.id}`}
                         >
@@ -1266,11 +1267,11 @@ export const InvoicesPage: React.FC = () => {
                       <DropdownMenuTrigger asChild>
                         <button
                           type="button"
-                          className="size-9 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-600 dark:text-zinc-300 flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 shadow-2xs shrink-0"
+                          className="size-8 sm:size-8.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-600 dark:text-zinc-300 flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 shadow-2xs shrink-0"
                           title="More Invoice Actions"
                           aria-label="More Invoice Actions"
                         >
-                          <MoreVertical className="size-4.5" />
+                          <MoreVertical className="size-4" />
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" sideOffset={6} className="w-56 text-xs font-medium z-50">
