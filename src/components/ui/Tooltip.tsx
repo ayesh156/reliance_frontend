@@ -35,30 +35,33 @@ const TooltipContent = React.forwardRef<
 ));
 TooltipContent.displayName = TooltipPrimitive.Content.displayName;
 
-/**
- * Sleek, lightweight Tooltip wrapper taking content and children
- */
-export function TooltipSimple({
-  children,
-  content,
-  side = 'top',
-  disabled = false,
-  className,
-}: {
+export interface TooltipSimpleProps {
   children: React.ReactNode;
   content: React.ReactNode;
   side?: 'top' | 'right' | 'bottom' | 'left';
   disabled?: boolean;
   className?: string;
-}) {
-  if (disabled || !content) return <>{children}</>;
-
-  return (
-    <Tooltip delayDuration={50}>
-      <TooltipTrigger asChild>{children}</TooltipTrigger>
-      <TooltipContent side={side} className={className}>{content}</TooltipContent>
-    </Tooltip>
-  );
 }
 
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };
+const TooltipSimple: React.FC<TooltipSimpleProps> = ({
+  children,
+  content,
+  side = 'top',
+  disabled = false,
+  className,
+}) => {
+  if (disabled || !content) return <>{children}</>;
+  return (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>{children}</TooltipTrigger>
+        <TooltipContent className={className} side={side}>
+          {content}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+};
+
+export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, TooltipSimple };
+export default TooltipSimple;

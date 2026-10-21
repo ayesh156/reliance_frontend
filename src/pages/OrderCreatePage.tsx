@@ -13,6 +13,7 @@ import {
   DialogFooter,
 } from '../components/ui/dialog';
 import { Drawer, DrawerContent } from '../components/ui/drawer';
+import { TooltipSimple } from '../components/ui/tooltip';
 import { AnimatedInlineQtyInput } from '../components/pos/AnimatedInlineQtyInput';
 import { ProductPreviewModal } from '../components/pos/ProductPreviewModal';
 import { get, post, put, downloadBlob } from '../lib/api';

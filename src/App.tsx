@@ -8,7 +8,7 @@ import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import { TooltipProvider } from './components/ui/Tooltip';
+import { TooltipProvider } from './components/ui/tooltip';
 import { OfflineSentinel } from './components/common/OfflineSentinel';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { AttributesPage } from './pages/AttributesPage';

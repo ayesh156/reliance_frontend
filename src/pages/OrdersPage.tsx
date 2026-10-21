@@ -28,7 +28,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '../components/ui/dropdown-menu';
-import { TooltipSimple } from '../components/ui/Tooltip';
+import { TooltipSimple } from '../components/ui/tooltip';
 import {
   Search,
   Plus,
