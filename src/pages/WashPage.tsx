@@ -110,7 +110,7 @@ export const WashPage: React.FC = () => {
   const fetchWashBatches = useCallback(async () => {
     setLoading(true);
     try {
-      const res: any = await get('/production', { status: 'WASHING', limit: 100 });
+      const res: any = await get('/production?status=WASHING&limit=100');
       const data = res?.data || res;
       const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
       setBatches(items);
