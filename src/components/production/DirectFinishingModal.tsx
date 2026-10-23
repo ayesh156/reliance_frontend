@@ -12,7 +12,7 @@ import { Badge } from '../ui/badge';
 import { DateTimePicker } from '../ui/date-time-picker';
 import { SearchableSelect, type SearchableSelectOption } from '../ui/searchable-select';
 import { useTheme } from '../../contexts/ThemeContext';
-import { getProductImageUrl } from '../../lib/utils';
+import { getProductImageUrl, getCurrentLocalDateTime } from '../../lib/utils';
 import { post } from '../../lib/api';
 import { toast } from 'react-toastify';
 import {
@@ -52,7 +52,7 @@ export const DirectFinishingModal: React.FC<DirectFinishingModalProps> = ({
   const { resolvedTheme } = useTheme();
   const isDark = darkProp !== undefined ? darkProp : resolvedTheme === 'dark';
 
-  const [dateTime, setDateTime] = useState<string>(new Date().toISOString().slice(0, 16));
+  const [dateTime, setDateTime] = useState<string>(getCurrentLocalDateTime());
   const [targetProducts, setTargetProducts] = useState<FinishingTargetProductRow[]>([]);
   const [notes, setNotes] = useState<string>('');
   const [sendToWashDirectly, setSendToWashDirectly] = useState<boolean>(false);
@@ -61,7 +61,7 @@ export const DirectFinishingModal: React.FC<DirectFinishingModalProps> = ({
   // Initialize form when opening
   useEffect(() => {
     if (open) {
-      setDateTime(new Date().toISOString().slice(0, 16));
+      setDateTime(getCurrentLocalDateTime());
       setNotes('');
       setSendToWashDirectly(false);
       const defaultProductId = productsList[0] ? String(productsList[0].id) : '';

@@ -29,6 +29,7 @@ import { OrderCreatePage } from './pages/OrderCreatePage';
 import { BuyRawMaterialsPage } from './pages/BuyRawMaterialsPage';
 import BuyRawMaterialFormPage from './pages/BuyRawMaterialFormPage';
 import { ProductionListPage } from './pages/ProductionListPage';
+import { LinePage } from './pages/LinePage';
 import { WashPage } from './pages/WashPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { Dashboard } from './pages/Dashboard';
@@ -46,6 +47,7 @@ function ThemedToastContainer() {
     <ToastContainer
       position="top-right"
       autoClose={3000}
+      limit={3}
       hideProgressBar={false}
       newestOnTop
       closeOnClick
@@ -58,6 +60,15 @@ function ThemedToastContainer() {
     />
   );
 }
+
+const RouteLoadingFallback = () => (
+  <div className="min-h-screen bg-[#f8f8f6] dark:bg-[#09090b] flex items-center justify-center">
+    <div className="flex flex-col items-center gap-3">
+      <div className="size-8 rounded-full border-2 border-emerald-500/20 border-t-emerald-500 animate-spin" />
+      <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Loading...</span>
+    </div>
+  </div>
+);
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -84,7 +95,8 @@ export function App() {
           <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <ScrollToTop />
             <ErrorBoundary>
-              <Routes>
+              <React.Suspense fallback={<RouteLoadingFallback />}>
+                <Routes>
               {/* ── Public Luxury Storefront Routes - Zero Auth Required ── */}
               <Route
                 path="/"
@@ -294,6 +306,21 @@ export function App() {
                 element={<Navigate to="/system/production" replace />}
               />
 
+              {/* Direct Root Shortcuts for Sewing Line */}
+              <Route path="/line" element={<Navigate to="/system/line" replace />} />
+
+              {/* Sewing Line Stage Route */}
+              <Route
+                path="/system/line"
+                element={
+                  <ProtectedRoute requiredRole={['ADMIN', 'STAFF']}>
+                    <AdminPage>
+                      <LinePage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
+
               {/* Direct Root Shortcuts for Wash */}
               <Route path="/wash" element={<Navigate to="/system/wash" replace />} />
 
@@ -409,6 +436,7 @@ export function App() {
               <Route path="/system/*" element={<Navigate to="/system/invoices" replace />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
+            </React.Suspense>
             </ErrorBoundary>
           </BrowserRouter>
         </TooltipProvider>

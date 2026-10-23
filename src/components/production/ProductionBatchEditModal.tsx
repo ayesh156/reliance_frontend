@@ -12,7 +12,7 @@ import { Badge } from '../ui/badge';
 import { DateTimePicker } from '../ui/date-time-picker';
 import { SearchableSelect, type SearchableSelectOption } from '../ui/searchable-select';
 import { useTheme } from '../../contexts/ThemeContext';
-import { getProductImageUrl } from '../../lib/utils';
+import { getProductImageUrl, getCurrentLocalDateTime, formatToLocalInputDateTime } from '../../lib/utils';
 import { put } from '../../lib/api';
 import { toast } from 'react-toastify';
 import {
@@ -68,7 +68,7 @@ export const ProductionBatchEditModal: React.FC<ProductionBatchEditModalProps> =
   const { resolvedTheme } = useTheme();
   const isDark = darkProp !== undefined ? darkProp : resolvedTheme === 'dark';
   const [productionDateTime, setProductionDateTime] = useState<string>(
-    new Date().toISOString().slice(0, 16)
+    getCurrentLocalDateTime()
   );
   const [notes, setNotes] = useState<string>('');
   const [materials, setMaterials] = useState<EditMaterialRow[]>([]);
@@ -79,11 +79,7 @@ export const ProductionBatchEditModal: React.FC<ProductionBatchEditModalProps> =
   useEffect(() => {
     if (open && order) {
       // 1. Date & Time picker hydration with scheduled/actual timestamp
-      setProductionDateTime(
-        order.productionDate
-          ? new Date(order.productionDate).toISOString().slice(0, 16)
-          : new Date().toISOString().slice(0, 16)
-      );
+      setProductionDateTime(formatToLocalInputDateTime(order.productionDate));
       setNotes(order.notes || '');
 
       // 2. Raw Materials hydration: pre-populate all issued materials with exact pieces and quantities
@@ -454,19 +450,6 @@ export const ProductionBatchEditModal: React.FC<ProductionBatchEditModalProps> =
                 </p>
               </div>
             </div>
-
-            {/* Header Totals Badge */}
-            <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300 shadow-2xs shrink-0">
-              <Shirt className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-              <div className="text-right">
-                <div className="text-[9px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-                  TOTAL PLANNED
-                </div>
-                <div className="text-xs sm:text-sm font-extrabold font-mono leading-none">
-                  {totalPlannedGarments} Pcs
-                </div>
-              </div>
-            </div>
           </div>
 
           {/* Prominently Placed Date & Time Picker */}
@@ -514,7 +497,7 @@ export const ProductionBatchEditModal: React.FC<ProductionBatchEditModalProps> =
 
         {/* Scrollable Form Body */}
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-visible">
-          <div className="flex-1 overflow-y-auto p-4 sm:p-5 pb-24 sm:pb-28 space-y-5 overflow-visible">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-5 pb-4 sm:pb-5 space-y-5 overflow-visible">
             {/* ═════════════════════════════════════════════════════════════════
                 SECTION A: RAW MATERIALS TO CUT & ISSUE (INPUTS)
             ═════════════════════════════════════════════════════════════════ */}
@@ -705,10 +688,10 @@ export const ProductionBatchEditModal: React.FC<ProductionBatchEditModalProps> =
                   <div>
                     <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
                       <Shirt className="w-3.5 h-3.5 text-emerald-500" />
-                      <span>TARGET FINISHED PRODUCTS (PLANNED OUTPUT)</span>
+                      <span>TARGET FINISHED PRODUCTS</span>
                     </h4>
                     <p className="text-[11px] text-slate-500 dark:text-zinc-400">
-                      Pre-populated finished garments planned from this production run
+                      Pre-populated target garments for this production run
                     </p>
                   </div>
                 </div>
@@ -772,11 +755,11 @@ export const ProductionBatchEditModal: React.FC<ProductionBatchEditModalProps> =
                           />
                         </div>
 
-                        {/* Planned Output Quantity (Pcs) */}
+                        {/* Target Output Quantity (Pcs) */}
                         <div className="sm:col-span-4 space-y-1">
                           <div className="flex items-center justify-between">
                             <label className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400">
-                              Planned Output Qty <span className="text-rose-500">*</span>
+                              Output Qty <span className="text-rose-500">*</span>
                             </label>
                             <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
                               Pcs

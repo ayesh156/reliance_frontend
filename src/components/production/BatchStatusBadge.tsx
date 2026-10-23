@@ -40,6 +40,17 @@ export const BatchStatusBadge: React.FC<BatchStatusBadgeProps> = ({
     );
   }
 
+  if (st === 'LINE' || st === 'SEWING_LINE' || st === 'SEWING') {
+    return (
+      <Badge
+        variant="outline"
+        className={`text-[11px] font-bold px-2.5 py-0.5 rounded-md bg-indigo-100 text-indigo-950 dark:bg-indigo-950 dark:text-indigo-200 border-indigo-400 dark:border-indigo-700 shadow-2xs ${className}`}
+      >
+        LINE
+      </Badge>
+    );
+  }
+
   if (st === 'WASHING') {
     return (
       <Badge

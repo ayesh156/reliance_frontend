@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { startOfYear, endOfYear } from 'date-fns';
 import { get, downloadBlob } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -8,6 +9,7 @@ import { Badge } from '../components/ui/badge';
 import { DateRangePicker, type DateRange } from '../components/ui/date-range-picker';
 import { SearchableSelect, type SearchableSelectOption } from '../components/ui/searchable-select';
 import { toast } from 'react-toastify';
+import { generateCustomerDuesPdf } from '../utils/customerDuesPdf';
 import { FinancialAuditModal, type FinancialMetricFocus } from '../components/reports/FinancialAuditModal';
 import {
   Dialog,
@@ -114,6 +116,7 @@ export const ReportsPage: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [downloadingActivePdf, setDownloadingActivePdf] = useState<boolean>(false);
   const [downloadingConsolidatedPdf, setDownloadingConsolidatedPdf] = useState<boolean>(false);
+  const [downloadingCustomerDuesPdf, setDownloadingCustomerDuesPdf] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [activeChequeTab, setActiveChequeTab] = useState<'PENDING' | 'REALIZED' | 'BOUNCED' | 'ALL'>('PENDING');
 
@@ -159,6 +162,11 @@ export const ReportsPage: React.FC = () => {
       } else {
         params.set('endDate', customRange.from.toISOString());
       }
+    } else if (activePreset === 'yearly') {
+      const from = customRange?.from || startOfYear(new Date());
+      const to = customRange?.to || endOfYear(new Date());
+      params.set('startDate', from.toISOString());
+      params.set('endDate', to.toISOString());
     }
     return params;
   };
@@ -205,12 +213,27 @@ export const ReportsPage: React.FC = () => {
 
   const handlePresetSelect = (preset: PresetKey) => {
     setActivePreset(preset);
+    if (preset === 'yearly') {
+      setCustomRange({
+        from: startOfYear(new Date()),
+        to: endOfYear(new Date()),
+      });
+    } else if (preset === 'monthly' || preset === 'daily') {
+      setCustomRange(undefined);
+    }
     setCurrentPage(1);
   };
 
   const handleTabSelect = (key: ModuleKey) => {
     setActiveModule(key);
     setCurrentPage(1);
+    if (key === 'cheques') {
+      setActivePreset('yearly');
+      setCustomRange({
+        from: startOfYear(new Date()),
+        to: endOfYear(new Date()),
+      });
+    }
   };
 
   const activeTabItem = useMemo(() => {
@@ -276,6 +299,24 @@ export const ReportsPage: React.FC = () => {
     }
   };
 
+  // 3. Outstanding Customer Dues PDF Export (Sales Module Specific)
+  const handleDownloadCustomerDuesPdf = async () => {
+    try {
+      setDownloadingCustomerDuesPdf(true);
+      const invoices = reportData?.tableItems || [];
+      const dateRangeLabel = formattedSelectedBadge;
+      await generateCustomerDuesPdf(invoices, {
+        dateRangeLabel,
+        generatedBy: user?.name ? `${user.name} (${user.role || 'Staff'})` : undefined,
+      });
+      toast.success('Customer Dues PDF generated and downloaded successfully!');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to generate Customer Dues PDF');
+    } finally {
+      setDownloadingCustomerDuesPdf(false);
+    }
+  };
+
   const summary = reportData?.summary || {};
   const allRows: any[] = useMemo(() => {
     if (activeModule === 'cheques' && reportData) {
@@ -300,17 +341,24 @@ export const ReportsPage: React.FC = () => {
       : (reportData.tableItems || []);
 
     const headers = ['Cheque Number', 'Bank', 'Maturity Date', 'Invoice', 'Customer', 'Phone', 'Amount (Rs.)', 'Status', 'Maturity Alert'];
-    const rows = items.map((r: any) => [
-      `"${r.chequeNumber || ''}"`,
-      `"${r.bankName || ''}"`,
-      `"${r.chequeDate || ''}"`,
-      `"${r.invoiceNumber || ''}"`,
-      `"${r.customerName || ''}"`,
-      `"${r.customerPhone || ''}"`,
-      r.amount || 0,
-      `"${r.statusLabel || r.status || ''}"`,
-      `"${r.maturityAlert || ''}"`,
-    ]);
+    const rows = items.map((r: any) => {
+      const rawStatus = String(r.statusLabel || r.status || '').toUpperCase();
+      const isRealized = rawStatus === 'REALIZED' || rawStatus === 'CLEARED' || rawStatus === 'COMPLETE';
+      const statusDisplay = isRealized ? 'COMPLETE' : (r.statusLabel || r.status || '');
+      const rawAlert = String(r.maturityAlert ?? r.alert ?? '').trim();
+      const alertDisplay = isRealized || rawAlert === 'N/A' ? '' : rawAlert;
+      return [
+        `"${r.chequeNumber || ''}"`,
+        `"${r.bankName || ''}"`,
+        `"${r.chequeDate || ''}"`,
+        `"${r.invoiceNumber || ''}"`,
+        `"${r.customerName || ''}"`,
+        `"${r.customerPhone || ''}"`,
+        r.amount || 0,
+        `"${statusDisplay}"`,
+        `"${alertDisplay}"`,
+      ];
+    });
 
     const csvContent = [headers.join(','), ...rows.map((row: any[]) => row.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -586,11 +634,11 @@ export const ReportsPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Right-hand side: Active Period Tag & Tab-Specific PDF Download Button */}
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-zinc-400">
+          {/* Right-hand side: Active Period Tag & Tab-Specific PDF Download Button (Strictly inline horizontal row) */}
+          <div className="flex flex-row items-center gap-2 flex-nowrap shrink-0 overflow-x-auto">
+            <div className="flex flex-row items-center gap-1.5 text-xs text-slate-500 dark:text-zinc-400 shrink-0">
               <span className="font-semibold text-slate-600 dark:text-zinc-300">Selected:</span>
-              <Badge variant="outline" className="font-mono text-xs font-semibold px-2.5 py-1 border-blue-200 dark:border-blue-900/60 text-blue-600 dark:text-blue-400 bg-blue-50/80 dark:bg-blue-950/40 shadow-xs">
+              <Badge variant="outline" className="font-mono text-xs font-semibold px-2 py-0.5 border-blue-200 dark:border-blue-900/60 text-blue-600 dark:text-blue-400 bg-blue-50/80 dark:bg-blue-950/40 shadow-xs">
                 {formattedSelectedBadge}
               </Badge>
             </div>
@@ -600,7 +648,7 @@ export const ReportsPage: React.FC = () => {
               disabled={downloadingActivePdf || loading || !reportData}
               variant="outline"
               size="sm"
-              className="h-8 text-xs border-slate-300 dark:border-zinc-700 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-zinc-800 font-medium"
+              className="h-8 text-xs border-slate-300 dark:border-zinc-700 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-zinc-800 font-medium shrink-0"
             >
               {downloadingActivePdf ? (
                 <>
@@ -614,6 +662,30 @@ export const ReportsPage: React.FC = () => {
                 </>
               )}
             </Button>
+
+            {/* ⭐ Requirement 1 & 2: Outstanding Customer Dues PDF Button strictly inline */}
+            {activeModule === 'sales' && (
+              <Button
+                onClick={handleDownloadCustomerDuesPdf}
+                disabled={downloadingCustomerDuesPdf || loading || !reportData}
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs border-emerald-300 dark:border-emerald-800/80 bg-emerald-50/60 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 hover:text-emerald-800 dark:hover:bg-emerald-900/50 font-medium shadow-xs shrink-0"
+                title="Download filtered PDF of customers with outstanding dues"
+              >
+                {downloadingCustomerDuesPdf ? (
+                  <>
+                    <Loader2 className="size-3.5 mr-1.5 animate-spin" />
+                    Generating Dues PDF...
+                  </>
+                ) : (
+                  <>
+                    <FileText className="size-3.5 mr-1.5 text-emerald-600 dark:text-emerald-400" />
+                    Download Customer Dues PDF
+                  </>
+                )}
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -1742,18 +1814,24 @@ export const ReportsPage: React.FC = () => {
                                 <Badge
                                   variant="outline"
                                   className={`text-[10px] font-bold uppercase ${
-                                    (row.statusLabel || row.status) === 'REALIZED' || (row.statusLabel || row.status) === 'CLEARED'
+                                    (row.statusLabel || row.status) === 'REALIZED' || (row.statusLabel || row.status) === 'CLEARED' || (row.statusLabel || row.status) === 'COMPLETE'
                                       ? 'text-emerald-600 border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/20'
                                       : (row.statusLabel || row.status) === 'BOUNCED'
                                       ? 'text-rose-600 border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/20'
                                       : 'text-amber-600 border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20'
                                   }`}
                                 >
-                                  {row.statusLabel || row.status || 'PENDING'}
+                                  {(row.statusLabel || row.status) === 'REALIZED' || (row.statusLabel || row.status) === 'CLEARED' || (row.statusLabel || row.status) === 'COMPLETE'
+                                    ? 'COMPLETE'
+                                    : (row.statusLabel || row.status || 'PENDING')}
                                 </Badge>
                               </td>
                               <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                                {row.maturityAlert ? (
+                                {row.maturityAlert &&
+                                row.maturityAlert !== 'N/A' &&
+                                (row.statusLabel || row.status) !== 'REALIZED' &&
+                                (row.statusLabel || row.status) !== 'CLEARED' &&
+                                (row.statusLabel || row.status) !== 'COMPLETE' ? (
                                   <span
                                     className={`text-[10px] font-bold px-2 py-0.5 rounded ${
                                       row.maturityAlert === 'OVERDUE'

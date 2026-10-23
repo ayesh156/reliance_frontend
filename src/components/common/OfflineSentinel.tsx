@@ -1,191 +1,90 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { WifiOff, RefreshCw, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { WifiOff, RefreshCw, CheckCircle2 } from 'lucide-react';
 
 export interface OfflineSentinelProps {
   /**
-   * Optional custom ping endpoint. Defaults to /api/health with fallback to /favicon.ico
+   * Optional props retained for API backwards compatibility.
+   * Active polling and pinging have been removed to eliminate false-positives on high-latency 4G.
    */
   pingUrl?: string;
-  /**
-   * Health check interval in ms when online (default: 30000ms / 30s)
-   */
   onlineIntervalMs?: number;
-  /**
-   * Aggressive retry check interval in ms when offline (default: 6000ms / 6s)
-   */
   offlineIntervalMs?: number;
-  /**
-   * Request timeout in ms for heartbeat checks (default: 4000ms)
-   */
   timeoutMs?: number;
 }
 
 /**
- * Universal Offline Connection Sentinel (Poruwa.lk-Inspired Architecture)
+ * Universal Hardware Offline Sentinel
  *
- * Provides non-destructive, zero-state-loss network monitoring across the application.
- * Listens to browser online/offline events and performs proactive lightweight heartbeat pings
- * against `/api/health` and static assets.
+ * Strictly relies on native browser hardware connectivity events:
+ * - window.addEventListener('offline')
+ * - window.addEventListener('online')
+ * - navigator.onLine === false
  *
- * When offline:
- * - Renders a high-contrast, modern blurred modal overlay with radar-pulsing disconnected icon.
- * - Leaves user form entries, active POS checkout carts, and URL history completely preserved.
- * - Provides a "Retry Connection" button with real-time feedback.
- *
- * When recovered:
- * - Displays a temporary emerald "Connection Restored" banner.
- * - Auto-dismisses seamlessly without requiring page reload.
+ * Eliminates all active polling, HTTP pinging, and API-failure listeners that falsely
+ * declared the application offline on high-latency 4G networks.
+ * The modal ONLY appears when Wi-Fi / Mobile Data is genuinely disconnected, and
+ * automatically dismisses the instant network connectivity is restored.
  */
-export const OfflineSentinel: React.FC<OfflineSentinelProps> = ({
-  pingUrl,
-  onlineIntervalMs = 30000,
-  offlineIntervalMs = 6000,
-  timeoutMs = 4000,
-}) => {
-  const [isOffline, setIsOffline] = useState<boolean>(!navigator.onLine);
-  const [isChecking, setIsChecking] = useState<boolean>(false);
+export const OfflineSentinel: React.FC<OfflineSentinelProps> = () => {
+  const [isOffline, setIsOffline] = useState<boolean>(() => {
+    return typeof navigator !== 'undefined' ? !navigator.onLine : false;
+  });
   const [showRestoredBanner, setShowRestoredBanner] = useState<boolean>(false);
-  const [retryFeedback, setRetryFeedback] = useState<string | null>(null);
+  const wasOffline = useRef<boolean>(typeof navigator !== 'undefined' ? !navigator.onLine : false);
 
-  const wasOffline = useRef<boolean>(!navigator.onLine);
-  const isCheckingRef = useRef<boolean>(false);
-
-  /**
-   * Resolve target health check URL based on environment or default endpoints
-   */
-  const getHeartbeatUrl = useCallback((): string => {
-    if (pingUrl) return pingUrl;
-    const apiHost = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-    return `${apiHost.replace(/\/+$/, '')}/health`;
-  }, [pingUrl]);
-
-  /**
-   * Perform an isolated network heartbeat test with aggressive timeout and cache bypassing
-   */
-  const testConnectivity = useCallback(async (): Promise<boolean> => {
-    if (!navigator.onLine) {
-      return false;
-    }
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-    try {
-      const target = `${getHeartbeatUrl()}?_t=${Date.now()}`;
-      const res = await fetch(target, {
-        method: 'GET',
-        cache: 'no-store',
-        mode: 'cors',
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      // Valid HTTP status from backend indicates server & network are active
-      return res.status >= 200 && res.status < 500;
-    } catch {
-      clearTimeout(timeoutId);
-      return false;
-    }
-  }, [getHeartbeatUrl, timeoutMs]);
-
-  /**
-   * Synchronize online status with state transition and recovery notifications
-   */
-  const updateStatus = useCallback((connected: boolean) => {
-    if (connected) {
-      if (wasOffline.current) {
-        // State transition: Offline -> Online
+  useEffect(() => {
+    const handleOnline = () => {
+      // Hardware network restored
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
         setIsOffline(false);
-        wasOffline.current = false;
-        setRetryFeedback(null);
-        setShowRestoredBanner(true);
-
-        const bannerTimer = setTimeout(() => {
-          setShowRestoredBanner(false);
-        }, 3500);
-
-        return () => clearTimeout(bannerTimer);
-      } else {
-        setIsOffline(false);
+        if (wasOffline.current) {
+          wasOffline.current = false;
+          setShowRestoredBanner(true);
+          const bannerTimer = setTimeout(() => {
+            setShowRestoredBanner(false);
+          }, 3500);
+          return () => clearTimeout(bannerTimer);
+        }
       }
-    } else {
+    };
+
+    const handleOffline = () => {
+      // Hardware connection disconnected
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        wasOffline.current = true;
+        setIsOffline(true);
+        setShowRestoredBanner(false);
+      }
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Initial check strictly based on navigator.onLine
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
       wasOffline.current = true;
       setIsOffline(true);
-      setShowRestoredBanner(false);
+    } else {
+      setIsOffline(false);
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  const handleManualCheck = useCallback(() => {
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      setIsOffline(false);
+      wasOffline.current = false;
+      setShowRestoredBanner(true);
+      setTimeout(() => setShowRestoredBanner(false), 3500);
     }
   }, []);
 
-  /**
-   * Core checker handler invoked on events, timers, or user retry clicks
-   */
-  const checkConnection = useCallback(
-    async (isManualRetry = false) => {
-      if (isCheckingRef.current) return;
-      isCheckingRef.current = true;
-      if (isManualRetry) {
-        setIsChecking(true);
-        setRetryFeedback(null);
-      }
-
-      try {
-        const alive = await testConnectivity();
-        updateStatus(alive);
-        if (isManualRetry && !alive) {
-          setRetryFeedback('Unable to reconnect to server. Please verify your network or ensure backend services are active.');
-        }
-      } finally {
-        isCheckingRef.current = false;
-        if (isManualRetry) {
-          setIsChecking(false);
-        }
-      }
-    },
-    [testConnectivity, updateStatus]
-  );
-
-  /**
-   * Event listeners for browser online / offline hardware triggers and API interceptor failures
-   */
-  useEffect(() => {
-    const handleOnlineEvent = () => {
-      // Re-verify with server ping before declaring fully restored
-      checkConnection(false);
-    };
-
-    const handleOfflineEvent = () => {
-      updateStatus(false);
-    };
-
-    const handleAppNetworkOfflineEvent = () => {
-      // Immediate trigger from api.ts fetch failure (ERR_CONNECTION_REFUSED, failed to fetch)
-      updateStatus(false);
-    };
-
-    window.addEventListener('online', handleOnlineEvent);
-    window.addEventListener('offline', handleOfflineEvent);
-    window.addEventListener('app:network-offline', handleAppNetworkOfflineEvent);
-
-    // Initial check on mount
-    checkConnection(false);
-
-    return () => {
-      window.removeEventListener('online', handleOnlineEvent);
-      window.removeEventListener('offline', handleOfflineEvent);
-      window.removeEventListener('app:network-offline', handleAppNetworkOfflineEvent);
-    };
-  }, [checkConnection, updateStatus]);
-
-  /**
-   * Recurring heartbeat timer:
-   * Fast frequency when offline (auto-recovery), relaxed when healthy
-   */
-  useEffect(() => {
-    const interval = isOffline ? offlineIntervalMs : onlineIntervalMs;
-    const timer = setInterval(() => {
-      checkConnection(false);
-    }, interval);
-
-    return () => clearInterval(timer);
-  }, [isOffline, offlineIntervalMs, onlineIntervalMs, checkConnection]);
+  // Modal must ONLY show when navigator.onLine is genuinely false
+  const genuinelyOffline = isOffline && typeof navigator !== 'undefined' && !navigator.onLine;
 
   return (
     <>
@@ -203,8 +102,8 @@ export const OfflineSentinel: React.FC<OfflineSentinelProps> = ({
         </div>
       )}
 
-      {/* ── Poruwa.lk-Style High-Contrast Offline Modal Overlay ── */}
-      {isOffline && (
+      {/* ── Strict Hardware Disconnection Offline Modal Overlay ── */}
+      {genuinelyOffline && (
         <div
           role="alertdialog"
           aria-modal="true"
@@ -232,42 +131,24 @@ export const OfflineSentinel: React.FC<OfflineSentinelProps> = ({
                 id="offline-desc"
                 className="text-xs sm:text-sm text-slate-500 dark:text-zinc-400 leading-relaxed max-w-xs mx-auto"
               >
-                Unable to establish a connection with the server. Please verify your network connection and try again.
+                Your device appears to be disconnected from Wi-Fi and Mobile Data. Please check your network connection.
               </p>
             </div>
-
-            {/* Error Feedback if user clicked retry while still disconnected */}
-            {retryFeedback && (
-              <div className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 text-xs text-left w-full">
-                <AlertCircle className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                <span className="leading-snug">{retryFeedback}</span>
-              </div>
-            )}
 
             {/* Actions */}
             <div className="w-full space-y-3 pt-2">
               <button
                 type="button"
-                disabled={isChecking}
-                onClick={() => checkConnection(true)}
-                className="w-full py-3.5 px-6 rounded-2xl bg-emerald-600 hover:bg-emerald-500 active:scale-98 disabled:opacity-60 text-white font-bold text-sm shadow-lg shadow-emerald-900/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed select-none"
+                onClick={handleManualCheck}
+                className="w-full py-3.5 px-6 rounded-2xl bg-emerald-600 hover:bg-emerald-500 active:scale-98 text-white font-bold text-sm shadow-lg shadow-emerald-900/20 transition-all flex items-center justify-center gap-2 cursor-pointer select-none"
               >
-                {isChecking ? (
-                  <>
-                    <Loader2 className="size-4 animate-spin" />
-                    <span>Verifying Network...</span>
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="size-4" />
-                    <span>Retry Connection</span>
-                  </>
-                )}
+                <RefreshCw className="size-4" />
+                <span>Check Connection</span>
               </button>
 
               <div className="flex items-center justify-center gap-2 text-[11px] text-slate-400 dark:text-zinc-500">
                 <span className="size-1.5 rounded-full bg-amber-500 animate-ping" />
-                <span>Auto-reconnecting when network returns...</span>
+                <span>Auto-reconnecting when Wi-Fi / Mobile Data returns...</span>
               </div>
             </div>
           </div>

@@ -22,7 +22,7 @@ import {
 } from '../components/ui/dialog';
 import { DateTimePicker } from '../components/ui/date-time-picker';
 import { get, post } from '../lib/api';
-import { getProductImageUrl } from '../lib/utils';
+import { getProductImageUrl, getCurrentLocalDateTime } from '../lib/utils';
 import { toast } from 'react-toastify';
 import { BatchStatusBadge } from '../components/production/BatchStatusBadge';
 import {
@@ -45,7 +45,9 @@ import {
   Eye,
   Check,
 } from 'lucide-react';
-import ProductionBatchDetailModal from '../components/production/ProductionBatchDetailModal';
+import ProductionBatchDetailModal, {
+  formatSriLankaDateTime,
+} from '../components/production/ProductionBatchDetailModal';
 
 interface WashBatchItem {
   id: number;
@@ -96,7 +98,7 @@ export const WashPage: React.FC = () => {
   const [isLogWashModalOpen, setIsLogWashModalOpen] = useState(false);
   const [washQuantity, setWashQuantity] = useState<number | ''>('');
   const [washProductQuantities, setWashProductQuantities] = useState<Record<number, number | ''>>({});
-  const [washDateTime, setWashDateTime] = useState<string>('');
+  const [washDateTime, setWashDateTime] = useState<string>(getCurrentLocalDateTime());
   const [washNotes, setWashNotes] = useState<string>('');
   const [isSubmittingWash, setIsSubmittingWash] = useState(false);
 
@@ -198,7 +200,7 @@ export const WashPage: React.FC = () => {
     if (Array.isArray(raw) && raw.length > 0) {
       raw.forEach((tp: any) => {
         const pId = Number(tp.productId || tp.id);
-        const sent = Number(tp.sentToWashQty) > 0 ? Number(tp.sentToWashQty) : (Number(tp.plannedQty) || 0);
+        const sent = Number(tp.sentToWashQty) || 0;
         const washed = Number(tp.washedQty) || 0;
         const remaining = Math.max(0, sent - washed);
         const rawImg = (b.product?.id === pId ? b.product.images?.[0]?.imageUrl : null) || (tp as any).image;
@@ -217,9 +219,7 @@ export const WashPage: React.FC = () => {
     }
 
     if (list.length === 0 && b.product) {
-      const sent = b.sentToWashQty > 0
-        ? b.sentToWashQty
-        : (b.targetQuantity > 0 ? b.targetQuantity : b.completedQty);
+      const sent = b.sentToWashQty || 0;
       const washed = b.washedQty || 0;
       const remaining = Math.max(0, sent - washed);
       const rawImg = b.product.images?.[0]?.imageUrl;
@@ -244,19 +244,13 @@ export const WashPage: React.FC = () => {
     setSelectedBatch(batch);
     const prods = getBatchProducts(batch);
     const initialQtys: Record<number, number | ''> = {};
-    prods.forEach((p, idx) => {
-      initialQtys[idx] = p.remaining > 0 ? p.remaining : '';
+    prods.forEach((_, idx) => {
+      initialQtys[idx] = '';
     });
     setWashProductQuantities(initialQtys);
 
-    const sent = batch.sentToWashQty > 0
-      ? batch.sentToWashQty
-      : (batch.targetQuantity > 0 ? batch.targetQuantity : batch.completedQty);
-    const washed = batch.washedQty || 0;
-    const remaining = Math.max(0, sent - washed);
-
-    setWashQuantity(remaining > 0 ? remaining : '');
-    setWashDateTime(new Date().toISOString().slice(0, 16));
+    setWashQuantity('');
+    setWashDateTime(getCurrentLocalDateTime());
     setWashNotes('');
     setIsLogWashModalOpen(true);
   };
@@ -495,11 +489,14 @@ export const WashPage: React.FC = () => {
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50 dark:bg-zinc-900/80 border-b border-slate-200/80 dark:border-zinc-800">
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-36">
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-32">
                     Batch No
                   </TableHead>
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-48">
+                    Date &amp; Time
+                  </TableHead>
                   <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400">
-                    Target Garment Style
+                    Target Garment Products
                   </TableHead>
                   <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-center w-28">
                     Sent to Wash
@@ -520,15 +517,14 @@ export const WashPage: React.FC = () => {
               </TableHeader>
               <TableBody>
                 {filteredBatches.map((batch) => {
-                  const sent = batch.sentToWashQty > 0
-                    ? batch.sentToWashQty
-                    : (batch.targetQuantity > 0 ? batch.targetQuantity : batch.completedQty);
-                  const washed = batch.washedQty || 0;
+                  const prods = getBatchProducts(batch);
+                  const prodsTotalSent = prods.reduce((sum, p) => sum + p.totalSent, 0);
+                  const prodsTotalWashed = prods.reduce((sum, p) => sum + p.alreadyWashed, 0);
+
+                  const sent = prodsTotalSent > 0 ? prodsTotalSent : (batch.sentToWashQty || 0);
+                  const washed = prodsTotalWashed > 0 ? prodsTotalWashed : (batch.washedQty || 0);
                   const remaining = Math.max(0, sent - washed);
                   const percent = sent > 0 ? Math.min(100, Math.round((washed / sent) * 100)) : 0;
-
-                  const prodImg = batch.product?.images?.[0]?.imageUrl;
-                  const resolvedImg = prodImg ? getProductImageUrl(prodImg) : null;
 
                   return (
                     <TableRow
@@ -539,57 +535,84 @@ export const WashPage: React.FC = () => {
                         setIsDetailModalOpen(true);
                       }}
                     >
-                      {/* Batch No & Date */}
+                      {/* 1. Batch No */}
                       <TableCell className="align-middle">
                         <span className="font-mono font-bold text-xs text-slate-900 dark:text-white block">
                           #{batch.productionNo}
                         </span>
-                        <span className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
-                          <Calendar className="w-3 h-3" />
-                          {new Date(batch.productionDate).toLocaleDateString()}
-                        </span>
                       </TableCell>
 
-                      {/* Product Style */}
+                      {/* 2. Date & Time */}
+                      <TableCell className="align-middle text-xs font-mono text-slate-600 dark:text-zinc-400 whitespace-nowrap">
+                        {formatSriLankaDateTime(batch.productionDate || batch.createdAt)}
+                      </TableCell>
+
+                      {/* 3. Target Garment Products List */}
                       <TableCell className="align-middle">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          {resolvedImg ? (
-                            <img
-                              src={resolvedImg}
-                              alt={batch.product?.name}
-                              className="size-9 rounded-lg object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
-                            />
-                          ) : (
-                            <div className="size-9 rounded-lg bg-cyan-50 dark:bg-cyan-950/40 border border-cyan-200 dark:border-cyan-900/50 flex items-center justify-center shrink-0 text-cyan-600 dark:text-cyan-400">
-                              <Shirt className="size-4" />
+                        <div className="space-y-2 py-1">
+                          {prods.map((p, idx) => (
+                            <div key={idx} className="flex items-center gap-2.5 min-w-0">
+                              {p.imageUrl ? (
+                                <img
+                                  src={p.imageUrl}
+                                  alt={p.productName}
+                                  className="size-8 rounded-lg object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
+                                />
+                              ) : (
+                                <div className="size-8 rounded-lg bg-cyan-50 dark:bg-cyan-950/40 border border-cyan-200 dark:border-cyan-900/50 flex items-center justify-center shrink-0 text-cyan-600 dark:text-cyan-400">
+                                  <Shirt className="size-4" />
+                                </div>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                                    {p.productName}
+                                  </span>
+                                  <Badge
+                                    variant="outline"
+                                    className="font-mono text-[10px] font-bold px-1.5 py-0 bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 shrink-0"
+                                  >
+                                    Sent: {p.totalSent} Pcs
+                                  </Badge>
+                                  <Badge
+                                    variant="outline"
+                                    className="font-mono text-[10px] font-bold px-1.5 py-0 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 shrink-0"
+                                  >
+                                    Washed: +{p.alreadyWashed} Pcs
+                                  </Badge>
+                                  <Badge
+                                    variant="outline"
+                                    className="font-mono text-[10px] font-bold px-1.5 py-0 bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800 shrink-0"
+                                  >
+                                    Remaining: {p.remaining} Pcs
+                                  </Badge>
+                                </div>
+                                {p.sku && (
+                                  <span className="text-[10px] text-slate-400 truncate block">
+                                    SKU: {p.sku}
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                          )}
-                          <div className="min-w-0">
-                            <span className="text-xs font-bold text-slate-900 dark:text-white truncate block">
-                              {batch.product?.name}
-                            </span>
-                            <span className="text-[10px] text-slate-400 truncate block">
-                              {batch.variant?.sku ? `SKU: ${batch.variant.sku}` : batch.reason || 'Garment Batch'}
-                            </span>
-                          </div>
+                          ))}
                         </div>
                       </TableCell>
 
-                      {/* Sent to Wash */}
+                      {/* 4. Sent to Wash */}
                       <TableCell className="align-middle text-center">
                         <span className="text-xs font-mono font-bold text-slate-800 dark:text-zinc-200">
                           {sent} Pcs
                         </span>
                       </TableCell>
 
-                      {/* Washed & In Stock */}
+                      {/* 5. Washed & In Stock */}
                       <TableCell className="align-middle text-center">
                         <span className="text-xs font-mono font-extrabold text-emerald-600 dark:text-emerald-400">
                           +{washed} Pcs
                         </span>
                       </TableCell>
 
-                      {/* Remaining & Progress */}
+                      {/* 6. Remaining & Progress */}
                       <TableCell className="align-middle">
                         <div className="space-y-1">
                           <div className="flex items-center justify-between text-[11px] font-mono">
@@ -607,12 +630,12 @@ export const WashPage: React.FC = () => {
                         </div>
                       </TableCell>
 
-                      {/* Status */}
+                      {/* 7. Status */}
                       <TableCell className="align-middle text-center">
                         <BatchStatusBadge status={batch.status} isStockSynced={batch.isStockSynced} />
                       </TableCell>
 
-                      {/* Action */}
+                      {/* 8. Action */}
                       <TableCell className="align-middle text-right" onClick={(e) => e.stopPropagation()}>
                         <Button
                           size="sm"
@@ -633,15 +656,14 @@ export const WashPage: React.FC = () => {
           {/* Mobile Cards (< 1024px) */}
           <div className="block lg:hidden space-y-3">
             {filteredBatches.map((batch) => {
-              const sent = batch.sentToWashQty > 0
-                ? batch.sentToWashQty
-                : (batch.targetQuantity > 0 ? batch.targetQuantity : batch.completedQty);
-              const washed = batch.washedQty || 0;
+              const prods = getBatchProducts(batch);
+              const prodsTotalSent = prods.reduce((sum, p) => sum + p.totalSent, 0);
+              const prodsTotalWashed = prods.reduce((sum, p) => sum + p.alreadyWashed, 0);
+
+              const sent = prodsTotalSent > 0 ? prodsTotalSent : (batch.sentToWashQty || 0);
+              const washed = prodsTotalWashed > 0 ? prodsTotalWashed : (batch.washedQty || 0);
               const remaining = Math.max(0, sent - washed);
               const percent = sent > 0 ? Math.min(100, Math.round((washed / sent) * 100)) : 0;
-
-              const prodImg = batch.product?.images?.[0]?.imageUrl;
-              const resolvedImg = prodImg ? getProductImageUrl(prodImg) : null;
 
               return (
                 <div
@@ -654,34 +676,43 @@ export const WashPage: React.FC = () => {
                       <span className="font-mono font-bold text-xs text-slate-900 dark:text-white">
                         #{batch.productionNo}
                       </span>
-                      <span className="text-[10px] text-slate-400">
-                        {new Date(batch.productionDate).toLocaleDateString()}
-                      </span>
                     </div>
                     <BatchStatusBadge status={batch.status} isStockSynced={batch.isStockSynced} />
                   </div>
 
-                  {/* Garment Details */}
-                  <div className="flex items-center gap-2.5">
-                    {resolvedImg ? (
-                      <img
-                        src={resolvedImg}
-                        alt={batch.product?.name}
-                        className="size-11 rounded-xl object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
-                      />
-                    ) : (
-                      <div className="size-11 rounded-xl bg-cyan-50 dark:bg-cyan-950/40 border border-cyan-200 dark:border-cyan-900/50 flex items-center justify-center shrink-0 text-cyan-600 dark:text-cyan-400">
-                        <Shirt className="size-5" />
+                  <p className="text-[10px] text-slate-400 font-mono">
+                    {formatSriLankaDateTime(batch.productionDate || batch.createdAt)}
+                  </p>
+
+                  {/* Garment Details / Products List */}
+                  <div className="space-y-2">
+                    {prods.map((p, idx) => (
+                      <div key={idx} className="flex items-center gap-2.5">
+                        {p.imageUrl ? (
+                          <img
+                            src={p.imageUrl}
+                            alt={p.productName}
+                            className="size-9 rounded-lg object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
+                          />
+                        ) : (
+                          <div className="size-9 rounded-lg bg-cyan-50 dark:bg-cyan-950/40 border border-cyan-200 dark:border-cyan-900/50 flex items-center justify-center shrink-0 text-cyan-600 dark:text-cyan-400">
+                            <Shirt className="size-4" />
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <h4 className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                            {p.productName}
+                          </h4>
+                          <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                            <span className="text-[10px] text-blue-600 font-bold">Sent: {p.totalSent}</span>
+                            <span className="text-slate-300">·</span>
+                            <span className="text-[10px] text-emerald-600 font-bold">Washed: +{p.alreadyWashed}</span>
+                            <span className="text-slate-300">·</span>
+                            <span className="text-[10px] text-amber-600 font-bold">Rem: {p.remaining}</span>
+                          </div>
+                        </div>
                       </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <h4 className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                        {batch.product?.name}
-                      </h4>
-                      <p className="text-[11px] text-slate-500 dark:text-zinc-400 truncate">
-                        {batch.variant?.sku ? `SKU: ${batch.variant.sku}` : batch.reason || 'Garment Style'}
-                      </p>
-                    </div>
+                    ))}
                   </div>
 
                   {/* Metrics Row */}

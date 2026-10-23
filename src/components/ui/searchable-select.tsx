@@ -118,6 +118,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   const triggerRef = React.useRef<HTMLButtonElement>(null);
   const dropdownRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const listContainerRef = React.useRef<HTMLDivElement>(null);
 
   // Dynamic positioning coordinates for portaled dropdown
   const [coords, setCoords] = React.useState<{
@@ -154,6 +155,35 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       return false;
     });
   }, [options, searchQuery]);
+
+  // Fix SearchableSelect Mouse-Wheel Scroll Trap:
+  // Intercept the wheel event inside the dropdown list (e.stopPropagation()) so mouse scrolling
+  // scrolls ONLY dropdown items and prevents parent modal from scrolling while cursor is inside dropdown.
+  React.useEffect(() => {
+    const el = listContainerRef.current;
+    if (!open || !el) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.stopPropagation();
+      const { scrollTop, scrollHeight, clientHeight } = el;
+      const canScroll = scrollHeight > clientHeight;
+      if (!canScroll) {
+        e.preventDefault();
+        return;
+      }
+      const isAtTop = scrollTop <= 0;
+      const isAtBottom = Math.ceil(scrollTop + clientHeight) >= scrollHeight;
+      // Prevent scroll chaining to parent modal when reaching top or bottom boundary
+      if ((e.deltaY < 0 && isAtTop) || (e.deltaY > 0 && isAtBottom)) {
+        e.preventDefault();
+      }
+    };
+
+    el.addEventListener("wheel", handleWheel, { passive: false });
+    return () => {
+      el.removeEventListener("wheel", handleWheel);
+    };
+  }, [open, filteredOptions?.length]);
 
   // Dynamic positioning calculation pinned directly to trigger button
   const updatePosition = React.useCallback(() => {
@@ -351,9 +381,11 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         )}
       </div>
 
-      {/* List Options with momentum scroll */}
+      {/* List Options with momentum scroll and isolated wheel propagation */}
       <div
+        ref={listContainerRef}
         data-vaul-no-drag=""
+        onWheel={(e) => e.stopPropagation()}
         className="max-h-[220px] sm:max-h-[260px] overflow-y-auto overscroll-contain p-1 space-y-0.5 pointer-events-auto"
         style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
       >
@@ -483,6 +515,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             onOpenAutoFocus={(e) => e.preventDefault()}
             onCloseAutoFocus={(e) => e.preventDefault()}
             onPointerDown={(e) => e.stopPropagation()}
+            onWheel={(e) => e.stopPropagation()}
             className={`absolute z-[999999] w-full left-0 right-0 top-full mt-1.5 rounded-xl border shadow-xl overflow-hidden pointer-events-auto animate-in fade-in-0 zoom-in-95 duration-100 ${
               isDark
                 ? "bg-zinc-900 border-zinc-800 text-zinc-100 shadow-black/40"
@@ -504,6 +537,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                 onCloseAutoFocus={(e) => e.preventDefault()}
                 onPointerDown={(e) => e.stopPropagation()}
                 onFocusCapture={(e) => e.stopPropagation()}
+                onWheel={(e) => e.stopPropagation()}
                 style={{
                   position: "fixed",
                   top: `${coords.top}px`,

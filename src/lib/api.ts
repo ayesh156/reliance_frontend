@@ -13,27 +13,6 @@ export interface RequestOptions extends RequestInit {
   retryDelay?: number;
 }
 
-/**
- * Intercept and broadcast network-level offline events after retries have failed.
- * Dispatches 'app:network-offline' to trigger OfflineSentinel without exposing
- * uncaught raw alert dialogs or prematurely triggering during transient retries.
- */
-function notifyNetworkOffline(error: unknown): void {
-  const msg = error instanceof Error ? error.message : String(error);
-  const isNetworkFailure =
-    error instanceof TypeError ||
-    msg.includes('Failed to fetch') ||
-    msg.includes('ERR_CONNECTION_REFUSED') ||
-    msg.includes('ERR_NETWORK_CHANGED') ||
-    msg.includes('ERR_INTERNET_DISCONNECTED') ||
-    msg.includes('NetworkError') ||
-    msg.includes('fetch failed') ||
-    msg.includes('Load failed');
-
-  if (isNetworkFailure && typeof window !== 'undefined') {
-    window.dispatchEvent(new Event('app:network-offline'));
-  }
-}
 
 /**
  * Determines whether an error is a network or request timeout.
@@ -216,7 +195,6 @@ export async function fetchWithRetry(url: string, options: RequestOptions = {}):
   }
 
   if (isNetworkError(lastError)) {
-    notifyNetworkOffline(lastError);
     throw new Error('Network connection failed. Please check your signal and try again.');
   }
 
@@ -224,7 +202,6 @@ export async function fetchWithRetry(url: string, options: RequestOptions = {}):
     return lastResponse;
   }
 
-  notifyNetworkOffline(lastError);
   throw lastError instanceof Error ? lastError : new Error(String(lastError || 'Network request failed'));
 }
 
@@ -261,6 +238,7 @@ export async function request<T>(endpoint: string, options: RequestOptions = {})
     // 401 Unauthorized Session Handling
     if (response.status === 401) {
       localStorage.removeItem('auth_token');
+      localStorage.removeItem('auth_user');
       // STRICT ROUTING GUARD: Only redirect unauthenticated requests if accessing protected /system/* suite
       // Allow public storefront routes (/, /shop, /about, /contact) to remain accessible without interruption
       if (typeof window !== 'undefined' && window.location.pathname.startsWith('/system')) {

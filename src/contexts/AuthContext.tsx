@@ -2,11 +2,67 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { sseManager } from '../lib/sse';
 import { preloadCriticalImageAsset } from '../utils/imagePreloader';
 
-interface AuthUser {
+export interface AuthUser {
   id: number;
   name: string;
   email: string;
   role: string;
+}
+
+/**
+ * Safely parse JWT payload to extract user info if auth_user is not yet cached.
+ */
+function parseJwtPayload(token: string): Partial<AuthUser> | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    const parsed = JSON.parse(jsonPayload);
+    if (!parsed || !parsed.userId) return null;
+    return {
+      id: parsed.userId,
+      name: parsed.name || 'User',
+      email: parsed.email || '',
+      role: parsed.role || 'STAFF',
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Synchronously retrieve cached user from localStorage or decode token.
+ */
+function getInitialUser(storedToken: string | null): AuthUser | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const cached = localStorage.getItem('auth_user');
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed && parsed.id) return parsed;
+    }
+    if (storedToken) {
+      const decoded = parseJwtPayload(storedToken);
+      if (decoded && decoded.id) {
+        return {
+          id: decoded.id,
+          name: decoded.name || 'User',
+          email: decoded.email || '',
+          role: decoded.role || 'STAFF',
+        };
+      }
+    }
+  } catch {
+    // Ignore parse errors
+  }
+  return null;
 }
 
 /**
@@ -35,72 +91,82 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('auth_token'));
-  const [loading, setLoading] = useState(true);
+  const [token, setToken] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem('auth_token');
+  });
+
+  const [user, setUser] = useState<AuthUser | null>(() => {
+    const storedToken = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+    return getInitialUser(storedToken);
+  });
+
+  // Fast synchronous unblocking: loading is immediately false if cached user exists or no token exists
+  const [loading, setLoading] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const storedToken = localStorage.getItem('auth_token');
+    if (!storedToken) return false;
+    const initialUser = getInitialUser(storedToken);
+    return !initialUser;
+  });
 
   /**
    * Smoothly transitions and removes the initial startup splash screen overlay
-   * ("Initializing Enterprise Suite..."). Applies a 500ms cubic-bezier opacity transition
-   * to guarantee an elegant, flicker-free visual handoff to the application.
    */
   const dismissSplashScreen = useCallback(() => {
     if (typeof window !== 'undefined') {
       const splash = document.getElementById('pwa-splash-screen');
       if (splash && !splash.classList.contains('pointer-events-none')) {
         splash.classList.add('pointer-events-none');
-        splash.style.transition = 'opacity 500ms cubic-bezier(0.4, 0, 0.2, 1)';
+        splash.style.transition = 'opacity 300ms cubic-bezier(0.4, 0, 0.2, 1)';
         splash.style.opacity = '0';
         splash.style.pointerEvents = 'none';
         setTimeout(() => {
           splash.remove();
-        }, 550);
+        }, 350);
       }
     }
   }, []);
 
   /**
-   * Initializes application authentication in parallel with preloading the critical
-   * Reliance hero background image (/images/editorial/hero-denim.jpg).
-   *
-   * Keeps the loading screen visible until BOTH the initialization state resolves
-   * AND the hero background image has finished downloading/decoding.
-   * A strict 2.5-second safety timeout guarantees the app never blocks if an asset fails.
+   * Performs silent background session validation without blocking initial UI render.
+   * Only clears session if server explicitly returns 401 Unauthorized.
    */
   const fetchUser = useCallback(async () => {
     const storedToken = localStorage.getItem('auth_token');
-
-    // Preload & hardware-decode flagship hero background image to eliminate visual flashing
-    const heroPreloadPromise = preloadCriticalImageAsset('/images/editorial/hero-denim.jpg', 2500);
-
-    const authInitPromise = (async () => {
-      if (!storedToken) {
-        return;
-      }
-      try {
-        const res = await fetch(`${API_BASE}/auth/me`, {
-          headers: { Authorization: `Bearer ${storedToken}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setUser({ id: data.id, name: data.name, email: data.email || '', role: data.role });
-        } else {
-          localStorage.removeItem('auth_token');
-          setToken(null);
-          // STRICT ROUTE GUARD: Only redirect unauthenticated requests if accessing protected /system/* suite
-          // Public Storefront routes (/, /shop, /about, /contact) load freely with zero auth redirection
-          if (typeof window !== 'undefined' && window.location.pathname.startsWith('/system')) {
-            window.location.href = '/login';
-          }
-        }
-      } catch {
-        // Offline — keep existing state
-      }
-    })();
+    if (!storedToken) {
+      setLoading(false);
+      dismissSplashScreen();
+      return;
+    }
 
     try {
-      // Keep loading screen visible until both auth state resolves AND hero background is decoded
-      await Promise.all([authInitPromise, heroPreloadPromise]);
+      const res = await fetch(`${API_BASE}/auth/me`, {
+        headers: { Authorization: `Bearer ${storedToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const verifiedUser: AuthUser = {
+          id: data.id,
+          name: data.name,
+          email: data.email || '',
+          role: data.role,
+        };
+        setUser(verifiedUser);
+        localStorage.setItem('auth_user', JSON.stringify(verifiedUser));
+      } else if (res.status === 401) {
+        // STRICT: Only clear session if explicitly 401 Unauthorized
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('auth_user');
+        setToken(null);
+        setUser(null);
+        if (typeof window !== 'undefined' && window.location.pathname.startsWith('/system')) {
+          window.location.href = '/login';
+        }
+      }
+      // If 5xx or temporary network issue: keep cached session intact
+    } catch {
+      // Offline / network timeout on slow 4G — preserve cached session without blocking or kicking user out
     } finally {
       setLoading(false);
       dismissSplashScreen();
@@ -108,8 +174,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [dismissSplashScreen]);
 
   useEffect(() => {
+    // If hydrated synchronously from cache or visitor, dismiss splash screen immediately
+    const storedToken = localStorage.getItem('auth_token');
+    const cachedUser = getInitialUser(storedToken);
+    if (!storedToken || cachedUser) {
+      dismissSplashScreen();
+    }
+
+    // Background validation
     fetchUser();
-  }, [fetchUser]);
+
+    // Preload hero background image non-blockingly in background
+    preloadCriticalImageAsset('/images/editorial/hero-denim.jpg', 2500).catch(() => {});
+  }, [dismissSplashScreen, fetchUser]);
 
   const login = useCallback(async (email: string, password: string) => {
     const res = await fetch(`${API_BASE}/auth/login`, {
@@ -118,19 +195,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       body: JSON.stringify({ email, password }),
     });
     if (!res.ok) {
-      const err = await res.json();
+      const err = await res.json().catch(() => ({}));
       throw new Error(err.error || 'Login failed');
     }
     const data = await res.json();
+    const loggedUser: AuthUser = {
+      id: data.user.id,
+      name: data.user.name,
+      email: data.user.email || '',
+      role: data.user.role,
+    };
     localStorage.setItem('auth_token', data.token);
+    localStorage.setItem('auth_user', JSON.stringify(loggedUser));
     setToken(data.token);
-    setUser(data.user);
+    setUser(loggedUser);
   }, []);
 
   const logout = useCallback(() => {
-    // Explicitly destroy the SSE EventSource stream connection immediately to prevent ghost connections
     sseManager.disconnect();
     localStorage.removeItem('auth_token');
+    localStorage.removeItem('auth_user');
     setToken(null);
     setUser(null);
   }, []);

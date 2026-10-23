@@ -47,9 +47,9 @@ import { getProductImageUrl } from '../lib/utils';
 import { toast } from 'react-toastify';
 import ProductionBatchModal from '../components/production/ProductionBatchModal';
 import ProductionBatchEditModal from '../components/production/ProductionBatchEditModal';
-import ProductionBatchDetailModal from '../components/production/ProductionBatchDetailModal';
+import ProductionBatchDetailModal, { formatSriLankaDateTime } from '../components/production/ProductionBatchDetailModal';
 import SendToWashModal from '../components/production/SendToWashModal';
-import DirectFinishingModal from '../components/production/DirectFinishingModal';
+import CreateLineBatchModal from '../components/production/CreateLineBatchModal';
 import { BatchStatusBadge } from '../components/production/BatchStatusBadge';
 import {
   Factory,
@@ -695,8 +695,8 @@ export const ProductionListPage: React.FC = () => {
   const [cancelReason, setCancelReason] = useState<string>('');
   const [isCancelling, setIsCancelling] = useState(false);
 
-  // Simplified Direct Finishing Modal State (Finishing-First Retroactive Production)
-  const [isDirectFinishingModalOpen, setIsDirectFinishingModalOpen] = useState(false);
+  // Direct Line-First Batch Dispatch Modal State
+  const [isCreateLineBatchModalOpen, setIsCreateLineBatchModalOpen] = useState(false);
 
   // Return leftover scrap modal state
   const [returnFormLines, setReturnFormLines] = useState<
@@ -720,6 +720,7 @@ export const ProductionListPage: React.FC = () => {
   const [rawMaterialsList, setRawMaterialsList] = useState<any[]>([]);
 
   // Stage 1: Unified Start / Edit Production Batch Modal State
+  const [editingOrderForCutting, setEditingOrderForCutting] = useState<any | null>(null);
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   const [isCutBatchModalOpen, setIsCutBatchModalOpen] = useState(false);
   const [isEditBatchModalOpen, setIsEditBatchModalOpen] = useState(false);
@@ -1146,28 +1147,31 @@ export const ProductionListPage: React.FC = () => {
     }
   };
 
-  // Open Cut Fabric / Start Batch modal in create mode
+  // Open Add Cutting modal in create mode
   const handleOpenCreateBatchModal = () => {
-    setEditingOrderId(null);
+    setEditingOrderForCutting(null);
     setSelectedOrder(null);
     setIsCutBatchModalOpen(true);
   };
 
-  // Open Cut Fabric / Start Batch modal in edit mode pre-populated with order data
-  const handleOpenEditBatchModal = async (order: ProductionOrder) => {
-    setEditingOrderId(order.id);
+  // Open Cutting modal in edit mode pre-populated with order data and placeholder fallbacks
+  const handleOpenEditCuttingModal = async (order: ProductionOrder) => {
+    setEditingOrderForCutting(order);
     setSelectedOrder(order);
-    setIsEditBatchModalOpen(true);
+    setIsCutBatchModalOpen(true);
     try {
       const res = await get<any>(`/production/${order.id}`);
       const freshOrder = res?.data || res;
       if (freshOrder && freshOrder.id === order.id) {
+        setEditingOrderForCutting(freshOrder);
         setSelectedOrder(freshOrder);
       }
     } catch {
       // keep using current order if offline
     }
   };
+
+  const handleOpenEditBatchModal = handleOpenEditCuttingModal;
 
 
   /**
@@ -1250,13 +1254,13 @@ export const ProductionListPage: React.FC = () => {
             onClick={handleOpenCreateBatchModal}
             className="gap-2 bg-amber-600 hover:bg-amber-700 text-white shadow-xs cursor-pointer font-semibold"
           >
-            <Scissors className="size-4" /> Cut Fabrics
+            <Scissors className="size-4" /> Add Cutting
           </Button>
           <Button
-            onClick={() => setIsDirectFinishingModalOpen(true)}
-            className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs cursor-pointer font-semibold"
+            onClick={() => setIsCreateLineBatchModalOpen(true)}
+            className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs cursor-pointer font-semibold"
           >
-            <Shirt className="size-4" /> Record Finished Product
+            <Layers className="size-4" /> Send to Line
           </Button>
         </div>
       </div>
@@ -1647,301 +1651,109 @@ export const ProductionListPage: React.FC = () => {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Batch #</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Product &amp; Variant</TableHead>
-                    <TableHead>Batch Type / Reason</TableHead>
-                    <TableHead className="text-center">Target / Output / WIP</TableHead>
-                    <TableHead>Raw Materials Consumed</TableHead>
+                    <TableHead>Date &amp; Time</TableHead>
+                    <TableHead>Product</TableHead>
+                    <TableHead>Raw Material</TableHead>
                     <TableHead className="text-center">Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {paginatedRecords.map((order) => {
-                    const totalReturned = order.materialUsages.reduce(
-                      (acc, u) => acc + (u.returnedQty || 0),
-                      0
-                    );
-
                     return (
                       <TableRow
                         key={order.id}
                         className="hover:bg-slate-50/50 dark:hover:bg-zinc-800/40 transition-colors"
                       >
-                        {/* Clickable Batch # and inline Edit icon button */}
+                        {/* 1. Batch # */}
                         <TableCell className="font-mono text-xs font-bold">
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handleOpenEditBatchModal(order)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-zinc-800 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-zinc-700 border border-slate-200 dark:border-zinc-700 font-mono text-xs transition-colors cursor-pointer group"
-                              title="Edit batch and allocate materials"
-                            >
-                              <span>{order.productionNo}</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenEditBatchModal(order)}
-                              className="size-6.5 rounded-lg inline-flex items-center justify-center bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/60 border border-amber-200 dark:border-amber-800/80 transition-colors cursor-pointer shadow-2xs"
-                              title={`Edit Batch #${order.productionNo}`}
-                            >
-                              <Pencil className="w-3 h-3" />
-                            </button>
-                          </div>
-                        </TableCell>
-
-                        {/* Full Date & Time Timestamp */}
-                        <TableCell className="text-xs text-slate-600 dark:text-zinc-400 whitespace-nowrap">
-                          <div className="flex flex-col">
-                            <span className="font-semibold text-slate-900 dark:text-zinc-100">
-                              {new Date(order.productionDate).toLocaleDateString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                year: 'numeric',
-                              })}
-                            </span>
-                            <span className="text-[10px] font-mono text-slate-500 dark:text-zinc-400">
-                              {new Date(order.productionDate).toLocaleTimeString('en-US', {
-                                hour: 'numeric',
-                                minute: '2-digit',
-                                hour12: true,
-                              })}
-                            </span>
-                          </div>
-                        </TableCell>
-
-                        {/* Product & Variant / Mapped Target Products */}
-                        <TableCell>
-                          <div className="space-y-1">
-                            {order.targetProducts && order.targetProducts.length > 0 ? (
-                              <div className="space-y-1 max-w-xs">
-                                <div className="flex flex-wrap gap-1">
-                                  {order.targetProducts.map((tp, idx) => (
-                                    <span
-                                      key={idx}
-                                      className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-slate-900 dark:text-zinc-100 border border-slate-200 dark:border-zinc-700"
-                                    >
-                                      <Shirt className="size-3 text-emerald-600 shrink-0" />
-                                      <span>{tp.productName || `Product #${tp.productId}`}</span>
-                                      <strong className="font-mono text-emerald-600 dark:text-emerald-400">({tp.plannedQty} Pcs)</strong>
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                            ) : (
-                              <p className="text-xs font-bold text-slate-900 dark:text-white">
-                                {order.product?.name}
-                              </p>
-                            )}
-                            {order.variant && (
-                              <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-zinc-400">
-                                {order.variant.size && (
-                                  <span className="bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-[10px] font-medium">
-                                    Size: {order.variant.size}
-                                  </span>
-                                )}
-                                {order.variant.color && (
-                                  <span className="bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-[10px] font-medium">
-                                    Color: {order.variant.color}
-                                  </span>
-                                )}
-                                {order.variant.sku && (
-                                  <span className="text-[10px] text-slate-400 font-mono">
-                                    {order.variant.sku}
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </TableCell>
-
-                        {/* Reason */}
-                        <TableCell>
-                          <Badge
-                            variant="secondary"
-                            className="text-[11px] font-medium"
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditCuttingModal(order)}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-zinc-800 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-zinc-700 border border-slate-200 dark:border-zinc-700 font-mono text-xs transition-colors cursor-pointer group"
+                            title="Edit Cutting"
                           >
-                            {order.reason || 'Regular Bulk'}
-                          </Badge>
+                            <span>{order.productionNo}</span>
+                            <Pencil className="w-3 h-3 text-slate-400 group-hover:text-amber-600 transition-colors" />
+                          </button>
                         </TableCell>
 
-                        {/* Target, Output & WIP */}
-                        <TableCell className="text-center">
-                          <div className="space-y-1">
-                            <div className="inline-flex items-center gap-1 font-bold text-xs text-emerald-600 dark:text-emerald-400 font-mono">
-                              <span>{order.completedQty}</span>
-                              <span className="text-[10px] font-normal text-slate-400">/ {order.targetQuantity || order.completedQty} Pcs</span>
-                            </div>
-                            {order.status !== 'CANCELLED' && order.status !== 'COMPLETED' ? (
-                              <div className="flex justify-center">
-                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200/50 dark:border-amber-900/50 font-mono">
-                                  WIP: {Math.max(0, (order.targetQuantity || order.completedQty) - order.completedQty)} Pcs
-                                </span>
-                              </div>
-                            ) : (
-                              <div className="flex justify-center">
-                                <span className="text-[10px] text-slate-400 font-mono">
-                                  Complete
-                                </span>
-                              </div>
-                            )}
-                          </div>
+                        {/* 2. Date & Time (Sri Lanka Time Asia/Colombo) */}
+                        <TableCell className="text-xs font-mono text-slate-600 dark:text-zinc-400 whitespace-nowrap">
+                          {formatSriLankaDateTime(order.productionDate || order.createdAt)}
                         </TableCell>
 
-                        {/* Materials Breakdown Preview */}
-                        <TableCell>
-                          <div className="space-y-1">
-                            <div className="flex flex-wrap gap-1">
-                              {order.materialUsages.slice(0, 3).map((usage) => (
-                                <span
-                                  key={usage.id}
-                                  className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700"
-                                >
-                                  <span>{usage.rawMaterial.name}:</span>
-                                  <strong className="font-mono">{usage.netConsumedQty} {usage.rawMaterial.unit}</strong>
-                                  {usage.piecesCount && usage.piecesCount > 0 ? (
-                                    <span className="text-slate-400 font-normal">({usage.piecesCount} {usage.piecesCount === 1 ? 'Roll' : 'Rolls'})</span>
-                                  ) : null}
-                                </span>
+                        {/* 3. Product (Name only, no cluttered tags) */}
+                        <TableCell className="text-xs font-semibold text-slate-900 dark:text-zinc-100">
+                          {order.targetProducts && order.targetProducts.length > 0
+                            ? order.targetProducts.map((tp) => tp.productName || `Product #${tp.productId}`).join(', ')
+                            : order.product?.name || '—'}
+                        </TableCell>
+
+                        {/* 4. Raw Material (Material name, Rolls, and Units Qty) */}
+                        <TableCell className="text-xs">
+                          {order.materialUsages && order.materialUsages.length > 0 ? (
+                            <div className="flex flex-col gap-1">
+                              {order.materialUsages.map((usage) => (
+                                <div key={usage.id} className="text-slate-700 dark:text-zinc-300 font-mono text-xs">
+                                  <span className="font-semibold text-slate-900 dark:text-white">{usage.rawMaterial.name}</span>
+                                  <span className="text-slate-400 mx-1.5">·</span>
+                                  <span>{usage.piecesCount || 0} Rolls</span>
+                                  <span className="text-slate-400 mx-1.5">·</span>
+                                  <span className="font-bold text-slate-900 dark:text-zinc-100">{usage.netConsumedQty} {usage.rawMaterial.unit}</span>
+                                </div>
                               ))}
-                              {order.materialUsages.length > 3 && (
-                                <span className="text-[10px] text-slate-400 font-medium px-1 self-center">
-                                  +{order.materialUsages.length - 3} more
-                                </span>
-                              )}
                             </div>
-                            {totalReturned > 0 && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
-                                <RotateCcw className="w-2.5 h-2.5" />
-                                {totalReturned} units scrap returned
-                              </span>
-                            )}
-                          </div>
+                          ) : (
+                            <span className="text-slate-400 font-mono text-xs">—</span>
+                          )}
                         </TableCell>
 
-                        {/* Status */}
+                        {/* 5. Status Badge */}
                         <TableCell className="text-center">
-                          <div className="flex flex-col items-center">
-                            {renderBatchStatusBadge(order.status, order.isStockSynced)}
-                            <span className="text-[10px] text-slate-400 font-mono mt-1">
-                              {getBatchLatestTimestamp(order)}
-                            </span>
-                          </div>
+                          <BatchStatusBadge status={order.status} isStockSynced={order.isStockSynced} />
                         </TableCell>
 
-                        {/* Actions */}
+                        {/* 6. Actions (3-dots) */}
                         <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            {/* Stage 3: Dedicated Add to Product Stock confirmation button */}
-                            {order.completedQty > 0 && !order.isStockSynced && order.status !== 'CANCELLED' && (
-                              <Button
-                                size="sm"
-                                onClick={() => setOrderToSyncStock(order)}
-                                className="h-7 px-2.5 text-xs font-semibold bg-purple-600 hover:bg-purple-700 text-white rounded-lg shadow-xs flex items-center gap-1.5 cursor-pointer animate-in fade-in duration-200"
-                                title="Sync finished garments to active storefront inventory"
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                type="button"
+                                aria-label="Batch Actions"
+                                className="p-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300 transition-colors cursor-pointer"
                               >
-                                <Package className="w-3.5 h-3.5" />
-                                <span>Add to Product Stock</span>
-                              </Button>
-                            )}
-
-                            {/* Shadcn 3-Dots Dropdown Menu */}
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <button
-                                  type="button"
-                                  aria-label="Batch Actions"
-                                  className="p-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300 transition-colors cursor-pointer"
-                                >
-                                  <MoreVertical className="w-4 h-4" />
-                                </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-56 rounded-xl">
-                                {order.completedQty > 0 && !order.isStockSynced && order.status !== 'CANCELLED' && (
-                                  <DropdownMenuItem
-                                    onClick={() => setOrderToSyncStock(order)}
-                                    className="cursor-pointer gap-2 text-xs font-medium text-purple-600 dark:text-purple-400 focus:text-purple-600"
-                                  >
-                                    <Package className="w-4 h-4 text-purple-600" />
-                                    <span>Add to Product Stock</span>
-                                  </DropdownMenuItem>
-                                )}
-                                {order.status !== 'COMPLETED' && order.status !== 'CANCELLED' && (
-                                  <DropdownMenuItem
-                                    onClick={() => {
-                                      setSendToWashBatch(order);
-                                    }}
-                                    className="cursor-pointer gap-2 text-xs font-medium text-cyan-600 dark:text-cyan-400"
-                                  >
-                                    <Waves className="w-4 h-4 text-cyan-600" />
-                                    <span>Send to Wash</span>
-                                  </DropdownMenuItem>
-                                )}
-                                {order.status === 'WASHING' && (
-                                  <DropdownMenuItem
-                                    onClick={() => navigate('/system/wash')}
-                                    className="cursor-pointer gap-2 text-xs font-medium text-cyan-600 dark:text-cyan-400"
-                                  >
-                                    <Waves className="w-4 h-4 text-cyan-600" />
-                                    <span>Manage in Wash Stage</span>
-                                  </DropdownMenuItem>
-                                )}
-                                <DropdownMenuItem
-                                  onClick={() => handleOpenEditBatchModal(order)}
-                                  className="cursor-pointer gap-2 text-xs font-medium"
-                                >
-                                  <Scissors className="w-4 h-4 text-amber-600" />
-                                  <span>Cut Fabric / Edit Batch</span>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => handleOpenReturnModal(order)}
-                                  className="cursor-pointer gap-2 text-xs font-medium"
-                                >
-                                  <RotateCcw className="w-4 h-4 text-teal-600" />
-                                  <span>Return Leftover Scrap</span>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setSelectedOrder(order);
-                                    setIsDetailModalOpen(true);
-                                  }}
-                                  className="cursor-pointer gap-2 text-xs font-medium"
-                                >
-                                  <Eye className="w-4 h-4 text-blue-600" />
-                                  <span>View History &amp; Timeline</span>
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  onClick={() => handleOpenEditBatchModal(order)}
-                                  className="cursor-pointer gap-2 text-xs font-medium text-amber-700 dark:text-amber-400 focus:text-amber-700"
-                                >
-                                  <Pencil className="w-4 h-4 text-amber-600" />
-                                  <span>Edit Batch &amp; Cut Materials</span>
-                                </DropdownMenuItem>
-                                {order.status !== 'CANCELLED' && (
-                                  <DropdownMenuItem
-                                    onClick={() => {
-                                      setOrderToCancel(order);
-                                      setCancelReason('');
-                                    }}
-                                    className="cursor-pointer gap-2 text-xs font-medium text-amber-600 dark:text-amber-400 focus:text-amber-600"
-                                  >
-                                    <Ban className="w-4 h-4 text-amber-600" />
-                                    <span>Cancel Batch</span>
-                                  </DropdownMenuItem>
-                                )}
-                                {isAdmin && (
-                                  <DropdownMenuItem
-                                    onClick={() => setOrderToDelete(order)}
-                                    className="cursor-pointer gap-2 text-xs font-medium text-rose-600 dark:text-rose-400 focus:text-rose-600"
-                                  >
-                                    <Trash2 className="w-4 h-4 text-rose-600" />
-                                    <span>Rollback / Delete Batch</span>
-                                  </DropdownMenuItem>
-                                )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
+                                <MoreVertical className="w-4 h-4" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-44 rounded-xl">
+                              <DropdownMenuItem
+                                onClick={() => handleOpenEditCuttingModal(order)}
+                                className="cursor-pointer gap-2 text-xs font-medium"
+                              >
+                                <Pencil className="w-4 h-4 text-amber-600" />
+                                <span>Edit Cutting</span>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setSelectedOrder(order);
+                                  setIsDetailModalOpen(true);
+                                }}
+                                className="cursor-pointer gap-2 text-xs font-medium"
+                              >
+                                <Eye className="w-4 h-4 text-blue-600" />
+                                <span>History</span>
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => setOrderToDelete(order)}
+                                className="cursor-pointer gap-2 text-xs font-medium text-rose-600 dark:text-rose-400 focus:text-rose-600"
+                              >
+                                <Trash2 className="w-4 h-4 text-rose-600" />
+                                <span>Delete Batch</span>
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </TableCell>
                       </TableRow>
                     );
@@ -1953,287 +1765,82 @@ export const ProductionListPage: React.FC = () => {
             {/* ── Touch-Friendly Production Batch Cards (Mobile & Tablet Viewports < 1024px) ── */}
             <div className="block lg:hidden space-y-3.5">
               {paginatedRecords.map((order) => {
-                const totalReturned = order.materialUsages.reduce(
-                  (acc, u) => acc + (u.returnedQty || 0),
-                  0
-                );
-                const targetUnits = order.targetQuantity || order.completedQty;
-                const yieldRate = targetUnits > 0
-                  ? Math.min(100, Math.round((order.completedQty / targetUnits) * 100))
-                  : 100;
-
-                const startDateStr = new Date(order.productionDate).toLocaleDateString('en-US', {
-                  month: 'short',
-                  day: 'numeric',
-                  year: 'numeric',
-                });
-
-                // Calculate expected or completed finish date
-                const finishDateStr = (() => {
-                  if (order.status === 'COMPLETED') {
-                    const finishedDate = order.createdAt ? new Date(order.createdAt) : new Date(order.productionDate);
-                    return finishedDate.toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    });
-                  }
-                  // For ongoing batches, estimate completion (e.g. +3 days from start)
-                  const est = new Date(order.productionDate);
-                  est.setDate(est.getDate() + 3);
-                  return est.toLocaleDateString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    year: 'numeric',
-                  });
-                })();
-
                 return (
                   <div
                     key={order.id}
                     className="rounded-2xl border border-slate-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900/70 p-4 shadow-xs space-y-3 hover:border-slate-300 dark:hover:border-zinc-700 transition-all"
                   >
-                    {/* Header: Batch Number & Garment Style */}
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="space-y-1.5 min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEditBatchModal(order)}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/50 dark:hover:bg-amber-900/50 text-amber-800 dark:text-amber-300 font-mono font-bold text-xs transition-colors cursor-pointer border border-amber-200 dark:border-amber-800/80 shadow-2xs"
-                            title="Edit batch and materials"
-                          >
-                            <Scissors className="size-3.5 text-amber-600 dark:text-amber-400" />
-                            <span>#{order.productionNo}</span>
-                            <Pencil className="w-3 h-3 text-amber-600 dark:text-amber-400" />
-                          </button>
+                    {/* Header: Batch # & Status */}
+                    <div className="flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditCuttingModal(order)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-900 dark:text-white font-mono font-bold text-xs transition-colors cursor-pointer border border-slate-200 dark:border-zinc-700 shadow-2xs"
+                        title="Edit Cutting"
+                      >
+                        <span>#{order.productionNo}</span>
+                        <Pencil className="w-3 h-3 text-slate-500" />
+                      </button>
 
-                          <div className="text-[11px] font-mono text-slate-500 dark:text-zinc-400 flex items-center gap-1">
-                            <Clock className="size-3 text-slate-400" />
-                            <span>{formatFullDateTime(order.productionDate)}</span>
-                          </div>
-                        </div>
+                      <BatchStatusBadge status={order.status} isStockSynced={order.isStockSynced} />
+                    </div>
 
-                        {/* Garment Style & Variant or Mapped Products */}
-                        <div className="pt-0.5 space-y-1">
-                          {order.targetProducts && order.targetProducts.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              {order.targetProducts.map((tp, idx) => (
-                                <span
-                                  key={idx}
-                                  className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-slate-900 dark:text-zinc-100 border border-slate-200 dark:border-zinc-700"
-                                >
-                                  <Shirt className="size-3 text-emerald-600 shrink-0" />
-                                  <span>{tp.productName || `Product #${tp.productId}`}</span>
-                                  <strong className="font-mono text-emerald-600 dark:text-emerald-400">({tp.plannedQty} Pcs)</strong>
-                                </span>
-                              ))}
+                    {/* Date & Time */}
+                    <div className="text-[11px] font-mono text-slate-500 dark:text-zinc-400 flex items-center gap-1.5">
+                      <Clock className="size-3.5 text-slate-400" />
+                      <span>{formatSriLankaDateTime(order.productionDate || order.createdAt)}</span>
+                    </div>
+
+                    {/* Product (Name only) */}
+                    <div>
+                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Product</span>
+                      <p className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
+                        {order.targetProducts && order.targetProducts.length > 0
+                          ? order.targetProducts.map((tp) => tp.productName || `Product #${tp.productId}`).join(', ')
+                          : order.product?.name || '—'}
+                      </p>
+                    </div>
+
+                    {/* Raw Material (Material name, Rolls, Units Qty) */}
+                    <div className="space-y-1">
+                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Raw Material</span>
+                      {order.materialUsages && order.materialUsages.length > 0 ? (
+                        <div className="space-y-1">
+                          {order.materialUsages.map((usage) => (
+                            <div key={usage.id} className="text-xs font-mono text-slate-700 dark:text-zinc-300 bg-slate-50 dark:bg-zinc-800/50 p-2 rounded-lg border border-slate-100 dark:border-zinc-800">
+                              <span className="font-semibold text-slate-900 dark:text-white">{usage.rawMaterial.name}</span>
+                              <span className="text-slate-400 mx-1.5">·</span>
+                              <span>{usage.piecesCount || 0} Rolls</span>
+                              <span className="text-slate-400 mx-1.5">·</span>
+                              <span className="font-bold text-slate-900 dark:text-white">{usage.netConsumedQty} {usage.rawMaterial.unit}</span>
                             </div>
-                          ) : (
-                            <h4 className="text-sm font-bold text-slate-900 dark:text-white truncate">
-                              {order.product?.name}
-                            </h4>
-                          )}
-                          {order.variant && (
-                            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-zinc-400 flex-wrap">
-                              {order.variant.size && (
-                                <span className="bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-[10px] font-medium text-slate-700 dark:text-zinc-300">
-                                  Size {order.variant.size}
-                                </span>
-                              )}
-                              {order.variant.color && (
-                                <span className="bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-[10px] font-medium text-slate-700 dark:text-zinc-300">
-                                  {order.variant.color}
-                                </span>
-                              )}
-                              {order.variant.sku && (
-                                <span className="text-[10px] text-slate-400 font-mono">
-                                  {order.variant.sku}
-                                </span>
-                              )}
-                            </div>
-                          )}
+                          ))}
                         </div>
-                      </div>
-
-                      {/* Status Badge */}
-                      <div className="shrink-0 text-right flex flex-col items-end">
-                        {renderBatchStatusBadge(order.status, order.isStockSynced)}
-                      </div>
-                    </div>
-
-                    {/* Metric Pill Grid: Target Units, Completed Output, WIP, Yield Rate */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-zinc-950/70 border border-slate-100 dark:border-zinc-800/80 text-center">
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
-                          Target
-                        </span>
-                        <span className="text-xs sm:text-sm font-bold text-slate-700 dark:text-zinc-300 font-mono block">
-                          {targetUnits} Pcs
-                        </span>
-                      </div>
-
-                      <div className="space-y-0.5 border-l border-slate-200/70 dark:border-zinc-800">
-                        <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">
-                          Finished
-                        </span>
-                        <span className="text-xs sm:text-sm font-bold text-emerald-600 dark:text-emerald-400 font-mono block">
-                          {order.completedQty} Pcs
-                        </span>
-                      </div>
-
-                      <div className="space-y-0.5 border-l sm:border-l border-slate-200/70 dark:border-zinc-800">
-                        <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">
-                          Current WIP
-                        </span>
-                        <span className="text-xs sm:text-sm font-bold text-amber-600 dark:text-amber-400 font-mono block">
-                          {Math.max(0, targetUnits - order.completedQty)} Pcs
-                        </span>
-                      </div>
-
-                      <div className="space-y-0.5 border-l border-slate-200/70 dark:border-zinc-800">
-                        <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider block">
-                          Yield Rate
-                        </span>
-                        <span className="text-xs sm:text-sm font-extrabold text-indigo-600 dark:text-indigo-400 font-mono block">
-                          {yieldRate}%
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Timeline Grid: Start Date, Expected Finish, Status badge */}
-                    <div className="p-2.5 rounded-xl bg-slate-50/80 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800/60 flex items-center justify-between text-xs">
-                      <div className="space-y-0.5">
-                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
-                          Start Date
-                        </span>
-                        <span className="font-mono text-slate-700 dark:text-zinc-300 font-medium">
-                          {startDateStr}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 text-slate-300 dark:text-zinc-700">
-                        <ArrowRight className="size-3.5" />
-                      </div>
-
-                      <div className="space-y-0.5 text-right">
-                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
-                          {order.status === 'COMPLETED' ? 'Completed Finish' : 'Expected Finish'}
-                        </span>
-                        <span className={`font-mono font-medium ${order.status === 'COMPLETED' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                          {finishDateStr}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Materials preview chips */}
-                    <div className="space-y-1.5 pt-0.5">
-                      <div className="flex flex-wrap gap-1">
-                        {order.materialUsages.map((usage) => (
-                          <span
-                            key={usage.id}
-                            className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-md bg-white dark:bg-zinc-950 text-slate-700 dark:text-zinc-300 border border-slate-200/80 dark:border-zinc-800 font-mono"
-                          >
-                            <span>{usage.rawMaterial.name}:</span>
-                            <strong className="text-slate-900 dark:text-white">{usage.netConsumedQty} {usage.rawMaterial.unit}</strong>
-                          </span>
-                        ))}
-                      </div>
-
-                      {totalReturned > 0 && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-                          <RotateCcw className="w-2.5 h-2.5" />
-                          {totalReturned} units scrap returned to warehouse
-                        </span>
-                      )}
-
-                      {order.notes && (
-                        <p className="text-[11px] text-slate-500 dark:text-zinc-400 italic bg-white/70 dark:bg-zinc-950/40 p-2 rounded-lg border border-slate-100 dark:border-zinc-800/60 line-clamp-2">
-                          "{order.notes}"
-                        </p>
+                      ) : (
+                        <span className="text-slate-400 font-mono text-xs">—</span>
                       )}
                     </div>
 
-                    {/* ── Action Buttons Bar: Prominent Add to Stock & Clean 3-Dots Actions Menu ── */}
-                    <div className="pt-2.5 border-t border-slate-200/70 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-1.5">
-                      <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                        {order.completedQty > 0 && !order.isStockSynced && order.status !== 'CANCELLED' && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            onClick={() => setOrderToSyncStock(order)}
-                            className="h-7 px-2 text-[11px] font-semibold rounded-lg gap-1 cursor-pointer bg-purple-600 hover:bg-purple-700 text-white shadow-xs shrink-0"
-                          >
-                            <Package className="size-3" />
-                            <span>Add to Stock</span>
-                          </Button>
-                        )}
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setExpandedTimelineBatchId(expandedTimelineBatchId === order.id ? null : order.id)}
-                          className="h-7 px-2 text-[11px] rounded-lg gap-1 text-slate-700 dark:text-zinc-300 border-slate-200 dark:border-zinc-800 cursor-pointer shrink-0"
-                        >
-                          <Clock className="size-3 text-indigo-500" />
-                          <span>Timeline ({((order.cutLogs?.length || 0) + (order.finishLogs?.length || 0))})</span>
-                        </Button>
-                      </div>
-
+                    {/* Action Footer: 3-Dots Menu Only */}
+                    <div className="pt-2 border-t border-slate-200/70 dark:border-zinc-800 flex items-center justify-end">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
                             variant="outline"
                             size="sm"
-                            className="h-7 px-2 rounded-lg text-[11px] gap-1 cursor-pointer shrink-0 ml-auto"
+                            className="h-7 px-2.5 rounded-lg text-xs gap-1 cursor-pointer"
                           >
-                            <MoreVertical className="size-3" />
+                            <MoreVertical className="size-3.5" />
                             <span>Actions</span>
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-56 rounded-xl">
-                          {order.completedQty > 0 && !order.isStockSynced && order.status !== 'CANCELLED' && (
-                            <DropdownMenuItem
-                              onClick={() => setOrderToSyncStock(order)}
-                              className="cursor-pointer gap-2 text-xs font-medium text-purple-600 dark:text-purple-400 focus:text-purple-600"
-                            >
-                              <Package className="w-4 h-4 text-purple-600" />
-                              <span>Add to Product Stock</span>
-                            </DropdownMenuItem>
-                          )}
-                          {order.status !== 'COMPLETED' && order.status !== 'CANCELLED' && (
-                            <DropdownMenuItem
-                              onClick={() => {
-                                setSendToWashBatch(order);
-                              }}
-                              className="cursor-pointer gap-2 text-xs font-medium text-cyan-600 dark:text-cyan-400"
-                            >
-                              <Waves className="w-4 h-4 text-cyan-600" />
-                              <span>Send to Wash</span>
-                            </DropdownMenuItem>
-                          )}
-                          {order.status === 'WASHING' && (
-                            <DropdownMenuItem
-                              onClick={() => navigate('/system/wash')}
-                              className="cursor-pointer gap-2 text-xs font-medium text-cyan-600 dark:text-cyan-400"
-                            >
-                              <Waves className="w-4 h-4 text-cyan-600" />
-                              <span>Manage in Wash Stage</span>
-                            </DropdownMenuItem>
-                          )}
+                        <DropdownMenuContent align="end" className="w-44 rounded-xl">
                           <DropdownMenuItem
-                            onClick={() => handleOpenEditBatchModal(order)}
+                            onClick={() => handleOpenEditCuttingModal(order)}
                             className="cursor-pointer gap-2 text-xs font-medium"
                           >
-                            <Scissors className="w-4 h-4 text-amber-600" />
-                            <span>Cut Fabric / Edit Batch</span>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleOpenReturnModal(order)}
-                            className="cursor-pointer gap-2 text-xs font-medium"
-                          >
-                            <RotateCcw className="w-4 h-4 text-teal-600" />
-                            <span>Return Leftover Scrap</span>
+                            <Pencil className="w-4 h-4 text-amber-600" />
+                            <span>Edit Cutting</span>
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => {
@@ -2243,53 +1850,19 @@ export const ProductionListPage: React.FC = () => {
                             className="cursor-pointer gap-2 text-xs font-medium"
                           >
                             <Eye className="w-4 h-4 text-blue-600" />
-                            <span>View History &amp; Timeline</span>
+                            <span>History</span>
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
-                            onClick={() => handleOpenEditBatchModal(order)}
-                            className="cursor-pointer gap-2 text-xs font-medium"
+                            onClick={() => setOrderToDelete(order)}
+                            className="cursor-pointer gap-2 text-xs font-medium text-rose-600 dark:text-rose-400 focus:text-rose-600"
                           >
-                            <Pencil className="w-4 h-4 text-slate-600" />
-                            <span>Edit &amp; Allocate Materials</span>
+                            <Trash2 className="w-4 h-4 text-rose-600" />
+                            <span>Delete Batch</span>
                           </DropdownMenuItem>
-                          {order.status !== 'CANCELLED' && (
-                            <DropdownMenuItem
-                              onClick={() => {
-                                setOrderToCancel(order);
-                                setCancelReason('');
-                              }}
-                              className="cursor-pointer gap-2 text-xs font-medium text-amber-600 dark:text-amber-400 focus:text-amber-600"
-                            >
-                              <Ban className="w-4 h-4 text-amber-600" />
-                              <span>Cancel Batch</span>
-                            </DropdownMenuItem>
-                          )}
-                          {isAdmin && (
-                            <DropdownMenuItem
-                              onClick={() => setOrderToDelete(order)}
-                              className="cursor-pointer gap-2 text-xs font-medium text-rose-600 dark:text-rose-400 focus:text-rose-600"
-                            >
-                              <Trash2 className="w-4 h-4 text-rose-600" />
-                              <span>Rollback / Delete Batch</span>
-                            </DropdownMenuItem>
-                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
-
-                    {/* Inline History Timeline in Mobile Card if expanded */}
-                    {expandedTimelineBatchId === order.id && (
-                      <div className="pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <h5 className="text-[11px] font-bold text-slate-700 dark:text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
-                            <Clock className="w-3.5 h-3.5 text-indigo-500" /> Stage History Timeline
-                          </h5>
-                          <span className="text-[10px] text-slate-400 font-medium">Asynchronous Logs</span>
-                        </div>
-                        <BatchActivityTimeline order={order} onRefresh={fetchProductionData} onEditBatch={handleOpenEditBatchModal} />
-                      </div>
-                    )}
                   </div>
                 );
               })}
@@ -2690,16 +2263,22 @@ export const ProductionListPage: React.FC = () => {
       )}
 
       {/* ─────────────────────────────────────────────────────────────
-          MODAL 4: MULTI-MATERIAL & MULTI-PRODUCT CUT BATCH (CREATE)
+          MODAL 4: MULTI-MATERIAL & MULTI-PRODUCT CUT BATCH (CREATE / EDIT)
       ───────────────────────────────────────────────────────────── */}
       <ProductionBatchModal
         open={isCutBatchModalOpen}
-        onOpenChange={setIsCutBatchModalOpen}
-        editingOrder={null}
+        onOpenChange={(open) => {
+          setIsCutBatchModalOpen(open);
+          if (!open) {
+            setEditingOrderForCutting(null);
+          }
+        }}
+        editingOrder={editingOrderForCutting}
         rawMaterialsList={rawMaterialsList}
         productsList={productsList}
         dark={dark}
         onSuccess={() => {
+          setEditingOrderForCutting(null);
           setEditingOrderId(null);
           setSelectedOrder(null);
           fetchProductionData();
@@ -2791,11 +2370,11 @@ export const ProductionListPage: React.FC = () => {
       </AlertDialog>
 
       {/* ─────────────────────────────────────────────────────────────
-          MODAL 5: RECORD FINISHED PRODUCT (SIMPLIFIED DIRECT FINISHING-FIRST WORKFLOW)
+          MODAL 5: DIRECT "SEND TO LINE" (LINE-FIRST) BATCH CREATION WORKFLOW
       ───────────────────────────────────────────────────────────── */}
-      <DirectFinishingModal
-        open={isDirectFinishingModalOpen}
-        onOpenChange={setIsDirectFinishingModalOpen}
+      <CreateLineBatchModal
+        open={isCreateLineBatchModalOpen}
+        onOpenChange={setIsCreateLineBatchModalOpen}
         productsList={productsList}
         dark={dark}
         onSuccess={() => fetchProductionData()}
