@@ -46,10 +46,14 @@ import { get, post, put, del } from '../lib/api';
 import { getProductImageUrl } from '../lib/utils';
 import { toast } from 'react-toastify';
 import ProductionBatchModal from '../components/production/ProductionBatchModal';
-import ProductionBatchEditModal from '../components/production/ProductionBatchEditModal';
-import ProductionBatchDetailModal, { formatSriLankaDateTime } from '../components/production/ProductionBatchDetailModal';
-import SendToWashModal from '../components/production/SendToWashModal';
+import ProductionBatchDetailModal, {
+  formatSriLankaDateTime,
+  resolveStageTransition,
+  type StageTransitionInfo,
+} from '../components/production/ProductionBatchDetailModal';
 import CreateLineBatchModal from '../components/production/CreateLineBatchModal';
+import SendToWashModal from '../components/production/SendToWashModal';
+import ProductionBatchEditModal from '../components/production/ProductionBatchEditModal';
 import { BatchStatusBadge } from '../components/production/BatchStatusBadge';
 import {
   Factory,
@@ -237,6 +241,113 @@ interface ProductionSummaryResponse {
   records: ProductionOrder[];
 }
 
+const renderSriLankaDateTime = (dateStr: string | Date | null | undefined) => {
+  const formatted = formatSriLankaDateTime(dateStr);
+  if (!formatted || formatted === '—') return <span className="text-slate-400">—</span>;
+  const firstSpaceIndex = formatted.indexOf(' ');
+  if (firstSpaceIndex === -1) return <span>{formatted}</span>;
+  const datePart = formatted.substring(0, firstSpaceIndex);
+  const timePart = formatted.substring(firstSpaceIndex + 1);
+  return (
+    <div className="flex flex-col leading-tight whitespace-nowrap">
+      <span className="font-semibold text-slate-800 dark:text-zinc-200">{datePart}</span>
+      <span className="text-[11px] text-slate-500 dark:text-zinc-400">{timePart}</span>
+    </div>
+  );
+};
+
+interface ParsedProductionProduct {
+  productId: number;
+  variantId?: number | null;
+  productName: string;
+  sku?: string;
+  variantName?: string | null;
+  plannedQty?: number;
+  imageUrl?: string | null;
+}
+
+const getOrderProducts = (order: ProductionOrder, productsList: ProductItem[] = []): ParsedProductionProduct[] => {
+  let raw: any = order.targetProducts;
+  if (typeof raw === 'string') {
+    try {
+      raw = JSON.parse(raw);
+    } catch {
+      raw = null;
+    }
+  }
+
+  if (Array.isArray(raw) && raw.length > 0) {
+    return raw
+      .filter((tp: any) => tp && (tp.productId || tp.id))
+      .map((tp: any) => {
+        const pId = Number(tp.productId || tp.id);
+        const fullProduct = productsList.find((p) => p.id === pId);
+        const rawImg = tp.imageUrl || fullProduct?.images?.[0]?.imageUrl || (fullProduct as any)?.image;
+        const vId = tp.variantId ? Number(tp.variantId) : null;
+        const fullVariant = vId ? fullProduct?.variants?.find((v) => v.id === vId) : null;
+        const vParts = [fullVariant?.size, fullVariant?.color].filter(Boolean);
+        return {
+          productId: pId,
+          variantId: vId,
+          productName: tp.productName || fullProduct?.name || order.product?.name || `Product #${pId}`,
+          sku: tp.sku || fullVariant?.sku || fullProduct?.variants?.[0]?.sku || order.variant?.sku || '',
+          variantName: vParts.length > 0 ? vParts.join(' / ') : null,
+          plannedQty: Number(tp.plannedQty ?? tp.targetQuantity ?? tp.quantity ?? 0),
+          imageUrl: rawImg ? getProductImageUrl(rawImg) : null,
+        };
+      });
+  }
+
+  if (order.materialUsages && Array.isArray(order.materialUsages) && order.materialUsages.length > 0) {
+    const list: ParsedProductionProduct[] = [];
+    order.materialUsages.forEach((u: any) => {
+      let uProds: any = u.targetProducts;
+      if (typeof uProds === 'string') {
+        try { uProds = JSON.parse(uProds); } catch { uProds = null; }
+      }
+      if (Array.isArray(uProds)) {
+        uProds.forEach((tp: any) => {
+          if (tp && (tp.productId || tp.id)) {
+            const pId = Number(tp.productId || tp.id);
+            if (!list.some((existing) => existing.productId === pId)) {
+              const fullProduct = productsList.find((p) => p.id === pId);
+              const rawImg = tp.imageUrl || fullProduct?.images?.[0]?.imageUrl || (fullProduct as any)?.image;
+              const vId = tp.variantId ? Number(tp.variantId) : null;
+              const fullVariant = vId ? fullProduct?.variants?.find((v) => v.id === vId) : null;
+              const vParts = [fullVariant?.size, fullVariant?.color].filter(Boolean);
+              list.push({
+                productId: pId,
+                variantId: vId,
+                productName: tp.productName || fullProduct?.name || `Product #${pId}`,
+                sku: tp.sku || fullVariant?.sku || '',
+                variantName: vParts.length > 0 ? vParts.join(' / ') : null,
+                plannedQty: Number(tp.plannedQty ?? 0),
+                imageUrl: rawImg ? getProductImageUrl(rawImg) : null,
+              });
+            }
+          }
+        });
+      }
+    });
+    if (list.length > 0) return list;
+  }
+
+  // Fallback to primary order product
+  const rawImg = order.product?.images?.[0]?.imageUrl || (order.product as any)?.image;
+  const vParts = [order.variant?.size, order.variant?.color].filter(Boolean);
+  return [
+    {
+      productId: order.productId,
+      variantId: order.variantId || null,
+      productName: order.product?.name || `Product #${order.productId}`,
+      sku: order.variant?.sku || '',
+      variantName: vParts.length > 0 ? vParts.join(' / ') : null,
+      plannedQty: Number(order.targetQuantity || order.completedQty || 0),
+      imageUrl: rawImg ? getProductImageUrl(rawImg) : null,
+    },
+  ];
+};
+
 /** Production Batch Status Filter Options */
 const BATCH_STATUS_OPTIONS: SearchableSelectOption[] = [
   { value: 'ALL', label: 'All Statuses' },
@@ -362,6 +473,7 @@ export const BatchActivityTimeline: React.FC<{
       subtitle: string;
       badgeText: string;
       role: string;
+      stageTransition?: StageTransitionInfo;
       cutLogId?: number;
       rawCutLog?: any;
     }> = [];
@@ -369,66 +481,26 @@ export const BatchActivityTimeline: React.FC<{
     // 0. Stage Activity Logs
     (order.activityLogs || []).forEach((act: any) => {
       const dt = new Date(act.timestamp || act.createdAt);
-      if (act.stage === 'CANCELLED' || act.action === 'BATCH_CANCELLED') {
-        list.push({
-          id: `activity-cancel-${act.id}`,
-          type: 'cancel',
-          timestamp: dt,
-          title: `Batch Cancelled: Raw Materials Refunded to Stock`,
-          subtitle: act.notes || 'Batch cancelled and raw material allocations restored to warehouse',
-          badgeText: 'Batch Cancelled',
-          role: act.userName || 'Admin',
-        });
-        return;
-      }
-      if (act.action === 'FINALIZED') {
-        list.push({
-          id: `activity-final-${act.id}`,
-          type: 'sync',
-          timestamp: dt,
-          title: `Finalized Products: +${act.quantity} Pcs Pushed to Active Stock`,
-          subtitle: act.notes || 'Finalized finished products pushed to active sellable inventory',
-          badgeText: 'Finalized Output',
-          role: act.userName || 'Inventory Admin',
-        });
-        return;
-      }
-      if (act.action === 'RETURNED') {
-        list.push({
-          id: `activity-ret-${act.id}`,
-          type: 'scrap',
-          timestamp: dt,
-          title: `Unused Material Returned: +${act.quantity} Units`,
-          subtitle: act.notes || 'Material stock reversal recorded',
-          badgeText: 'Material Returned',
-          role: act.userName || 'Warehouse',
-        });
-        return;
-      }
-      if (act.action === 'EDIT_CUT') {
-        list.push({
-          id: `activity-editcut-${act.id}`,
-          type: 'cut',
-          timestamp: dt,
-          title: `Cut Adjusted: ${act.quantity} Units`,
-          subtitle: act.notes || 'Cutting log record updated',
-          badgeText: 'Cut Adjusted',
-          role: act.userName || 'Cutting Master',
-        });
-        return;
-      }
+      const transition = resolveStageTransition(act.stage, act.action, act.notes);
+      const isCut = act.action === 'INITIAL_CUT' || act.action === 'CUTTING';
 
-      const isInitialCut = act.action === 'INITIAL_CUT' || (act.stage === 'CUTTING' && act.action === 'INITIAL_CUT');
       list.push({
         id: `activity-${act.id}`,
-        type: act.stage === 'CUTTING' ? 'cut' : act.stage === 'FINISHING' ? 'finish' : 'cut',
+        type: act.stage === 'CANCELLED' || act.action === 'BATCH_CANCELLED'
+          ? 'cancel'
+          : act.action === 'FINALIZED'
+          ? 'sync'
+          : act.action === 'RETURNED'
+          ? 'scrap'
+          : act.stage === 'CUTTING'
+          ? 'cut'
+          : 'finish',
         timestamp: dt,
-        title: isInitialCut
-          ? `Initial Cutting Batch Initiated: ${act.quantity} Pcs Planned`
-          : `${act.stage} - ${act.action}: ${act.quantity} Units`,
-        subtitle: act.notes || 'Initial raw fabric cutting batch initiated',
-        badgeText: isInitialCut ? 'Initial Cut Initiated' : act.stage,
-        role: act.userName || 'Cutting Master',
+        stageTransition: transition,
+        title: transition.actionDisplay + (act.quantity > 0 && !isCut ? ` (+${act.quantity} Units)` : ''),
+        subtitle: act.notes ? act.notes.replace(/_/g, ' ') : `${transition.fromStage} to ${transition.toStage}`,
+        badgeText: `${transition.fromStage} → ${transition.toStage}`,
+        role: act.userName || 'Production Staff',
       });
     });
 
@@ -602,16 +674,33 @@ export const BatchActivityTimeline: React.FC<{
 
               <div className="bg-white dark:bg-zinc-900/90 p-3 rounded-xl border border-slate-200/80 dark:border-zinc-800 shadow-2xs hover:border-slate-300 dark:hover:border-zinc-700 transition-colors">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-2">
-                    <Badge
-                      variant="outline"
-                      className={`text-[10px] py-0 px-2 font-semibold ${badgeStyle}`}
-                    >
-                      {ev.badgeText}
-                    </Badge>
-                    <span className="text-xs font-bold text-slate-900 dark:text-zinc-100 font-mono">
-                      {ev.title}
-                    </span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {ev.stageTransition ? (
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider border shadow-2xs ${ev.stageTransition.fromStyle}`}>
+                          {ev.stageTransition.fromStage}
+                        </span>
+                        <ArrowRight className="size-3 text-slate-400 shrink-0" />
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider border shadow-2xs ${ev.stageTransition.toStyle}`}>
+                          {ev.stageTransition.toStage}
+                        </span>
+                        <span className="text-xs font-bold text-slate-900 dark:text-zinc-100 ml-1">
+                          {ev.title}
+                        </span>
+                      </div>
+                    ) : (
+                      <>
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] py-0 px-2 font-semibold ${badgeStyle}`}
+                        >
+                          {ev.badgeText}
+                        </Badge>
+                        <span className="text-xs font-bold text-slate-900 dark:text-zinc-100 font-mono">
+                          {ev.title}
+                        </span>
+                      </>
+                    )}
                   </div>
                     {/* Edit icon button on each Fabric Cutting card routing to full edit modal */}
                     {ev.type === 'cut' && order.status !== 'CANCELLED' && (
@@ -904,8 +993,8 @@ export const ProductionListPage: React.FC = () => {
     switch (sortBy) {
       case 'oldest':
         sorted.sort((a, b) => {
-          const dateA = new Date(a.productionDate || a.createdAt).getTime();
-          const dateB = new Date(b.productionDate || b.createdAt).getTime();
+          const dateA = new Date(a.createdAt || a.productionDate).getTime();
+          const dateB = new Date(b.createdAt || b.productionDate).getTime();
           return dateA - dateB || a.id - b.id;
         });
         break;
@@ -922,8 +1011,8 @@ export const ProductionListPage: React.FC = () => {
       case 'newest':
       default:
         sorted.sort((a, b) => {
-          const dateA = new Date(a.productionDate || a.createdAt).getTime();
-          const dateB = new Date(b.productionDate || b.createdAt).getTime();
+          const dateA = new Date(a.createdAt || a.productionDate).getTime();
+          const dateB = new Date(b.createdAt || b.productionDate).getTime();
           return dateB - dateA || b.id - a.id;
         });
         break;
@@ -1646,63 +1735,139 @@ export const ProductionListPage: React.FC = () => {
         ) : (
           <>
             {/* ── Production Ledger Table (Desktop Viewport >= 1024px) ── */}
-            <div className="hidden lg:block overflow-x-auto">
-              <Table>
+            <div className="hidden lg:block overflow-x-auto rounded-2xl border border-slate-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-xs">
+              <Table className="w-full min-w-[940px]">
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>Batch #</TableHead>
-                    <TableHead>Date &amp; Time</TableHead>
-                    <TableHead>Product</TableHead>
-                    <TableHead>Raw Material</TableHead>
-                    <TableHead className="text-center">Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                  <TableRow className="bg-slate-50 dark:bg-zinc-900/80 border-b border-slate-200/80 dark:border-zinc-800">
+                    <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-28 min-w-[100px]">
+                      Batch No
+                    </TableHead>
+                    <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-28">
+                      Date &amp; Time
+                    </TableHead>
+                    <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400">
+                      PRODUCT
+                    </TableHead>
+                    <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-36">
+                      Raw Material Cut
+                    </TableHead>
+                    <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-center w-24">
+                      Status
+                    </TableHead>
+                    <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-right w-24">
+                      Actions
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {paginatedRecords.map((order) => {
+                    const prods = getOrderProducts(order, productsList);
+
                     return (
                       <TableRow
                         key={order.id}
-                        className="hover:bg-slate-50/50 dark:hover:bg-zinc-800/40 transition-colors"
+                        className="hover:bg-slate-50/50 dark:hover:bg-zinc-800/40 transition-colors border-b border-slate-100 dark:border-zinc-800/80"
                       >
-                        {/* 1. Batch # */}
-                        <TableCell className="font-mono text-xs font-bold">
+                        {/* 1. Batch No (Clean 2-line break matching LinePage and WashPage) */}
+                        <TableCell className="align-middle font-mono text-xs font-bold w-28 min-w-[100px]">
                           <button
                             type="button"
                             onClick={() => handleOpenEditCuttingModal(order)}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-zinc-800 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-zinc-700 border border-slate-200 dark:border-zinc-700 font-mono text-xs transition-colors cursor-pointer group"
+                            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-100 dark:bg-zinc-800 text-slate-900 dark:text-white hover:bg-slate-200 dark:hover:bg-zinc-700 border border-slate-200 dark:border-zinc-700 font-mono text-xs transition-colors cursor-pointer group text-left"
                             title="Edit Cutting"
                           >
-                            <span>{order.productionNo}</span>
-                            <Pencil className="w-3 h-3 text-slate-400 group-hover:text-amber-600 transition-colors" />
+                            <div className="leading-tight whitespace-nowrap">
+                              {(() => {
+                                const clean = (order.productionNo || '').replace(/^#/, '');
+                                const dashIdx = clean.indexOf('-');
+                                if (dashIdx !== -1) {
+                                  return (
+                                    <>
+                                      <span className="block font-bold">#{clean.substring(0, dashIdx + 1)}</span>
+                                      <span className="block text-[11px] font-semibold text-slate-600 dark:text-zinc-400">{clean.substring(dashIdx + 1)}</span>
+                                    </>
+                                  );
+                                }
+                                return <span className="block font-bold">#{clean}</span>;
+                              })()}
+                            </div>
+                            <Pencil className="w-3 h-3 text-slate-400 group-hover:text-amber-600 transition-colors shrink-0 ml-0.5" />
                           </button>
                         </TableCell>
 
-                        {/* 2. Date & Time (Sri Lanka Time Asia/Colombo) */}
-                        <TableCell className="text-xs font-mono text-slate-600 dark:text-zinc-400 whitespace-nowrap">
-                          {formatSriLankaDateTime(order.productionDate || order.createdAt)}
+                        {/* 2. Date & Time (Clean 2-line break) */}
+                        <TableCell className="align-middle text-xs font-mono w-28">
+                          {renderSriLankaDateTime(order.productionDate || order.createdAt)}
                         </TableCell>
 
-                        {/* 3. Product (Name only, no cluttered tags) */}
-                        <TableCell className="text-xs font-semibold text-slate-900 dark:text-zinc-100">
-                          {order.targetProducts && order.targetProducts.length > 0
-                            ? order.targetProducts.map((tp) => tp.productName || `Product #${tp.productId}`).join(', ')
-                            : order.product?.name || '—'}
+                        {/* 3. PRODUCT (Mirrored thumbnail & variant/qty badges) */}
+                        <TableCell className="align-middle">
+                          <div className="space-y-2 py-1">
+                            {prods.map((p, pIdx) => (
+                              <div key={pIdx} className="flex items-center gap-2.5 min-w-0">
+                                {p.imageUrl ? (
+                                  <img
+                                    src={p.imageUrl}
+                                    alt={p.productName}
+                                    className="size-8 rounded-lg object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
+                                    onError={(e) => {
+                                      (e.currentTarget as HTMLElement).style.display = 'none';
+                                    }}
+                                  />
+                                ) : (
+                                  <div className="size-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/50 flex items-center justify-center shrink-0 text-indigo-600 dark:text-indigo-400">
+                                    <Shirt className="size-4" />
+                                  </div>
+                                )}
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-xs font-bold text-slate-900 dark:text-white truncate" title={p.productName}>
+                                      {p.productName}
+                                    </span>
+                                    {p.variantName && (
+                                      <Badge
+                                        variant="outline"
+                                        className="font-mono text-[10px] font-bold px-1.5 py-0 bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 border-slate-200 dark:border-zinc-700 shrink-0"
+                                      >
+                                        {p.variantName}
+                                      </Badge>
+                                    )}
+                                    {p.plannedQty !== undefined && p.plannedQty > 0 && (
+                                      <Badge
+                                        variant="outline"
+                                        className="font-mono text-[10px] font-bold px-1.5 py-0 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 shrink-0"
+                                      >
+                                        Qty: {p.plannedQty} Pcs
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  {p.sku && (
+                                    <span className="text-[10px] text-slate-400 truncate block font-mono">
+                                      SKU: {p.sku}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </TableCell>
 
-                        {/* 4. Raw Material (Material name, Rolls, and Units Qty) */}
-                        <TableCell className="text-xs">
+                        {/* 4. Raw Material Cut */}
+                        <TableCell className="align-middle text-xs w-36">
                           {order.materialUsages && order.materialUsages.length > 0 ? (
-                            <div className="flex flex-col gap-1">
-                              {order.materialUsages.map((usage) => (
-                                <div key={usage.id} className="text-slate-700 dark:text-zinc-300 font-mono text-xs">
+                            <div className="space-y-0.5">
+                              {order.materialUsages.slice(0, 2).map((usage) => (
+                                <div key={usage.id} className="text-slate-700 dark:text-zinc-300 font-mono text-xs truncate max-w-[150px]">
                                   <span className="font-semibold text-slate-900 dark:text-white">{usage.rawMaterial.name}</span>
-                                  <span className="text-slate-400 mx-1.5">·</span>
-                                  <span>{usage.piecesCount || 0} Rolls</span>
-                                  <span className="text-slate-400 mx-1.5">·</span>
-                                  <span className="font-bold text-slate-900 dark:text-zinc-100">{usage.netConsumedQty} {usage.rawMaterial.unit}</span>
+                                  {' · '}
+                                  <span className="font-bold text-amber-700 dark:text-amber-400">{usage.netConsumedQty} {usage.rawMaterial.unit}</span>
                                 </div>
                               ))}
+                              {order.materialUsages.length > 2 && (
+                                <span className="text-[10px] text-slate-400 block font-mono">
+                                  +{order.materialUsages.length - 2} more
+                                </span>
+                              )}
                             </div>
                           ) : (
                             <span className="text-slate-400 font-mono text-xs">—</span>
@@ -1710,12 +1875,12 @@ export const ProductionListPage: React.FC = () => {
                         </TableCell>
 
                         {/* 5. Status Badge */}
-                        <TableCell className="text-center">
+                        <TableCell className="align-middle text-center w-24">
                           <BatchStatusBadge status={order.status} isStockSynced={order.isStockSynced} />
                         </TableCell>
 
                         {/* 6. Actions (3-dots) */}
-                        <TableCell className="text-right">
+                        <TableCell className="align-middle text-right w-20">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <button
@@ -1765,6 +1930,8 @@ export const ProductionListPage: React.FC = () => {
             {/* ── Touch-Friendly Production Batch Cards (Mobile & Tablet Viewports < 1024px) ── */}
             <div className="block lg:hidden space-y-3.5">
               {paginatedRecords.map((order) => {
+                const prods = getOrderProducts(order, productsList);
+
                 return (
                   <div
                     key={order.id}
@@ -1791,14 +1958,52 @@ export const ProductionListPage: React.FC = () => {
                       <span>{formatSriLankaDateTime(order.productionDate || order.createdAt)}</span>
                     </div>
 
-                    {/* Product (Name only) */}
-                    <div>
-                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Product</span>
-                      <p className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
-                        {order.targetProducts && order.targetProducts.length > 0
-                          ? order.targetProducts.map((tp) => tp.productName || `Product #${tp.productId}`).join(', ')
-                          : order.product?.name || '—'}
-                      </p>
+                    {/* Product (Thumbnails, Name, Variant & Qty Badges) */}
+                    <div className="space-y-2">
+                      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">PRODUCT</span>
+                      <div className="space-y-2">
+                        {prods.map((p, pIdx) => (
+                          <div key={pIdx} className="flex items-center gap-2.5 min-w-0">
+                            {p.imageUrl ? (
+                              <img
+                                src={p.imageUrl}
+                                alt={p.productName}
+                                className="size-9 rounded-lg object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLElement).style.display = 'none';
+                                }}
+                              />
+                            ) : (
+                              <div className="size-9 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/50 flex items-center justify-center shrink-0 text-indigo-600 dark:text-indigo-400">
+                                <Shirt className="size-4" />
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <h4 className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                                {p.productName}
+                              </h4>
+                              <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                                {p.variantName && (
+                                  <Badge
+                                    variant="outline"
+                                    className="font-mono text-[9px] font-bold px-1.5 py-0 bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 border-slate-200 dark:border-zinc-700 shrink-0"
+                                  >
+                                    {p.variantName}
+                                  </Badge>
+                                )}
+                                {p.plannedQty !== undefined && p.plannedQty > 0 && (
+                                  <Badge
+                                    variant="outline"
+                                    className="font-mono text-[9px] font-bold px-1.5 py-0 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 shrink-0"
+                                  >
+                                    Qty: {p.plannedQty}
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
 
                     {/* Raw Material (Material name, Rolls, Units Qty) */}
@@ -2080,7 +2285,7 @@ export const ProductionListPage: React.FC = () => {
       ───────────────────────────────────────────────────────────── */}
       <SendToWashModal
         open={Boolean(sendToWashBatch)}
-        onOpenChange={(open) => {
+        onOpenChange={(open: boolean) => {
           if (!open) setSendToWashBatch(null);
         }}
         batch={sendToWashBatch}

@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Loader2, LogIn, Eye, EyeOff, ShieldCheck, ArrowLeft } from 'lucide-react';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { getFirstAllowedRoute } from '../utils/navigation';
 
 /**
  * Login — Secure System Authorization Portal for Staff & POS Management.
@@ -10,7 +11,7 @@ import { ThemeToggle } from '../components/ThemeToggle';
  * providing instant daylight glare elimination and complete Light/Dark/System adaptation.
  */
 export const Login: React.FC = () => {
-  const { login, isAuthenticated } = useAuth();
+  const { login, isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -19,13 +20,13 @@ export const Login: React.FC = () => {
   const [error, setError] = useState('');
 
   // Post-Login Default Redirection:
-  // Automatically redirect authenticated staff/users to the Invoices page (/system/invoices)
+  // Automatically redirect authenticated staff/users to their first permitted route
   // as the default system landing page across all devices (mobile and desktop).
   useEffect(() => {
     if (isAuthenticated) {
-      navigate('/system/invoices', { replace: true });
+      navigate(getFirstAllowedRoute(user), { replace: true });
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, user, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,8 +43,9 @@ export const Login: React.FC = () => {
 
     try {
       await login(cleanEmail, cleanPassword);
-      // Default Landing Page: Direct immediately to Invoices page upon successful authentication
-      navigate('/system/invoices', { replace: true });
+      const cached = localStorage.getItem('auth_user');
+      const parsedUser = cached ? JSON.parse(cached) : user;
+      navigate(getFirstAllowedRoute(parsedUser), { replace: true });
     } catch (err: any) {
       setError(err.message || 'Login failed. Please verify credentials.');
     } finally {

@@ -57,6 +57,7 @@ import {
   ArrowRight,
   Eye,
   Check,
+  BarChart3,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -81,7 +82,7 @@ type ModuleKey =
   | 'audit'
   | 'cheques';
 
-type PresetKey = 'daily' | 'monthly' | 'yearly' | 'custom';
+type PresetKey = 'daily' | 'weekly' | 'monthly' | 'yearly' | 'next_year' | 'custom';
 
 interface TabItem {
   key: ModuleKey;
@@ -111,6 +112,7 @@ export const ReportsPage: React.FC = () => {
   const [activeModule, setActiveModule] = useState<ModuleKey>('sales');
   const [activePreset, setActivePreset] = useState<PresetKey>('monthly');
   const [customRange, setCustomRange] = useState<DateRange | undefined>(undefined);
+  const [showCharts, setShowCharts] = useState<boolean>(true);
 
   const [reportData, setReportData] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -165,6 +167,12 @@ export const ReportsPage: React.FC = () => {
     } else if (activePreset === 'yearly') {
       const from = customRange?.from || startOfYear(new Date());
       const to = customRange?.to || endOfYear(new Date());
+      params.set('startDate', from.toISOString());
+      params.set('endDate', to.toISOString());
+    } else if (activePreset === 'next_year') {
+      const nextYear = new Date().getFullYear() + 1;
+      const from = new Date(nextYear, 0, 1, 0, 0, 0, 0);
+      const to = new Date(nextYear, 11, 31, 23, 59, 59, 999);
       params.set('startDate', from.toISOString());
       params.set('endDate', to.toISOString());
     }
@@ -488,37 +496,35 @@ export const ReportsPage: React.FC = () => {
   const formatRs = (val: number) => `Rs. ${(val || 0).toLocaleString('en-LK', { minimumFractionDigits: 2 })}`;
 
   return (
-    <div className={`min-h-screen px-2 py-3 sm:px-4 sm:py-4 md:p-6 lg:p-8 transition-colors ${dark ? 'bg-zinc-950 text-zinc-100' : 'bg-slate-50 text-slate-900'}`}>
+    <div className={`space-y-4 sm:space-y-5 w-full pb-12 transition-colors ${dark ? 'text-zinc-100' : 'text-slate-900'}`}>
       {/* Header Banner */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 mb-4 sm:mb-6 pb-4 sm:pb-5 border-b border-slate-200 dark:border-zinc-800">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="p-2.5 rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-500/20">
-              <TrendingUp className="size-5" />
-            </div>
-            <div>
-              <h1 className="text-xl md:text-2xl font-bold tracking-tight">
-                {isRep ? 'Wholesale Representative Sales Performance' : 'Reports & Enterprise Analytics'}
-              </h1>
-              <p className="text-xs md:text-sm text-slate-500 dark:text-zinc-400">
-                {isRep
-                  ? 'Scoped personal wholesale billing analytics, collections, and daily sales summaries'
-                  : 'Unified cross-domain intelligence, financial aggregations, and official A4 audit exports'}
-              </p>
-            </div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-zinc-800">
+        <div className="flex items-center gap-2.5">
+          <div className="p-2.5 rounded-xl bg-blue-600 text-white shadow-md shadow-blue-500/20 shrink-0">
+            <TrendingUp className="size-5" />
+          </div>
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
+              {isRep ? 'Wholesale Representative Performance' : 'Reports & Enterprise Analytics'}
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-500 dark:text-zinc-400">
+              {isRep
+                ? 'Scoped personal wholesale billing analytics, collections, and daily sales summaries'
+                : 'Unified cross-domain intelligence, financial aggregations, and official A4 audit exports'}
+            </p>
           </div>
         </div>
 
-        {/* Action Buttons: Refresh & Consolidated Master PDF Export */}
-        <div className="flex flex-wrap items-center gap-2.5">
+        {/* Top Master PDF & Refresh */}
+        <div className="flex items-center gap-2 shrink-0">
           <Button
             onClick={fetchReport}
             variant="outline"
             size="sm"
             disabled={loading}
-            className="border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800"
+            className="h-9 px-3 rounded-xl border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800 text-xs"
           >
-            <RefreshCw className={`size-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`size-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
 
@@ -526,17 +532,17 @@ export const ReportsPage: React.FC = () => {
             <Button
               onClick={handleDownloadConsolidatedPdf}
               disabled={downloadingConsolidatedPdf || loading}
-              className="bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/20 font-medium text-xs md:text-sm"
+              className="h-9 px-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-xs font-semibold text-xs"
             >
               {downloadingConsolidatedPdf ? (
                 <>
-                  <Loader2 className="size-4 mr-2 animate-spin" />
-                  Compiling Master Audit PDF...
+                  <Loader2 className="size-3.5 mr-1.5 animate-spin" />
+                  Compiling...
                 </>
               ) : (
                 <>
-                  <Download className="size-4 mr-2" />
-                  Download Consolidated Master Audit PDF
+                  <Download className="size-3.5 mr-1.5" />
+                  <span>Master Audit PDF</span>
                 </>
               )}
             </Button>
@@ -544,54 +550,98 @@ export const ReportsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Mobile / Tablet Module Selector: Searchable Combobox (< 1024px) ── */}
-      <div className="block lg:hidden mb-4 sm:mb-5">
-        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400 block mb-1.5">
-          Select Audit &amp; Report Module:
-        </label>
-        <SearchableSelect
-          value={activeModule}
-          onValueChange={(val) => handleTabSelect(val as ModuleKey)}
-          options={moduleSelectOptions}
-          placeholder="Select Report Module..."
-          searchPlaceholder="Search module domains..."
-          dark={dark}
-          className="h-11 rounded-xl text-xs sm:text-sm font-semibold w-full shadow-xs bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800"
-        />
-      </div>
-
-      {/* ── Desktop Viewport (>= 1024px) Multi-Tab Grid ── */}
-      <div className={`hidden lg:grid gap-1.5 sm:gap-2 mb-4 sm:mb-6 ${isRep ? 'grid-cols-1 max-w-xs' : 'grid-cols-2 sm:grid-cols-4 lg:grid-cols-8'}`}>
-        {visibleTabs.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeModule === tab.key;
-          return (
-            <button
-              key={tab.key}
-              onClick={() => handleTabSelect(tab.key)}
-              title={tab.description}
-              className={`w-full flex items-center justify-start gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                isActive
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/25 ring-2 ring-blue-500/20 scale-[1.01]'
-                  : dark
-                  ? 'bg-zinc-900/80 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 border border-zinc-800/80'
-                  : 'bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-200 shadow-sm'
-              }`}
-            >
-              <Icon className="size-4 shrink-0" />
-              <span className="truncate">{tab.label}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Date Filtering Bar with Active Tab PDF Export Button */}
-      <div className={`p-3 sm:p-4 rounded-2xl mb-4 sm:mb-6 border transition-all ${
-        dark ? 'bg-zinc-900/60 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'
+      {/* ── Section Domain Selector (Left 1/2) & Action Download Buttons (Right) ── */}
+      <div className={`p-3 sm:p-4 rounded-2xl border transition-all ${
+        dark ? 'bg-zinc-900/60 border-zinc-800/80' : 'bg-white border-slate-200 shadow-xs'
       }`}>
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-zinc-500 mr-1 flex items-center gap-1.5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          {/* Left: Domain Searchable Select (takes 1/2 width on desktop) */}
+          <div className="w-full md:w-1/2 lg:w-5/12">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 block mb-1">
+              Select Report Domain / Section
+            </label>
+            <SearchableSelect
+              value={activeModule}
+              onValueChange={(val) => handleTabSelect(val as ModuleKey)}
+              options={moduleSelectOptions}
+              placeholder="Select Report Section..."
+              searchPlaceholder="Search domains (Sales, Cheques, Production...)"
+              dark={dark}
+              className="h-10 rounded-xl text-xs sm:text-sm font-semibold w-full bg-slate-50 dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 shadow-xs"
+            />
+          </div>
+
+          {/* Right: Section Actions & Exports (Matching exact height h-10) */}
+          <div className="flex flex-wrap items-center gap-2 md:justify-end shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-zinc-800/60">
+            {/* Active Module PDF */}
+            <Button
+              onClick={handleDownloadActivePdf}
+              disabled={downloadingActivePdf || loading || !reportData}
+              variant="outline"
+              className="h-10 px-3.5 rounded-xl text-xs font-semibold border-blue-200 dark:border-blue-900/60 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/40 shadow-xs shrink-0"
+              title={`Download ${activeTabItem.label} PDF`}
+            >
+              {downloadingActivePdf ? (
+                <>
+                  <Loader2 className="size-3.5 mr-1.5 animate-spin text-blue-600" />
+                  <span>Exporting...</span>
+                </>
+              ) : (
+                <>
+                  <Printer className="size-3.5 mr-1.5 text-blue-600" />
+                  <span>Download {activeTabItem.label.split('&')[0].trim()} PDF</span>
+                </>
+              )}
+            </Button>
+
+            {/* Sales: Customer Dues PDF */}
+            {activeModule === 'sales' && (
+              <Button
+                onClick={handleDownloadCustomerDuesPdf}
+                disabled={downloadingCustomerDuesPdf || loading || !reportData}
+                variant="outline"
+                className="h-10 px-3.5 rounded-xl text-xs font-semibold border-emerald-300 dark:border-emerald-800/80 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 shadow-xs shrink-0"
+                title="Download Outstanding Customer Dues PDF"
+              >
+                {downloadingCustomerDuesPdf ? (
+                  <>
+                    <Loader2 className="size-3.5 mr-1.5 animate-spin text-emerald-600" />
+                    <span>Generating...</span>
+                  </>
+                ) : (
+                  <>
+                    <FileText className="size-3.5 mr-1.5 text-emerald-600" />
+                    <span>Customer Dues PDF</span>
+                  </>
+                )}
+              </Button>
+            )}
+
+            {/* Cheques: CSV Export Button (Moved up here next to PDF buttons) */}
+            {activeModule === 'cheques' && (
+              <Button
+                onClick={handleExportChequesCsv}
+                disabled={loading || !reportData}
+                variant="outline"
+                className="h-10 px-3.5 rounded-xl text-xs font-semibold border-amber-300 dark:border-amber-800/80 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 shadow-xs shrink-0 cursor-pointer"
+                title="Export Cheque Ledger to CSV"
+              >
+                <FileSpreadsheet className="size-3.5 mr-1.5 text-amber-600" />
+                <span>Export Cheques CSV</span>
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Period Filter Bar ── */}
+      <div className={`p-3 sm:p-4 rounded-2xl border transition-all ${
+        dark ? 'bg-zinc-900/60 border-zinc-800/80' : 'bg-white border-slate-200 shadow-xs'
+      }`}>
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          {/* Left: Presets & Date Selector */}
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 mr-1 flex items-center gap-1.5">
               <Calendar className="size-3.5" />
               Period:
             </span>
@@ -600,90 +650,89 @@ export const ReportsPage: React.FC = () => {
               size="sm"
               variant={activePreset === 'daily' ? 'default' : 'outline'}
               onClick={() => handlePresetSelect('daily')}
-              className={`text-xs h-8 ${activePreset === 'daily' ? 'bg-blue-600 text-white' : 'dark:border-zinc-800'}`}
+              className={`text-xs h-8 rounded-lg ${activePreset === 'daily' ? 'bg-blue-600 text-white' : 'dark:border-zinc-800'}`}
             >
               Today
             </Button>
+
+            <Button
+              size="sm"
+              variant={activePreset === 'weekly' ? 'default' : 'outline'}
+              onClick={() => handlePresetSelect('weekly')}
+              className={`text-xs h-8 rounded-lg ${activePreset === 'weekly' ? 'bg-blue-600 text-white' : 'dark:border-zinc-800'}`}
+            >
+              This Week
+            </Button>
+
             <Button
               size="sm"
               variant={activePreset === 'monthly' ? 'default' : 'outline'}
               onClick={() => handlePresetSelect('monthly')}
-              className={`text-xs h-8 ${activePreset === 'monthly' ? 'bg-blue-600 text-white' : 'dark:border-zinc-800'}`}
+              className={`text-xs h-8 rounded-lg ${activePreset === 'monthly' ? 'bg-blue-600 text-white' : 'dark:border-zinc-800'}`}
             >
               This Month
             </Button>
+
             <Button
               size="sm"
               variant={activePreset === 'yearly' ? 'default' : 'outline'}
               onClick={() => handlePresetSelect('yearly')}
-              className={`text-xs h-8 ${activePreset === 'yearly' ? 'bg-blue-600 text-white' : 'dark:border-zinc-800'}`}
+              className={`text-xs h-8 rounded-lg ${activePreset === 'yearly' ? 'bg-blue-600 text-white' : 'dark:border-zinc-800'}`}
             >
               This Year
             </Button>
 
+            {/* Next Year Button for Cheques & future maturities */}
+            {activeModule === 'cheques' && (
+              <Button
+                size="sm"
+                variant={activePreset === 'next_year' ? 'default' : 'outline'}
+                onClick={() => handlePresetSelect('next_year')}
+                className={`text-xs h-8 rounded-lg border-amber-300 dark:border-amber-800 ${
+                  activePreset === 'next_year' ? 'bg-amber-600 text-white' : 'text-amber-700 dark:text-amber-400 dark:border-zinc-800'
+                }`}
+              >
+                Next Year
+              </Button>
+            )}
+
             <div className="h-4 w-px bg-slate-300 dark:bg-zinc-800 mx-1 hidden sm:block" />
 
-            {/* Custom Range Picker */}
-            <div className="w-56 sm:w-64">
+            {/* Custom Date Range Picker */}
+            <div className="w-52 sm:w-60">
               <DateRangePicker
                 date={customRange}
                 onDateChange={handleRangeChange}
-                placeholder="Custom Date Range..."
-                className="h-8 text-xs"
+                placeholder="Date Selector..."
+                className="h-8 text-xs rounded-lg"
               />
             </div>
           </div>
 
-          {/* Right-hand side: Active Period Tag & Tab-Specific PDF Download Button (Strictly inline horizontal row) */}
-          <div className="flex flex-row items-center gap-2 flex-nowrap shrink-0 overflow-x-auto">
-            <div className="flex flex-row items-center gap-1.5 text-xs text-slate-500 dark:text-zinc-400 shrink-0">
-              <span className="font-semibold text-slate-600 dark:text-zinc-300">Selected:</span>
-              <Badge variant="outline" className="font-mono text-xs font-semibold px-2 py-0.5 border-blue-200 dark:border-blue-900/60 text-blue-600 dark:text-blue-400 bg-blue-50/80 dark:bg-blue-950/40 shadow-xs">
+          {/* Right Corner: Selected Badge & Chart Toggle Button */}
+          <div className="flex items-center gap-2.5 justify-between lg:justify-end shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-100 dark:border-zinc-800/60">
+            <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-zinc-400">
+              <span className="font-semibold text-slate-600 dark:text-zinc-300 text-[11px]">Selected:</span>
+              <Badge variant="outline" className="font-mono text-[11px] font-semibold px-2 py-0.5 border-blue-200 dark:border-blue-900/60 text-blue-600 dark:text-blue-400 bg-blue-50/80 dark:bg-blue-950/40 shadow-2xs">
                 {formattedSelectedBadge}
               </Badge>
             </div>
 
-            <Button
-              onClick={handleDownloadActivePdf}
-              disabled={downloadingActivePdf || loading || !reportData}
-              variant="outline"
-              size="sm"
-              className="h-8 text-xs border-slate-300 dark:border-zinc-700 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-zinc-800 font-medium shrink-0"
-            >
-              {downloadingActivePdf ? (
-                <>
-                  <Loader2 className="size-3.5 mr-1.5 animate-spin" />
-                  Exporting {activeTabItem.label.split(' ')[0]}...
-                </>
-              ) : (
-                <>
-                  <Printer className="size-3.5 mr-1.5" />
-                  Download {activeTabItem.label} PDF
-                </>
-              )}
-            </Button>
-
-            {/* ⭐ Requirement 1 & 2: Outstanding Customer Dues PDF Button strictly inline */}
-            {activeModule === 'sales' && (
+            {chartData.length > 0 && (
               <Button
-                onClick={handleDownloadCustomerDuesPdf}
-                disabled={downloadingCustomerDuesPdf || loading || !reportData}
+                type="button"
                 variant="outline"
                 size="sm"
-                className="h-8 text-xs border-emerald-300 dark:border-emerald-800/80 bg-emerald-50/60 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 hover:text-emerald-800 dark:hover:bg-emerald-900/50 font-medium shadow-xs shrink-0"
-                title="Download filtered PDF of customers with outstanding dues"
+                onClick={() => setShowCharts((prev) => !prev)}
+                className={`h-8 px-2.5 text-xs rounded-lg gap-1.5 font-semibold transition-all ${
+                  showCharts
+                    ? 'bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-950/50 dark:border-blue-800 dark:text-blue-300'
+                    : 'text-slate-600 dark:text-zinc-400 border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800'
+                }`}
+                title={showCharts ? 'Hide Visual Charts' : 'Show Visual Charts'}
               >
-                {downloadingCustomerDuesPdf ? (
-                  <>
-                    <Loader2 className="size-3.5 mr-1.5 animate-spin" />
-                    Generating Dues PDF...
-                  </>
-                ) : (
-                  <>
-                    <FileText className="size-3.5 mr-1.5 text-emerald-600 dark:text-emerald-400" />
-                    Download Customer Dues PDF
-                  </>
-                )}
+                <BarChart3 className="size-3.5" />
+                <span>{showCharts ? 'Hide Charts' : 'Show Charts'}</span>
               </Button>
             )}
           </div>
@@ -1035,7 +1084,7 @@ export const ReportsPage: React.FC = () => {
           </div>
 
           {/* Analytical Charts Block */}
-          {chartData.length > 0 && (
+          {showCharts && chartData.length > 0 && (
             <div className={`p-3 sm:p-5 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
               <div className="flex items-center justify-between mb-4">
                 <div>
@@ -1190,16 +1239,6 @@ export const ReportsPage: React.FC = () => {
                     </span>
                   </button>
                 </div>
-
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleExportChequesCsv}
-                  className="h-8 text-xs gap-1.5 border-amber-500/30 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 cursor-pointer"
-                >
-                  <FileSpreadsheet className="size-3.5 text-amber-600 dark:text-amber-400" />
-                  Export Cheques CSV
-                </Button>
               </div>
             )}
 

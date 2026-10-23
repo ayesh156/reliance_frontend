@@ -322,19 +322,19 @@ export const SendToWashModal: React.FC<SendToWashModalProps> = ({
 
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
           <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
-            {/* Banner */}
-            <div className="p-3 rounded-xl bg-cyan-50/70 dark:bg-cyan-950/30 border border-cyan-200 dark:border-cyan-900/50 text-xs text-cyan-950 dark:text-cyan-200 space-y-1">
-              <div className="flex items-center gap-1.5 font-semibold">
-                <Waves className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" />
-                <span>End-of-Day Factory Handover:</span>
+            {/* 1. Handover Date & Time (Top Priority) */}
+            <div className="space-y-1.5 p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                <Calendar className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400 shrink-0" />
+                <span>Handover Date &amp; Time</span>
               </div>
-              <p>
-                Enter the actual count of completed sewn garments per target style ready for the washing plant today.
-                This will record the items and transition the batch status to <strong>WASHING</strong>.
-              </p>
+              <DateTimePicker
+                value={washDateTime}
+                onChange={setWashDateTime}
+              />
             </div>
 
-            {/* Target Products Multi-Row Cards */}
+            {/* 2. Target Products Multi-Row Cards */}
             <div className="space-y-2.5">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-bold text-slate-800 dark:text-zinc-200 uppercase tracking-wider flex items-center gap-1.5">
@@ -356,23 +356,26 @@ export const SendToWashModal: React.FC<SendToWashModalProps> = ({
                       key={`tp-${tp.productId}-${tp.variantId || idx}`}
                       className="p-3 bg-slate-50/90 dark:bg-zinc-900/60 rounded-xl border border-slate-200/90 dark:border-zinc-800 space-y-2.5 shadow-2xs"
                     >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        {/* Thumbnail & Product Details */}
-                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                      {/* Top Row: Thumbnail + Product Name (Truncated) + Compact Badges Inline on Right */}
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
                           {tp.imageUrl ? (
                             <img
                               src={tp.imageUrl}
                               alt={tp.productName}
-                              className="size-10 rounded-lg object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
+                              className="size-9 rounded-lg object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLElement).style.display = 'none';
+                              }}
                             />
                           ) : (
-                            <div className="size-10 rounded-lg bg-cyan-50 dark:bg-cyan-950/40 border border-cyan-200 dark:border-cyan-900/50 flex items-center justify-center shrink-0">
-                              <Shirt className="size-5 text-cyan-600 dark:text-cyan-400" />
+                            <div className="size-9 rounded-lg bg-cyan-50 dark:bg-cyan-950/40 border border-cyan-200 dark:border-cyan-900/50 flex items-center justify-center shrink-0">
+                              <Shirt className="size-4 text-cyan-600 dark:text-cyan-400" />
                             </div>
                           )}
                           <div className="min-w-0 flex-1">
                             <h5
-                              className="text-xs font-bold text-slate-900 dark:text-white truncate"
+                              className="text-xs font-bold text-slate-900 dark:text-white truncate whitespace-nowrap"
                               title={tp.productName}
                             >
                               {tp.productName}
@@ -384,21 +387,21 @@ export const SendToWashModal: React.FC<SendToWashModalProps> = ({
                           </div>
                         </div>
 
-                        {/* Metric Chips */}
-                        <div className="flex items-center gap-2 text-xs shrink-0 flex-wrap sm:flex-nowrap">
-                          <div className="px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-300">
-                            <span className="text-[9px] uppercase font-bold text-indigo-500 block">Line Intake</span>
-                            <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{tp.sentToLineQty} Pcs</span>
+                        {/* Metric Chips Compactly Inline on Right */}
+                        <div className="flex items-center gap-1.5 text-xs shrink-0">
+                          <div className="px-2 py-1 rounded-lg bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-center">
+                            <span className="text-[9px] uppercase font-bold text-indigo-500 block leading-none mb-0.5">Line Intake</span>
+                            <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 leading-none">{tp.sentToLineQty} Pcs</span>
                           </div>
-                          <div className="px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-300">
-                            <span className="text-[9px] uppercase font-bold text-cyan-600 block">Sent to Wash</span>
-                            <span className="font-mono font-bold text-cyan-600 dark:text-cyan-400">
+                          <div className="px-2 py-1 rounded-lg bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-center">
+                            <span className="text-[9px] uppercase font-bold text-cyan-600 block leading-none mb-0.5">Sent to Wash</span>
+                            <span className="font-mono font-bold text-cyan-600 dark:text-cyan-400 leading-none">
                               {tp.sentToWashQty} Pcs
                             </span>
                           </div>
-                          <div className="px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-300">
-                            <span className="text-[9px] uppercase font-bold text-amber-600 block">Remaining on Line</span>
-                            <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
+                          <div className="px-2 py-1 rounded-lg bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-center">
+                            <span className="text-[9px] uppercase font-bold text-amber-600 block leading-none mb-0.5">Remaining</span>
+                            <span className="font-mono font-bold text-amber-600 dark:text-amber-400 leading-none">
                               {maxAllowed} Pcs
                             </span>
                           </div>
@@ -450,7 +453,7 @@ export const SendToWashModal: React.FC<SendToWashModalProps> = ({
                             <span>All {tp.sentToLineQty} Pcs Forwarded</span>
                           </div>
                         ) : (
-                          <div className="w-36">
+                          <div className="w-32 shrink-0">
                             <Input
                               type="number"
                               min="0"
@@ -465,7 +468,7 @@ export const SendToWashModal: React.FC<SendToWashModalProps> = ({
                                 }));
                               }}
                               placeholder="0"
-                              className="h-9 text-xs text-right font-mono font-bold text-cyan-700 dark:text-cyan-300 rounded-xl bg-white dark:bg-zinc-950 border-slate-200 dark:border-zinc-800"
+                              className="h-8 text-xs text-right font-mono font-bold text-cyan-700 dark:text-cyan-300 rounded-xl bg-white dark:bg-zinc-950 border-slate-200 dark:border-zinc-800"
                             />
                           </div>
                         )}
@@ -476,18 +479,7 @@ export const SendToWashModal: React.FC<SendToWashModalProps> = ({
               </div>
             </div>
 
-            {/* Handover Date & Time */}
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 block">
-                Handover Date &amp; Time
-              </label>
-              <DateTimePicker
-                value={washDateTime}
-                onChange={setWashDateTime}
-              />
-            </div>
-
-            {/* Handover Remarks / Notes */}
+            {/* 3. Handover Remarks / Notes */}
             <div className="space-y-1">
               <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 block">
                 Handover Remarks / Notes <span className="text-slate-400 font-normal">(Optional)</span>

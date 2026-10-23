@@ -21,7 +21,9 @@ import {
   Users, UserPlus, Shield, ShieldCheck, CheckCircle2,
   XCircle, Loader2, RefreshCw, Briefcase, ShoppingBag, ShieldAlert, X,
   MoreVertical, ChevronLeft, ChevronRight, KeyRound, Power,
-  Eye, EyeOff, Sparkles, Key
+  Eye, EyeOff, Sparkles, Key, MonitorSmartphone, FileText, ClipboardList,
+  Factory, Shirt, Waves, Boxes, BarChart3, CheckSquare, Square, Info,
+  Settings as SettingsIcon, Check
 } from 'lucide-react';
 import { SearchableSelect, type SearchableSelectOption } from '../components/ui/searchable-select';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '../components/ui/table';
@@ -40,8 +42,85 @@ interface StaffUser {
   email: string;
   role: 'ADMIN' | 'STAFF' | 'CASHIER' | 'REP';
   active: boolean;
+  permissions?: string[];
   createdAt: string;
 }
+
+interface ModulePermissionDef {
+  id: string;
+  label: string;
+  description: string;
+  icon: React.ElementType;
+}
+
+const AVAILABLE_MODULES: ModulePermissionDef[] = [
+  {
+    id: 'pos',
+    label: 'POS & Quick Invoice',
+    description: 'Cashier checkout, retail billing, thermal receipts',
+    icon: MonitorSmartphone,
+  },
+  {
+    id: 'invoices',
+    label: 'Invoices & Sales Ledger',
+    description: 'Invoices archive, customer dues, settlements, returns',
+    icon: FileText,
+  },
+  {
+    id: 'orders',
+    label: 'Sales Orders',
+    description: 'Presales wholesale orders, order bookings & confirmations',
+    icon: ClipboardList,
+  },
+  {
+    id: 'products',
+    label: 'Products & Attributes',
+    description: 'Catalog items, inventory variants, barcodes, pricing, tags',
+    icon: ShoppingBag,
+  },
+  {
+    id: 'customers',
+    label: 'Customers Directory',
+    description: 'Wholesale & retail accounts, credit limits, phone records',
+    icon: Users,
+  },
+  {
+    id: 'production',
+    label: 'Garment Production',
+    description: 'Cutting orders, fabric batches, yield tracking, stages',
+    icon: Factory,
+  },
+  {
+    id: 'line',
+    label: 'Sewing Line Stage',
+    description: 'Assembly line operator tracking, piece counts, rejects',
+    icon: Shirt,
+  },
+  {
+    id: 'wash',
+    label: 'Garment Wash Stage',
+    description: 'Washing plant dispatch, shrinkage inspection, finished stock',
+    icon: Waves,
+  },
+  {
+    id: 'materials',
+    label: 'Raw Materials & Stock',
+    description: 'Fabric rolls, button inventory, suppliers, purchase orders',
+    icon: Boxes,
+  },
+  {
+    id: 'reports',
+    label: 'Reports & Analytics',
+    description: 'Sales summaries, gross margins, fabric yields, analytics',
+    icon: BarChart3,
+  },
+  {
+    id: 'settings',
+    label: 'System Settings',
+    description: 'Company profile, thermal printer setup, storefront styling',
+    icon: SettingsIcon,
+  },
+];
 
 const ROLE_BADGES: Record<string, { label: string; color: string }> = {
   ADMIN: { label: 'Administrator', color: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20' },
@@ -185,6 +264,62 @@ export const Settings: React.FC = () => {
       toast.error(err.message || 'Failed to update credentials');
     } finally {
       setUpdatingCredentials(false);
+    }
+  };
+
+  // Manage Permissions Modal State
+  const [showPermissionsModal, setShowPermissionsModal] = useState(false);
+  const [permissionsUser, setPermissionsUser] = useState<StaffUser | null>(null);
+  const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
+  const [savingPermissions, setSavingPermissions] = useState(false);
+
+  const handleOpenPermissionsModal = (targetUser: StaffUser) => {
+    setPermissionsUser(targetUser);
+    if (targetUser.role === 'ADMIN') {
+      setSelectedPermissions(AVAILABLE_MODULES.map(m => m.id));
+    } else if (targetUser.role === 'STAFF') {
+      const perms = targetUser.permissions && targetUser.permissions.length > 0
+        ? targetUser.permissions
+        : ['production', 'line', 'wash', 'materials'];
+      setSelectedPermissions([...perms]);
+    } else {
+      setSelectedPermissions(targetUser.permissions ? [...targetUser.permissions] : []);
+    }
+    setShowPermissionsModal(true);
+  };
+
+  const handleTogglePermission = (modId: string) => {
+    setSelectedPermissions(prev =>
+      prev.includes(modId) ? prev.filter(id => id !== modId) : [...prev, modId]
+    );
+  };
+
+  const handleSelectAllPermissions = () => {
+    setSelectedPermissions(AVAILABLE_MODULES.map(m => m.id));
+  };
+
+  const handleClearPermissions = () => {
+    setSelectedPermissions([]);
+  };
+
+  const handleResetToDefaultStaff = () => {
+    setSelectedPermissions(['production', 'line', 'wash', 'materials']);
+  };
+
+  const handleSavePermissions = async () => {
+    if (!permissionsUser) return;
+    setSavingPermissions(true);
+    try {
+      await put(`/users/${permissionsUser.id}/admin-override`, {
+        permissions: selectedPermissions,
+      });
+      toast.success(`Access permissions updated for ${permissionsUser.name}!`);
+      setShowPermissionsModal(false);
+      fetchUsers();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update permissions');
+    } finally {
+      setSavingPermissions(false);
     }
   };
 
@@ -551,6 +686,11 @@ export const Settings: React.FC = () => {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-56 text-xs font-medium">
+                              {isAdmin && (
+                                <DropdownMenuItem onClick={() => handleOpenPermissionsModal(u)}>
+                                  <Shield className="w-3.5 h-3.5 mr-2 text-emerald-500" /> Manage Permissions
+                                </DropdownMenuItem>
+                              )}
                               <DropdownMenuItem onClick={() => handleOpenEditModal(u)}>
                                 <KeyRound className="w-3.5 h-3.5 mr-2 text-blue-500" /> Edit Credentials / Reset Password
                               </DropdownMenuItem>
@@ -661,7 +801,12 @@ export const Settings: React.FC = () => {
                                     <span className="sr-only">Open actions menu</span>
                                   </Button>
                                 </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-48">
+                                <DropdownMenuContent align="end" className="w-48 text-xs font-medium">
+                                  {isAdmin && (
+                                    <DropdownMenuItem onClick={() => handleOpenPermissionsModal(u)}>
+                                      <Shield className="w-3.5 h-3.5 mr-1.5 text-emerald-500" /> Manage Permissions
+                                    </DropdownMenuItem>
+                                  )}
                                   <DropdownMenuItem
                                     onClick={() => handleOpenEditModal(u)}
                                   >
@@ -1153,6 +1298,148 @@ export const Settings: React.FC = () => {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Manage Permissions Modal ── */}
+      <Dialog open={showPermissionsModal} onOpenChange={setShowPermissionsModal}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                <Shield className="w-5 h-5" />
+              </div>
+              <div>
+                <DialogTitle className="text-base font-bold text-slate-900 dark:text-zinc-100">
+                  Manage Access Permissions
+                </DialogTitle>
+                <DialogDescription className="text-xs text-slate-500 dark:text-zinc-400">
+                  Configure granular module access for <strong className="text-slate-800 dark:text-zinc-200">{permissionsUser?.name}</strong> ({permissionsUser?.email})
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-2">
+            {/* Quick Action Toolbar */}
+            <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg bg-slate-50 dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-slate-700 dark:text-zinc-300">
+                  Active Modules: {selectedPermissions.length} / {AVAILABLE_MODULES.length}
+                </span>
+                {permissionsUser?.role && (
+                  <Badge variant={permissionsUser.role === 'ADMIN' ? 'destructive' : 'info'} className="text-[10px] py-0">
+                    {permissionsUser.role}
+                  </Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSelectAllPermissions}
+                  className="h-7 text-[11px] px-2"
+                >
+                  Select All
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleResetToDefaultStaff}
+                  className="h-7 text-[11px] px-2 text-blue-600 dark:text-blue-400"
+                >
+                  Default Staff (4)
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleClearPermissions}
+                  className="h-7 text-[11px] px-2 text-rose-600 dark:text-rose-400"
+                >
+                  Clear All
+                </Button>
+              </div>
+            </div>
+
+            {/* Admin Notice if user is Administrator */}
+            {permissionsUser?.role === 'ADMIN' && (
+              <div className="flex items-start gap-2.5 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 text-xs">
+                <Info className="w-4 h-4 shrink-0 mt-0.5 text-amber-500" />
+                <div>
+                  <p className="font-semibold">Administrator Role Active</p>
+                  <p className="text-[11px] opacity-90 mt-0.5">
+                    Administrators automatically bypass all permission restrictions and have unrestricted system access.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Modules Checkbox / Switch Cards Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {AVAILABLE_MODULES.map((mod) => {
+                const isSelected = selectedPermissions.includes(mod.id);
+                const ModIcon = mod.icon;
+
+                return (
+                  <div
+                    key={mod.id}
+                    onClick={() => handleTogglePermission(mod.id)}
+                    className={`cursor-pointer group flex items-start gap-3 p-3 rounded-xl border transition-all select-none ${
+                      isSelected
+                        ? 'bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-500/40 ring-1 ring-emerald-500/20 shadow-xs'
+                        : 'bg-white dark:bg-zinc-900/40 border-slate-200 dark:border-zinc-800/80 hover:border-slate-300 dark:hover:border-zinc-700'
+                    }`}
+                  >
+                    {/* Visual Checkbox Switch */}
+                    <div
+                      className={`mt-0.5 size-4.5 rounded-md flex items-center justify-center border transition-colors shrink-0 ${
+                        isSelected
+                          ? 'bg-emerald-600 border-emerald-600 text-white'
+                          : 'bg-white dark:bg-zinc-950 border-slate-300 dark:border-zinc-700 group-hover:border-slate-400'
+                      }`}
+                    >
+                      {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                    </div>
+
+                    {/* Module Icon and Details */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <ModIcon className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-zinc-500'}`} />
+                        <span className={`text-xs font-bold leading-tight ${isSelected ? 'text-slate-900 dark:text-zinc-100' : 'text-slate-700 dark:text-zinc-300'}`}>
+                          {mod.label}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-zinc-400 leading-snug">
+                        {mod.description}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <DialogFooter className="pt-3 border-t border-slate-100 dark:border-zinc-800">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowPermissionsModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={savingPermissions}
+                onClick={handleSavePermissions}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
+              >
+                {savingPermissions && <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />}
+                {savingPermissions ? 'Saving Permissions…' : 'Save Permissions'}
+              </Button>
+            </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

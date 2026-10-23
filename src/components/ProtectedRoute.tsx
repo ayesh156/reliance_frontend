@@ -8,10 +8,11 @@ import { AccessDenied } from './AccessDenied';
 interface ProtectedRouteProps {
   children: React.ReactNode;
   requiredRole?: string | string[];
+  requiredPermission?: string;
 }
 
-export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredRole }) => {
-  const { isAuthenticated, loading, user } = useAuth();
+export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredRole, requiredPermission }) => {
+  const { isAuthenticated, loading, user, hasPermission } = useAuth();
 
   if (loading) {
     return (
@@ -25,10 +26,28 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requir
     return <Navigate to="/login" replace />;
   }
 
+  // Administrators automatically bypass all role and permission checks
+  if (user?.role === 'ADMIN') {
+    return <>{children}</>;
+  }
+
+  // Check required permission for Staff users
+  if (requiredPermission && user?.role === 'STAFF') {
+    if (!hasPermission(requiredPermission)) {
+      return (
+        <Layout>
+          <AccessDenied requiredRole={`PERMISSION: ${requiredPermission.toUpperCase()}`} />
+        </Layout>
+      );
+    }
+  }
+
+  // Check required role if specified
   if (requiredRole && user) {
     const roles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
-    // Admin has unrestricted access to all routes
-    if (user.role !== 'ADMIN' && !roles.includes(user.role)) {
+    // If the route allows access via permission (e.g. materials for raw materials), allow it
+    const hasPermit = requiredPermission ? hasPermission(requiredPermission) : false;
+    if (!roles.includes(user.role) && !hasPermit) {
       return (
         <Layout>
           <AccessDenied requiredRole={requiredRole} />

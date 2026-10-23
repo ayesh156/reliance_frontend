@@ -20,6 +20,7 @@ import {
   Sparkles,
   ArrowRight,
   Info,
+  CheckCircle2,
 } from 'lucide-react';
 import { BatchStatusBadge } from './BatchStatusBadge';
 
@@ -47,6 +48,7 @@ export interface TargetProductItem {
   productName: string;
   sku?: string;
   barcode?: string;
+  plannedQty?: number;
   sentToLineQty: number;
   imageUrl?: string | null;
 }
@@ -104,6 +106,7 @@ export const SendToLineModal: React.FC<SendToLineModalProps> = ({
             productName: tp.productName || fullProduct?.name || `Product #${pId}`,
             sku: tp.sku || fullProduct?.variants?.[0]?.sku || '',
             barcode: tp.barcode || fullProduct?.variants?.[0]?.barcode || '',
+            plannedQty: Number(tp.plannedQty ?? tp.targetQuantity ?? tp.quantity ?? batch.targetQuantity ?? 0),
             sentToLineQty: Number(tp.sentToLineQty ?? tp.lineSentQty) || 0,
             imageUrl: rawImg ? getProductImageUrl(rawImg) : null,
           });
@@ -130,6 +133,7 @@ export const SendToLineModal: React.FC<SendToLineModalProps> = ({
                 productName: tp.productName || fullProduct?.name || `Product #${pId}`,
                 sku: tp.sku || fullProduct?.variants?.[0]?.sku || '',
                 barcode: tp.barcode || fullProduct?.variants?.[0]?.barcode || '',
+                plannedQty: Number(tp.plannedQty ?? tp.targetQuantity ?? tp.quantity ?? batch.targetQuantity ?? 0),
                 sentToLineQty: Number(tp.sentToLineQty ?? tp.lineSentQty) || 0,
                 imageUrl: rawImg ? getProductImageUrl(rawImg) : null,
               });
@@ -147,6 +151,7 @@ export const SendToLineModal: React.FC<SendToLineModalProps> = ({
         productName: batch.product.name,
         sku: batch.variant?.sku || '',
         barcode: batch.variant?.barcode || '',
+        plannedQty: Number(batch.targetQuantity || 0),
         sentToLineQty: Number(batch.lineSentQty) || 0,
         imageUrl: rawImg ? getProductImageUrl(rawImg) : null,
       });
@@ -274,7 +279,19 @@ export const SendToLineModal: React.FC<SendToLineModalProps> = ({
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
           <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
-            {/* 1. Cut Materials Summary */}
+            {/* 1. Date & Time Picker (Top Priority) */}
+            <div className="space-y-1.5 p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                <span>Line Dispatch Date &amp; Time:</span>
+              </div>
+              <DateTimePicker
+                value={lineDateTime}
+                onChange={setLineDateTime}
+              />
+            </div>
+
+            {/* 2. Cut Materials Summary */}
             <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800 space-y-2">
               <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-zinc-300">
                 <Layers className="w-3.5 h-3.5 text-amber-500" />
@@ -309,7 +326,7 @@ export const SendToLineModal: React.FC<SendToLineModalProps> = ({
               </div>
             </div>
 
-            {/* 2. Dedicated Per-Product Dispatch Inputs */}
+            {/* 3. Dedicated Per-Product Dispatch Inputs */}
             <div className="p-3.5 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/40 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-indigo-900 dark:text-indigo-300">
@@ -327,84 +344,143 @@ export const SendToLineModal: React.FC<SendToLineModalProps> = ({
               <div className="space-y-2.5">
                 {targetProductsList.map((tp: TargetProductItem, idx: number) => {
                   const qtyVal = productQuantities[idx];
+                  const plannedQty = Number(tp.plannedQty || 0);
+                  const remaining = plannedQty > 0 ? Math.max(0, plannedQty - tp.sentToLineQty) : 0;
+                  const progressPct = plannedQty > 0 ? Math.min(100, Math.round((tp.sentToLineQty / plannedQty) * 100)) : (tp.sentToLineQty > 0 ? 100 : 0);
+
                   return (
                     <div
                       key={idx}
-                      className="p-3 rounded-xl bg-white dark:bg-zinc-950 border border-slate-200/80 dark:border-zinc-800 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                      className="p-3 bg-white dark:bg-zinc-950 rounded-xl border border-slate-200/90 dark:border-zinc-800 space-y-2.5 shadow-2xs"
                     >
-                      {/* Product Thumbnail & Details */}
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                        {tp.imageUrl ? (
-                          <img
-                            src={tp.imageUrl}
-                            alt={tp.productName}
-                            className="size-11 rounded-lg object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
-                          />
-                        ) : (
-                          <div className="size-11 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/50 flex items-center justify-center shrink-0 text-indigo-600 dark:text-indigo-400">
-                            <Shirt className="size-5" />
-                          </div>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <h5 className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                            {tp.productName}
-                          </h5>
-                          {tp.sku && (
-                            <p className="text-[10px] text-slate-400 font-mono truncate">
-                              SKU: {tp.sku}
-                            </p>
+                      {/* Product Header Row: Thumbnail + Product Name (Truncated) + Badges inline on right */}
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          {tp.imageUrl ? (
+                            <img
+                              src={tp.imageUrl}
+                              alt={tp.productName}
+                              className="size-9 rounded-lg object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLElement).style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <div className="size-9 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/50 flex items-center justify-center shrink-0 text-indigo-600 dark:text-indigo-400">
+                              <Shirt className="size-4" />
+                            </div>
                           )}
-                          <div className="flex items-center gap-2 mt-1">
-                            {tp.sentToLineQty > 0 ? (
-                              <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
-                                Line Intake So Far: {tp.sentToLineQty} Units
-                              </span>
-                            ) : (
-                              <span className="text-[10px] text-slate-400 font-medium">
-                                First dispatch to Line
+                          <div className="min-w-0 flex-1">
+                            <h5
+                              className="text-xs font-bold text-slate-900 dark:text-white truncate whitespace-nowrap"
+                              title={tp.productName}
+                            >
+                              {tp.productName}
+                            </h5>
+                            {tp.sku && (
+                              <span className="text-[10px] text-slate-400 font-mono truncate block">
+                                SKU: {tp.sku}
                               </span>
                             )}
                           </div>
                         </div>
+
+                        {/* Compact Data Badges Inline on Right */}
+                        <div className="flex items-center gap-1.5 text-xs shrink-0">
+                          {plannedQty > 0 && (
+                            <div className="px-2 py-1 rounded-lg bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-center">
+                              <span className="text-[9px] uppercase font-bold text-slate-400 block leading-none mb-0.5">
+                                Cut Target
+                              </span>
+                              <span className="font-mono font-bold text-slate-800 dark:text-zinc-200 leading-none">
+                                {plannedQty} Pcs
+                              </span>
+                            </div>
+                          )}
+                          <div className="px-2 py-1 rounded-lg bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-center">
+                            <span className="text-[9px] uppercase font-bold text-indigo-500 block leading-none mb-0.5">
+                              Line Intake
+                            </span>
+                            <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 leading-none">
+                              {tp.sentToLineQty > 0 ? `${tp.sentToLineQty} Pcs` : '0 Pcs'}
+                            </span>
+                          </div>
+                          {plannedQty > 0 && (
+                            <div className="px-2 py-1 rounded-lg bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-center">
+                              <span className="text-[9px] uppercase font-bold text-amber-600 block leading-none mb-0.5">
+                                Remaining
+                              </span>
+                              <span className="font-mono font-bold text-amber-600 dark:text-amber-400 leading-none">
+                                {remaining} Pcs
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       </div>
 
-                      {/* Dedicated Quantity Input for this Product */}
-                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                        <div className="flex flex-col items-end">
-                          <span className="text-[10px] font-semibold text-slate-500 dark:text-zinc-400 mb-1">
-                            Dispatch Pieces
+                      {/* Visual Progress Bar for Product (Unified Template) */}
+                      <div className="space-y-1 pt-1 border-t border-slate-200/50 dark:border-zinc-800/60">
+                        <div className="flex items-center justify-between text-[10px] font-mono">
+                          <span className="text-slate-500 dark:text-zinc-400">
+                            Forwarded to Line: <strong className="text-indigo-600 dark:text-indigo-400">{tp.sentToLineQty} {plannedQty > 0 ? `/ ${plannedQty}` : ''} Pcs</strong>
                           </span>
-                          <div className="relative w-32">
+                          {plannedQty > 0 && <span className="font-bold text-slate-700 dark:text-zinc-300">{progressPct}%</span>}
+                        </div>
+                        {plannedQty > 0 && (
+                          <div className="h-1.5 w-full bg-slate-200/80 dark:bg-zinc-800 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-300 ${
+                                progressPct >= 100 ? 'bg-emerald-500' : 'bg-indigo-500'
+                              }`}
+                              style={{ width: `${progressPct}%` }}
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Product Dispatch Quantity Input */}
+                      <div className="pt-2 border-t border-slate-100 dark:border-zinc-800/80 flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                            Qty to Dispatch Today:
+                          </label>
+                          {plannedQty > 0 && remaining > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setProductQuantities((prev) => ({
+                                  ...prev,
+                                  [idx]: remaining,
+                                }));
+                              }}
+                              className="text-[10px] text-indigo-600 hover:text-indigo-700 font-semibold underline cursor-pointer"
+                            >
+                              All ({remaining})
+                            </button>
+                          )}
+                        </div>
+                        {plannedQty > 0 && remaining <= 0 ? (
+                          <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 py-1">
+                            <CheckCircle2 className="size-4" />
+                            <span>All {plannedQty} Pcs Dispatched</span>
+                          </div>
+                        ) : (
+                          <div className="w-32 shrink-0">
                             <Input
                               type="number"
                               min={0}
                               placeholder="0"
                               value={qtyVal === undefined ? '' : qtyVal}
                               onChange={(e) => handleQuantityChange(idx, e.target.value)}
-                              className="h-9 text-xs font-mono font-bold text-right pr-12 text-indigo-700 dark:text-indigo-300 rounded-lg border-indigo-200 dark:border-indigo-800 focus:border-indigo-500"
+                              className="h-8 text-xs font-mono font-bold text-right rounded-xl bg-white dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 text-indigo-700 dark:text-indigo-300"
                             />
-                            <div className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-semibold pointer-events-none">
-                              Units
-                            </div>
                           </div>
-                        </div>
+                        )}
                       </div>
                     </div>
                   );
                 })}
               </div>
-            </div>
-
-            {/* 3. Date & Time Picker */}
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                <span>Line Dispatch Date &amp; Time:</span>
-              </div>
-              <DateTimePicker
-                value={lineDateTime}
-                onChange={setLineDateTime}
-              />
             </div>
 
             {/* 4. Optional Notes */}

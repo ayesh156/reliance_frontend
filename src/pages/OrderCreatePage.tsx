@@ -44,6 +44,8 @@ import {
   CheckCircle2,
   FileDown,
   MessageSquare,
+  RotateCcw,
+  Pencil,
 } from 'lucide-react';
 import { openWhatsAppChat, generateSalesOrderWhatsAppMessage } from '../utils/whatsapp';
 import { resolveImageUrl, handleImageError } from '../utils/imageUrl';
@@ -87,6 +89,7 @@ interface OrderCartItem {
   discount: number;
   showDiscount?: boolean;
   notes?: string;
+  isReturn?: boolean;
 }
 
 interface CustomerRecord {
@@ -112,6 +115,9 @@ export const OrderCreatePage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const editOrderId = searchParams.get('editOrderId');
+  const editInvoiceId = searchParams.get('editInvoiceId');
+  const activeEditId = editOrderId || editInvoiceId;
+  const isReturnOrderMode = searchParams.get('mode') === 'return';
 
   const { resolvedTheme } = useTheme();
   const dark = resolvedTheme === 'dark';
@@ -119,8 +125,9 @@ export const OrderCreatePage: React.FC = () => {
   const isRepUser = isRep || user?.role === 'REP';
 
   // Mode and edit state
-  const [isEditMode, setIsEditMode] = useState<boolean>(Boolean(editOrderId));
+  const [isEditMode, setIsEditMode] = useState<boolean>(Boolean(editOrderId || editInvoiceId));
   const [editingOrderNumber, setEditingOrderNumber] = useState<string>('');
+  const [savedRefundedCashAmount, setSavedRefundedCashAmount] = useState<number>(0);
 
   // Prerequisite Data
   const [catalogVariants, setCatalogVariants] = useState<CatalogVariantItem[]>([]);
@@ -141,6 +148,8 @@ export const OrderCreatePage: React.FC = () => {
   const [cart, setCart] = useState<OrderCartItem[]>([]);
   const [editingQtyIndex, setEditingQtyIndex] = useState<number | null>(null);
   const [tempQtyInput, setTempQtyInput] = useState<string>('');
+  const [editingPriceIndex, setEditingPriceIndex] = useState<number | null>(null);
+  const [tempPriceInput, setTempPriceInput] = useState<string>('');
 
   // Customer Mode & Selection
   const [customerMode, setCustomerMode] = useState<'registered' | 'guest'>('registered');
@@ -266,19 +275,22 @@ export const OrderCreatePage: React.FC = () => {
   }, []);
 
   /**
-   * Load existing order data if in edit mode (editOrderId query parameter)
+   * Load existing order data if in edit mode (editOrderId or editInvoiceId query parameter)
    */
   useEffect(() => {
-    if (!editOrderId) return;
+    if (!activeEditId) return;
     let isMounted = true;
 
     const loadOrderToEdit = async () => {
       try {
-        const order = await get<any>(`/sales-orders/${editOrderId}`);
+        const order = editInvoiceId
+          ? await get<any>(`/orders/invoices/${editInvoiceId}`)
+          : await get<any>(`/sales-orders/${editOrderId}`);
         if (!isMounted || !order) return;
 
         setIsEditMode(true);
-        setEditingOrderNumber(order.orderNumber || `ORD-${order.id}`);
+        setEditingOrderNumber(order.invoiceNumber || order.orderNumber || (editInvoiceId ? `INV-${order.id}` : `ORD-${order.id}`));
+        setSavedRefundedCashAmount(Number(order.refundedCashAmount) || 0);
 
         // 1. Populate Customer Mode & details
         if (order.customerId) {
@@ -288,8 +300,8 @@ export const OrderCreatePage: React.FC = () => {
           setCustomerMode('guest');
           setGuestName(order.customerName || '');
           setGuestPhone(order.customerPhone || '');
-          setGuestAddress(order.customerAddress || '');
-          setGuestCity(order.customerCity || '');
+          setGuestAddress(order.customerAddress || order.shippingAddress || '');
+          setGuestCity(order.customerCity || order.city || '');
         }
 
         // 2. Populate Notes & Structured Metadata
@@ -314,8 +326,9 @@ export const OrderCreatePage: React.FC = () => {
               const discType: 'FIXED' | 'PERCENT' = (it.discountType as any) || metaDisc?.discountType || 'FIXED';
               const discVal = Number(it.discount) || 0;
               const discInput = it.discountInput ?? metaDisc?.discountInput ?? (discVal > 0 ? discVal : '');
-              const sizeVal = it.size || it.variant?.size || 'FREE';
-              const colorVal = it.color || it.variant?.color || 'Default';
+              const sizeVal = it.size || it.selectedSize || it.variant?.size || 'FREE';
+              const colorVal = it.color || it.selectedColor || it.variant?.color || 'Default';
+              const isItemReturn = Boolean(it.isReturn || Number(it.price) < 0 || Number(it.unitPrice) < 0 || Number(it.quantity) < 0);
 
               return {
                 variantId: Number(it.variantId || it.variant?.id || 0),
@@ -326,14 +339,15 @@ export const OrderCreatePage: React.FC = () => {
                 color: colorVal,
                 sku: it.sku || it.variant?.sku || '',
                 imageUrl: it.imageUrl || it.variant?.product?.images?.[0]?.imageUrl || '',
-                unitPrice: Number(it.unitPrice) || 0,
-                quantity: Number(it.quantity) || 1,
-                maxStock: Math.max(Number(it.quantity) || 1, Number(it.variant?.stock || 0)),
+                unitPrice: Math.abs(Number(it.unitPrice) || 0),
+                quantity: Math.abs(Number(it.quantity)) || 1,
+                maxStock: Math.max(Math.abs(Number(it.quantity)) || 1, Number(it.variant?.stock || 0)),
                 discountType: discType,
                 discountInput: discInput,
                 discount: discVal,
                 showDiscount: discVal > 0,
                 notes: it.notes || '',
+                isReturn: isItemReturn,
               };
             })
           );
@@ -354,7 +368,7 @@ export const OrderCreatePage: React.FC = () => {
           }
         }
 
-        toast.info(`Loaded Presales Order ${order.orderNumber || `#${order.id}`} in Edit Mode`);
+        toast.info(`Loaded ${editInvoiceId ? 'Invoice' : 'Presales Order'} ${order.invoiceNumber || order.orderNumber || `#${order.id}`} in Edit Mode`);
       } catch (err: any) {
         console.error('Failed to load order for editing:', err);
         toast.error(err.message || 'Failed to load order details for editing');
@@ -366,7 +380,7 @@ export const OrderCreatePage: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [editOrderId]);
+  }, [activeEditId, editInvoiceId, editOrderId]);
 
   /**
    * Selected registered customer helper memo:
@@ -503,6 +517,7 @@ export const OrderCreatePage: React.FC = () => {
             discountInput: '',
             discount: 0,
             showDiscount: false,
+            isReturn: isReturnOrderMode,
           },
         ];
       }
@@ -518,7 +533,7 @@ export const OrderCreatePage: React.FC = () => {
       return;
     }
 
-    if (targetQty > variant.stock) {
+    if (targetQty > variant.stock && !isReturnOrderMode) {
       toast.warn(`Only ${variant.stock} available in stock for "${variant.productName}"`);
       targetQty = variant.stock;
     }
@@ -561,10 +576,44 @@ export const OrderCreatePage: React.FC = () => {
             discountInput: '',
             discount: 0,
             showDiscount: false,
+            isReturn: isReturnOrderMode,
           },
         ];
       }
     });
+  };
+
+  /**
+   * Toggle cart item Return Mode
+   */
+  const toggleItemReturn = (index: number) => {
+    setCart((prev) => {
+      const next = [...prev];
+      if (next[index]) {
+        next[index] = { ...next[index], isReturn: !next[index].isReturn };
+      }
+      return next;
+    });
+  };
+
+  /**
+   * Apply edited direct price to cart item
+   */
+  const handleApplyDirectPrice = (itemIndex: number) => {
+    const rawVal = parseFloat(tempPriceInput.trim());
+    const targetItem = cart[itemIndex];
+    if (!targetItem) {
+      setEditingPriceIndex(null);
+      return;
+    }
+    if (!isNaN(rawVal) && rawVal >= 0) {
+      const updatedDisc = calculateItemDiscount(rawVal, targetItem.quantity, targetItem.discountType, targetItem.discountInput);
+      setCart((prev) =>
+        prev.map((i, idx) => (idx === itemIndex ? { ...i, unitPrice: rawVal, discount: updatedDisc } : i))
+      );
+    }
+    setEditingPriceIndex(null);
+    setTempPriceInput('');
   };
 
   /**
@@ -715,14 +764,20 @@ export const OrderCreatePage: React.FC = () => {
    * Financial Summary Calculations (Pure Presales Order)
    */
   const grossSubtotal = useMemo(() => {
-    return cart.reduce((acc, item) => acc + item.quantity * item.unitPrice, 0);
+    return cart.reduce((acc, item) => {
+      const lineAmt = item.quantity * item.unitPrice;
+      return acc + (item.isReturn ? -lineAmt : lineAmt);
+    }, 0);
   }, [cart]);
 
   const calculatedItemTotalDiscount = useMemo(() => {
-    return cart.reduce((acc, item) => acc + (Number(item.discount) || 0), 0);
+    return cart.reduce((acc, item) => {
+      if (item.isReturn) return acc;
+      return acc + (Number(item.discount) || 0);
+    }, 0);
   }, [cart]);
 
-  const calculatedSubtotal = Math.max(0, grossSubtotal - calculatedItemTotalDiscount);
+  const calculatedSubtotal = grossSubtotal - calculatedItemTotalDiscount;
 
   const numericOrderDiscount = useMemo(() => {
     if (discountInput === '' || Number(discountInput) <= 0 || calculatedSubtotal <= 0) return 0;
@@ -734,7 +789,13 @@ export const OrderCreatePage: React.FC = () => {
     return Math.min(calculatedSubtotal, Math.max(0, val));
   }, [calculatedSubtotal, discountInput, discountType]);
 
-  const calculatedTotalAmount = Math.max(0, calculatedSubtotal - numericOrderDiscount);
+  const calculatedTotalAmount = calculatedSubtotal - numericOrderDiscount;
+  const isNetCredit = calculatedTotalAmount < 0;
+  const netCreditValue = isNetCredit ? Math.abs(calculatedTotalAmount) : 0;
+  const liveCashRefundAmount = netCreditValue > 0
+    ? (previousDue <= 0 ? netCreditValue : Math.max(0, netCreditValue - previousDue))
+    : 0;
+  const cashRefundAmount = liveCashRefundAmount > 0 ? liveCashRefundAmount : savedRefundedCashAmount;
 
   const totalPiecesQuantity = useMemo(() => {
     return cart.reduce((acc, it) => acc + (Number(it.quantity) || 0), 0);
@@ -835,6 +896,7 @@ export const OrderCreatePage: React.FC = () => {
       discount: calculatedItemTotalDiscount + numericOrderDiscount,
       discountType,
       discountInput,
+      refundedCashAmount: liveCashRefundAmount,
       notes: JSON.stringify({
         userNotes: orderNotes.trim(),
         discountType,
@@ -859,6 +921,7 @@ export const OrderCreatePage: React.FC = () => {
         imageUrl: item.imageUrl || undefined,
         quantity: Number(item.quantity),
         unitPrice: Number(item.unitPrice),
+        isReturn: Boolean(item.isReturn),
         discountType: item.discountType || 'FIXED',
         discountInput:
           item.discountInput !== undefined && item.discountInput !== ''
@@ -866,15 +929,17 @@ export const OrderCreatePage: React.FC = () => {
             : Number(item.discount) > 0
             ? Number(item.discount)
             : '',
-        discount: Number(item.discount) || 0,
-        totalPrice: Math.max(0, Number(item.quantity) * Number(item.unitPrice) - (Number(item.discount) || 0)),
+        discount: item.isReturn ? 0 : (Number(item.discount) || 0),
+        totalPrice: item.isReturn
+          ? -(Number(item.quantity) * Number(item.unitPrice))
+          : Math.max(0, Number(item.quantity) * Number(item.unitPrice) - (Number(item.discount) || 0)),
         notes: item.notes || undefined,
       })),
     };
 
     const targetUrl = editOrderId
-      ? `/system/quick-invoice?mode=WHOLESALE&convertOrderId=${editOrderId}`
-      : `/system/quick-invoice?mode=WHOLESALE`;
+      ? `/system/quick-invoice?mode=${isReturnOrderMode ? 'return' : 'WHOLESALE'}&convertOrderId=${editOrderId}`
+      : `/system/quick-invoice?mode=${isReturnOrderMode ? 'return' : 'WHOLESALE'}`;
 
     navigate(targetUrl, { state: { convertOrder: orderData } });
   };
@@ -939,6 +1004,7 @@ export const OrderCreatePage: React.FC = () => {
       });
 
       const payload = {
+        isReturnOrder: isReturnOrderMode || calculatedTotalAmount < 0,
         customerId: customerMode === 'registered' && selectedCustomerId ? Number(selectedCustomerId) : undefined,
         customerName: finalCustomerName,
         customerPhone: finalCustomerPhone || undefined,
@@ -947,6 +1013,7 @@ export const OrderCreatePage: React.FC = () => {
         subtotal: grossSubtotal,
         discount: calculatedItemTotalDiscount + numericOrderDiscount,
         totalAmount: calculatedTotalAmount,
+        refundedCashAmount: liveCashRefundAmount,
         notes: structuredNotes,
         items: validItems.map((item) => ({
           variantId: Number(item.variantId),
@@ -956,13 +1023,42 @@ export const OrderCreatePage: React.FC = () => {
           imageUrl: item.imageUrl || undefined,
           quantity: Number(item.quantity),
           unitPrice: Number(item.unitPrice),
-          discount: Number(item.discount) || 0,
-          totalPrice: Math.max(0, Number(item.quantity) * Number(item.unitPrice) - (Number(item.discount) || 0)),
+          isReturn: Boolean(item.isReturn),
+          discount: item.isReturn ? 0 : (Number(item.discount) || 0),
+          totalPrice: item.isReturn
+            ? -(Number(item.quantity) * Number(item.unitPrice))
+            : Math.max(0, Number(item.quantity) * Number(item.unitPrice) - (Number(item.discount) || 0)),
           notes: item.notes || undefined,
         })),
       };
 
-      if (isEditMode && editOrderId) {
+      if (isEditMode && editInvoiceId) {
+        const invoicePayload = {
+          customerId: customerMode === 'registered' && selectedCustomerId ? Number(selectedCustomerId) : undefined,
+          customerName: finalCustomerName,
+          customerPhone: finalCustomerPhone || undefined,
+          subtotal: grossSubtotal,
+          discount: calculatedItemTotalDiscount + numericOrderDiscount,
+          totalAmount: calculatedTotalAmount,
+          refundedCashAmount: liveCashRefundAmount,
+          notes: structuredNotes,
+          items: validItems.map((item) => ({
+            variantId: Number(item.variantId),
+            quantity: Number(item.quantity),
+            unitPrice: Number(item.unitPrice),
+            discount: item.isReturn ? 0 : (Number(item.discount) || 0),
+            price: item.isReturn
+              ? -(Number(item.quantity) * Number(item.unitPrice))
+              : Math.max(0, Number(item.quantity) * Number(item.unitPrice) - (Number(item.discount) || 0)),
+            isReturn: Boolean(item.isReturn),
+          })),
+        };
+        const updated = await put<any>(`/orders/invoices/${editInvoiceId}`, invoicePayload);
+        setCreatedOrder(updated);
+        setIsSuccessModalOpen(true);
+        setMobileCartOpen(false);
+        toast.success(`Invoice #${updated.invoiceNumber || updated.id} updated successfully!`);
+      } else if (isEditMode && editOrderId) {
         const updated = await put<any>(`/sales-orders/${editOrderId}`, payload);
         setCreatedOrder(updated);
         setIsSuccessModalOpen(true);
@@ -1220,102 +1316,160 @@ export const OrderCreatePage: React.FC = () => {
             <span className="font-medium">Order cart is empty</span>
             <span className="text-[10.5px] opacity-75">Click catalog products to add them to this order</span>
           </div>
-        ) : (
-          <div className="space-y-2">
-            {cart.map((item, idx) => (
-              <div
-                key={`${item.variantId}_${idx}`}
-                className="py-2 px-2.5 rounded-xl border border-slate-100 dark:border-zinc-800/80 bg-slate-50/50 dark:bg-zinc-900/40 hover:bg-slate-100/60 dark:hover:bg-zinc-800/40 transition-colors flex flex-col gap-1.5"
-              >
-                {/* Row 1: Product Name, Variant Details, Unit Price & Delete */}
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1 space-y-0.5">
+        ) : (() => {
+          const purchasedItems = cart.map((item, idx) => ({ item, idx })).filter(({ item }) => !item.isReturn);
+          const returnedItems = cart.map((item, idx) => ({ item, idx })).filter(({ item }) => Boolean(item.isReturn));
+
+          const renderCartItem = (item: OrderCartItem, idx: number) => (
+            <div
+              key={`${item.variantId}_${idx}`}
+              className={`py-2 px-2.5 rounded-xl border transition-colors flex flex-col gap-1.5 ${
+                item.isReturn
+                  ? 'bg-rose-50/80 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/60'
+                  : 'border-slate-100 dark:border-zinc-800/80 bg-slate-50/50 dark:bg-zinc-900/40 hover:bg-slate-100/60 dark:hover:bg-zinc-800/40'
+              }`}
+            >
+              {/* Row 1: Product Name, Variant Details, Unit Price & Delete */}
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     <h5 className="font-bold text-xs text-slate-900 dark:text-white leading-tight break-words">
                       {item.productName}
                     </h5>
-                    <div className="flex items-center flex-wrap gap-1.5">
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-200/70 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300">
-                        {item.size} · {item.color}
-                      </span>
-                      <span className="text-[11px] text-slate-500 dark:text-zinc-400 font-mono">
-                        @ Rs. {item.unitPrice.toLocaleString()}
-                      </span>
-                    </div>
+                    {item.isReturn && (
+                      <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-rose-500 text-rose-600 bg-rose-100/60 dark:bg-rose-950/60 font-bold shrink-0">
+                        RETURN
+                      </Badge>
+                    )}
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() => removeFromCart(idx)}
-                    className="text-slate-400 hover:text-rose-500 dark:text-zinc-500 dark:hover:text-rose-400 p-1 rounded-lg transition-colors cursor-pointer shrink-0 -mt-0.5 -mr-0.5"
-                    title="Remove item"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
-                </div>
-
-                {/* Row 2: Quantity Stepper, Item Discount Toggle Button & Line Total */}
-                <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-zinc-800/40">
-                  {/* Stepper with click-to-edit inline numerical input */}
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => updateCartItemQty(idx, -1)}
-                      className="size-7 h-7 w-7 rounded-lg bg-slate-200/70 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200 hover:bg-slate-300 dark:hover:bg-zinc-700 transition-colors cursor-pointer select-none active:scale-95"
-                      title="Decrease quantity"
-                    >
-                      <Minus className="size-3" />
-                    </button>
-
-                    {editingQtyIndex === idx ? (
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        autoFocus
-                        value={tempQtyInput}
-                        onChange={(e) => {
-                          const val = e.target.value.replace(/[^0-9.]/g, '');
-                          const parts = val.split('.');
-                          const cleanVal = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join('')}` : val;
-                          setTempQtyInput(cleanVal);
-                        }}
-                        onFocus={(e) => e.target.select()}
-                        onBlur={() => handleApplyDirectCartQty(idx)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleApplyDirectCartQty(idx);
-                          } else if (e.key === 'Escape') {
-                            setEditingQtyIndex(null);
-                          }
-                        }}
-                        className="w-12 h-7 text-center font-mono text-xs font-bold bg-white dark:bg-zinc-900 border border-indigo-500 rounded text-indigo-600 dark:text-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                      />
+                  <div className="flex items-center flex-wrap gap-1.5">
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-200/70 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300">
+                      {item.size} · {item.color}
+                    </span>
+                    {editingPriceIndex === idx ? (
+                      <div className="inline-flex items-center gap-1">
+                        <span className="text-[10px]">Rs.</span>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          autoFocus
+                          value={tempPriceInput}
+                          onChange={(e) => setTempPriceInput(e.target.value)}
+                          onFocus={(e) => e.target.select()}
+                          onBlur={() => handleApplyDirectPrice(idx)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleApplyDirectPrice(idx);
+                            else if (e.key === 'Escape') setEditingPriceIndex(null);
+                          }}
+                          className="w-16 h-5 px-1 text-xs font-mono font-bold rounded border border-indigo-500 bg-white dark:bg-zinc-900 text-slate-900 dark:text-white"
+                        />
+                      </div>
                     ) : (
                       <button
                         type="button"
                         onClick={() => {
-                          setEditingQtyIndex(idx);
-                          setTempQtyInput(String(item.quantity));
+                          setEditingPriceIndex(idx);
+                          setTempPriceInput(String(item.unitPrice));
                         }}
-                        className="min-w-8 h-7 px-1.5 rounded hover:bg-indigo-50 dark:hover:bg-indigo-950/60 font-mono text-xs font-bold text-slate-800 dark:text-zinc-200 flex items-center justify-center cursor-pointer transition-colors border border-transparent select-none"
-                        title="Click to type quantity directly"
+                        className="text-[11px] text-slate-500 dark:text-zinc-400 font-mono hover:underline flex items-center gap-0.5 cursor-pointer"
+                        title="Click to edit unit price"
                       >
-                        {item.quantity}
+                        <span>@ Rs. {item.unitPrice.toLocaleString()}</span>
+                        <Pencil className="size-2 text-slate-400" />
                       </button>
                     )}
+                  </div>
+                </div>
 
+                <button
+                  type="button"
+                  onClick={() => removeFromCart(idx)}
+                  className="text-slate-400 hover:text-rose-500 dark:text-zinc-500 dark:hover:text-rose-400 p-1 rounded-lg transition-colors cursor-pointer shrink-0 -mt-0.5 -mr-0.5"
+                  title="Remove item"
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              </div>
+
+              {/* Row 2: Quantity Stepper, Item Discount Toggle Button & Line Total */}
+              <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-zinc-800/40">
+                {/* Stepper with click-to-edit inline numerical input */}
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => updateCartItemQty(idx, -1)}
+                    className="size-7 h-7 w-7 rounded-lg bg-slate-200/70 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200 hover:bg-slate-300 dark:hover:bg-zinc-700 transition-colors cursor-pointer select-none active:scale-95"
+                    title="Decrease quantity"
+                  >
+                    <Minus className="size-3" />
+                  </button>
+
+                  {editingQtyIndex === idx ? (
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      autoFocus
+                      value={tempQtyInput}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^0-9.]/g, '');
+                        const parts = val.split('.');
+                        const cleanVal = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join('')}` : val;
+                        setTempQtyInput(cleanVal);
+                      }}
+                      onFocus={(e) => e.target.select()}
+                      onBlur={() => handleApplyDirectCartQty(idx)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleApplyDirectCartQty(idx);
+                        } else if (e.key === 'Escape') {
+                          setEditingQtyIndex(null);
+                        }
+                      }}
+                      className="w-12 h-7 text-center font-mono text-xs font-bold bg-white dark:bg-zinc-900 border border-indigo-500 rounded text-indigo-600 dark:text-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    />
+                  ) : (
                     <button
                       type="button"
-                      onClick={() => updateCartItemQty(idx, 1)}
-                      className="size-7 h-7 w-7 rounded-lg bg-slate-200/70 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200 hover:bg-slate-300 dark:hover:bg-zinc-700 transition-colors cursor-pointer select-none active:scale-95"
-                      title="Increase quantity"
+                      onClick={() => {
+                        setEditingQtyIndex(idx);
+                        setTempQtyInput(String(item.quantity));
+                      }}
+                      className="min-w-8 h-7 px-1.5 rounded hover:bg-indigo-50 dark:hover:bg-indigo-950/60 font-mono text-xs font-bold text-slate-800 dark:text-zinc-200 flex items-center justify-center cursor-pointer transition-colors border border-transparent select-none"
+                      title="Click to type quantity directly"
                     >
-                      <Plus className="size-3" />
+                      {item.quantity}
                     </button>
-                  </div>
+                  )}
 
-                  {/* Line Item Discount Toggle & Line Total */}
-                  <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => updateCartItemQty(idx, 1)}
+                    className="size-7 h-7 w-7 rounded-lg bg-slate-200/70 dark:bg-zinc-800 flex items-center justify-center text-slate-700 dark:text-zinc-200 hover:bg-slate-300 dark:hover:bg-zinc-700 transition-colors cursor-pointer select-none active:scale-95"
+                    title="Increase quantity"
+                  >
+                    <Plus className="size-3" />
+                  </button>
+                </div>
+
+                {/* Return Toggle Button & Line Item Discount Toggle & Line Total */}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => toggleItemReturn(idx)}
+                    className={`h-7 px-2 rounded-lg flex items-center gap-0.5 text-[10px] font-bold transition-all cursor-pointer select-none shrink-0 ${
+                      item.isReturn
+                        ? 'bg-rose-600 text-white shadow-2xs'
+                        : 'bg-slate-200/70 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300 hover:bg-slate-300'
+                    }`}
+                    title={item.isReturn ? 'Item marked as Return' : 'Toggle as Return item'}
+                  >
+                    <RotateCcw className="size-2.5" />
+                    <span>{item.isReturn ? 'Return' : 'Ret'}</span>
+                  </button>
+
+                  {!item.isReturn && (
                     <button
                       type="button"
                       onClick={() => toggleItemDiscount(idx)}
@@ -1330,68 +1484,108 @@ export const OrderCreatePage: React.FC = () => {
                     >
                       <Percent className="size-3" />
                     </button>
+                  )}
 
-                    <div className="flex items-center gap-1.5 text-right">
-                      <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-400 dark:text-zinc-500">
-                        Total:
-                      </span>
-                      <span className="font-mono font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
-                        Rs. {Math.max(0, item.unitPrice * item.quantity - (item.discount || 0)).toLocaleString()}
-                      </span>
-                    </div>
+                  <div className="flex items-center gap-1.5 text-right">
+                    <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-400 dark:text-zinc-500">
+                      Total:
+                    </span>
+                    <span className={`font-mono font-bold text-xs sm:text-sm ${
+                      item.isReturn ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'
+                    }`}>
+                      {item.isReturn
+                        ? `- Rs. ${(item.unitPrice * item.quantity).toLocaleString()}`
+                        : `Rs. ${Math.max(0, item.unitPrice * item.quantity - (item.discount || 0)).toLocaleString()}`
+                      }
+                    </span>
                   </div>
                 </div>
+              </div>
 
-                {/* Inline Item Discount Expand Tray */}
-                {item.showDiscount && (
-                  <div className="pt-1.5 mt-1 border-t border-dashed border-slate-200 dark:border-zinc-800/80 flex items-center justify-between gap-2 text-xs bg-slate-100/60 dark:bg-zinc-900/60 p-1.5 rounded-lg">
-                    <div className="flex items-center gap-1">
-                      <span className="text-[11px] font-semibold text-slate-600 dark:text-zinc-300">Item Disc:</span>
-                      <div className="inline-flex rounded border border-slate-200 dark:border-zinc-800 p-0.5 bg-white dark:bg-zinc-900">
-                        <button
-                          type="button"
-                          onClick={() => handleItemDiscountTypeChange(idx, 'PERCENT')}
-                          className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${
-                            (item.discountType || 'PERCENT') === 'PERCENT'
-                              ? 'bg-indigo-600 text-white'
-                              : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
-                          }`}
-                        >
-                          %
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleItemDiscountTypeChange(idx, 'FIXED')}
-                          className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${
-                            item.discountType === 'FIXED'
-                              ? 'bg-indigo-600 text-white'
-                              : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
-                          }`}
-                        >
-                          Rs
-                        </button>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      {item.discountType === 'PERCENT' && Number(item.discount || 0) > 0 && (
-                        <span className="text-[10px] font-mono text-emerald-600 font-semibold">
-                          (-Rs. {Number(item.discount).toLocaleString()})
-                        </span>
-                      )}
-                      <Input
-                        type="text"
-                        value={item.discountInput !== undefined && item.discountInput !== '' ? String(item.discountInput) : ''}
-                        onChange={(e) => handleItemDiscountInputChange(idx, e.target.value)}
-                        placeholder="0"
-                        className="w-16 h-7 text-xs text-right font-mono p-1 bg-white dark:bg-zinc-900 border-slate-300 dark:border-zinc-700"
-                      />
+              {/* Inline Item Discount Expand Tray */}
+              {item.showDiscount && (
+                <div className="pt-1.5 mt-1 border-t border-dashed border-slate-200 dark:border-zinc-800/80 flex items-center justify-between gap-2 text-xs bg-slate-100/60 dark:bg-zinc-900/60 p-1.5 rounded-lg">
+                  <div className="flex items-center gap-1">
+                    <span className="text-[11px] font-semibold text-slate-600 dark:text-zinc-300">Item Disc:</span>
+                    <div className="inline-flex rounded border border-slate-200 dark:border-zinc-800 p-0.5 bg-white dark:bg-zinc-900">
+                      <button
+                        type="button"
+                        onClick={() => handleItemDiscountTypeChange(idx, 'PERCENT')}
+                        className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${
+                          (item.discountType || 'PERCENT') === 'PERCENT'
+                            ? 'bg-indigo-600 text-white'
+                            : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
+                        }`}
+                      >
+                        %
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleItemDiscountTypeChange(idx, 'FIXED')}
+                        className={`px-1.5 py-0.5 text-[9px] font-bold rounded ${
+                          item.discountType === 'FIXED'
+                            ? 'bg-indigo-600 text-white'
+                            : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400'
+                        }`}
+                      >
+                        Rs
+                      </button>
                     </div>
                   </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+                  <div className="flex items-center gap-1.5">
+                    {item.discountType === 'PERCENT' && Number(item.discount || 0) > 0 && (
+                      <span className="text-[10px] font-mono text-emerald-600 font-semibold">
+                        (-Rs. {Number(item.discount).toLocaleString()})
+                      </span>
+                    )}
+                    <Input
+                      type="text"
+                      value={item.discountInput !== undefined && item.discountInput !== '' ? String(item.discountInput) : ''}
+                      onChange={(e) => handleItemDiscountInputChange(idx, e.target.value)}
+                      placeholder="0"
+                      className="w-16 h-7 text-xs text-right font-mono p-1 bg-white dark:bg-zinc-900 border-slate-300 dark:border-zinc-700"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+
+          return (
+            <div className="space-y-3">
+              {/* Purchased Items Section */}
+              {purchasedItems.length > 0 && (
+                <div className="space-y-1.5">
+                  {returnedItems.length > 0 && (
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-zinc-300 px-1 pt-0.5">
+                      <span className="flex items-center gap-1.5">
+                        <Package className="size-3.5 text-indigo-500" />
+                        <span>Purchased Items ({purchasedItems.length})</span>
+                      </span>
+                    </div>
+                  )}
+                  {purchasedItems.map(({ item, idx }) => renderCartItem(item, idx))}
+                </div>
+              )}
+
+              {/* Returned Items Section */}
+              {returnedItems.length > 0 && (
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex items-center justify-between text-xs font-bold text-rose-700 dark:text-rose-400 px-1 pt-0.5">
+                    <span className="flex items-center gap-1.5">
+                      <RotateCcw className="size-3.5 text-rose-600" />
+                      <span>Returned Items ({returnedItems.length})</span>
+                    </span>
+                    <Badge variant="outline" className="text-[9px] font-bold border-rose-300 dark:border-rose-800 bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300 px-1.5 py-0">
+                      RETURN
+                    </Badge>
+                  </div>
+                  {returnedItems.map(({ item, idx }) => renderCartItem(item, idx))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* "+ Add Products" Ribbon Action - Prominently positioned between items and financial breakdown */}
         <Button
@@ -1470,11 +1664,38 @@ export const OrderCreatePage: React.FC = () => {
           </div>
 
           <div className="flex items-center justify-between pt-1.5 border-t border-slate-200 dark:border-zinc-800 text-sm font-bold text-slate-900 dark:text-white">
-            <span>Total Order Value:</span>
-            <span className="font-mono text-indigo-600 dark:text-indigo-400 text-base font-extrabold">
-              Rs. {calculatedTotalAmount.toLocaleString()}
+            <span>{isNetCredit ? 'Customer Credit (Refund):' : 'Total Order Value:'}</span>
+            <span className={`font-mono text-base font-extrabold ${isNetCredit ? 'text-rose-600 dark:text-rose-400' : 'text-indigo-600 dark:text-indigo-400'}`}>
+              {isNetCredit ? `Rs. ${Math.abs(calculatedTotalAmount).toLocaleString()}` : `Rs. ${calculatedTotalAmount.toLocaleString()}`}
             </span>
           </div>
+
+          {/* Distinct Cash Refund to Customer Highlighted Box */}
+          {cashRefundAmount > 0 && (
+            <div className="mt-1 p-2 rounded-xl bg-emerald-500/10 dark:bg-emerald-950/40 border-2 border-emerald-500/40 dark:border-emerald-600/50 shadow-xs flex items-center justify-between animate-in fade-in duration-200">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-emerald-500 text-white shadow-2xs">
+                  <RotateCcw className="size-3.5" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 dark:text-emerald-300 block leading-tight">
+                    Cash Refund to Customer
+                  </span>
+                  <span className="text-[9.5px] text-emerald-600 dark:text-emerald-400 font-medium block">
+                    Hand back physical cash to customer
+                  </span>
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="font-mono text-sm font-black text-emerald-700 dark:text-emerald-300 block">
+                  Rs. {cashRefundAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </span>
+                <span className="text-[8.5px] font-bold text-emerald-600/90 dark:text-emerald-400 uppercase tracking-widest">
+                  Refund Due
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Special Instructions / Notes Input */}

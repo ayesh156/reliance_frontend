@@ -34,6 +34,8 @@ import {
   ShieldAlert,
   ArrowRight,
   TrendingDown,
+  Package,
+  RotateCcw,
 } from 'lucide-react';
 
 export interface InvoiceChequeItem {
@@ -73,6 +75,9 @@ export interface InvoiceDetailData {
   cheques?: any[];
   splitPayments?: any[];
   notes?: string;
+  isReturnBill?: boolean;
+  returnCreditApplied?: number;
+  refundedCashAmount?: number;
 }
 
 interface InvoiceDetailModalProps {
@@ -414,7 +419,7 @@ const InvoiceDetailModalContent: React.FC<InvoiceDetailModalProps & { invoice: I
             </div>
 
             {/* Financial Summary Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div className={`grid grid-cols-2 ${Number(invoice.refundedCashAmount) > 0 ? 'sm:grid-cols-5' : 'sm:grid-cols-4'} gap-2.5`}>
               <div className="p-3 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800">
                 <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Subtotal</span>
                 <span className="font-mono font-bold text-slate-800 dark:text-zinc-200 text-sm mt-0.5 block">
@@ -474,6 +479,20 @@ const InvoiceDetailModalContent: React.FC<InvoiceDetailModalProps & { invoice: I
                   {creditDue > 0 ? 'Awaiting settlement' : 'Zero balance'}
                 </span>
               </div>
+
+              {Number(invoice.refundedCashAmount) > 0 && (
+                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700">
+                  <span className="text-[10px] uppercase font-bold text-emerald-700 dark:text-emerald-300 block tracking-wider">
+                    Refunded Cash
+                  </span>
+                  <span className="font-mono font-bold text-emerald-800 dark:text-emerald-200 text-sm mt-0.5 block">
+                    Rs. {Number(invoice.refundedCashAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </span>
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 block mt-0.5 font-medium">
+                    Handed to Customer
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Cheque Portfolio & Actions Section */}
@@ -631,51 +650,118 @@ const InvoiceDetailModalContent: React.FC<InvoiceDetailModalProps & { invoice: I
               )}
             </div>
 
-            {/* Itemized Order Products Breakdown */}
-            {Array.isArray(invoice.items) && invoice.items.length > 0 && (
-              <div className="rounded-xl border border-slate-100 dark:border-zinc-800 overflow-hidden">
-                <div className="px-3.5 py-2.5 bg-slate-50 dark:bg-zinc-800/60 border-b border-slate-100 dark:border-zinc-800 flex items-center justify-between text-xs font-semibold">
-                  <span className="text-slate-700 dark:text-zinc-300">
-                    Order Items ({invoice.items.length})
-                  </span>
-                  <span className="text-slate-400 font-mono">Qty &amp; Price Breakdown</span>
-                </div>
-                <div className="divide-y divide-slate-100 dark:divide-zinc-800 text-xs">
-                  {invoice.items.map((item: any, i: number) => {
-                    const lineTotal = Number(item.quantity) * Number(item.price);
-                    const prodName =
-                      item.variant?.product?.name || item.product?.name || item.name || `Item #${i + 1}`;
-                    const varInfo = [
-                      item.size || item.variant?.size?.name,
-                      item.color || item.variant?.color?.name,
-                    ]
-                      .filter(Boolean)
-                      .join(' / ');
+            {/* Itemized Order Products Breakdown: Visually separated into Purchased Items & Returned Items */}
+            {Array.isArray(invoice.items) && invoice.items.length > 0 && (() => {
+              const purchasedItems = invoice.items.filter((item: any) => !item.isReturn && Number(item.price) >= 0);
+              const returnedItems = invoice.items.filter((item: any) => Boolean(item.isReturn) || Number(item.price) < 0);
 
-                    return (
-                      <div key={i} className="p-3 flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="font-semibold text-slate-800 dark:text-zinc-200 truncate">
-                            {prodName}
-                          </p>
-                          {varInfo && (
-                            <span className="text-[10px] text-slate-400 font-mono block">{varInfo}</span>
-                          )}
-                        </div>
-                        <div className="text-right shrink-0 font-mono">
-                          <span className="text-slate-500 mr-2">
-                            {item.quantity} × Rs. {Number(item.price).toLocaleString()}
-                          </span>
-                          <span className="font-bold text-slate-900 dark:text-white">
-                            Rs. {lineTotal.toLocaleString()}
-                          </span>
-                        </div>
+              return (
+                <div className="space-y-3">
+                  {/* Purchased Items Section */}
+                  {purchasedItems.length > 0 && (
+                    <div className="rounded-xl border border-slate-200 dark:border-zinc-800 overflow-hidden bg-white dark:bg-zinc-900">
+                      <div className="px-3.5 py-2.5 bg-slate-50 dark:bg-zinc-800/60 border-b border-slate-200 dark:border-zinc-800 flex items-center justify-between text-xs font-semibold">
+                        <span className="text-slate-700 dark:text-zinc-300 flex items-center gap-1.5">
+                          <Package className="size-3.5 text-indigo-500" />
+                          <span>Purchased Items ({purchasedItems.length})</span>
+                        </span>
+                        <span className="text-slate-400 font-mono text-[11px]">Qty &amp; Price Breakdown</span>
                       </div>
-                    );
-                  })}
+                      <div className="divide-y divide-slate-100 dark:divide-zinc-800 text-xs">
+                        {purchasedItems.map((item: any, i: number) => {
+                          const lineTotal = Number(item.quantity) * Number(item.price);
+                          const prodName =
+                            item.variant?.product?.name || item.product?.name || item.name || `Item #${i + 1}`;
+                          const varInfo = [
+                            item.size || item.variant?.size?.name,
+                            item.color || item.variant?.color?.name,
+                          ]
+                            .filter(Boolean)
+                            .join(' / ');
+
+                          return (
+                            <div key={`purchased-${i}`} className="p-3 flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="font-semibold text-slate-800 dark:text-zinc-200 truncate">
+                                  {prodName}
+                                </p>
+                                {varInfo && (
+                                  <span className="text-[10px] text-slate-400 font-mono block">{varInfo}</span>
+                                )}
+                              </div>
+                              <div className="text-right shrink-0 font-mono">
+                                <span className="text-slate-500 mr-2">
+                                  {item.quantity} × Rs. {Number(item.price).toLocaleString()}
+                                </span>
+                                <span className="font-bold text-slate-900 dark:text-white">
+                                  Rs. {lineTotal.toLocaleString()}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Returned Items Section */}
+                  {returnedItems.length > 0 && (
+                    <div className="rounded-xl border border-rose-200 dark:border-rose-900/50 overflow-hidden bg-rose-50/30 dark:bg-rose-950/20">
+                      <div className="px-3.5 py-2.5 bg-rose-100/60 dark:bg-rose-950/40 border-b border-rose-200 dark:border-rose-900/50 flex items-center justify-between text-xs font-semibold">
+                        <span className="text-rose-800 dark:text-rose-300 flex items-center gap-1.5">
+                          <RotateCcw className="size-3.5 text-rose-600 dark:text-rose-400" />
+                          <span>Returned Items ({returnedItems.length})</span>
+                          <Badge variant="outline" className="text-[9px] font-bold border-rose-300 dark:border-rose-800 bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300 px-1 py-0 ml-1">
+                            RETURN
+                          </Badge>
+                        </span>
+                        <span className="text-rose-600/70 dark:text-rose-400/70 font-mono text-[11px]">Stock Restored</span>
+                      </div>
+                      <div className="divide-y divide-rose-100/80 dark:divide-rose-900/30 text-xs">
+                        {returnedItems.map((item: any, i: number) => {
+                          const unitRate = Math.abs(Number(item.price));
+                          const lineTotal = Number(item.quantity) * unitRate;
+                          const prodName =
+                            item.variant?.product?.name || item.product?.name || item.name || `Returned Item #${i + 1}`;
+                          const varInfo = [
+                            item.size || item.variant?.size?.name,
+                            item.color || item.variant?.color?.name,
+                          ]
+                            .filter(Boolean)
+                            .join(' / ');
+
+                          return (
+                            <div key={`returned-${i}`} className="p-3 flex items-center justify-between gap-2 bg-rose-50/20 dark:bg-rose-950/10">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <p className="font-semibold text-rose-900 dark:text-rose-200 truncate">
+                                    {prodName}
+                                  </p>
+                                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-200/70 dark:bg-rose-900/60 text-rose-800 dark:text-rose-200">
+                                    RETURN
+                                  </span>
+                                </div>
+                                {varInfo && (
+                                  <span className="text-[10px] text-rose-500/80 dark:text-rose-400/70 font-mono block">{varInfo}</span>
+                                )}
+                              </div>
+                              <div className="text-right shrink-0 font-mono">
+                                <span className="text-rose-600/80 dark:text-rose-400/80 mr-2">
+                                  {item.quantity} × Rs. {unitRate.toLocaleString()}
+                                </span>
+                                <span className="font-bold text-rose-600 dark:text-rose-400">
+                                  - Rs. {lineTotal.toLocaleString()}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
 
           {/* Footer */}

@@ -101,6 +101,8 @@ interface CartItem {
   discountInput?: number | '';
   discountType?: 'FIXED' | 'PERCENT';
   showDiscount?: boolean;
+  // ⭐ Return Item Mode
+  isReturn?: boolean;
 }
 
 interface PosCustomer {
@@ -182,6 +184,11 @@ export const QuickInvoicePage: React.FC = () => {
   const location = useLocation();
   const editInvoiceId = searchParams.get('editInvoiceId');
   const convertOrderId = searchParams.get('convertOrderId');
+  const isReturnBillMode = searchParams.get('mode') === 'return';
+
+  // ⭐ Inline unit price edit state for returns and custom rates
+  const [editingPriceIndex, setEditingPriceIndex] = useState<number | null>(null);
+  const [tempPriceInput, setTempPriceInput] = useState<string>('');
 
   // Dual-mode Discount: Default to Percentage (%), with Fixed Price (Rs) fallback
   const [discountType, setDiscountType] = useState<'FIXED' | 'PERCENT'>('PERCENT');
@@ -647,6 +654,8 @@ export const QuickInvoicePage: React.FC = () => {
                 itemDiscInput = lineDisc;
               }
 
+              const isItemReturn = Boolean(i.isReturn || Number(i.quantity) < 0 || Number(i.price) < 0 || Number(i.unitPrice) < 0);
+
               return {
                 variantId: i.variantId,
                 name: i.variant?.product?.name || 'Garment Item',
@@ -656,14 +665,15 @@ export const QuickInvoicePage: React.FC = () => {
                 selectedColor: chosenColor,
                 sku: i.variant?.sku || '',
                 imageUrl: i.variant?.product?.images?.[0]?.imageUrl,
-                unitPrice: Number(i.unitPrice),
-                quantity: Number(i.quantity),
-                maxStock: Number((i.variant?.stock || 0) + i.quantity), // Add back currently allocated units so validation succeeds
+                unitPrice: Math.abs(Number(i.unitPrice)),
+                quantity: Math.abs(Number(i.quantity)),
+                maxStock: Number((i.variant?.stock || 0) + Math.abs(Number(i.quantity))), // Add back currently allocated units so validation succeeds
                 itemKey: `${i.variantId}_${chosenSize}_${chosenColor}_${idx}`,
                 discount: lineDisc,
                 discountInput: itemDiscInput,
                 discountType: itemDiscType,
                 showDiscount: lineDisc > 0 || (itemDiscInput !== '' && Number(itemDiscInput) > 0),
+                isReturn: isItemReturn,
               };
             })
           );
@@ -1005,6 +1015,7 @@ export const QuickInvoicePage: React.FC = () => {
           quantity: qtyToAdd,
           maxStock: variant.stock,
           itemKey: `${variant.id}_${Date.now()}`,
+          isReturn: isReturnBillMode,
         },
       ]);
     }
@@ -1027,7 +1038,7 @@ export const QuickInvoicePage: React.FC = () => {
       return;
     }
 
-    if (targetQty > variant.stock) {
+    if (targetQty > variant.stock && !isReturnBillMode) {
       toast.warn(`Only ${variant.stock} available in stock for "${variant.product.name}"`);
       targetQty = variant.stock;
     }
@@ -1069,10 +1080,44 @@ export const QuickInvoicePage: React.FC = () => {
             quantity: targetQty,
             maxStock: variant.stock,
             itemKey: `${variant.id}_${Date.now()}`,
+            isReturn: isReturnBillMode,
           },
         ];
       }
     });
+  };
+
+  /**
+   * ⭐ Toggle cart item between Standard Sale and Return Item
+   */
+  const toggleItemReturn = (index: number) => {
+    setCart((prev) => {
+      const next = [...prev];
+      if (next[index]) {
+        next[index] = { ...next[index], isReturn: !next[index].isReturn };
+      }
+      return next;
+    });
+  };
+
+  /**
+   * ⭐ Apply custom/edited unit price to cart item
+   */
+  const handleApplyDirectPrice = (itemIndex: number) => {
+    const rawVal = parseFloat(tempPriceInput.trim());
+    const targetItem = cart[itemIndex];
+    if (!targetItem) {
+      setEditingPriceIndex(null);
+      return;
+    }
+    if (!isNaN(rawVal) && rawVal >= 0) {
+      const updatedDisc = calculateLineDiscount(rawVal, targetItem.quantity, targetItem.discountType, targetItem.discountInput);
+      setCart((prev) =>
+        prev.map((i, idx) => (idx === itemIndex ? { ...i, unitPrice: rawVal, discount: updatedDisc } : i))
+      );
+    }
+    setEditingPriceIndex(null);
+    setTempPriceInput('');
   };
 
   /**
@@ -1446,19 +1491,28 @@ export const QuickInvoicePage: React.FC = () => {
   }, [cheques, paymentMethod, splitPayments]);
 
   // Subtotal and Net Payable Total calculation
-  // Gross Subtotal (sum of unitPrice * quantity across all items)
-  const grossSubtotal = useMemo(() => cart.reduce((acc, curr) => acc + curr.unitPrice * curr.quantity, 0), [cart]);
-  // Total Item-level discounts (sum of all line-item discounts)
-  const totalItemDiscounts = useMemo(
-    () => cart.reduce((acc, curr) => acc + (Number((curr as any).discountAmount ?? curr.discount ?? 0)), 0),
+  // Gross Subtotal (sum of unitPrice * quantity, with return items treated as negative deductions)
+  const grossSubtotal = useMemo(
+    () => cart.reduce((acc, curr) => {
+      const lineTotal = curr.unitPrice * curr.quantity;
+      return acc + (curr.isReturn ? -lineTotal : lineTotal);
+    }, 0),
     [cart]
   );
-  // Net Subtotal after deducting item-level discounts
-  const subtotal = Math.max(0, grossSubtotal - totalItemDiscounts);
+  // Total Item-level discounts (sum of all line-item discounts for standard items)
+  const totalItemDiscounts = useMemo(
+    () => cart.reduce((acc, curr) => {
+      if (curr.isReturn) return acc;
+      return acc + (Number((curr as any).discountAmount ?? curr.discount ?? 0));
+    }, 0),
+    [cart]
+  );
+  // Net Subtotal after deducting item-level discounts (can be negative if returns exceed sales)
+  const subtotal = grossSubtotal - totalItemDiscounts;
 
   // Compute final order discount value in Rs based on selected mode (FIXED or PERCENT)
   const discountAmount = useMemo(() => {
-    if (!discountInput || discountInput <= 0) return 0;
+    if (!discountInput || discountInput <= 0 || subtotal <= 0) return 0;
     if (discountType === 'PERCENT') {
       const percentage = Math.min(100, Math.max(0, discountInput));
       return Math.round((subtotal * percentage) / 100);
@@ -1466,30 +1520,40 @@ export const QuickInvoicePage: React.FC = () => {
     return Math.min(subtotal, Math.max(0, discountInput));
   }, [subtotal, discountInput, discountType]);
 
-  const total = Math.max(0, subtotal - discountAmount);
+  const total = subtotal - discountAmount;
+  const isNetCredit = total < 0;
+  const netCreditValue = isNetCredit ? Math.abs(total) : 0;
+  const cashRefundAmount = netCreditValue > 0
+    ? (previousDue <= 0 ? netCreditValue : Math.max(0, netCreditValue - previousDue))
+    : 0;
 
   // Client Cash parsing (dynamically treat empty, negative, or invalid input as 0)
   const parsedClientCash = Math.max(0, Number(clientGivenCash) || 0);
 
   // Dynamic real-time balance calculations supporting Cash, Split Multi-Payments, Cheques & Credit
-  const tenderedAmount = splitPayments.length > 0
-    ? totalSplitAmount
-    : (paymentMethod === 'CHEQUE'
-      ? totalChequeAmount
-      : (clientGivenCash !== ''
-        ? parsedClientCash
-        : (paymentMethod === 'CREDIT' ? 0 : total)));
+  const effectivePayableTotal = Math.max(0, total);
+  const tenderedAmount = isNetCredit
+    ? 0
+    : (splitPayments.length > 0
+      ? totalSplitAmount
+      : (paymentMethod === 'CHEQUE'
+        ? totalChequeAmount
+        : (clientGivenCash !== ''
+          ? parsedClientCash
+          : (paymentMethod === 'CREDIT' ? 0 : effectivePayableTotal))));
 
-  const paidAmount = splitPayments.length > 0
-    ? Math.min(total, totalSplitAmount)
-    : (paymentMethod === 'CHEQUE'
-      ? Math.min(total, totalChequeAmount)
-      : (clientGivenCash !== ''
-        ? Math.min(total, parsedClientCash)
-        : (paymentMethod === 'CREDIT' ? 0 : total)));
+  const paidAmount = isNetCredit
+    ? 0
+    : (splitPayments.length > 0
+      ? Math.min(effectivePayableTotal, totalSplitAmount)
+      : (paymentMethod === 'CHEQUE'
+        ? Math.min(effectivePayableTotal, totalChequeAmount)
+        : (clientGivenCash !== ''
+          ? Math.min(effectivePayableTotal, parsedClientCash)
+          : (paymentMethod === 'CREDIT' ? 0 : effectivePayableTotal))));
 
-  const excessAmount = Math.max(0, tenderedAmount - total);
-  const currentBillDue = Math.max(0, total - paidAmount);
+  const excessAmount = Math.max(0, tenderedAmount - effectivePayableTotal);
+  const currentBillDue = isNetCredit ? 0 : Math.max(0, effectivePayableTotal - paidAmount);
 
   // Outstanding Balance calculations (Previous Due & Accumulated Credit)
   const rawCustomerOutstanding = selectedCustomer ? Number(selectedCustomer.outstandingBalance || 0) : 0;
@@ -1766,6 +1830,11 @@ export const QuickInvoicePage: React.FC = () => {
     const isWalkIn = selectedCustomerId === 'walk-in' || !selectedCustomerId;
     const isUnderpaid = clientGivenCash !== '' ? parsedClientCash < total : paymentMethod === 'CREDIT';
 
+    if ((isReturnBillMode || total < 0) && isWalkIn) {
+      toast.error('Customer selection is required for Return Bills / Credit Refunds');
+      return;
+    }
+
     if (isWalkIn && (paymentMethod === 'CREDIT' || isUnderpaid)) {
       toast.error('Credit or partial payment is only allowed for registered customers. Please select or add a customer.');
       return;
@@ -1776,8 +1845,8 @@ export const QuickInvoicePage: React.FC = () => {
       const selectedCust = customers.find((c) => String(c.id) === String(selectedCustomerId));
 
       // Accurately resolve tendered and paid cash without wiping part-payments on credit bills
-      let resolvedTendered = total;
-      let resolvedPaid = total;
+      let resolvedTendered = isNetCredit ? 0 : total;
+      let resolvedPaid = isNetCredit ? 0 : total;
       let resolvedCheques: any[] | undefined = undefined;
       let resolvedSplitPayments: any[] | undefined = undefined;
 
@@ -1805,7 +1874,7 @@ export const QuickInvoicePage: React.FC = () => {
         }
 
         resolvedTendered = totalSplitAmount;
-        resolvedPaid = Math.min(total, totalSplitAmount);
+        resolvedPaid = Math.min(effectivePayableTotal, totalSplitAmount);
       } else if (paymentMethod === 'CHEQUE') {
         resolvedCheques = cheques
           .filter((c) => Number(c.amount) > 0 || c.chequeNumber.trim() !== '')
@@ -1816,18 +1885,18 @@ export const QuickInvoicePage: React.FC = () => {
             amount: Number(c.amount) || 0,
           }));
         resolvedTendered = totalChequeAmount;
-        resolvedPaid = Math.min(total, totalChequeAmount);
+        resolvedPaid = Math.min(effectivePayableTotal, totalChequeAmount);
       } else if (clientGivenCash !== '') {
         // If cashier typed an amount (e.g. 150), honor it as the tendered & paid amount
         resolvedTendered = parsedClientCash;
-        resolvedPaid = Math.min(total, parsedClientCash);
-      } else if (paymentMethod === 'CREDIT') {
-        // Pure zero-down credit sale when no client cash was entered
+        resolvedPaid = Math.min(effectivePayableTotal, parsedClientCash);
+      } else if (paymentMethod === 'CREDIT' || isNetCredit) {
+        // Pure zero-down credit sale or return credit
         resolvedTendered = 0;
         resolvedPaid = 0;
       }
 
-      const creditDue = Math.max(0, total - resolvedPaid);
+      const creditDue = Math.max(0, effectivePayableTotal - resolvedPaid);
       const isUnderpaidDue = creditDue > 0;
       const finalSettledDue = isSettlingDue ? settledDueAmount : (excessMode === 'SETTLE_DUE' ? Math.min(previousDue, excessAmount) : 0);
 
@@ -1843,6 +1912,7 @@ export const QuickInvoicePage: React.FC = () => {
 
       const payload = {
         source: isRepUser ? 'POS_WHOLESALE' : (pricingMode === 'WHOLESALE' ? 'POS_WHOLESALE' : 'POS_RETAIL'),
+        isReturnBill: isReturnBillMode || total < 0,
         customerId: !isWalkIn && selectedCust ? selectedCust.id : undefined,
         customerName: selectedCust ? selectedCust.name : 'Walk-in Customer',
         customerPhone: selectedCust ? selectedCust.phone : undefined,
@@ -1850,10 +1920,11 @@ export const QuickInvoicePage: React.FC = () => {
           variantId: i.variantId,
           quantity: i.quantity,
           unitPrice: i.unitPrice,
-          discount: i.discount || 0,
+          isReturn: Boolean(i.isReturn),
+          discount: i.isReturn ? 0 : (i.discount || 0),
           discountType: i.discountType || 'FIXED',
           discountInput: i.discountInput !== undefined && i.discountInput !== '' ? Number(i.discountInput) : 0,
-          price: Math.max(0, (i.unitPrice * i.quantity) - (i.discount || 0)),
+          price: i.isReturn ? -(i.unitPrice * i.quantity) : Math.max(0, (i.unitPrice * i.quantity) - (i.discount || 0)),
           size: i.size,
           color: i.color,
           selectedSize: i.size,
@@ -1866,9 +1937,10 @@ export const QuickInvoicePage: React.FC = () => {
         discountRate: discountType === 'PERCENT' ? (discountInput > 0 ? discountInput : undefined) : undefined,
         totalAmount: total,
         paidAmount: resolvedPaid,
+        refundedCashAmount: cashRefundAmount,
         settledDueAmount: finalSettledDue,
         excessMode: finalSettledDue > 0 ? 'SETTLE_DUE' : excessMode,
-        paymentMethod: paymentMethod === 'CREDIT' || isUnderpaidDue ? 'CREDIT' : paymentMethod,
+        paymentMethod: isNetCredit ? 'CREDIT' : (paymentMethod === 'CREDIT' || isUnderpaidDue ? 'CREDIT' : paymentMethod),
         splitPayments: resolvedSplitPayments && resolvedSplitPayments.length > 0 ? resolvedSplitPayments : undefined,
         cheques: resolvedCheques && resolvedCheques.length > 0 ? resolvedCheques : undefined,
         notes: cleanUserNote || undefined,
@@ -2449,12 +2521,17 @@ export const QuickInvoicePage: React.FC = () => {
               </div>
               <div className="flex items-center gap-1.5 min-w-0">
                 <h3 className="font-bold text-sm text-slate-900 dark:text-white truncate">
-                  {isEditing ? `Edit #INV${originalInvoice?.id}` : 'Active Order'}
+                  {isEditing ? `Edit #INV${originalInvoice?.id}` : isReturnBillMode ? 'Return Bill' : 'Active Order'}
                 </h3>
                 <Badge variant="secondary" className="text-[10px] font-mono px-1.5 py-0 h-4 bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300">
                   {cart.length} {cart.length === 1 ? 'item' : 'items'}
                 </Badge>
               </div>
+              {isReturnBillMode && (
+                <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-rose-500 text-rose-600 bg-rose-50 dark:bg-rose-950/40 font-bold">
+                  RETURN BILL
+                </Badge>
+              )}
               {isEditing && (
                 <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-blue-500 text-blue-600 bg-blue-50 dark:bg-blue-950/40">
                   EDIT
@@ -2628,14 +2705,25 @@ export const QuickInvoicePage: React.FC = () => {
                 return (
                   <div
                     key={item.itemKey || `${item.variantId}_${idx}`}
-                    className="py-1.5 flex flex-col group hover:bg-slate-50/60 dark:hover:bg-zinc-800/30 px-1 rounded-lg transition-colors"
+                    className={`py-1.5 flex flex-col group px-1.5 rounded-lg transition-colors ${
+                      item.isReturn
+                        ? 'bg-rose-50/80 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60'
+                        : 'hover:bg-slate-50/60 dark:hover:bg-zinc-800/30'
+                    }`}
                   >
                     <div className="flex items-center justify-between gap-1.5">
                       {/* Product Name & Variant Details */}
                       <div className="min-w-0 flex-1 pr-1.5">
-                        <h5 className="font-semibold text-xs text-slate-900 dark:text-white leading-tight break-words line-clamp-2" title={item.name}>
-                          {item.name}
-                        </h5>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <h5 className="font-semibold text-xs text-slate-900 dark:text-white leading-tight break-words line-clamp-2" title={item.name}>
+                            {item.name}
+                          </h5>
+                          {item.isReturn && (
+                            <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-rose-500 text-rose-600 bg-rose-100/60 dark:bg-rose-950/60 font-bold shrink-0">
+                              RETURN
+                            </Badge>
+                          )}
+                        </div>
                         {variantDesc && (
                           <p
                             className="truncate max-w-[170px] text-[11px] text-muted-foreground text-slate-500 dark:text-zinc-400 mt-0.5"
@@ -2645,8 +2733,40 @@ export const QuickInvoicePage: React.FC = () => {
                           </p>
                         )}
                         <div className="text-[10px] text-slate-400 font-mono mt-0.5 flex items-center flex-wrap gap-1">
-                          <span>@ Rs. {item.unitPrice.toLocaleString()}</span>
-                          {Number(item.discount || 0) > 0 && (
+                          {editingPriceIndex === idx ? (
+                            <div className="inline-flex items-center gap-1">
+                              <span>Rs.</span>
+                              <input
+                                type="number"
+                                step="any"
+                                min="0"
+                                autoFocus
+                                value={tempPriceInput}
+                                onChange={(e) => setTempPriceInput(e.target.value)}
+                                onFocus={(e) => e.target.select()}
+                                onBlur={() => handleApplyDirectPrice(idx)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleApplyDirectPrice(idx);
+                                  else if (e.key === 'Escape') setEditingPriceIndex(null);
+                                }}
+                                className="w-16 h-5 px-1 text-xs font-mono font-bold rounded border border-emerald-500 bg-white dark:bg-zinc-900 text-slate-900 dark:text-white"
+                              />
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingPriceIndex(idx);
+                                setTempPriceInput(String(item.unitPrice));
+                              }}
+                              className="hover:underline flex items-center gap-0.5 cursor-pointer text-slate-600 dark:text-zinc-300"
+                              title="Click to edit unit price"
+                            >
+                              <span>@ Rs. {item.unitPrice.toLocaleString()}</span>
+                              <Pencil className="size-2 text-slate-400" />
+                            </button>
+                          )}
+                          {!item.isReturn && Number(item.discount || 0) > 0 && (
                             <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold font-mono">
                               (-Rs. {Number(item.discount).toLocaleString()})
                             </span>
@@ -2714,26 +2834,48 @@ export const QuickInvoicePage: React.FC = () => {
                         </button>
                       </div>
 
-                      {/* Small Minimal "Add Discount" Icon Button */}
+                      {/* Return Toggle Button */}
                       <button
                         type="button"
-                        onClick={() => toggleItemDiscount(idx)}
-                        className={`size-6 rounded-md flex items-center justify-center transition-all cursor-pointer select-none shrink-0 ${
-                          item.discount && item.discount > 0
-                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 font-bold border border-emerald-300 dark:border-emerald-700 shadow-2xs'
-                            : item.showDiscount
-                            ? 'bg-slate-200 text-slate-800 dark:bg-zinc-700 dark:text-zinc-200'
-                            : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-zinc-800'
+                        onClick={() => toggleItemReturn(idx)}
+                        className={`h-6 px-1.5 rounded-md flex items-center gap-0.5 text-[9.5px] font-bold transition-all cursor-pointer select-none shrink-0 ${
+                          item.isReturn
+                            ? 'bg-rose-600 text-white shadow-2xs'
+                            : 'bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-500 hover:text-slate-900 dark:text-zinc-400'
                         }`}
-                        title={item.showDiscount ? "Hide discount input" : "Add / Edit item discount"}
+                        title={item.isReturn ? 'Item marked as Return (click to switch to Sale)' : 'Toggle as Return item'}
                       >
-                        <Percent className="size-3" />
+                        <RotateCcw className="size-2.5" />
+                        <span>{item.isReturn ? 'Return' : 'Ret'}</span>
                       </button>
+
+                      {/* Small Minimal "Add Discount" Icon Button (only for sales) */}
+                      {!item.isReturn && (
+                        <button
+                          type="button"
+                          onClick={() => toggleItemDiscount(idx)}
+                          className={`size-6 rounded-md flex items-center justify-center transition-all cursor-pointer select-none shrink-0 ${
+                            item.discount && item.discount > 0
+                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 font-bold border border-emerald-300 dark:border-emerald-700 shadow-2xs'
+                              : item.showDiscount
+                              ? 'bg-slate-200 text-slate-800 dark:bg-zinc-700 dark:text-zinc-200'
+                              : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-zinc-800'
+                          }`}
+                          title={item.showDiscount ? "Hide discount input" : "Add / Edit item discount"}
+                        >
+                          <Percent className="size-3" />
+                        </button>
+                      )}
 
                       {/* Line Total & Remove button */}
                       <div className="flex items-center gap-1 shrink-0">
-                        <span className="font-mono font-bold text-xs text-right text-slate-900 dark:text-white min-w-[50px]">
-                          Rs. {Math.max(0, (item.unitPrice * item.quantity) - (item.discount || 0)).toLocaleString()}
+                        <span className={`font-mono font-bold text-xs text-right min-w-[55px] ${
+                          item.isReturn ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'
+                        }`}>
+                          {item.isReturn
+                            ? `- Rs. ${(item.unitPrice * item.quantity).toLocaleString()}`
+                            : `Rs. ${Math.max(0, (item.unitPrice * item.quantity) - (item.discount || 0)).toLocaleString()}`
+                          }
                         </span>
                         <button
                           type="button"
@@ -2882,9 +3024,11 @@ export const QuickInvoicePage: React.FC = () => {
           {/* Current Bill Total & Tendered Input */}
           <div className="flex items-center justify-between py-1.5 px-2 rounded-lg bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800">
             <div>
-              <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block leading-tight">Total Due (Current Bill)</span>
-              <span className="font-mono text-sm font-extrabold text-emerald-600 dark:text-emerald-400">
-                Rs. {total.toLocaleString()}
+              <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block leading-tight">
+                {isNetCredit ? 'Customer Credit (Refund)' : 'Total Due (Current Bill)'}
+              </span>
+              <span className={`font-mono text-sm font-extrabold ${isNetCredit ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                {isNetCredit ? `Rs. ${Math.abs(total).toLocaleString()}` : `Rs. ${total.toLocaleString()}`}
               </span>
             </div>
 
@@ -2908,6 +3052,33 @@ export const QuickInvoicePage: React.FC = () => {
               />
             </div>
           </div>
+
+          {/* Cash Refund to Customer Highlighted Box */}
+          {cashRefundAmount > 0 && (
+            <div className="p-2.5 rounded-xl bg-emerald-500/10 dark:bg-emerald-950/40 border-2 border-emerald-500/40 dark:border-emerald-600/50 shadow-xs flex items-center justify-between animate-in fade-in duration-200">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-emerald-500 text-white shadow-2xs">
+                  <RotateCcw className="size-3.5" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 dark:text-emerald-300 block leading-tight">
+                    Cash Refund to Customer
+                  </span>
+                  <span className="text-[9.5px] text-emerald-600 dark:text-emerald-400 font-medium block">
+                    Hand back physical cash to customer
+                  </span>
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="font-mono text-sm font-black text-emerald-700 dark:text-emerald-300 block">
+                  Rs. {cashRefundAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </span>
+                <span className="text-[8.5px] font-bold text-emerald-600/90 dark:text-emerald-400 uppercase tracking-widest">
+                  Refund Due
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* Structured Financial Ledger Breakdown */}
           <div className="space-y-0.5 bg-slate-50/80 dark:bg-zinc-950/60 rounded-lg p-1.5 border border-slate-200/80 dark:border-zinc-800/80 text-[10.5px]">
@@ -3430,23 +3601,43 @@ export const QuickInvoicePage: React.FC = () => {
                   return (
                     <div
                       key={`mob_${item.itemKey || `${item.variantId}_${idx}`}`}
-                      className="py-2 px-2.5 rounded-xl border border-slate-100 dark:border-zinc-800/80 bg-slate-50/50 dark:bg-zinc-900/40 hover:bg-slate-100/60 dark:hover:bg-zinc-800/40 transition-colors flex flex-col gap-1.5"
+                      className={`py-2 px-2.5 rounded-xl border transition-colors flex flex-col gap-1.5 ${
+                        item.isReturn
+                          ? 'bg-rose-50/80 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/60'
+                          : 'border-slate-100 dark:border-zinc-800/80 bg-slate-50/50 dark:bg-zinc-900/40 hover:bg-slate-100/60 dark:hover:bg-zinc-800/40'
+                      }`}
                     >
                       {/* Row 1: Full-width Product Name, Variant Badge, Unit Rate, and Delete Trash Icon */}
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1 space-y-1">
-                          <h5 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white leading-tight break-words">
-                            {item.name}
-                          </h5>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h5 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white leading-tight break-words">
+                              {item.name}
+                            </h5>
+                            {item.isReturn && (
+                              <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-rose-500 text-rose-600 bg-rose-100/60 dark:bg-rose-950/60 font-bold shrink-0">
+                                RETURN
+                              </Badge>
+                            )}
+                          </div>
                           <div className="flex items-center flex-wrap gap-1.5">
                             {variantDesc && (
                               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-200/70 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300">
                                 {variantDesc}
                               </span>
                             )}
-                            <span className="text-[11px] text-slate-500 dark:text-zinc-400 font-mono">
-                              @ Rs. {item.unitPrice.toLocaleString()}
-                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingPriceIndex(idx);
+                                setTempPriceInput(String(item.unitPrice));
+                              }}
+                              className="text-[11px] text-slate-500 dark:text-zinc-400 font-mono hover:underline flex items-center gap-0.5"
+                              title="Click to edit unit price"
+                            >
+                              <span>@ Rs. {item.unitPrice.toLocaleString()}</span>
+                              <Pencil className="size-2.5 text-slate-400" />
+                            </button>
                           </div>
                         </div>
 
@@ -3522,29 +3713,50 @@ export const QuickInvoicePage: React.FC = () => {
                           </button>
                         </div>
 
-                        {/* Item Discount Toggle Button & Line Total */}
-                        <div className="flex items-center gap-2">
+                        {/* Return Toggle Button & Item Discount Toggle Button & Line Total */}
+                        <div className="flex items-center gap-1.5">
                           <button
                             type="button"
-                            onClick={() => toggleItemDiscount(idx)}
-                            className={`size-7 h-7 w-7 rounded-lg flex items-center justify-center transition-all cursor-pointer select-none shrink-0 ${
-                              item.discount && item.discount > 0
-                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 font-bold border border-emerald-300 dark:border-emerald-700 shadow-2xs'
-                                : item.showDiscount
-                                ? 'bg-slate-300 text-slate-800 dark:bg-zinc-700 dark:text-zinc-200'
-                                : 'bg-slate-200/70 text-slate-500 dark:bg-zinc-800 dark:text-zinc-400 hover:text-emerald-600'
+                            onClick={() => toggleItemReturn(idx)}
+                            className={`h-7 px-2 rounded-lg flex items-center gap-0.5 text-[10px] font-bold transition-all cursor-pointer select-none shrink-0 ${
+                              item.isReturn
+                                ? 'bg-rose-600 text-white shadow-2xs'
+                                : 'bg-slate-200/70 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300 hover:bg-slate-300'
                             }`}
-                            title={item.showDiscount ? "Hide item discount" : "Add item discount"}
+                            title={item.isReturn ? 'Item marked as Return' : 'Toggle as Return item'}
                           >
-                            <Percent className="size-3" />
+                            <RotateCcw className="size-2.5" />
+                            <span>{item.isReturn ? 'Return' : 'Ret'}</span>
                           </button>
+
+                          {!item.isReturn && (
+                            <button
+                              type="button"
+                              onClick={() => toggleItemDiscount(idx)}
+                              className={`size-7 h-7 w-7 rounded-lg flex items-center justify-center transition-all cursor-pointer select-none shrink-0 ${
+                                item.discount && item.discount > 0
+                                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 font-bold border border-emerald-300 dark:border-emerald-700 shadow-2xs'
+                                  : item.showDiscount
+                                  ? 'bg-slate-300 text-slate-800 dark:bg-zinc-700 dark:text-zinc-200'
+                                  : 'bg-slate-200/70 text-slate-500 dark:bg-zinc-800 dark:text-zinc-400 hover:text-emerald-600'
+                              }`}
+                              title={item.showDiscount ? "Hide item discount" : "Add item discount"}
+                            >
+                              <Percent className="size-3" />
+                            </button>
+                          )}
 
                           <div className="flex items-center gap-1.5 text-right">
                             <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-400 dark:text-zinc-500">
                               Total:
                             </span>
-                            <span className="font-mono font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
-                              Rs. {Math.max(0, (item.unitPrice * item.quantity) - (item.discount || 0)).toLocaleString()}
+                            <span className={`font-mono font-bold text-xs sm:text-sm ${
+                              item.isReturn ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'
+                            }`}>
+                              {item.isReturn
+                                ? `- Rs. ${(item.unitPrice * item.quantity).toLocaleString()}`
+                                : `Rs. ${Math.max(0, (item.unitPrice * item.quantity) - (item.discount || 0)).toLocaleString()}`
+                              }
                             </span>
                           </div>
                         </div>
@@ -3685,9 +3897,11 @@ export const QuickInvoicePage: React.FC = () => {
               {/* Bill Total & Tendered Input */}
               <div className="flex items-center justify-between py-1 px-2 rounded-lg bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800">
                 <div>
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block leading-tight">Total Due (Current Bill)</span>
-                  <span className="font-mono text-sm font-extrabold text-emerald-600 dark:text-emerald-400">
-                    Rs. {total.toLocaleString()}
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block leading-tight">
+                    {isNetCredit ? 'Customer Credit (Refund)' : 'Total Due (Current Bill)'}
+                  </span>
+                  <span className={`font-mono text-sm font-extrabold ${isNetCredit ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                    {isNetCredit ? `Rs. ${Math.abs(total).toLocaleString()}` : `Rs. ${total.toLocaleString()}`}
                   </span>
                 </div>
 
@@ -3711,6 +3925,33 @@ export const QuickInvoicePage: React.FC = () => {
                   />
                 </div>
               </div>
+
+              {/* Cash Refund to Customer Highlighted Box */}
+              {cashRefundAmount > 0 && (
+                <div className="p-2.5 rounded-xl bg-emerald-500/10 dark:bg-emerald-950/40 border-2 border-emerald-500/40 dark:border-emerald-600/50 shadow-xs flex items-center justify-between animate-in fade-in duration-200">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-lg bg-emerald-500 text-white shadow-2xs">
+                      <RotateCcw className="size-3.5" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 dark:text-emerald-300 block leading-tight">
+                        Cash Refund to Customer
+                      </span>
+                      <span className="text-[9.5px] text-emerald-600 dark:text-emerald-400 font-medium block">
+                        Hand back physical cash to customer
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-mono text-sm font-black text-emerald-700 dark:text-emerald-300 block">
+                      Rs. {cashRefundAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </span>
+                    <span className="text-[8.5px] font-bold text-emerald-600/90 dark:text-emerald-400 uppercase tracking-widest">
+                      Refund Due
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* Financial Ledger Breakdown */}
               <div className="space-y-0.5 bg-slate-50/80 dark:bg-zinc-950/60 rounded-lg p-1.5 border border-slate-200/80 dark:border-zinc-800/80 text-[10.5px]">

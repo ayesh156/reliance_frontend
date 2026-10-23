@@ -7,7 +7,11 @@ export interface AuthUser {
   name: string;
   email: string;
   role: string;
+  permissions?: string[];
 }
+
+/** Default permissions strictly injected for Staff accounts */
+export const DEFAULT_STAFF_PERMISSIONS = ['production', 'line', 'wash', 'materials'];
 
 /**
  * Safely parse JWT payload to extract user info if auth_user is not yet cached.
@@ -26,11 +30,13 @@ function parseJwtPayload(token: string): Partial<AuthUser> | null {
     );
     const parsed = JSON.parse(jsonPayload);
     if (!parsed || !parsed.userId) return null;
+    const role = parsed.role || 'STAFF';
     return {
       id: parsed.userId,
       name: parsed.name || 'User',
       email: parsed.email || '',
-      role: parsed.role || 'STAFF',
+      role,
+      permissions: parsed.permissions || (role === 'STAFF' ? DEFAULT_STAFF_PERMISSIONS : []),
     };
   } catch {
     return null;
@@ -46,7 +52,12 @@ function getInitialUser(storedToken: string | null): AuthUser | null {
     const cached = localStorage.getItem('auth_user');
     if (cached) {
       const parsed = JSON.parse(cached);
-      if (parsed && parsed.id) return parsed;
+      if (parsed && parsed.id) {
+        if (!parsed.permissions && parsed.role === 'STAFF') {
+          parsed.permissions = DEFAULT_STAFF_PERMISSIONS;
+        }
+        return parsed;
+      }
     }
     if (storedToken) {
       const decoded = parseJwtPayload(storedToken);
@@ -56,6 +67,7 @@ function getInitialUser(storedToken: string | null): AuthUser | null {
           name: decoded.name || 'User',
           email: decoded.email || '',
           role: decoded.role || 'STAFF',
+          permissions: decoded.permissions || (decoded.role === 'STAFF' ? DEFAULT_STAFF_PERMISSIONS : []),
         };
       }
     }
@@ -84,6 +96,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isAdmin: boolean;
   isRep: boolean;
+  hasPermission: (permission: string) => boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -146,11 +159,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       if (res.ok) {
         const data = await res.json();
+        const role = data.role || 'STAFF';
+        const permissions: string[] = Array.isArray(data.permissions) && data.permissions.length > 0
+          ? data.permissions
+          : (role === 'STAFF' ? DEFAULT_STAFF_PERMISSIONS : []);
+
         const verifiedUser: AuthUser = {
           id: data.id,
           name: data.name,
           email: data.email || '',
-          role: data.role,
+          role,
+          permissions,
         };
         setUser(verifiedUser);
         localStorage.setItem('auth_user', JSON.stringify(verifiedUser));
@@ -199,11 +218,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error(err.error || 'Login failed');
     }
     const data = await res.json();
+    const role = data.user.role || 'STAFF';
+    const permissions: string[] = Array.isArray(data.user.permissions) && data.user.permissions.length > 0
+      ? data.user.permissions
+      : (role === 'STAFF' ? DEFAULT_STAFF_PERMISSIONS : []);
+
     const loggedUser: AuthUser = {
       id: data.user.id,
       name: data.user.name,
       email: data.user.email || '',
-      role: data.user.role,
+      role,
+      permissions,
     };
     localStorage.setItem('auth_token', data.token);
     localStorage.setItem('auth_user', JSON.stringify(loggedUser));
@@ -219,6 +244,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
   }, []);
 
+  /**
+   * Dynamic Permission checker.
+   * - Administrators automatically bypass all checks.
+   * - Staff users require the specific module permission token.
+   */
+  const hasPermission = useCallback((permission: string): boolean => {
+    if (!user) return false;
+    if (user.role === 'ADMIN') return true;
+    if (!permission) return true;
+    const permissions = user.permissions || (user.role === 'STAFF' ? DEFAULT_STAFF_PERMISSIONS : []);
+    return permissions.includes(permission);
+  }, [user]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -230,6 +268,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAuthenticated: !!user && !!token,
         isAdmin: user?.role === 'ADMIN',
         isRep: user?.role === 'REP',
+        hasPermission,
       }}
     >
       {children}

@@ -26,9 +26,130 @@ import {
   Info,
   Clock,
   History,
+  ArrowRight,
 } from 'lucide-react';
 import { BatchStatusBadge } from './BatchStatusBadge';
 import { SendToLineModal } from './SendToLineModal';
+
+export interface StageTransitionInfo {
+  fromStage: string;
+  toStage: string;
+  fromStyle: string;
+  toStyle: string;
+  label: string;
+  actionDisplay: string;
+}
+
+export function resolveStageTransition(stage?: string | null, action?: string | null, notes?: string | null): StageTransitionInfo {
+  const stg = (stage || '').toUpperCase().trim();
+  const act = (action || '').toUpperCase().trim();
+
+  // 1. Send to Line from Cutting
+  if (act.includes('SEND_TO_LINE') || (stg === 'LINE' && (act.includes('LINE') || act.includes('DISPATCH')))) {
+    if (act.includes('DIRECT_LINE')) {
+      return {
+        fromStage: 'Direct Cut',
+        toStage: 'Sewing Line',
+        fromStyle: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300 dark:border-amber-800',
+        toStyle: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800',
+        label: 'Dispatched to Sewing Line',
+        actionDisplay: 'Direct Line Intake',
+      };
+    }
+    return {
+      fromStage: 'Cutting Floor',
+      toStage: 'Sewing Line',
+      fromStyle: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300 dark:border-amber-800',
+      toStyle: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800',
+      label: 'Sent to Sewing Line',
+      actionDisplay: 'Dispatched to Line Floor',
+    };
+  }
+
+  // 2. Send to Wash from Line
+  if (act.includes('SEND_TO_WASH') || (stg === 'WASHING' && act.includes('WASH') && !act.includes('LOG_WASHED'))) {
+    return {
+      fromStage: 'Sewing Line',
+      toStage: 'Wash Stage',
+      fromStyle: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800',
+      toStyle: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-300 border-cyan-300 dark:border-cyan-800',
+      label: 'Sent to Wash Floor',
+      actionDisplay: 'Dispatched to Washing',
+    };
+  }
+
+  // 3. Wash to Stock / Washed Logged / Finished
+  if (act.includes('LOG_WASHED') || act.includes('WASHED') || act.includes('FINALIZED') || act.includes('FINISH_BATCH')) {
+    return {
+      fromStage: 'Wash Stage',
+      toStage: 'Product Stock',
+      fromStyle: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-300 border-cyan-300 dark:border-cyan-800',
+      toStyle: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800',
+      label: 'Added to Inventory Stock',
+      actionDisplay: 'Synced to Finished Stock',
+    };
+  }
+
+  // 4. Initial Cut
+  if (act.includes('INITIAL_CUT') || act.includes('CUTTING') || act.includes('BATCH_CREATED')) {
+    return {
+      fromStage: 'Raw Fabric',
+      toStage: 'Cutting Floor',
+      fromStyle: 'bg-slate-100 text-slate-800 dark:bg-zinc-800 dark:text-zinc-200 border-slate-300 dark:border-zinc-700',
+      toStyle: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300 dark:border-amber-800',
+      label: 'Fabric Cut Initiated',
+      actionDisplay: 'Initial Cutting Completed',
+    };
+  }
+
+  // 5. Cut Edit
+  if (act.includes('EDIT_CUT') || act.includes('CUT_ADJUSTED')) {
+    return {
+      fromStage: 'Cutting Floor',
+      toStage: 'Cut Adjusted',
+      fromStyle: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300 dark:border-amber-800',
+      toStyle: 'bg-orange-100 text-orange-800 dark:bg-orange-950/60 dark:text-orange-300 border-orange-300 dark:border-orange-800',
+      label: 'Cutting Log Adjusted',
+      actionDisplay: 'Quantity Adjusted',
+    };
+  }
+
+  // 6. Returned Scrap
+  if (act.includes('RETURN') || act.includes('SCRAP')) {
+    return {
+      fromStage: 'Cutting Floor',
+      toStage: 'Warehouse Stock',
+      fromStyle: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300 dark:border-amber-800',
+      toStyle: 'bg-teal-100 text-teal-800 dark:bg-teal-950/60 dark:text-teal-300 border-teal-300 dark:border-teal-800',
+      label: 'Scrap Returned to Warehouse',
+      actionDisplay: 'Warehouse Stock Restored',
+    };
+  }
+
+  // 7. Cancelled
+  if (act.includes('CANCEL') || stg.includes('CANCEL')) {
+    return {
+      fromStage: 'Production',
+      toStage: 'Cancelled',
+      fromStyle: 'bg-slate-100 text-slate-800 dark:bg-zinc-800 dark:text-zinc-200 border-slate-300 dark:border-zinc-700',
+      toStyle: 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border-rose-300 dark:border-rose-800',
+      label: 'Batch Cancelled & Refunded',
+      actionDisplay: 'Materials Restored to Stock',
+    };
+  }
+
+  // Default fallback (clean up underscores)
+  const cleanStage = (stage || 'Production').replace(/_/g, ' ').trim();
+  const cleanAction = (action || 'Processed').replace(/_/g, ' ').trim();
+  return {
+    fromStage: cleanStage,
+    toStage: cleanAction,
+    fromStyle: 'bg-slate-100 text-slate-800 dark:bg-zinc-800 dark:text-zinc-200 border-slate-300 dark:border-zinc-700',
+    toStyle: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800',
+    label: `${cleanStage} to ${cleanAction}`,
+    actionDisplay: cleanAction,
+  };
+}
 
 export interface ProductionBatchDetailModalProps {
   open: boolean;
@@ -375,30 +496,33 @@ export const ProductionBatchDetailModal: React.FC<ProductionBatchDetailModalProp
                           : log.notes)
                       : '';
 
+                    const transition = resolveStageTransition(log.stage, log.action, log.notes);
+
                     return (
                       <div
                         key={log.id || lIdx}
-                        className="flex items-start justify-between gap-3 text-xs p-2 rounded-lg bg-white dark:bg-zinc-950 border border-slate-200/70 dark:border-zinc-800"
+                        className="flex items-start justify-between gap-3 text-xs p-2.5 rounded-lg bg-white dark:bg-zinc-950 border border-slate-200/70 dark:border-zinc-800 shadow-2xs hover:border-slate-300 dark:hover:border-zinc-700 transition-colors"
                       >
-                        <div className="space-y-0.5">
-                          <div className="flex items-center gap-2">
-                            <Badge
-                              variant="secondary"
-                              className="text-[9px] font-bold uppercase tracking-wider py-0 px-1.5"
-                            >
-                              {log.stage || 'STAGE'}
-                            </Badge>
-                            <span className="font-semibold text-slate-800 dark:text-zinc-200">
-                              {log.action}
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider border shadow-2xs ${transition.fromStyle}`}>
+                              {transition.fromStage}
+                            </span>
+                            <ArrowRight className="size-3 text-slate-400 shrink-0" />
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider border shadow-2xs ${transition.toStyle}`}>
+                              {transition.toStage}
+                            </span>
+                            <span className="font-semibold text-slate-800 dark:text-zinc-200 ml-1 text-xs">
+                              {transition.actionDisplay}
                             </span>
                             {log.quantity > 0 && !isCutEvent && (
-                              <span className="font-mono text-indigo-600 dark:text-indigo-400 font-bold">
-                                ({log.quantity} Units)
+                              <span className="font-mono text-indigo-600 dark:text-indigo-400 font-bold text-[11px] ml-0.5">
+                                (+{log.quantity} Units)
                               </span>
                             )}
                           </div>
                           {displayNotes && (
-                            <p className="text-[11px] text-slate-500 dark:text-zinc-400">
+                            <p className="text-[11px] text-slate-500 dark:text-zinc-400 pl-0.5">
                               {displayNotes}
                             </p>
                           )}

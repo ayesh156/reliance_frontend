@@ -31,24 +31,25 @@ interface NavItem {
   label: string;
   path: string;
   icon: React.ElementType;
+  permission?: string;
   roles?: string[]; // If undefined, accessible to all authenticated users
 }
 
 const navItems: NavItem[] = [
-  { label: "Quick Invoice", path: "/system/quick-invoice", icon: MonitorSmartphone }, 
-  { label: "Invoices", path: "/system/invoices", icon: FileText },
-  { label: "Orders", path: "/system/orders", icon: ClipboardList },
-  { label: "Products", path: "/system/products", icon: ShoppingBag },
-  { label: "Attributes", path: "/system/attributes", icon: Tags, roles: ["ADMIN", "STAFF"] },
-  { label: "Customers", path: "/system/customers", icon: Users },
-  { label: "Stock Purchases", path: "/system/buy-raw-materials", icon: ShoppingCart, roles: ["ADMIN"] },
-  { label: "Suppliers (Shops)", path: "/system/raw-material-shops", icon: Building2, roles: ["ADMIN"] },
-  { label: "Raw Materials", path: "/system/raw-material-items", icon: Boxes, roles: ["ADMIN"] }, 
-  { label: "Production", path: "/system/production", icon: Factory, roles: ["ADMIN", "STAFF"] },
-  { label: "Sewing Line", path: "/system/line", icon: Shirt, roles: ["ADMIN", "STAFF"] },
-  { label: "Wash", path: "/system/wash", icon: Waves, roles: ["ADMIN", "STAFF"] },
-  { label: "Reports & Analytics", path: "/system/reports", icon: BarChart3, roles: ["ADMIN", "STAFF"] },
-  { label: "Settings", path: "/system/settings", icon: Settings, roles: ["ADMIN"] },
+  { label: "Quick Invoice", path: "/system/quick-invoice", icon: MonitorSmartphone, permission: "pos" }, 
+  { label: "Invoices", path: "/system/invoices", icon: FileText, permission: "invoices" },
+  { label: "Orders", path: "/system/orders", icon: ClipboardList, permission: "orders" },
+  { label: "Products", path: "/system/products", icon: ShoppingBag, permission: "products" },
+  { label: "Attributes", path: "/system/attributes", icon: Tags, permission: "products", roles: ["ADMIN", "STAFF"] },
+  { label: "Customers", path: "/system/customers", icon: Users, permission: "customers" },
+  { label: "Stock Purchases", path: "/system/buy-raw-materials", icon: ShoppingCart, permission: "materials" },
+  { label: "Suppliers (Shops)", path: "/system/raw-material-shops", icon: Building2, permission: "materials" },
+  { label: "Raw Materials", path: "/system/raw-material-items", icon: Boxes, permission: "materials" }, 
+  { label: "Production", path: "/system/production", icon: Factory, permission: "production" },
+  { label: "Sewing Line", path: "/system/line", icon: Shirt, permission: "line" },
+  { label: "Wash", path: "/system/wash", icon: Waves, permission: "wash" },
+  { label: "Reports & Analytics", path: "/system/reports", icon: BarChart3, permission: "reports" },
+  { label: "Settings", path: "/system/settings", icon: Settings, permission: "settings" },
 ];
 
 export function AppSidebar() {
@@ -56,12 +57,31 @@ export function AppSidebar() {
   const location = useLocation()
 
   const userRole = user?.role || "STAFF"
+  const permissions = user?.permissions || (userRole === "STAFF" ? ["production", "line", "wash", "materials"] : [])
 
-  // RBAC Pruning: Non-privileged links are pruned completely from the DOM
+  // RBAC Pruning:
+  // - Administrators see EVERYTHING.
+  // - If a user is Staff and lacks the permission string for a specific module, hide that link completely.
   const visibleNavItems = navItems.filter((item) => {
-    if (!item.roles) return true
     if (userRole === "ADMIN") return true
-    return item.roles.includes(userRole)
+
+    // Admin-only modules
+    if (item.roles && item.roles.length === 1 && item.roles[0] === "ADMIN" && userRole !== "ADMIN") {
+      return false
+    }
+
+    if (item.roles && !item.roles.includes(userRole)) {
+      if (userRole === "STAFF" && item.permission && permissions.includes(item.permission)) {
+        return true
+      }
+      return false
+    }
+
+    if (userRole === "STAFF" && item.permission) {
+      return permissions.includes(item.permission)
+    }
+
+    return true
   })
 
   return (

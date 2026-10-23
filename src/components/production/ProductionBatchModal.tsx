@@ -463,6 +463,7 @@ export const ProductionBatchModal: React.FC<ProductionBatchModalProps> = ({
           reason: editingOrder.reason || 'Cutting Run',
           materials: sanitizedMaterials,
           targetProducts: sanitizedTargetProducts,
+          products: sanitizedTargetProducts,
           status: editingOrder.status,
         });
         toast.success(`Cutting Batch #${editingOrder.productionNo} updated successfully!`);
@@ -479,6 +480,7 @@ export const ProductionBatchModal: React.FC<ProductionBatchModalProps> = ({
           reason: 'Garment Cutting Batch',
           materials: sanitizedMaterials,
           targetProducts: sanitizedTargetProducts,
+          products: sanitizedTargetProducts,
         });
         toast.success(`Cutting batch #${batchNumber.trim()} started successfully in CUTTING stage!`);
       }

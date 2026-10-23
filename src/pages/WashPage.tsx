@@ -44,10 +44,29 @@ import {
   ChevronRight,
   Eye,
   Check,
+  SlidersHorizontal,
+  X,
 } from 'lucide-react';
+import { SearchableSelect, type SearchableSelectOption } from '../components/ui/searchable-select';
+import { DateRangePicker, type DateRange } from '../components/ui/date-range-picker';
 import ProductionBatchDetailModal, {
   formatSriLankaDateTime,
 } from '../components/production/ProductionBatchDetailModal';
+
+const renderSriLankaDateTime = (dateStr: string | Date | null | undefined) => {
+  const formatted = formatSriLankaDateTime(dateStr);
+  if (!formatted || formatted === '—') return <span className="text-slate-400">—</span>;
+  const firstSpaceIndex = formatted.indexOf(' ');
+  if (firstSpaceIndex === -1) return <span>{formatted}</span>;
+  const datePart = formatted.substring(0, firstSpaceIndex);
+  const timePart = formatted.substring(firstSpaceIndex + 1);
+  return (
+    <div className="flex flex-col leading-tight whitespace-nowrap">
+      <span className="font-semibold text-slate-800 dark:text-zinc-200">{datePart}</span>
+      <span className="text-[11px] text-slate-500 dark:text-zinc-400">{timePart}</span>
+    </div>
+  );
+};
 
 interface WashBatchItem {
   id: number;
@@ -83,6 +102,73 @@ interface WashBatchItem {
   materialUsages?: any[];
 }
 
+export interface ParsedWashBatchProduct {
+  productId: number;
+  variantId?: number | null;
+  productName: string;
+  sku?: string;
+  barcode?: string;
+  totalSent: number;
+  alreadyWashed: number;
+  remaining: number;
+  imageUrl?: string | null;
+}
+
+export const getBatchProducts = (b: WashBatchItem | null): ParsedWashBatchProduct[] => {
+  if (!b) return [];
+  const list: ParsedWashBatchProduct[] = [];
+
+  let raw = b.targetProducts;
+  if (typeof raw === 'string') {
+    try {
+      raw = JSON.parse(raw);
+    } catch {
+      raw = null;
+    }
+  }
+
+  if (Array.isArray(raw) && raw.length > 0) {
+    raw.forEach((tp: any) => {
+      const pId = Number(tp.productId || tp.id);
+      const sent = Number(tp.sentToWashQty) || 0;
+      const washed = Number(tp.washedQty) || 0;
+      const remaining = Math.max(0, sent - washed);
+      const rawImg = (b.product?.id === pId ? b.product.images?.[0]?.imageUrl : null) || (tp as any).image;
+      list.push({
+        productId: pId,
+        variantId: tp.variantId ? Number(tp.variantId) : null,
+        productName: tp.productName || (b.product?.id === pId ? b.product.name : `Product #${pId}`),
+        sku: tp.sku || (b.variant ? b.variant.sku || '' : ''),
+        barcode: tp.barcode || '',
+        totalSent: sent,
+        alreadyWashed: washed,
+        remaining,
+        imageUrl: rawImg ? getProductImageUrl(rawImg) : null,
+      });
+    });
+  }
+
+  if (list.length === 0 && b.product) {
+    const sent = b.sentToWashQty || 0;
+    const washed = b.washedQty || 0;
+    const remaining = Math.max(0, sent - washed);
+    const rawImg = b.product.images?.[0]?.imageUrl;
+    list.push({
+      productId: b.productId,
+      variantId: b.variantId || null,
+      productName: b.product.name,
+      sku: b.variant?.sku || '',
+      barcode: '',
+      totalSent: sent,
+      alreadyWashed: washed,
+      remaining,
+      imageUrl: rawImg ? getProductImageUrl(rawImg) : null,
+    });
+  }
+
+  return list;
+};
+
 export const WashPage: React.FC = () => {
   const navigate = useNavigate();
   const { resolvedTheme } = useTheme();
@@ -107,6 +193,25 @@ export const WashPage: React.FC = () => {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [rawMaterialsList, setRawMaterialsList] = useState<any[]>([]);
   const [productsList, setProductsList] = useState<any[]>([]);
+  const [selectedProductFilter, setSelectedProductFilter] = useState('all');
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [sortBy, setSortBy] = useState('newest');
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+
+  // Product Options
+  const productFilterOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: 'all', label: 'All Garments / Styles' },
+    ...productsList.map((p) => ({
+      value: String(p.id),
+      label: p.name,
+    })),
+  ], [productsList]);
+
+  const sortOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: 'newest', label: 'Newest First' },
+    { value: 'oldest', label: 'Oldest First' },
+    { value: 'highest_qty', label: 'Highest Wash Quantity' },
+  ], []);
 
   // Fetch all batches currently in 'WASHING' status
   const fetchWashBatches = useCallback(async () => {
@@ -135,18 +240,88 @@ export const WashPage: React.FC = () => {
       .catch((e) => console.error(e));
   }, [fetchWashBatches]);
 
-  // Filtered batches by search query
+  // Active filter count for mobile badge
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (selectedProductFilter !== 'all') count++;
+    if (dateRange?.from || dateRange?.to) count++;
+    if (sortBy !== 'newest') count++;
+    return count;
+  }, [selectedProductFilter, dateRange, sortBy]);
+
+  const hasActiveFilters = Boolean(
+    searchQuery.trim() ||
+    selectedProductFilter !== 'all' ||
+    dateRange !== undefined ||
+    sortBy !== 'newest'
+  );
+
+  const handleResetFilters = () => {
+    setSearchQuery('');
+    setSelectedProductFilter('all');
+    setDateRange(undefined);
+    setSortBy('newest');
+  };
+
+  // Filtered batches by search query, product, dateRange and sort
   const filteredBatches = useMemo(() => {
-    if (!searchQuery.trim()) return batches;
-    const q = searchQuery.toLowerCase().trim();
-    return batches.filter(
-      (b) =>
-        b.productionNo?.toLowerCase().includes(q) ||
-        b.product?.name?.toLowerCase().includes(q) ||
-        b.reason?.toLowerCase().includes(q) ||
-        b.notes?.toLowerCase().includes(q)
-    );
-  }, [batches, searchQuery]);
+    let list = [...batches];
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter(
+        (b) =>
+          b.productionNo?.toLowerCase().includes(q) ||
+          b.product?.name?.toLowerCase().includes(q) ||
+          b.reason?.toLowerCase().includes(q) ||
+          b.notes?.toLowerCase().includes(q)
+      );
+    }
+
+    if (selectedProductFilter && selectedProductFilter !== 'all') {
+      const targetPId = Number(selectedProductFilter);
+      list = list.filter((b) => {
+        if (b.productId === targetPId) return true;
+        const prods = getBatchProducts(b);
+        return prods.some((p) => p.productId === targetPId);
+      });
+    }
+
+    if (dateRange?.from) {
+      const fromTime = new Date(dateRange.from).setHours(0, 0, 0, 0);
+      const toTime = dateRange.to
+        ? new Date(dateRange.to).setHours(23, 59, 59, 999)
+        : new Date(dateRange.from).setHours(23, 59, 59, 999);
+
+      list = list.filter((b) => {
+        const bDate = new Date(b.createdAt || b.productionDate).getTime();
+        return bDate >= fromTime && bDate <= toTime;
+      });
+    }
+
+    switch (sortBy) {
+      case 'oldest':
+        list.sort((a, b) => {
+          const dateA = new Date(a.createdAt || a.productionDate).getTime();
+          const dateB = new Date(b.createdAt || b.productionDate).getTime();
+          return dateA - dateB || a.id - b.id;
+        });
+        break;
+      case 'highest_qty':
+        list.sort((a, b) => {
+          const qA = a.sentToWashQty || a.targetQuantity || a.completedQty || 0;
+          const qB = b.sentToWashQty || b.targetQuantity || b.completedQty || 0;
+          return qB - qA || b.id - a.id;
+        });
+        break;
+      case 'newest':
+      default:
+        // Preserves backend sorted order (createdAt: desc)
+        break;
+    }
+
+    return list;
+  }, [batches, searchQuery, selectedProductFilter, dateRange, sortBy]);
 
   // Aggregate Metrics
   const metrics = useMemo(() => {
@@ -172,72 +347,6 @@ export const WashPage: React.FC = () => {
       totalRemainingToWash,
     };
   }, [batches]);
-
-  // Extract all target products mapped to the batch for washing
-  const getBatchProducts = useCallback((b: WashBatchItem | null) => {
-    if (!b) return [];
-    const list: Array<{
-      productId: number;
-      variantId?: number | null;
-      productName: string;
-      sku?: string;
-      barcode?: string;
-      totalSent: number;
-      alreadyWashed: number;
-      remaining: number;
-      imageUrl?: string | null;
-    }> = [];
-
-    let raw = b.targetProducts;
-    if (typeof raw === 'string') {
-      try {
-        raw = JSON.parse(raw);
-      } catch {
-        raw = null;
-      }
-    }
-
-    if (Array.isArray(raw) && raw.length > 0) {
-      raw.forEach((tp: any) => {
-        const pId = Number(tp.productId || tp.id);
-        const sent = Number(tp.sentToWashQty) || 0;
-        const washed = Number(tp.washedQty) || 0;
-        const remaining = Math.max(0, sent - washed);
-        const rawImg = (b.product?.id === pId ? b.product.images?.[0]?.imageUrl : null) || (tp as any).image;
-        list.push({
-          productId: pId,
-          variantId: tp.variantId ? Number(tp.variantId) : null,
-          productName: tp.productName || (b.product?.id === pId ? b.product.name : `Product #${pId}`),
-          sku: tp.sku || (b.variant ? b.variant.sku || '' : ''),
-          barcode: tp.barcode || '',
-          totalSent: sent,
-          alreadyWashed: washed,
-          remaining,
-          imageUrl: rawImg ? getProductImageUrl(rawImg) : null,
-        });
-      });
-    }
-
-    if (list.length === 0 && b.product) {
-      const sent = b.sentToWashQty || 0;
-      const washed = b.washedQty || 0;
-      const remaining = Math.max(0, sent - washed);
-      const rawImg = b.product.images?.[0]?.imageUrl;
-      list.push({
-        productId: b.productId,
-        variantId: b.variantId || null,
-        productName: b.product.name,
-        sku: b.variant?.sku || '',
-        barcode: '',
-        totalSent: sent,
-        alreadyWashed: washed,
-        remaining,
-        imageUrl: rawImg ? getProductImageUrl(rawImg) : null,
-      });
-    }
-
-    return list;
-  }, []);
 
   // Open "Log Washed Items" modal
   const handleOpenLogWashModal = (batch: WashBatchItem) => {
@@ -429,27 +538,186 @@ export const WashPage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Search Bar ── */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-          <Input
+      {/* ── Responsive Filter Bar ── */}
+      {/* 1. Mobile Filter Bar (< 1024px) */}
+      <div className="lg:hidden flex flex-col gap-2.5 p-3 rounded-2xl border bg-white dark:bg-zinc-950 border-slate-200/80 dark:border-zinc-800 shadow-xs">
+        <div className="flex items-center gap-2 w-full">
+          <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border bg-slate-50 dark:bg-zinc-900 border-slate-200 dark:border-zinc-800">
+            <Search className="size-4 text-slate-400 shrink-0" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+              }}
+              placeholder="Search batch #, garment, notes..."
+              className="bg-transparent outline-none w-full text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                }}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setMobileFiltersOpen((prev) => !prev)}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-all shrink-0 cursor-pointer ${
+              mobileFiltersOpen || activeFilterCount > 0
+                ? 'bg-cyan-50 border-cyan-200 text-cyan-700 dark:bg-cyan-950/50 dark:border-cyan-800 dark:text-cyan-300'
+                : 'bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300'
+            }`}
+          >
+            <SlidersHorizontal className="size-3.5" />
+            <span>Filters</span>
+            {activeFilterCount > 0 && (
+              <span className="flex items-center justify-center size-4 rounded-full bg-cyan-600 text-[9px] font-bold text-white">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {mobileFiltersOpen && (
+          <div className="pt-2.5 border-t border-slate-100 dark:border-zinc-800 space-y-2 animate-in fade-in-50 duration-150">
+            <div className="w-full">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 block">
+                Date Range
+              </label>
+              <DateRangePicker
+                date={dateRange}
+                onDateChange={(range) => {
+                  setDateRange(range);
+                }}
+                placeholder="Filter by date..."
+              />
+            </div>
+
+            <div className="w-full">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 block">
+                Garment / Style
+              </label>
+              <SearchableSelect
+                options={productFilterOptions}
+                value={selectedProductFilter}
+                onValueChange={(val) => {
+                  setSelectedProductFilter(val);
+                }}
+                placeholder="All Garments"
+                searchPlaceholder="Search style..."
+                dark={isDark}
+              />
+            </div>
+
+            <div className="w-full">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 block">
+                Sort Order
+              </label>
+              <SearchableSelect
+                options={sortOptions}
+                value={sortBy}
+                onValueChange={(val) => {
+                  setSortBy(val);
+                }}
+                placeholder="Sort batches..."
+                dark={isDark}
+              />
+            </div>
+
+            {hasActiveFilters && (
+              <div className="pt-1 flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleResetFilters}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50"
+                >
+                  <X className="size-3" />
+                  <span>Clear Filters</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 2. Desktop Inline Filter Bar (>= 1024px) */}
+      <div className="hidden lg:flex items-center gap-2.5 p-3 rounded-2xl border bg-white dark:bg-zinc-950 border-slate-200/80 dark:border-zinc-800 shadow-xs">
+        <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border bg-slate-50 dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 focus-within:border-cyan-500">
+          <Search className="size-4 text-slate-400 shrink-0" />
+          <input
             type="text"
-            placeholder="Search by batch number, garment name, or notes..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9 h-9 text-xs rounded-xl bg-white dark:bg-zinc-950 border-slate-200 dark:border-zinc-800"
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+            }}
+            placeholder="Search by batch number, garment name, or notes..."
+            className="bg-transparent outline-none w-full text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery('');
+              }}
+              className="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
+        </div>
+
+        <div className="w-56 shrink-0">
+          <DateRangePicker
+            date={dateRange}
+            onDateChange={(range) => {
+              setDateRange(range);
+            }}
+            placeholder="Filter date..."
           />
         </div>
-        {searchQuery && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setSearchQuery('')}
-            className="h-8 text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white"
+
+        <div className="w-48 shrink-0">
+          <SearchableSelect
+            options={productFilterOptions}
+            value={selectedProductFilter}
+            onValueChange={(val) => {
+              setSelectedProductFilter(val);
+            }}
+            placeholder="All Garments"
+            searchPlaceholder="Filter style..."
+            dark={isDark}
+          />
+        </div>
+
+        <div className="w-44 shrink-0">
+          <SearchableSelect
+            options={sortOptions}
+            value={sortBy}
+            onValueChange={(val) => {
+              setSortBy(val);
+            }}
+            placeholder="Sort order..."
+            dark={isDark}
+          />
+        </div>
+
+        {hasActiveFilters && (
+          <button
+            type="button"
+            onClick={handleResetFilters}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-rose-200 dark:border-rose-900/40 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors shrink-0"
+            title="Reset active filters"
           >
-            Clear Search
-          </Button>
+            <X className="size-3.5" />
+            <span>Reset</span>
+          </button>
         )}
       </div>
 
@@ -485,32 +753,32 @@ export const WashPage: React.FC = () => {
       ) : (
         <>
           {/* Desktop Table (>= 1024px) */}
-          <div className="hidden lg:block rounded-2xl border border-slate-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-hidden shadow-xs">
-            <Table>
+          <div className="hidden lg:block rounded-2xl border border-slate-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-x-auto shadow-xs">
+            <Table className="w-full min-w-[860px]">
               <TableHeader>
                 <TableRow className="bg-slate-50 dark:bg-zinc-900/80 border-b border-slate-200/80 dark:border-zinc-800">
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-32">
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-28 min-w-[100px]">
                     Batch No
                   </TableHead>
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-48">
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-28">
                     Date &amp; Time
                   </TableHead>
                   <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400">
-                    Target Garment Products
+                    PRODUCT
                   </TableHead>
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-center w-28">
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-center w-24">
                     Sent to Wash
                   </TableHead>
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-center w-32">
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-center w-28">
                     Washed &amp; Sold
                   </TableHead>
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-44">
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-36">
                     Remaining Progress
                   </TableHead>
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-center w-28">
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-center w-24">
                     Status
                   </TableHead>
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-right w-40">
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-right w-36">
                     Action
                   </TableHead>
                 </TableRow>
@@ -535,19 +803,31 @@ export const WashPage: React.FC = () => {
                         setIsDetailModalOpen(true);
                       }}
                     >
-                      {/* 1. Batch No */}
-                      <TableCell className="align-middle">
-                        <span className="font-mono font-bold text-xs text-slate-900 dark:text-white block">
-                          #{batch.productionNo}
-                        </span>
+                      {/* 1. Batch No (Clean 2-line break) */}
+                      <TableCell className="align-middle w-28 min-w-[100px]">
+                        <div className="font-mono text-xs text-slate-900 dark:text-white leading-tight block whitespace-nowrap">
+                          {(() => {
+                            const clean = (batch.productionNo || '').replace(/^#/, '');
+                            const dashIdx = clean.indexOf('-');
+                            if (dashIdx !== -1) {
+                              return (
+                                <>
+                                  <span className="block font-bold">#{clean.substring(0, dashIdx + 1)}</span>
+                                  <span className="block text-[11px] font-semibold text-slate-600 dark:text-zinc-400">{clean.substring(dashIdx + 1)}</span>
+                                </>
+                              );
+                            }
+                            return <span className="block font-bold">#{clean}</span>;
+                          })()}
+                        </div>
                       </TableCell>
 
-                      {/* 2. Date & Time */}
-                      <TableCell className="align-middle text-xs font-mono text-slate-600 dark:text-zinc-400 whitespace-nowrap">
-                        {formatSriLankaDateTime(batch.productionDate || batch.createdAt)}
+                      {/* 2. Date & Time (Clean 2-line break) */}
+                      <TableCell className="align-middle text-xs font-mono w-28">
+                        {renderSriLankaDateTime(batch.productionDate || batch.createdAt)}
                       </TableCell>
 
-                      {/* 3. Target Garment Products List */}
+                      {/* 3. PRODUCT (Maximized width & single line fallback) */}
                       <TableCell className="align-middle">
                         <div className="space-y-2 py-1">
                           {prods.map((p, idx) => (
@@ -557,6 +837,9 @@ export const WashPage: React.FC = () => {
                                   src={p.imageUrl}
                                   alt={p.productName}
                                   className="size-8 rounded-lg object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
+                                  onError={(e) => {
+                                    (e.currentTarget as HTMLElement).style.display = 'none';
+                                  }}
                                 />
                               ) : (
                                 <div className="size-8 rounded-lg bg-cyan-50 dark:bg-cyan-950/40 border border-cyan-200 dark:border-cyan-900/50 flex items-center justify-center shrink-0 text-cyan-600 dark:text-cyan-400">
@@ -564,8 +847,8 @@ export const WashPage: React.FC = () => {
                                 </div>
                               )}
                               <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-xs font-bold text-slate-900 dark:text-white truncate" title={p.productName}>
                                     {p.productName}
                                   </span>
                                   <Badge
@@ -588,7 +871,7 @@ export const WashPage: React.FC = () => {
                                   </Badge>
                                 </div>
                                 {p.sku && (
-                                  <span className="text-[10px] text-slate-400 truncate block">
+                                  <span className="text-[10px] text-slate-400 truncate block font-mono">
                                     SKU: {p.sku}
                                   </span>
                                 )}
@@ -599,21 +882,21 @@ export const WashPage: React.FC = () => {
                       </TableCell>
 
                       {/* 4. Sent to Wash */}
-                      <TableCell className="align-middle text-center">
+                      <TableCell className="align-middle text-center w-24">
                         <span className="text-xs font-mono font-bold text-slate-800 dark:text-zinc-200">
                           {sent} Pcs
                         </span>
                       </TableCell>
 
                       {/* 5. Washed & In Stock */}
-                      <TableCell className="align-middle text-center">
+                      <TableCell className="align-middle text-center w-28">
                         <span className="text-xs font-mono font-extrabold text-emerald-600 dark:text-emerald-400">
                           +{washed} Pcs
                         </span>
                       </TableCell>
 
                       {/* 6. Remaining & Progress */}
-                      <TableCell className="align-middle">
+                      <TableCell className="align-middle w-36">
                         <div className="space-y-1">
                           <div className="flex items-center justify-between text-[11px] font-mono">
                             <span className="font-bold text-amber-600 dark:text-amber-400">
@@ -631,20 +914,36 @@ export const WashPage: React.FC = () => {
                       </TableCell>
 
                       {/* 7. Status */}
-                      <TableCell className="align-middle text-center">
+                      <TableCell className="align-middle text-center w-24">
                         <BatchStatusBadge status={batch.status} isStockSynced={batch.isStockSynced} />
                       </TableCell>
 
-                      {/* 8. Action */}
-                      <TableCell className="align-middle text-right" onClick={(e) => e.stopPropagation()}>
-                        <Button
-                          size="sm"
-                          onClick={() => handleOpenLogWashModal(batch)}
-                          className="h-8 text-xs bg-cyan-600 hover:bg-cyan-700 text-white font-semibold rounded-xl flex items-center gap-1.5 shadow-xs cursor-pointer ml-auto"
-                        >
-                          <Waves className="w-3.5 h-3.5" />
-                          <span>Log Washed Items</span>
-                        </Button>
+                      {/* 8. Action (Send to Stock + History quick-access button) */}
+                      <TableCell className="align-middle text-right w-36" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            size="sm"
+                            onClick={() => handleOpenLogWashModal(batch)}
+                            className="h-8 text-xs bg-cyan-600 hover:bg-cyan-700 text-white font-semibold rounded-xl flex items-center gap-1.5 shadow-xs cursor-pointer px-2.5 shrink-0"
+                          >
+                            <Package className="w-3.5 h-3.5" />
+                            <span>Send to Stock</span>
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setDetailOrder(batch);
+                              setIsDetailModalOpen(true);
+                            }}
+                            className="h-8 w-8 p-0 rounded-xl border-slate-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300 shrink-0 cursor-pointer shadow-xs"
+                            title="View Batch History"
+                            aria-label="View Batch History"
+                          >
+                            <Clock className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -752,26 +1051,28 @@ export const WashPage: React.FC = () => {
                   </div>
 
                   {/* Action Buttons */}
-                  <div className="flex items-center gap-2 pt-1">
+                  <div className="flex items-center gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
                     <Button
+                      size="sm"
+                      onClick={() => handleOpenLogWashModal(batch)}
+                      className="flex-1 h-8 text-xs bg-cyan-600 hover:bg-cyan-700 text-white font-semibold rounded-xl flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                    >
+                      <Package className="w-3.5 h-3.5" />
+                      <span>Send to Stock</span>
+                    </Button>
+                    <Button
+                      type="button"
                       variant="outline"
                       size="sm"
                       onClick={() => {
                         setDetailOrder(batch);
                         setIsDetailModalOpen(true);
                       }}
-                      className="flex-1 h-8 text-xs rounded-xl font-medium"
+                      className="h-8 w-8 p-0 rounded-xl border-slate-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300 shrink-0 cursor-pointer shadow-xs"
+                      title="View Batch History"
+                      aria-label="View Batch History"
                     >
-                      <Eye className="w-3.5 h-3.5 mr-1" />
-                      <span>Details</span>
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => handleOpenLogWashModal(batch)}
-                      className="flex-1 h-8 text-xs bg-cyan-600 hover:bg-cyan-700 text-white font-semibold rounded-xl flex items-center justify-center gap-1.5 shadow-xs"
-                    >
-                      <Waves className="w-3.5 h-3.5" />
-                      <span>Log Washed Items</span>
+                      <Clock className="w-3.5 h-3.5" />
                     </Button>
                   </div>
                 </div>
@@ -793,14 +1094,6 @@ export const WashPage: React.FC = () => {
               return sum + (typeof val === 'number' && !isNaN(val) ? val : 0);
             }, 0);
 
-            const totalBatchSent = selectedBatch.sentToWashQty > 0
-              ? selectedBatch.sentToWashQty
-              : (selectedBatch.targetQuantity > 0 ? selectedBatch.targetQuantity : selectedBatch.completedQty);
-            const currentTotalWashed = selectedBatch.washedQty || 0;
-            const currentTotalRemaining = Math.max(0, totalBatchSent - currentTotalWashed);
-            const newRemainingPreview = Math.max(0, currentTotalRemaining - totalToWashNow);
-            const willBeCompleted = totalToWashNow >= currentTotalRemaining && totalToWashNow > 0;
-
             return (
               <>
                 <DialogHeader className="px-5 py-4 border-b border-slate-100 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 z-10 flex flex-col gap-2">
@@ -811,7 +1104,7 @@ export const WashPage: React.FC = () => {
                       </div>
                       <div>
                         <DialogTitle className="text-base sm:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
-                          <span>Log Washed Items — Batch #{selectedBatch.productionNo}</span>
+                          <span>Send to Stock — Batch #{selectedBatch.productionNo}</span>
                           <BatchStatusBadge status={selectedBatch.status} isStockSynced={selectedBatch.isStockSynced} />
                         </DialogTitle>
                         <p className="text-xs text-slate-500 dark:text-zinc-400">
@@ -836,34 +1129,19 @@ export const WashPage: React.FC = () => {
 
                 <form onSubmit={handleSubmitWash} className="flex flex-col flex-1 min-h-0">
                   <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
-                    {/* Real-time Dynamic Info Banner */}
-                    <div className={`p-3 rounded-xl border text-xs space-y-1 transition-colors ${
-                      willBeCompleted
-                        ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/50 text-emerald-900 dark:text-emerald-200'
-                        : 'bg-cyan-50/70 dark:bg-cyan-950/30 border-cyan-200 dark:border-cyan-900/50 text-cyan-950 dark:text-cyan-200'
-                    }`}>
-                      <div className="flex items-center gap-1.5 font-semibold">
-                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                        <span>Immediate Sellable Stock Sync:</span>
+                    {/* 1. Date & Time of Wash Inspection (Top Priority) */}
+                    <div className="space-y-1.5 p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                        <Calendar className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400 shrink-0" />
+                        <span>Date &amp; Time of Wash Inspection</span>
                       </div>
-                      <p>
-                        {totalToWashNow > 0 ? (
-                          willBeCompleted ? (
-                            <>
-                              Logging <strong>+{totalToWashNow}</strong> washed items will immediately increment active sellable product stock and transition Batch #{selectedBatch.productionNo} to <strong>COMPLETED</strong>!
-                            </>
-                          ) : (
-                            <>
-                              Logging <strong>+{totalToWashNow}</strong> washed items will immediately increment sellable stock. The batch will remain in <strong>WASHING</strong> status with <strong>{newRemainingPreview}</strong> pieces remaining.
-                            </>
-                          )
-                        ) : (
-                          'Enter the quantities of washed products ready for sale to increment sellable inventory.'
-                        )}
-                      </p>
+                      <DateTimePicker
+                        value={washDateTime}
+                        onChange={setWashDateTime}
+                      />
                     </div>
 
-                    {/* Products List */}
+                    {/* 2. Products List */}
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
                         <label className="text-xs font-bold text-slate-800 dark:text-zinc-200 uppercase tracking-wider flex items-center gap-1.5">
@@ -896,60 +1174,89 @@ export const WashPage: React.FC = () => {
                               key={`wash-prod-${p.productId}-${p.variantId || idx}`}
                               className="p-3 bg-slate-50/90 dark:bg-zinc-900/60 rounded-xl border border-slate-200/90 dark:border-zinc-800 space-y-2.5 shadow-2xs"
                             >
-                              <div className="flex items-center justify-between gap-3 flex-wrap">
-                                {/* Thumbnail & Info */}
-                                <div className="flex items-center gap-3 min-w-0">
+                              {/* Top Row: Thumbnail + Product Name (Truncated) + Compact Badges Inline on Right */}
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2.5 min-w-0 flex-1">
                                   {p.imageUrl ? (
                                     <img
                                       src={p.imageUrl}
                                       alt={p.productName}
-                                      className="size-10 rounded-lg object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
+                                      className="size-9 rounded-lg object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
+                                      onError={(e) => {
+                                        (e.currentTarget as HTMLElement).style.display = 'none';
+                                      }}
                                     />
                                   ) : (
-                                    <div className="size-10 rounded-lg bg-cyan-50 dark:bg-cyan-950/40 border border-cyan-200 dark:border-cyan-900/50 flex items-center justify-center shrink-0">
-                                      <Shirt className="size-5 text-cyan-600 dark:text-cyan-400" />
+                                    <div className="size-9 rounded-lg bg-cyan-50 dark:bg-cyan-950/40 border border-cyan-200 dark:border-cyan-900/50 flex items-center justify-center shrink-0">
+                                      <Shirt className="size-4 text-cyan-600 dark:text-cyan-400" />
                                     </div>
                                   )}
-                                  <div className="min-w-0">
-                                    <h5 className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                                  <div className="min-w-0 flex-1">
+                                    <h5
+                                      className="text-xs font-bold text-slate-900 dark:text-white truncate whitespace-nowrap"
+                                      title={p.productName}
+                                    >
                                       {p.productName}
                                     </h5>
                                     {p.sku && (
-                                      <span className="text-[10px] text-slate-500 dark:text-zinc-400 block mt-0.5">
+                                      <span className="text-[10px] text-slate-500 dark:text-zinc-400 block mt-0.5 font-mono truncate">
                                         SKU: {p.sku}
                                       </span>
                                     )}
                                   </div>
                                 </div>
 
-                                {/* 3 Metrics: Total Sent to Wash, Already Washed, Remaining */}
-                                <div className="flex items-center gap-2 text-xs">
-                                  <div className="px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-center">
-                                    <span className="text-[9px] uppercase font-bold text-slate-400 block">
-                                      Total Sent to Wash
+                                {/* 3 Metrics Inline on Right */}
+                                <div className="flex items-center gap-1.5 text-xs shrink-0">
+                                  <div className="px-2 py-1 rounded-lg bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-center">
+                                    <span className="text-[9px] uppercase font-bold text-slate-400 block leading-none mb-0.5">
+                                      Sent
                                     </span>
-                                    <span className="font-mono font-bold text-slate-800 dark:text-zinc-200">
+                                    <span className="font-mono font-bold text-slate-800 dark:text-zinc-200 leading-none">
                                       {p.totalSent} Pcs
                                     </span>
                                   </div>
-                                  <div className="px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-center">
-                                    <span className="text-[9px] uppercase font-bold text-emerald-600 block">
-                                      Already Washed
+                                  <div className="px-2 py-1 rounded-lg bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-center">
+                                    <span className="text-[9px] uppercase font-bold text-emerald-600 block leading-none mb-0.5">
+                                      Washed
                                     </span>
-                                    <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                                    <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 leading-none">
                                       +{p.alreadyWashed} Pcs
                                     </span>
                                   </div>
-                                  <div className="px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-center">
-                                    <span className="text-[9px] uppercase font-bold text-amber-600 block">
+                                  <div className="px-2 py-1 rounded-lg bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-center">
+                                    <span className="text-[9px] uppercase font-bold text-amber-600 block leading-none mb-0.5">
                                       Remaining
                                     </span>
-                                    <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
+                                    <span className="font-mono font-bold text-amber-600 dark:text-amber-400 leading-none">
                                       {p.remaining} Pcs
                                     </span>
                                   </div>
                                 </div>
                               </div>
+
+                              {/* Visual Progress Bar for Product (Unified Template) */}
+                              {(() => {
+                                const pProgressPct = p.totalSent > 0 ? Math.min(100, Math.round((p.alreadyWashed / p.totalSent) * 100)) : 0;
+                                return (
+                                  <div className="space-y-1 pt-1 border-t border-slate-200/50 dark:border-zinc-800/60">
+                                    <div className="flex items-center justify-between text-[10px] font-mono">
+                                      <span className="text-slate-500 dark:text-zinc-400">
+                                        Washed &amp; Synced: <strong className="text-emerald-600 dark:text-emerald-400">{p.alreadyWashed} / {p.totalSent} Pcs</strong>
+                                      </span>
+                                      <span className="font-bold text-slate-700 dark:text-zinc-300">{pProgressPct}%</span>
+                                    </div>
+                                    <div className="h-1.5 w-full bg-slate-200/80 dark:bg-zinc-800 rounded-full overflow-hidden">
+                                      <div
+                                        className={`h-full rounded-full transition-all duration-300 ${
+                                          pProgressPct >= 100 ? 'bg-emerald-500' : 'bg-cyan-500'
+                                        }`}
+                                        style={{ width: `${pProgressPct}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })()}
 
                               {/* Input for Washed Qty Ready for Sale */}
                               <div className="pt-2 border-t border-slate-200/60 dark:border-zinc-800/80 flex items-center justify-between gap-3">
@@ -972,24 +1279,31 @@ export const WashPage: React.FC = () => {
                                     </button>
                                   )}
                                 </div>
-                                <div className="w-36">
-                                  <Input
-                                    type="number"
-                                    min="0"
-                                    max={p.remaining}
-                                    step="1"
-                                    value={currentQty}
-                                    onChange={(e) => {
-                                      const val = e.target.value === '' ? '' : Math.max(0, Math.min(p.remaining, parseInt(e.target.value) || 0));
-                                      setWashProductQuantities((prev) => ({
-                                        ...prev,
-                                        [idx]: val,
-                                      }));
-                                    }}
-                                    placeholder="0"
-                                    className="h-9 text-xs text-right font-mono font-bold text-cyan-700 dark:text-cyan-300 rounded-xl bg-white dark:bg-zinc-950 border-slate-200 dark:border-zinc-800"
-                                  />
-                                </div>
+                                {p.remaining <= 0 ? (
+                                  <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 py-1">
+                                    <CheckCircle2 className="size-4" />
+                                    <span>All {p.totalSent} Pcs Washed &amp; Synced</span>
+                                  </div>
+                                ) : (
+                                  <div className="w-32 shrink-0">
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      max={p.remaining}
+                                      step="1"
+                                      value={currentQty}
+                                      onChange={(e) => {
+                                        const val = e.target.value === '' ? '' : Math.max(0, Math.min(p.remaining, parseInt(e.target.value) || 0));
+                                        setWashProductQuantities((prev) => ({
+                                          ...prev,
+                                          [idx]: val,
+                                        }));
+                                      }}
+                                      placeholder="0"
+                                      className="h-8 text-xs text-right font-mono font-bold text-cyan-700 dark:text-cyan-300 rounded-xl bg-white dark:bg-zinc-950 border-slate-200 dark:border-zinc-800"
+                                    />
+                                  </div>
+                                )}
                               </div>
                             </div>
                           );
@@ -997,18 +1311,7 @@ export const WashPage: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Inspection Date & Time */}
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 block">
-                        Date &amp; Time of Wash Inspection
-                      </label>
-                      <DateTimePicker
-                        value={washDateTime}
-                        onChange={setWashDateTime}
-                      />
-                    </div>
-
-                    {/* Quality Inspection Remarks */}
+                    {/* 3. Quality Inspection Remarks */}
                     <div className="space-y-1">
                       <label className="text-xs font-bold text-slate-700 dark:text-zinc-300 block">
                         Quality Inspection Remarks <span className="text-slate-400 font-normal">(Optional)</span>

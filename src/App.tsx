@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import './index.css';
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -13,6 +13,7 @@ import { OfflineSentinel } from './components/common/OfflineSentinel';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { AttributesPage } from './pages/AttributesPage';
 import { useVersionCheck } from './hooks/useVersionCheck';
+import { getFirstAllowedRoute } from './utils/navigation';
 
 // Active Pages (Phase 1 & Phase 2)
 import { Login } from './pages/Login';
@@ -78,6 +79,25 @@ function ScrollToTop() {
   return null;
 }
 
+function SystemLandingRedirect() {
+  const { user } = useAuth();
+  return <Navigate to={getFirstAllowedRoute(user)} replace />;
+}
+
+function QuickInvoiceRouteWrapper() {
+  const { user, hasPermission } = useAuth();
+  if (user && user.role === 'STAFF' && !hasPermission('pos')) {
+    return <Navigate to={getFirstAllowedRoute(user)} replace />;
+  }
+  return (
+    <ProtectedRoute requiredPermission="pos">
+      <AdminPage>
+        <QuickInvoicePage />
+      </AdminPage>
+    </ProtectedRoute>
+  );
+}
+
 function AdminPage({ children }: { children: React.ReactNode }) {
   return <Layout>{children}</Layout>;
 }
@@ -140,10 +160,10 @@ export function App() {
               <Route path="/products" element={<Navigate to="/system/products" replace />} />
 
               {/* ── Admin Back-Office (/system/*) ── */}
-              {/* Default Landing Page: Root /system route immediately redirects to Invoices page (/system/invoices) */}
+              {/* Default Dynamic Landing Page: Smart redirection based on user permissions */}
               <Route
                 path="/system"
-                element={<Navigate to="/system/invoices" replace />}
+                element={<SystemLandingRedirect />}
               />
               <Route
                 path="/system/dashboard"
@@ -159,7 +179,7 @@ export function App() {
               <Route
                 path="/system/products"
                 element={
-                  <ProtectedRoute>
+                  <ProtectedRoute requiredPermission="products">
                     <AdminPage>
                       <Products />
                     </AdminPage>
@@ -170,7 +190,7 @@ export function App() {
               <Route
                 path="/system/products/new"
                 element={
-                  <ProtectedRoute requiredRole={['ADMIN', 'STAFF']}>
+                  <ProtectedRoute requiredPermission="products" requiredRole={['ADMIN', 'STAFF']}>
                     <AdminPage>
                       <ProductFormPage />
                     </AdminPage>
@@ -180,7 +200,7 @@ export function App() {
               <Route
                 path="/system/products/:id/edit"
                 element={
-                  <ProtectedRoute requiredRole={['ADMIN', 'STAFF']}>
+                  <ProtectedRoute requiredPermission="products" requiredRole={['ADMIN', 'STAFF']}>
                     <AdminPage>
                       <ProductFormPage />
                     </AdminPage>
@@ -190,7 +210,7 @@ export function App() {
               <Route
                 path="/system/products/edit/:id"
                 element={
-                  <ProtectedRoute requiredRole={['ADMIN', 'STAFF']}>
+                  <ProtectedRoute requiredPermission="products" requiredRole={['ADMIN', 'STAFF']}>
                     <AdminPage>
                       <ProductFormPage />
                     </AdminPage>
@@ -201,7 +221,7 @@ export function App() {
               <Route
                 path="/system/attributes"
                 element={
-                  <ProtectedRoute requiredRole="STAFF">
+                  <ProtectedRoute requiredPermission="products" requiredRole="STAFF">
                     <AdminPage>
                       <AttributesPage />
                     </AdminPage>
@@ -212,7 +232,7 @@ export function App() {
               <Route
                 path="/system/customers"
                 element={
-                  <ProtectedRoute>
+                  <ProtectedRoute requiredPermission="customers">
                     <AdminPage>
                       <CustomersPage />
                     </AdminPage>
@@ -223,32 +243,20 @@ export function App() {
               {/* Quick Invoice / POS Cashier Terminal Route */}
               <Route
                 path="/system/quick-invoice"
-                element={
-                  <ProtectedRoute>
-                    <AdminPage>
-                      <QuickInvoicePage />
-                    </AdminPage>
-                  </ProtectedRoute>
-                }
+                element={<QuickInvoiceRouteWrapper />}
               />
 
               {/* Legacy Quick Checkout Alias (Preserves Existing Bookmarks & Links) */}
               <Route
                 path="/system/quick-checkout"
-                element={
-                  <ProtectedRoute>
-                    <AdminPage>
-                      <QuickInvoicePage />
-                    </AdminPage>
-                  </ProtectedRoute>
-                }
+                element={<QuickInvoiceRouteWrapper />}
               />
 
               {/* Invoices & Sales Ledger Management Route */}
               <Route
                 path="/system/invoices"
                 element={
-                  <ProtectedRoute>
+                  <ProtectedRoute requiredPermission="invoices">
                     <AdminPage>
                       <InvoicesPage />
                     </AdminPage>
@@ -260,7 +268,7 @@ export function App() {
               <Route
                 path="/system/orders"
                 element={
-                  <ProtectedRoute>
+                  <ProtectedRoute requiredPermission="orders">
                     <AdminPage>
                       <OrdersPage />
                     </AdminPage>
@@ -272,7 +280,7 @@ export function App() {
               <Route
                 path="/system/orders/new"
                 element={
-                  <ProtectedRoute>
+                  <ProtectedRoute requiredPermission="orders">
                     <AdminPage>
                       <OrderCreatePage />
                     </AdminPage>
@@ -288,7 +296,7 @@ export function App() {
               <Route
                 path="/system/production"
                 element={
-                  <ProtectedRoute requiredRole="STAFF">
+                  <ProtectedRoute requiredPermission="production" requiredRole={['ADMIN', 'STAFF']}>
                     <AdminPage>
                       <ProductionListPage />
                     </AdminPage>
@@ -313,7 +321,7 @@ export function App() {
               <Route
                 path="/system/line"
                 element={
-                  <ProtectedRoute requiredRole={['ADMIN', 'STAFF']}>
+                  <ProtectedRoute requiredPermission="line" requiredRole={['ADMIN', 'STAFF']}>
                     <AdminPage>
                       <LinePage />
                     </AdminPage>
@@ -328,7 +336,7 @@ export function App() {
               <Route
                 path="/system/wash"
                 element={
-                  <ProtectedRoute requiredRole={['ADMIN', 'STAFF']}>
+                  <ProtectedRoute requiredPermission="wash" requiredRole={['ADMIN', 'STAFF']}>
                     <AdminPage>
                       <WashPage />
                     </AdminPage>
@@ -340,7 +348,7 @@ export function App() {
               <Route
                 path="/system/buy-raw-materials"
                 element={
-                  <ProtectedRoute requiredRole="ADMIN">
+                  <ProtectedRoute requiredPermission="materials" requiredRole="ADMIN">
                     <AdminPage>
                       <BuyRawMaterialsPage />
                     </AdminPage>
@@ -352,7 +360,7 @@ export function App() {
               <Route
                 path="/system/buy-raw-materials/new"
                 element={
-                  <ProtectedRoute requiredRole="ADMIN">
+                  <ProtectedRoute requiredPermission="materials" requiredRole="ADMIN">
                     <AdminPage>
                       <BuyRawMaterialFormPage />
                     </AdminPage>
@@ -364,7 +372,7 @@ export function App() {
               <Route
                 path="/system/raw-material-shops"
                 element={
-                  <ProtectedRoute requiredRole="ADMIN">
+                  <ProtectedRoute requiredPermission="materials" requiredRole="ADMIN">
                     <AdminPage>
                       <RawMaterialShopsPage />
                     </AdminPage>
@@ -376,7 +384,7 @@ export function App() {
               <Route
                 path="/system/raw-material-items"
                 element={
-                  <ProtectedRoute requiredRole="ADMIN">
+                  <ProtectedRoute requiredPermission="materials" requiredRole="ADMIN">
                     <AdminPage>
                       <RawMaterialItemsPage />
                     </AdminPage>
@@ -388,7 +396,7 @@ export function App() {
               <Route
                 path="/system/buy-raw-materials/edit/:id"
                 element={
-                  <ProtectedRoute requiredRole="ADMIN">
+                  <ProtectedRoute requiredPermission="materials" requiredRole="ADMIN">
                     <AdminPage>
                       <BuyRawMaterialFormPage />
                     </AdminPage>
@@ -400,7 +408,7 @@ export function App() {
               <Route
                 path="/system/reports"
                 element={
-                  <ProtectedRoute requiredRole={['ADMIN', 'STAFF']}>
+                  <ProtectedRoute requiredPermission="reports" requiredRole={['ADMIN', 'STAFF']}>
                     <AdminPage>
                       <ReportsPage />
                     </AdminPage>
@@ -409,9 +417,14 @@ export function App() {
               />
 
               <Route
+                path="/system/materials"
+                element={<Navigate to="/system/buy-raw-materials" replace />}
+              />
+
+              <Route
                 path="/system/settings"
                 element={
-                  <ProtectedRoute requiredRole="ADMIN">
+                  <ProtectedRoute requiredPermission="settings" requiredRole={['ADMIN', 'STAFF']}>
                     <AdminPage>
                       <Settings />
                     </AdminPage>
@@ -433,7 +446,7 @@ export function App() {
 
               {/* ── Catch-all Fallbacks ── */}
               {/* Unknown back-office subroutes redirect directly to the default landing page (/system/invoices) */}
-              <Route path="/system/*" element={<Navigate to="/system/invoices" replace />} />
+              <Route path="/system/*" element={<SystemLandingRedirect />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
             </React.Suspense>

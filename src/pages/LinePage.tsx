@@ -33,11 +33,30 @@ import {
   ChevronLeft,
   ChevronRight,
   ArrowRight,
+  SlidersHorizontal,
+  X,
 } from 'lucide-react';
+import { SearchableSelect, type SearchableSelectOption } from '../components/ui/searchable-select';
+import { DateRangePicker, type DateRange } from '../components/ui/date-range-picker';
 import ProductionBatchDetailModal, {
   formatSriLankaDateTime,
 } from '../components/production/ProductionBatchDetailModal';
 import SendToWashModal from '../components/production/SendToWashModal';
+
+const renderSriLankaDateTime = (dateStr: string | Date | null | undefined) => {
+  const formatted = formatSriLankaDateTime(dateStr);
+  if (!formatted || formatted === '—') return <span className="text-slate-400">—</span>;
+  const firstSpaceIndex = formatted.indexOf(' ');
+  if (firstSpaceIndex === -1) return <span>{formatted}</span>;
+  const datePart = formatted.substring(0, firstSpaceIndex);
+  const timePart = formatted.substring(firstSpaceIndex + 1);
+  return (
+    <div className="flex flex-col leading-tight whitespace-nowrap">
+      <span className="font-semibold text-slate-800 dark:text-zinc-200">{datePart}</span>
+      <span className="text-[11px] text-slate-500 dark:text-zinc-400">{timePart}</span>
+    </div>
+  );
+};
 
 interface LineBatchItem {
   id: number;
@@ -138,6 +157,10 @@ export const LinePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [batches, setBatches] = useState<LineBatchItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedProductFilter, setSelectedProductFilter] = useState('all');
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [sortBy, setSortBy] = useState('newest');
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   // Selected batch for Send to Wash Modal
   const [selectedBatchForWash, setSelectedBatchForWash] = useState<LineBatchItem | null>(null);
@@ -147,6 +170,21 @@ export const LinePage: React.FC = () => {
   const [detailOrder, setDetailOrder] = useState<any | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [productsList, setProductsList] = useState<any[]>([]);
+
+  // Product Combobox Options
+  const productFilterOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: 'all', label: 'All Garments / Styles' },
+    ...productsList.map((p) => ({
+      value: String(p.id),
+      label: p.name,
+    })),
+  ], [productsList]);
+
+  const sortOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: 'newest', label: 'Newest Dispatches First' },
+    { value: 'oldest', label: 'Oldest First' },
+    { value: 'highest_qty', label: 'Highest Quantity' },
+  ], []);
 
   // Fetch all batches currently in 'LINE' status or ongoing 'WASHING' dispatches
   const fetchLineBatches = useCallback(async () => {
@@ -191,24 +229,94 @@ export const LinePage: React.FC = () => {
     fetchLineBatches();
   }, [fetchLineBatches]);
 
-  // Client-side search filtering
+  // Active filter count for mobile badge
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (selectedProductFilter !== 'all') count++;
+    if (dateRange?.from || dateRange?.to) count++;
+    if (sortBy !== 'newest') count++;
+    return count;
+  }, [selectedProductFilter, dateRange, sortBy]);
+
+  const hasActiveFilters = Boolean(
+    searchQuery.trim() ||
+    selectedProductFilter !== 'all' ||
+    dateRange !== undefined ||
+    sortBy !== 'newest'
+  );
+
+  const handleResetFilters = () => {
+    setSearchQuery('');
+    setSelectedProductFilter('all');
+    setDateRange(undefined);
+    setSortBy('newest');
+  };
+
+  // Comprehensive multi-factor filtering & sorting
   const filteredBatches = useMemo(() => {
-    if (!searchQuery.trim()) return batches;
-    const q = searchQuery.toLowerCase().trim();
-    return batches.filter((b) => {
-      const matchNo = b.productionNo.toLowerCase().includes(q);
-      const matchProd = b.product?.name?.toLowerCase().includes(q);
-      const matchSku = b.variant?.sku?.toLowerCase().includes(q);
-      const matchNotes = b.notes?.toLowerCase().includes(q);
-      const prods = getBatchProducts(b, productsList);
-      const matchInProds = prods.some(
-        (p) =>
-          p.productName.toLowerCase().includes(q) ||
-          (p.sku && p.sku.toLowerCase().includes(q))
-      );
-      return matchNo || matchProd || matchSku || matchNotes || matchInProds;
-    });
-  }, [batches, searchQuery, productsList]);
+    let list = [...batches];
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter((b) => {
+        const matchNo = b.productionNo.toLowerCase().includes(q);
+        const matchProd = b.product?.name?.toLowerCase().includes(q);
+        const matchSku = b.variant?.sku?.toLowerCase().includes(q);
+        const matchNotes = b.notes?.toLowerCase().includes(q);
+        const prods = getBatchProducts(b, productsList);
+        const matchInProds = prods.some(
+          (p) =>
+            p.productName.toLowerCase().includes(q) ||
+            (p.sku && p.sku.toLowerCase().includes(q))
+        );
+        return matchNo || matchProd || matchSku || matchNotes || matchInProds;
+      });
+    }
+
+    if (selectedProductFilter && selectedProductFilter !== 'all') {
+      const pId = Number(selectedProductFilter);
+      list = list.filter((b) => {
+        if (b.productId === pId) return true;
+        const prods = getBatchProducts(b, productsList);
+        return prods.some((p) => p.productId === pId);
+      });
+    }
+
+    if (dateRange?.from) {
+      const fromTime = new Date(dateRange.from).setHours(0, 0, 0, 0);
+      const toTime = dateRange.to
+        ? new Date(dateRange.to).setHours(23, 59, 59, 999)
+        : new Date(dateRange.from).setHours(23, 59, 59, 999);
+
+      list = list.filter((b) => {
+        const bDate = new Date(b.createdAt || b.productionDate).getTime();
+        return bDate >= fromTime && bDate <= toTime;
+      });
+    }
+
+    switch (sortBy) {
+      case 'oldest':
+        list.sort((a, b) => {
+          const dateA = new Date(a.createdAt || a.productionDate).getTime();
+          const dateB = new Date(b.createdAt || b.productionDate).getTime();
+          return dateA - dateB || a.id - b.id;
+        });
+        break;
+      case 'highest_qty':
+        list.sort((a, b) => {
+          const qA = a.lineSentQty || a.targetQuantity || a.completedQty || 0;
+          const qB = b.lineSentQty || b.targetQuantity || b.completedQty || 0;
+          return qB - qA || b.id - a.id;
+        });
+        break;
+      case 'newest':
+      default:
+        // Preserves the backend sorted order (createdAt: desc)
+        break;
+    }
+
+    return list;
+  }, [batches, searchQuery, selectedProductFilter, dateRange, sortBy, productsList]);
 
   // Aggregate Metrics for Top KPI Cards
   const metrics = useMemo(() => {
@@ -382,20 +490,189 @@ export const LinePage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Search Bar & Filter ── */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
-          <Input
+      {/* ── Responsive Filter Bar ── */}
+      {/* 1. Mobile Filter Bar (< 1024px) */}
+      <div className="lg:hidden flex flex-col gap-2.5 p-3 rounded-2xl border bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 shadow-xs">
+        <div className="flex items-center gap-2 w-full">
+          <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border bg-slate-50 dark:bg-zinc-950 border-slate-200 dark:border-zinc-800">
+            <Search className="size-4 text-slate-400 shrink-0" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder="Search batch #, garment style, SKU..."
+              className="bg-transparent outline-none w-full text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setCurrentPage(1);
+                }}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setMobileFiltersOpen((prev) => !prev)}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-all shrink-0 cursor-pointer ${
+              mobileFiltersOpen || activeFilterCount > 0
+                ? 'bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-950/50 dark:border-indigo-800 dark:text-indigo-300'
+                : 'bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300'
+            }`}
+          >
+            <SlidersHorizontal className="size-3.5" />
+            <span>Filters</span>
+            {activeFilterCount > 0 && (
+              <span className="flex items-center justify-center size-4 rounded-full bg-indigo-600 text-[9px] font-bold text-white">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {mobileFiltersOpen && (
+          <div className="pt-2.5 border-t border-slate-100 dark:border-zinc-800 space-y-2 animate-in fade-in-50 duration-150">
+            <div className="w-full">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 block">
+                Date Range
+              </label>
+              <DateRangePicker
+                date={dateRange}
+                onDateChange={(range) => {
+                  setDateRange(range);
+                }}
+                placeholder="Filter by date..."
+              />
+            </div>
+
+            <div className="w-full">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 block">
+                Garment / Style
+              </label>
+              <SearchableSelect
+                options={productFilterOptions}
+                value={selectedProductFilter}
+                onValueChange={(val) => {
+                  setSelectedProductFilter(val);
+                }}
+                placeholder="All Garments"
+                searchPlaceholder="Search style..."
+                dark={isDark}
+              />
+            </div>
+
+            <div className="w-full">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 block">
+                Sort Order
+              </label>
+              <SearchableSelect
+                options={sortOptions}
+                value={sortBy}
+                onValueChange={(val) => {
+                  setSortBy(val);
+                }}
+                placeholder="Sort batches..."
+                dark={isDark}
+              />
+            </div>
+
+            {hasActiveFilters && (
+              <div className="pt-1 flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleResetFilters}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50"
+                >
+                  <X className="size-3" />
+                  <span>Clear Filters</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 2. Desktop Inline Filter Bar (>= 1024px) */}
+      <div className="hidden lg:flex items-center gap-2.5 p-3 rounded-2xl border bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 shadow-xs">
+        <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border bg-slate-50 dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 focus-within:border-indigo-500">
+          <Search className="size-4 text-slate-400 shrink-0" />
+          <input
+            type="text"
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value);
-              setCurrentPage(1);
             }}
             placeholder="Search by batch number, garment style, SKU, or notes..."
-            className="pl-10 h-10 text-xs rounded-xl bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 shadow-xs"
+            className="bg-transparent outline-none w-full text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery('');
+              }}
+              className="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
+        </div>
+
+        <div className="w-56 shrink-0">
+          <DateRangePicker
+            date={dateRange}
+            onDateChange={(range) => {
+              setDateRange(range);
+            }}
+            placeholder="Filter date..."
           />
         </div>
+
+        <div className="w-48 shrink-0">
+          <SearchableSelect
+            options={productFilterOptions}
+            value={selectedProductFilter}
+            onValueChange={(val) => {
+              setSelectedProductFilter(val);
+            }}
+            placeholder="All Garments"
+            searchPlaceholder="Filter style..."
+            dark={isDark}
+          />
+        </div>
+
+        <div className="w-44 shrink-0">
+          <SearchableSelect
+            options={sortOptions}
+            value={sortBy}
+            onValueChange={(val) => {
+              setSortBy(val);
+            }}
+            placeholder="Sort order..."
+            dark={isDark}
+          />
+        </div>
+
+        {hasActiveFilters && (
+          <button
+            type="button"
+            onClick={handleResetFilters}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-rose-200 dark:border-rose-900/40 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors shrink-0"
+            title="Reset active filters"
+          >
+            <X className="size-3.5" />
+            <span>Reset</span>
+          </button>
+        )}
       </div>
 
       {/* ── Content View (Desktop Table & Mobile Cards) ── */}
@@ -429,35 +706,35 @@ export const LinePage: React.FC = () => {
       ) : (
         <>
           {/* Desktop Table View (>= 1024px) */}
-          <div className="hidden lg:block rounded-2xl border border-slate-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-hidden shadow-xs">
-            <Table>
+          <div className="hidden lg:block rounded-2xl border border-slate-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-x-auto shadow-xs">
+            <Table className="w-full min-w-[940px]">
               <TableHeader>
                 <TableRow className="bg-slate-50 dark:bg-zinc-900/80 border-b border-slate-200/80 dark:border-zinc-800">
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-32">
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-28 min-w-[100px]">
                     Batch No
                   </TableHead>
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-48">
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-28">
                     Date &amp; Time
                   </TableHead>
                   <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400">
-                    Target Garment Products
+                    PRODUCT
                   </TableHead>
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-44">
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-36">
                     Raw Material Cut
                   </TableHead>
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-center w-32">
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-center w-24">
                     Total Line Intake
                   </TableHead>
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-center w-28">
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-center w-24">
                     Sent to Wash
                   </TableHead>
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-44">
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-36">
                     Remaining Progress
                   </TableHead>
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-center w-28">
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-center w-24">
                     Status
                   </TableHead>
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-right w-40">
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-right w-36">
                     Action
                   </TableHead>
                 </TableRow>
@@ -487,19 +764,31 @@ export const LinePage: React.FC = () => {
                         setIsDetailModalOpen(true);
                       }}
                     >
-                      {/* 1. Batch No */}
-                      <TableCell className="align-middle">
-                        <span className="font-mono font-bold text-xs text-slate-900 dark:text-white block">
-                          #{batch.productionNo}
-                        </span>
+                      {/* 1. Batch No (Clean 2-line break) */}
+                      <TableCell className="align-middle w-28 min-w-[100px]">
+                        <div className="font-mono text-xs text-slate-900 dark:text-white leading-tight block whitespace-nowrap">
+                          {(() => {
+                            const clean = (batch.productionNo || '').replace(/^#/, '');
+                            const dashIdx = clean.indexOf('-');
+                            if (dashIdx !== -1) {
+                              return (
+                                <>
+                                  <span className="block font-bold">#{clean.substring(0, dashIdx + 1)}</span>
+                                  <span className="block text-[11px] font-semibold text-slate-600 dark:text-zinc-400">{clean.substring(dashIdx + 1)}</span>
+                                </>
+                              );
+                            }
+                            return <span className="block font-bold">#{clean}</span>;
+                          })()}
+                        </div>
                       </TableCell>
 
-                      {/* 2. Date & Time */}
-                      <TableCell className="align-middle text-xs font-mono text-slate-600 dark:text-zinc-400 whitespace-nowrap">
-                        {formatSriLankaDateTime(batch.productionDate || batch.createdAt)}
+                      {/* 2. Date & Time (Clean 2-line break) */}
+                      <TableCell className="align-middle text-xs font-mono w-28">
+                        {renderSriLankaDateTime(batch.productionDate || batch.createdAt)}
                       </TableCell>
 
-                      {/* 3. Target Garment Products */}
+                      {/* 3. PRODUCT (Maximized width & single line fallback) */}
                       <TableCell className="align-middle">
                         <div className="space-y-2 py-1">
                           {prods.map((p, pIdx) => {
@@ -511,6 +800,9 @@ export const LinePage: React.FC = () => {
                                     src={p.imageUrl}
                                     alt={p.productName}
                                     className="size-8 rounded-lg object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
+                                    onError={(e) => {
+                                      (e.currentTarget as HTMLElement).style.display = 'none';
+                                    }}
                                   />
                                 ) : (
                                   <div className="size-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900/50 flex items-center justify-center shrink-0 text-indigo-600 dark:text-indigo-400">
@@ -518,8 +810,8 @@ export const LinePage: React.FC = () => {
                                   </div>
                                 )}
                                 <div className="min-w-0 flex-1">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-xs font-bold text-slate-900 dark:text-white truncate" title={p.productName}>
                                       {p.productName}
                                     </span>
                                     <Badge
@@ -542,7 +834,7 @@ export const LinePage: React.FC = () => {
                                     </Badge>
                                   </div>
                                   {p.sku && (
-                                    <span className="text-[10px] text-slate-400 truncate block">
+                                    <span className="text-[10px] text-slate-400 truncate block font-mono">
                                       SKU: {p.sku}
                                     </span>
                                   )}
@@ -554,11 +846,11 @@ export const LinePage: React.FC = () => {
                       </TableCell>
 
                       {/* 4. Raw Material Cut */}
-                      <TableCell className="align-middle">
+                      <TableCell className="align-middle w-36">
                         <div className="space-y-0.5">
                           {batch.materialUsages && batch.materialUsages.length > 0 ? (
                             batch.materialUsages.slice(0, 2).map((u: any) => (
-                              <div key={u.id} className="text-xs text-slate-700 dark:text-zinc-300 truncate max-w-[180px]">
+                              <div key={u.id} className="text-xs text-slate-700 dark:text-zinc-300 truncate max-w-[150px]">
                                 <span className="font-semibold text-slate-900 dark:text-zinc-100">
                                   {u.rawMaterial?.name || 'Material'}
                                 </span>
@@ -580,21 +872,21 @@ export const LinePage: React.FC = () => {
                       </TableCell>
 
                       {/* 5. Total Line Intake */}
-                      <TableCell className="align-middle text-center">
+                      <TableCell className="align-middle text-center w-24">
                         <span className="text-xs font-mono font-bold text-slate-800 dark:text-zinc-200">
                           {lineQty} Pcs
                         </span>
                       </TableCell>
 
                       {/* 6. Sent to Wash */}
-                      <TableCell className="align-middle text-center">
+                      <TableCell className="align-middle text-center w-24">
                         <span className="text-xs font-mono font-bold text-cyan-600 dark:text-cyan-400">
                           {washQty} Pcs
                         </span>
                       </TableCell>
 
                       {/* 7. Remaining Progress */}
-                      <TableCell className="align-middle">
+                      <TableCell className="align-middle w-36">
                         <div className="space-y-1">
                           <div className="flex items-center justify-between text-[11px] font-mono">
                             <span className="font-bold text-amber-600 dark:text-amber-400">
@@ -612,27 +904,43 @@ export const LinePage: React.FC = () => {
                       </TableCell>
 
                       {/* 8. Status */}
-                      <TableCell className="align-middle text-center">
+                      <TableCell className="align-middle text-center w-24">
                         <BatchStatusBadge status={batch.status} isStockSynced={batch.isStockSynced} />
                       </TableCell>
 
-                      {/* 9. Action */}
-                      <TableCell className="align-middle text-right" onClick={(e) => e.stopPropagation()}>
-                        {isLineDone ? (
-                          <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 font-bold px-2.5 py-1 rounded-xl shrink-0 inline-flex items-center gap-1 shadow-2xs ml-auto">
-                            <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400" />
-                            <span>COMPLETED</span>
-                          </Badge>
-                        ) : (
+                      {/* 9. Action (Send to Wash + History quick-access button) */}
+                      <TableCell className="align-middle text-right w-36" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-1.5">
+                          {isLineDone ? (
+                            <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 font-bold px-2 py-1 rounded-xl shrink-0 inline-flex items-center gap-1 shadow-2xs">
+                              <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                              <span className="text-[10px]">DONE</span>
+                            </Badge>
+                          ) : (
+                            <Button
+                              size="sm"
+                              onClick={() => handleOpenSendToWash(batch)}
+                              className="h-8 text-xs bg-cyan-600 hover:bg-cyan-700 text-white font-semibold rounded-xl flex items-center gap-1.5 shadow-xs cursor-pointer px-2.5 shrink-0"
+                            >
+                              <Waves className="size-3.5" />
+                              <span>Send to Wash</span>
+                            </Button>
+                          )}
                           <Button
+                            type="button"
                             size="sm"
-                            onClick={() => handleOpenSendToWash(batch)}
-                            className="h-8 text-xs bg-cyan-600 hover:bg-cyan-700 text-white font-semibold rounded-xl flex items-center gap-1.5 shadow-xs cursor-pointer ml-auto"
+                            variant="outline"
+                            onClick={() => {
+                              setDetailOrder(batch);
+                              setIsDetailModalOpen(true);
+                            }}
+                            className="h-8 w-8 p-0 rounded-xl border-slate-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300 shrink-0 cursor-pointer shadow-xs"
+                            title="View Batch History"
+                            aria-label="View Batch History"
                           >
-                            <Waves className="size-3.5" />
-                            <span>Send to Wash</span>
+                            <Clock className="size-3.5" />
                           </Button>
-                        )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -745,9 +1053,9 @@ export const LinePage: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="pt-1 flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
+                  <div className="pt-1 flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                     {isLineDone ? (
-                      <div className="w-full flex items-center justify-center p-2 rounded-xl bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 font-bold text-xs gap-1.5 shadow-2xs">
+                      <div className="flex-1 flex items-center justify-center p-2 rounded-xl bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 font-bold text-xs gap-1.5 shadow-2xs">
                         <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
                         <span>LINE STAGE COMPLETED</span>
                       </div>
@@ -755,12 +1063,26 @@ export const LinePage: React.FC = () => {
                       <Button
                         size="sm"
                         onClick={() => handleOpenSendToWash(batch)}
-                        className="h-8 text-xs bg-cyan-600 hover:bg-cyan-700 text-white font-bold rounded-xl flex items-center gap-1.5 shadow-xs w-full justify-center cursor-pointer"
+                        className="flex-1 h-8 text-xs bg-cyan-600 hover:bg-cyan-700 text-white font-bold rounded-xl flex items-center gap-1.5 shadow-xs justify-center cursor-pointer"
                       >
                         <Waves className="size-3.5" />
                         <span>Send to Wash</span>
                       </Button>
                     )}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setDetailOrder(batch);
+                        setIsDetailModalOpen(true);
+                      }}
+                      className="h-8 w-8 p-0 rounded-xl border-slate-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300 shrink-0 cursor-pointer shadow-xs"
+                      title="View Batch History"
+                      aria-label="View Batch History"
+                    >
+                      <Clock className="size-3.5" />
+                    </Button>
                   </div>
                 </div>
               );

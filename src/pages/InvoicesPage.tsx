@@ -704,6 +704,13 @@ export const InvoicesPage: React.FC = () => {
             <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
           </Button>
           <Button
+            variant="outline"
+            onClick={() => navigate('/system/quick-invoice?mode=return')}
+            className="h-9 gap-1.5 text-xs font-bold border-rose-300 dark:border-rose-900/60 bg-rose-50/70 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/60"
+          >
+            <RotateCcw className="size-3.5 text-rose-600 dark:text-rose-400" /> Return Bill
+          </Button>
+          <Button
             onClick={() => navigate('/system/quick-invoice')}
             className="h-9 gap-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
           >
