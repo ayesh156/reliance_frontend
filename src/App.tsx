@@ -41,6 +41,7 @@ import { HomePage } from './pages/storefront/HomePage';
 import { ShopPage } from './pages/storefront/ShopPage';
 import { AboutPage } from './pages/storefront/AboutPage';
 import { ContactPage } from './pages/storefront/ContactPage';
+import { ProductDetailPage } from './pages/storefront/ProductDetailPage';
 
 function ThemedToastContainer() {
   const { resolvedTheme } = useTheme();
@@ -147,6 +148,22 @@ export function App() {
                 element={
                   <StorefrontLayout>
                     <ContactPage />
+                  </StorefrontLayout>
+                }
+              />
+              <Route
+                path="/product/:id"
+                element={
+                  <StorefrontLayout>
+                    <ProductDetailPage />
+                  </StorefrontLayout>
+                }
+              />
+              <Route
+                path="/shop/product/:id"
+                element={
+                  <StorefrontLayout>
+                    <ProductDetailPage />
                   </StorefrontLayout>
                 }
               />

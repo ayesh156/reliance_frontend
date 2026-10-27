@@ -4,6 +4,7 @@ import { get } from '../../lib/api';
 import type { ProductItem } from '../../types/product';
 import { formatCurrency, getProductImageUrl, FALLBACK_IMAGE, handleImageError } from '../../lib/utils';
 import { ProductQuickViewModal } from '../../components/storefront/ProductQuickViewModal';
+import { StorefrontProductCard } from '../../components/storefront/StorefrontProductCard';
 import { openWhatsAppChat } from '../../utils/whatsapp';
 import { preloadCriticalImageAsset } from '../../utils/imagePreloader';
 import {
@@ -233,92 +234,13 @@ export const HomePage: React.FC = () => {
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-2 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
-            {filteredProducts.slice(0, 8).map((product) => {
-              const primaryVariant = product.variants?.[0];
-              const price = primaryVariant?.retailPrice || 0;
-              const imageUrl = safeImageUrl(product);
-              const totalStock = product.variants?.reduce((sum, v) => sum + (v.stock || 0), 0) || 0;
-
-              return (
-                <div
-                  key={product.id}
-                  className="group relative bg-white/80 dark:bg-zinc-900/60 backdrop-blur-md border border-[#e5e5e0]/80 dark:border-zinc-800/80 hover:border-zinc-400 dark:hover:border-zinc-700 rounded-sm transition-all duration-300 flex flex-col justify-between overflow-hidden shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] hover:shadow-[0_10px_25px_-5px_rgba(0,0,0,0.08)]"
-                >
-                  {/* Image Presentation with luxury hover zoom */}
-                  <div className="relative aspect-[3/4] w-full overflow-hidden bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center">
-                    <img
-                      src={imageUrl}
-                      alt={product.name}
-                      className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
-                      loading="lazy"
-                      onError={handleImageError}
-                    />
-
-                    {/* Quick View Hover Overlay */}
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center p-3 sm:p-4">
-                      <button
-                        onClick={() => setSelectedProduct(product)}
-                        className="w-full py-2 sm:py-2.5 px-3 sm:px-4 bg-zinc-950/95 text-white hover:bg-zinc-900 dark:bg-white/95 dark:text-zinc-950 dark:hover:bg-white text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.2em] rounded-sm shadow-xl flex items-center justify-center gap-1.5 sm:gap-2 transform translate-y-2 group-hover:translate-y-0 transition-all duration-300"
-                      >
-                        <Eye className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                        <span>Quick View</span>
-                      </button>
-                    </div>
-
-                    {/* Stock/Edition Badge */}
-                    <div className="absolute top-2 left-2 sm:top-3 sm:left-3">
-                      <span className="text-[8px] sm:text-[9px] uppercase tracking-widest font-mono px-1.5 sm:px-2 py-0.5 rounded-full bg-white/95 text-zinc-800 border border-zinc-200 dark:bg-zinc-950/80 dark:text-zinc-300 dark:border-zinc-800 backdrop-blur-sm shadow-sm font-medium">
-                        {product.searchKey || 'Reliance Cut'}
-                      </span>
-                    </div>
-
-                    {/* Crafted Edition Badge */}
-                    {totalStock > 0 && totalStock <= 20 && (
-                      <div className="absolute top-2 right-2 sm:top-3 sm:right-3">
-                        <span className="text-[8px] sm:text-[9px] uppercase tracking-widest font-mono px-1.5 sm:px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 dark:bg-emerald-950/80 dark:text-emerald-400 dark:border-emerald-800/60 backdrop-blur-sm shadow-sm font-medium">
-                          Only {totalStock} Left
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Garment Details Card */}
-                  <div className="p-3 sm:p-4 flex flex-col flex-1 justify-between bg-transparent">
-                    <div>
-                      <div className="flex items-center justify-between text-[9px] sm:text-[10px] uppercase tracking-widest text-zinc-600 dark:text-zinc-400 font-mono mb-1">
-                        <span>{product.category?.name || "Men's Wear"}</span>
-                        <span>Reliance</span>
-                      </div>
-                      <h3 className="font-serif text-xs sm:text-sm font-semibold tracking-wide uppercase text-[#09090b] dark:text-white line-clamp-1 group-hover:text-zinc-700 dark:group-hover:text-zinc-200 transition-colors">
-                        {product.name}
-                      </h3>
-                    </div>
-
-                    <div className="mt-3 pt-3 border-t border-[#e5e5e0] dark:border-zinc-900 flex items-center justify-between">
-                      <div>
-                        <span className="block text-[8px] uppercase tracking-wider text-zinc-500 font-mono">
-                          Retail Price
-                        </span>
-                        <span className="font-mono text-xs sm:text-sm font-bold text-[#09090b] dark:text-white">
-                          {formatCurrency(price)}
-                        </span>
-                      </div>
-
-                      <button
-                        onClick={() => {
-                          const text = `Hello Reliance Atelier,\nI am interested in:\n- ${product.name} (${product.searchKey || 'SKU'})\n- Price: ${formatCurrency(price)}\nPlease confirm availability.`;
-                          openWhatsAppChat('94711350123', text);
-                        }}
-                        className="p-1.5 sm:p-2 text-zinc-700 dark:text-zinc-300 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-zinc-100 dark:hover:bg-zinc-900 rounded-sm transition-colors"
-                        title="Inquire via WhatsApp"
-                      >
-                        <MessageSquare className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            {filteredProducts.slice(0, 8).map((product) => (
+              <StorefrontProductCard
+                key={product.id}
+                product={product}
+                onQuickView={(p) => setSelectedProduct(p)}
+              />
+            ))}
           </div>
         )}
 

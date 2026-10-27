@@ -229,6 +229,8 @@ export const CustomersPage: React.FC = () => {
       const waCustomer = {
         name: cust.name,
         phone: cust.phone,
+        address: cust.address,
+        city: cust.city,
         outstandingBalance: dueData?.customer?.outstandingBalance !== undefined ? dueData.customer.outstandingBalance : cust.outstandingBalance,
       };
       const waMsg = generateCustomerDebtSummaryWhatsAppMessage(waCustomer, bills, pendingCheques);

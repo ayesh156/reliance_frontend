@@ -2,6 +2,7 @@
  * WhatsApp Dispatcher Utility Engine
  * Sanitizes phone numbers to International format and builds structured receipt texts without emojis.
  */
+import { formatCustomerAddressCity, resolveMatchedCustomer } from './customerAddress';
 
 export const sanitizeWhatsAppPhone = (phone?: string | null): string | null => {
   if (!phone) return null;
@@ -119,7 +120,11 @@ const formatWhatsAppReturnDateTime = formatWhatsAppReturnDate;
  * - Reconciles financial summary with "*Original Bill*", "*Net Total Bill*", "*Paid Amount*",
  *   "*This Bill Due*", and live "*Total Outstanding Due*" customer debt.
  */
-export const generateCustomerInvoiceWhatsAppMessage = (order: any): string => {
+export const generateCustomerInvoiceWhatsAppMessage = (
+  order: any,
+  matchedCustomer?: any,
+  allCustomers?: any[]
+): string => {
   // Case-insensitive check to guarantee wholesale detection across all payloads
   const isWholesale =
     order.source === 'POS_WHOLESALE' ||
@@ -139,9 +144,10 @@ export const generateCustomerInvoiceWhatsAppMessage = (order: any): string => {
     hour12: true,
   });
 
-  const custName = order.customerName || order.customer?.name || 'Valued Customer';
-  const custPhone = order.customerPhone || order.customer?.phone || '';
-  const custAddr = [order.customer?.address || order.shippingAddress, order.customer?.city].filter(Boolean).join(', ');
+  const resolvedCust = resolveMatchedCustomer(order, matchedCustomer, allCustomers);
+  const custName = order.customerName || resolvedCust?.name || order.customer?.name || 'Valued Customer';
+  const custPhone = order.customerPhone || resolvedCust?.phone || order.customer?.phone || '';
+  const custAddr = formatCustomerAddressCity(order, resolvedCust, allCustomers);
 
   const total = Number(order.totalAmount || 0);
   const paid = Number(order.paidAmount || 0);
@@ -328,7 +334,7 @@ export const generateCustomerInvoiceWhatsAppMessage = (order: any): string => {
   text += `*Billing Type:* ${isWholesale ? 'WHOLESALE' : 'RETAIL'}\n`;
   text += `*Customer:* ${custName}\n`;
   if (custPhone) text += `*Contact:* ${custPhone}\n`;
-  if (custAddr) text += `*Address:* ${custAddr}\n`;
+  if (custAddr && custAddr !== '-') text += `*Address / City:* ${custAddr}\n`;
   text += `*Payment Method:* ${paymentMethod}\n`;
   text += `-------------------------------------------\n\n`;
   text += `*PURCHASED ITEMS:*\n${itemsList || '- No items recorded -'}\n\n`;
@@ -462,6 +468,8 @@ export const generateCustomerDebtSummaryWhatsAppMessage = (
   text += `-------------------------------------------\n`;
   text += `*Customer:* ${cust.name}\n`;
   if (cust.phone) text += `*Contact:* ${cust.phone}\n`;
+  const custAddr = formatCustomerAddressCity(cust);
+  if (custAddr && custAddr !== '-') text += `*Address / City:* ${custAddr}\n`;
   text += `*Statement Date:* ${currentDate} (${currentTime})\n`;
   text += `*TOTAL OUTSTANDING BALANCE:* *Rs. ${outstandingBal.toLocaleString('en-LK', { minimumFractionDigits: 2 })}*\n`;
   text += `-------------------------------------------\n\n`;
@@ -736,6 +744,10 @@ export const generateSalesOrderWhatsAppMessage = (order: any): string => {
   if (order.customerPhone || order.customer?.phone) {
     text += `*Contact:* ${order.customerPhone || order.customer?.phone}\n`;
   }
+  const custAddr = formatCustomerAddressCity(order);
+  if (custAddr && custAddr !== '-') {
+    text += `*Address / City:* ${custAddr}\n`;
+  }
   if (order.user?.name) {
     text += `*Sales Rep:* ${order.user.name}\n`;
   }
@@ -844,6 +856,10 @@ export const generateReturnCreditNoteWhatsAppMessage = (order: any): string => {
   if (custPhone) {
     text += `*Contact:* ${custPhone}\n`;
   }
+  const custAddr = formatCustomerAddressCity(order);
+  if (custAddr && custAddr !== '-') {
+    text += `*Address / City:* ${custAddr}\n`;
+  }
   text += `-------------------------------------------\n\n`;
   text += `*RETURNED & RESTOCKED ITEMS:*\n`;
   text += `${returnLines.length > 0 ? returnLines.join('\n') : '- No return line details recorded -\n'}\n\n`;
@@ -856,4 +872,92 @@ export const generateReturnCreditNoteWhatsAppMessage = (order: any): string => {
   text += `_Official Return Credit Note & Restock receipt issued by Reliance Clothing._`;
 
   return text;
-};
+};
+
+/**
+ * 8. Build Creative WhatsApp Product Inquiry Message & Direct Link
+ *
+ * Generates a creative, structured message to Reliance Clothing's official WhatsApp number:
+ * - Header: *RELIANCE BRANDED MENS CLOTHING — PRODUCT INQUIRY*
+ * - Product Name & Style/SKU Code
+ * - Selected Variant (Size & Color)
+ * - Price (Retail Price or Wholesale Price depending on active link tier)
+ * - Direct clickable Single Product View URL
+ * - Customer inquiry prompt.
+ */
+export const buildProductWhatsAppUrl = (
+  product: any,
+  selectedVariant?: any,
+  priceTier: 'wholesale' | 'retail' | 'w' | 'r' = 'retail',
+  productUrl?: string,
+  companyPhone: string = '94711350123'
+): string => {
+  if (!product) return '';
+
+  const isWholesale = priceTier === 'wholesale' || priceTier === 'w';
+  const variant = selectedVariant || product.variants?.[0] || {};
+
+  const price = isWholesale
+    ? (variant.wholesalePrice || product.wholesalePrice || variant.retailPrice || 0)
+    : (variant.retailPrice || product.retailPrice || 0);
+
+  const priceLabel = isWholesale ? 'Wholesale Price' : 'Retail Price';
+  const formattedPrice = `Rs. ${Number(price).toLocaleString('en-LK', { minimumFractionDigits: 2 })}`;
+
+  const sku = variant.sku || product.searchKey || `REL-${product.id}`;
+  const size = variant.size || 'Standard';
+  const color = variant.color || 'Original';
+
+  let resolvedUrl = productUrl;
+  if (!resolvedUrl && typeof window !== 'undefined') {
+    resolvedUrl = `${window.location.origin}/product/${product.id}${isWholesale ? '?tier=w' : '?tier=r'}`;
+  }
+
+  const messageLines = [
+    `*RELIANCE BRANDED MENS CLOTHING — PRODUCT INQUIRY*`,
+    `-------------------------------------------`,
+    `*Product:* ${product.name}`,
+    `*Style / SKU:* ${sku}`,
+    `*Category:* ${product.category?.name || "Men's Apparel"}`,
+    `*Selected Variant:* Size: ${size} | Color: ${color}`,
+    `*${priceLabel}:* ${formattedPrice}`,
+    `*Product Link:* ${resolvedUrl || '-'}`,
+    `-------------------------------------------`,
+    `Hello Reliance Atelier! I would like to inquire about ordering this garment. Please confirm availability, size fitting, and order details. Thank you!`,
+  ];
+
+  const fullMessage = messageLines.join('\n');
+  const cleanPhone = sanitizeWhatsAppPhone(companyPhone) || '94711350123';
+  const encoded = encodeURIComponent(fullMessage);
+
+  return `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encoded}`;
+};
+
+export const openProductWhatsAppInquiry = (
+  product: any,
+  selectedVariant?: any,
+  priceTier: 'wholesale' | 'retail' | 'w' | 'r' = 'retail',
+  productUrl?: string,
+  companyPhone: string = '94711350123'
+) => {
+  const url = buildProductWhatsAppUrl(product, selectedVariant, priceTier, productUrl, companyPhone);
+  if (!url) return;
+
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(
+    typeof navigator !== 'undefined' ? navigator.userAgent : ''
+  );
+
+  const cleanPhone = sanitizeWhatsAppPhone(companyPhone) || '94711350123';
+  const encodedText = url.split('&text=')[1] || '';
+  const nativeUri = `whatsapp://send?phone=${cleanPhone}&text=${encodedText}`;
+
+  if (isMobile) {
+    window.location.href = nativeUri;
+    setTimeout(() => {
+      window.location.href = url;
+    }, 1500);
+  } else {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+};
+

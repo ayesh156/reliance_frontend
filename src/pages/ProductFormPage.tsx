@@ -240,8 +240,13 @@ export const ProductFormPage: React.FC = () => {
       formData.append('name', name.trim());
       formData.append('description', description.trim());
       formData.append('searchKey', searchKey.trim());
-      formData.append('categoryId', String(categoryId));
-      formData.append('variants', JSON.stringify(variants));
+      const sanitizedVariants = variants.map(v => ({
+        ...v,
+        stock: v.stock !== undefined && v.stock !== null && String(v.stock).trim() !== ''
+          ? Math.max(0, parseInt(String(v.stock), 10) || 0)
+          : 0,
+      }));
+      formData.append('variants', JSON.stringify(sanitizedVariants));
 
       // Process existing/direct web URLs, local paths, and newly captured WebP DataURLs
       const existingUrls: string[] = [];

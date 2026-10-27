@@ -381,17 +381,27 @@ export const VariantModal: React.FC<VariantModalProps> = ({
           {/* Stock Display & Adjustment Matrix */}
           <div className="pt-2 border-t border-slate-100 dark:border-zinc-800/80">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 items-end">
-              {/* Current Stock (Original color intact, disabled from typing) */}
+              {/* Current / Base Stock (Editable, non-mandatory, defaults to 0, min 0) */}
               <div>
                 <label className="text-[10px] font-bold text-slate-700 dark:text-zinc-300 block mb-1">
-                  Current Stock
+                  Stock Units (Optional)
                 </label>
                 <Input
-                  type="text"
-                  readOnly
-                  tabIndex={-1}
-                  value={formData.stock ?? 0}
-                  className="h-8 font-bold text-center text-xs bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 text-slate-900 dark:text-zinc-100 cursor-default select-none focus-visible:ring-0"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={formData.stock === 0 ? '' : (formData.stock ?? '')}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    const parsed = raw === '' ? 0 : Math.max(0, parseInt(raw, 10) || 0);
+                    updateField('stock', parsed);
+                    if (stockAdjustment) {
+                      const res = calculateAdjustedStock(parsed, stockAdjustment);
+                      setStockError(res.isValid ? null : res.error || 'Invalid stock calculation');
+                    }
+                  }}
+                  placeholder="0"
+                  className="h-8 font-bold text-center text-xs bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 text-slate-900 dark:text-zinc-100"
                 />
               </div>
 
@@ -409,7 +419,7 @@ export const VariantModal: React.FC<VariantModalProps> = ({
                     if (/^[+-]?\d*$/.test(val)) {
                       setStockAdjustment(val);
                       const res = calculateAdjustedStock(formData.stock, val);
-                      setStockError(res.isValid ? null : res.error || 'වලංගු නොවන අගයකි');
+                      setStockError(res.isValid ? null : res.error || 'Invalid stock calculation');
                     }
                   }}
                   className={`h-8 font-mono text-center text-xs ${
@@ -463,10 +473,10 @@ export const VariantModal: React.FC<VariantModalProps> = ({
                     e.stopPropagation();
                     if (!formData) return;
 
-                    // Stock calculation එක validate කර අවසන් stock අගය ලබා ගැනීම
-                    const stockCalc = calculateAdjustedStock(formData.stock, stockAdjustment);
+                    const baseStock = formData.stock !== undefined && formData.stock !== null && !isNaN(Number(formData.stock)) ? Math.max(0, Number(formData.stock)) : 0;
+                    const stockCalc = stockAdjustment.trim() ? calculateAdjustedStock(baseStock, stockAdjustment) : { finalStock: baseStock, isValid: true };
                     if (!stockCalc.isValid) {
-                      setStockError(stockCalc.error || 'වලංගු නොවන stock අගයකි');
+                      setStockError(stockCalc.error || 'Invalid stock calculation');
                       return;
                     }
 
@@ -480,7 +490,7 @@ export const VariantModal: React.FC<VariantModalProps> = ({
                       wholesalePrice: sanitizePrice(formData.wholesalePrice),
                       retailPrice: sanitizePrice(formData.retailPrice),
                       comparePrice: formData.comparePrice ? sanitizePrice(formData.comparePrice) : 0,
-                      stock: stockCalc.finalStock,
+                      stock: Math.max(0, Number(stockCalc.finalStock) || 0),
                     };
 
                     onSave(sanitizedVariant);

@@ -239,7 +239,7 @@ export const InvoicesPage: React.FC = () => {
   };
 
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
-  const [customers, setCustomers] = useState<{ id: number; name: string; phone: string }[]>([]);
+  const [customers, setCustomers] = useState<{ id: number; name: string; phone: string; address?: string; city?: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Filter States
@@ -408,7 +408,7 @@ export const InvoicesPage: React.FC = () => {
   const handleInitiateWhatsApp = (inv: any) => {
     const existingPhone = inv.customerPhone || inv.customer?.phone;
     if (existingPhone) {
-      const waMsg = generateCustomerInvoiceWhatsAppMessage(inv);
+      const waMsg = generateCustomerInvoiceWhatsAppMessage(inv, undefined, customers);
       openWhatsAppChat(existingPhone, waMsg);
     } else {
       setWaTargetInvoice(inv);
@@ -424,7 +424,7 @@ export const InvoicesPage: React.FC = () => {
       return;
     }
     if (waTargetInvoice) {
-      const waMsg = generateCustomerInvoiceWhatsAppMessage(waTargetInvoice);
+      const waMsg = generateCustomerInvoiceWhatsAppMessage(waTargetInvoice, undefined, customers);
       openWhatsAppChat(waCustomPhone.trim(), waMsg);
       setWaModalOpen(false);
       setWaTargetInvoice(null);
@@ -1677,6 +1677,7 @@ export const InvoicesPage: React.FC = () => {
           }}
           order={printInvoice}
           autoPrint={true}
+          customers={customers}
         />
       )}
 

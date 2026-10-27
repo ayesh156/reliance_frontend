@@ -127,12 +127,17 @@ function printHtmlDirectly(html: string, suggestedFileName: string, onComplete?:
 /**
  * Prints standard A4 customer invoice directly via offscreen headless iframe.
  */
-export const printInvoiceDirectly = (order: any, onComplete?: () => void): void => {
+export const printInvoiceDirectly = (
+  order: any,
+  onComplete?: () => void,
+  matchedCustomer?: any,
+  allCustomers?: any[]
+): void => {
   if (!order) {
     if (onComplete) onComplete();
     return;
   }
-  const html = generatePrintableInvoiceHtml(order);
+  const html = generatePrintableInvoiceHtml(order, matchedCustomer, allCustomers);
   const invoiceNo = `INV${order.id || String(Date.now()).slice(-4)}`;
   printHtmlDirectly(html, `Invoice-${invoiceNo}`, onComplete);
 };

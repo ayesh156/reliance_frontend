@@ -26,6 +26,7 @@ export const sanitizePrice = (val: any): number => {
 };
 
 export const sanitizeStock = (val: any): number => {
+  if (val === undefined || val === null || val === '') return 0;
   const num = parseInt(String(val), 10);
   return isNaN(num) || num < 0 ? 0 : num;
 };
@@ -34,11 +35,11 @@ export const sanitizeStock = (val: any): number => {
  * Stock Adjustment (+/-) අනුව නව stock අගය ගණනය කර සෘණ අගයන් වැළැක්වීම
  */
 export const calculateAdjustedStock = (
-  currentStock: number,
-  adjustmentInput: string | number
+  currentStock: number | string | undefined | null,
+  adjustmentInput: string | number | undefined | null
 ): { finalStock: number; isValid: boolean; error?: string } => {
   const current = sanitizeStock(currentStock);
-  const adjStr = String(adjustmentInput).trim();
+  const adjStr = String(adjustmentInput ?? '').trim();
 
   if (!adjStr || adjStr === '0' || adjStr === '+' || adjStr === '-') {
     return { finalStock: current, isValid: true };

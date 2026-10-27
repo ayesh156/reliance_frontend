@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { formatCustomerAddressCity } from './customerAddress';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 1. DATA CONTRACTS & TYPE DEFINITIONS
@@ -164,7 +165,8 @@ export function filterAndNormalizeDueInvoices(invoices: CustomerDueInvoice[]) {
 
     const custName = String(inv.customerName || (inv as any).customer?.name || 'Walk-in Customer').trim();
     const custPhone = String(inv.customerPhone || (inv as any).customer?.phone || '').trim();
-    const custAddr = String((inv as any).customerAddress || (inv as any).customer?.address || [(inv as any).customer?.address, (inv as any).customer?.city].filter(Boolean).join(', ') || '').trim();
+    const resolvedAddr = formatCustomerAddressCity(inv);
+    const custAddr = resolvedAddr !== '-' ? resolvedAddr : '';
     const groupKey = `${custName.toLowerCase()}|||${custPhone.toLowerCase()}`;
 
     let dateStr = '-';

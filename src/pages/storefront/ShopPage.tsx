@@ -3,6 +3,7 @@ import { get } from '../../lib/api';
 import type { ProductItem } from '../../types/product';
 import { formatCurrency, getProductImageUrl, FALLBACK_IMAGE, handleImageError } from '../../lib/utils';
 import { ProductQuickViewModal } from '../../components/storefront/ProductQuickViewModal';
+import { StorefrontProductCard } from '../../components/storefront/StorefrontProductCard';
 import { openWhatsAppChat } from '../../utils/whatsapp';
 import {
   Search,
@@ -380,95 +381,13 @@ export const ShopPage: React.FC = () => {
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-2 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
-            {filteredProducts.map((product) => {
-              const primaryVariant = product.variants?.[0];
-              const price = primaryVariant?.retailPrice || 0;
-              const imageUrl = safeImageUrl(product);
-              const totalStock = product.variants?.reduce((sum, v) => sum + (v.stock || 0), 0) || 0;
-
-              return (
-                <div
-                  key={product.id}
-                  className="group relative bg-white/80 dark:bg-zinc-900/60 backdrop-blur-md border border-[#e5e5e0]/80 dark:border-zinc-800/80 hover:border-zinc-400 dark:hover:border-zinc-700 rounded-sm transition-all duration-300 flex flex-col justify-between overflow-hidden shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] hover:shadow-[0_10px_25px_-5px_rgba(0,0,0,0.08)]"
-                >
-                  {/* Image Presentation */}
-                  <div className="relative aspect-[3/4] w-full overflow-hidden bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center">
-                    <img
-                      src={imageUrl}
-                      alt={product.name}
-                      className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
-                      loading="lazy"
-                      onError={handleImageError}
-                    />
-
-                    {/* Quick View Hover Overlay */}
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center p-3 sm:p-4">
-                      <button
-                        onClick={() => setSelectedProduct(product)}
-                        className="w-full py-2 sm:py-2.5 px-3 sm:px-4 bg-zinc-950/95 text-white hover:bg-zinc-900 dark:bg-white/95 dark:text-zinc-950 dark:hover:bg-white text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.2em] rounded-sm shadow-xl flex items-center justify-center gap-1.5 sm:gap-2 transform translate-y-2 group-hover:translate-y-0 transition-all duration-300"
-                      >
-                        <Eye className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                        <span>Quick View</span>
-                      </button>
-                    </div>
-
-                    {/* Ref/Key Badge */}
-                    <div className="absolute top-2 left-2 sm:top-3 sm:left-3">
-                      <span className="text-[8px] sm:text-[9px] uppercase tracking-widest font-mono px-1.5 sm:px-2 py-0.5 rounded-full bg-white/95 text-zinc-800 border border-zinc-200 dark:bg-zinc-950/80 dark:text-zinc-300 dark:border-zinc-800 backdrop-blur-sm shadow-sm font-medium">
-                        {product.searchKey || 'Reliance Cut'}
-                      </span>
-                    </div>
-
-                    {/* Stock Notice Badge */}
-                    {totalStock > 0 && totalStock <= 20 && (
-                      <div className="absolute top-2 right-2 sm:top-3 sm:right-3">
-                        <span className="text-[8px] sm:text-[9px] uppercase tracking-widest font-mono px-1.5 sm:px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 dark:bg-emerald-950/80 dark:text-emerald-400 dark:border-emerald-800/60 backdrop-blur-sm shadow-sm font-medium">
-                          Only {totalStock} Left
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Mobile WhatsApp Pill */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const text = `Hello Reliance, I'm interested in: ${product.name} (${formatCurrency(price)})`;
-                        openWhatsAppChat('94711350123', text);
-                      }}
-                      className="absolute bottom-2 right-2 sm:hidden p-2 bg-emerald-600 text-white rounded-full shadow-lg active:scale-95 transition-transform"
-                      aria-label="Inquire on WhatsApp"
-                    >
-                      <MessageSquare className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  {/* Card Content */}
-                  <div className="p-3 sm:p-4 md:p-5 flex flex-col justify-between flex-1 space-y-2 sm:space-y-3">
-                    <div>
-                      <div className="text-[8px] sm:text-[9px] uppercase tracking-[0.25em] text-zinc-600 dark:text-zinc-400 font-mono mb-0.5 sm:mb-1">
-                        {product.category?.name || "Men's Wear"}
-                      </div>
-                      <h3 className="font-serif text-xs sm:text-sm font-semibold tracking-wide uppercase text-[#09090b] dark:text-white line-clamp-1 group-hover:text-zinc-700 dark:group-hover:text-zinc-200 transition-colors">
-                        {product.name}
-                      </h3>
-                    </div>
-
-                    <div className="flex items-baseline justify-between pt-2 border-t border-[#e5e5e0] dark:border-zinc-900">
-                      <span className="font-serif text-sm sm:text-base font-semibold text-[#09090b] dark:text-white">
-                        {formatCurrency(price)}
-                      </span>
-                      <button
-                        onClick={() => setSelectedProduct(product)}
-                        className="text-[9px] sm:text-[10px] uppercase tracking-widest text-zinc-700 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white flex items-center gap-1 transition-colors font-medium"
-                      >
-                        <span className="hidden sm:inline">Details</span>
-                        <ChevronRight className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            {filteredProducts.map((product) => (
+              <StorefrontProductCard
+                key={product.id}
+                product={product}
+                onQuickView={(p) => setSelectedProduct(p)}
+              />
+            ))}
           </div>
         )}
       </div>

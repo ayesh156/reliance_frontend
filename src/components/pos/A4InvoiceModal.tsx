@@ -10,12 +10,15 @@ import { Button } from '../ui/button';
 import { Printer, FileDown, X, FileText, Loader2, MessageSquare } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../../utils/whatsapp';
+import { formatCustomerAddressCity, resolveMatchedCustomer } from '../../utils/customerAddress';
 
-interface InvoiceModalProps {
+export interface InvoiceModalProps {
   open: boolean;
   onClose: () => void;
   order: any;
   autoPrint?: boolean;
+  customers?: any[];
+  matchedCustomer?: any;
 }
 
 /**
@@ -38,8 +41,17 @@ const formatReturnDateTime = formatReturnDate;
  * Enforces responsive viewport styles and fixed table layouts for mobile screens (<=640px)
  * ensuring zero layout shifts, zero clipping, and 100% fit on mobile screens.
  */
-export const generatePrintableInvoiceHtml = (order: any): string => {
+export const generatePrintableInvoiceHtml = (
+  order: any,
+  matchedCustomer?: any,
+  allCustomers?: any[]
+): string => {
   if (!order) return '';
+  const resolvedCust = resolveMatchedCustomer(order, matchedCustomer, allCustomers);
+  const resolvedCustName = order.customerName || resolvedCust?.name || order.customer?.name || 'Walk-in Customer';
+  const resolvedCustPhone = order.customerPhone || resolvedCust?.phone || order.customer?.phone || '-';
+  const resolvedCustAddr = formatCustomerAddressCity(order, resolvedCust, allCustomers);
+
   const invoiceNo = `INV${order.id || String(Date.now()).slice(-4)}`;
     const dateStr = order.createdAt
       ? new Date(order.createdAt).toISOString().split('T')[0]
@@ -679,15 +691,15 @@ export const generatePrintableInvoiceHtml = (order: any): string => {
               <div class="customer-info-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 5px; background: #fafafa; border: 1px solid #e5e7eb; border-radius: 4px; padding: 7px 10px;">
                 <div>
                   <div style="font-size: 8.5px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Customer Name</div>
-                  <div class="customer-name" style="font-size: 12px; font-weight: 800; color: #111; margin-top: 2px;">${order.customerName || order.customer?.name || 'Walk-in Customer'}</div>
+                  <div class="customer-name" style="font-size: 12px; font-weight: 800; color: #111; margin-top: 2px;">${resolvedCustName}</div>
                 </div>
                 <div>
                   <div style="font-size: 8.5px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Contact Phone</div>
-                  <div style="font-size: 11.5px; font-weight: 600; color: #111; margin-top: 2px;">${order.customerPhone || order.customer?.phone || '-'}</div>
+                  <div style="font-size: 11.5px; font-weight: 600; color: #111; margin-top: 2px;">${resolvedCustPhone}</div>
                 </div>
                 <div>
                   <div style="font-size: 8.5px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Address / City</div>
-                  <div style="font-size: 11px; font-weight: 500; color: #111; margin-top: 2px; line-height: 1.3;">${[order.customer?.address || order.shippingAddress, order.customer?.city].filter(Boolean).join(', ') || '-'}</div>
+                  <div style="font-size: 11px; font-weight: 500; color: #111; margin-top: 2px; line-height: 1.3;">${resolvedCustAddr}</div>
                 </div>
               </div>
             </div>
@@ -932,15 +944,22 @@ export const generatePrintableInvoiceHtml = (order: any): string => {
  * clean non-crowded modal header (title & close only), and a single sticky action bar
  * (Close, WhatsApp, PDF, Print) eliminating redundant duplicate controls.
  */
-export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, order, autoPrint = false }) => {
+export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({
+  open,
+  onClose,
+  order,
+  autoPrint = false,
+  customers,
+  matchedCustomer,
+}) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const isPrintingRef = useRef<boolean>(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState<boolean>(false);
 
   const printableDoc = useMemo(() => {
     if (!order) return '';
-    return generatePrintableInvoiceHtml(order);
-  }, [order]);
+    return generatePrintableInvoiceHtml(order, matchedCustomer, customers);
+  }, [order, matchedCustomer, customers]);
 
   const handlePrint = () => {
     if (!iframeRef.current?.contentWindow) return;
@@ -996,14 +1015,15 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
   };
 
   const handleWhatsAppShare = () => {
-    const phone = order?.customerPhone || order?.customer?.phone;
+    const cust = resolveMatchedCustomer(order, matchedCustomer, customers);
+    const phone = order?.customerPhone || cust?.phone || order?.customer?.phone;
     if (phone) {
-      const waMsg = generateCustomerInvoiceWhatsAppMessage(order);
+      const waMsg = generateCustomerInvoiceWhatsAppMessage(order, cust, customers);
       openWhatsAppChat(phone, waMsg);
     } else {
       const manualPhone = window.prompt('Enter customer mobile number for WhatsApp receipt:');
       if (manualPhone && manualPhone.trim()) {
-        const waMsg = generateCustomerInvoiceWhatsAppMessage(order);
+        const waMsg = generateCustomerInvoiceWhatsAppMessage(order, cust, customers);
         openWhatsAppChat(manualPhone.trim(), waMsg);
       }
     }

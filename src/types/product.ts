@@ -18,6 +18,8 @@ export interface VariantItem {
   imageIndexes?: number[];
 }
 
+export type ProductVariant = VariantItem;
+
 export interface ReviewItem {
   key: string;
   reviewerName: string;
