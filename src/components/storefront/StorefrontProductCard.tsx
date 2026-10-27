@@ -97,12 +97,12 @@ export const StorefrontProductCard: React.FC<StorefrontProductCardProps> = ({
         {/* Product Image Area — Clicking navigates to Single Product View */}
         <div
           onClick={handleCardNavigate}
-          className="relative aspect-[3/4] w-full overflow-hidden bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center cursor-pointer"
+          className="relative aspect-[3/4] w-full overflow-hidden bg-zinc-50 dark:bg-zinc-900 flex items-center justify-center cursor-pointer p-2"
         >
           <img
             src={resolvedImage}
             alt={product.name}
-            className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
+            className="w-full h-full object-contain transition-transform duration-700 ease-out group-hover:scale-105"
             loading="lazy"
             onError={handleImageError}
           />
@@ -163,12 +163,48 @@ export const StorefrontProductCard: React.FC<StorefrontProductCardProps> = ({
         </div>
 
         {/* Card Content & Action Bar */}
-        <div className="p-3 sm:p-4 flex flex-col justify-between flex-1 bg-transparent">
+        <div className="p-2.5 sm:p-4 flex flex-col justify-between flex-1 bg-transparent">
           <div>
-            <div className="flex items-center justify-between text-[8px] sm:text-[9px] uppercase tracking-widest text-zinc-600 dark:text-zinc-400 font-mono mb-1">
-              <span>{product.category?.name || "Men's Wear"}</span>
-              <span>Reliance</span>
+            {/* Top Meta Line: Category (left) + Action Icons (WhatsApp & Copy Link moved upwards) */}
+            <div className="flex items-center justify-between gap-1 mb-1.5">
+              <span className="text-[8px] sm:text-[9px] uppercase tracking-widest text-zinc-600 dark:text-zinc-400 font-mono truncate">
+                {product.category?.name || "Men's Wear"}
+              </span>
+
+              {/* Action Buttons: WhatsApp + Copy Link moved upwards */}
+              <div className="flex items-center gap-1 shrink-0">
+                {/* WhatsApp Button (Emerald styling) */}
+                <button
+                  type="button"
+                  onClick={handleWhatsAppClick}
+                  className="p-1 sm:p-1.5 text-emerald-600 dark:text-emerald-400 hover:text-white hover:bg-emerald-600 dark:hover:bg-emerald-600 rounded-sm transition-colors border border-emerald-500/30 hover:border-emerald-600 bg-emerald-50/50 dark:bg-emerald-950/30 shadow-xs"
+                  title="Inquire on WhatsApp"
+                  aria-label="Inquire on WhatsApp"
+                >
+                  <MessageSquare className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                </button>
+
+                {/* Copy Product Link Button */}
+                <button
+                  type="button"
+                  onClick={handleCopyLinkClick}
+                  className={`p-1 sm:p-1.5 rounded-sm transition-colors border shadow-xs ${
+                    copiedLink
+                      ? 'text-emerald-600 bg-emerald-50 border-emerald-300 dark:bg-emerald-950/40 dark:border-emerald-700'
+                      : 'text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 border-zinc-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/60'
+                  }`}
+                  title="Copy Product Link"
+                  aria-label="Copy Product Link"
+                >
+                  {copiedLink ? (
+                    <Check className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  ) : (
+                    <Link2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                  )}
+                </button>
+              </div>
             </div>
+
             {/* Clickable Product Title */}
             <h3
               onClick={handleCardNavigate}
@@ -178,49 +214,14 @@ export const StorefrontProductCard: React.FC<StorefrontProductCardProps> = ({
             </h3>
           </div>
 
-          <div className="mt-3 pt-2.5 border-t border-[#e5e5e0] dark:border-zinc-900 flex items-center justify-between">
-            {/* Price Column */}
-            <div>
-              <span className="block text-[8px] uppercase tracking-wider text-zinc-500 font-mono">
-                {isWholesaleTier ? 'Wholesale Price' : 'Retail Price'}
-              </span>
-              <span className="font-mono text-xs sm:text-sm font-bold text-[#09090b] dark:text-white">
-                {formatCurrency(displayedPrice)}
-              </span>
-            </div>
-
-            {/* Action Buttons: WhatsApp (left) + Copy Link (right) */}
-            <div className="flex items-center gap-1 sm:gap-1.5">
-              {/* WhatsApp Button (Emerald styling) */}
-              <button
-                type="button"
-                onClick={handleWhatsAppClick}
-                className="p-1.5 sm:p-2 text-emerald-600 dark:text-emerald-400 hover:text-white hover:bg-emerald-600 dark:hover:bg-emerald-600 rounded-sm transition-colors border border-emerald-500/30 hover:border-emerald-600 bg-emerald-50/50 dark:bg-emerald-950/30 shadow-xs"
-                title="Inquire on WhatsApp"
-                aria-label="Inquire on WhatsApp"
-              >
-                <MessageSquare className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              </button>
-
-              {/* Copy Product Link Button */}
-              <button
-                type="button"
-                onClick={handleCopyLinkClick}
-                className={`p-1.5 sm:p-2 rounded-sm transition-colors border shadow-xs ${
-                  copiedLink
-                    ? 'text-emerald-600 bg-emerald-50 border-emerald-300 dark:bg-emerald-950/40 dark:border-emerald-700'
-                    : 'text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 border-zinc-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/60'
-                }`}
-                title="Copy Product Link"
-                aria-label="Copy Product Link"
-              >
-                {copiedLink ? (
-                  <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600 dark:text-emerald-400" />
-                ) : (
-                  <Link2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                )}
-              </button>
-            </div>
+          {/* Bottom Price Row: "Rs." and Amount strictly remain on the exact same single line */}
+          <div className="mt-2.5 pt-2 border-t border-[#e5e5e0] dark:border-zinc-900 flex items-center justify-between gap-1">
+            <span className="text-[8px] sm:text-[9px] uppercase tracking-wider text-zinc-500 font-mono truncate">
+              {isWholesaleTier ? 'Wholesale Price' : 'Retail Price'}
+            </span>
+            <span className="whitespace-nowrap font-mono text-xs sm:text-sm font-bold text-[#09090b] dark:text-white">
+              {formatCurrency(displayedPrice)}
+            </span>
           </div>
         </div>
       </div>

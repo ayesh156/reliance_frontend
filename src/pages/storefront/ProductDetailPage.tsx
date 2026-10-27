@@ -10,6 +10,7 @@ import { ShareProductModal } from '../../components/storefront/ShareProductModal
 import { toast } from 'react-toastify';
 import {
   ChevronRight,
+  ChevronLeft,
   MessageSquare,
   Share2,
   Check,
@@ -25,6 +26,9 @@ import {
   Building2,
   Tag,
   Copy,
+  ZoomIn,
+  ZoomOut,
+  X,
 } from 'lucide-react';
 
 export const ProductDetailPage: React.FC = () => {
@@ -38,10 +42,13 @@ export const ProductDetailPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Gallery state
+  // Gallery & Interactive Zoom Lightbox state
   const [activeImageIndex, setActiveImageIndex] = useState(0);
-  const [isZoomed, setIsZoomed] = useState(false);
-  const [zoomPos, setZoomPos] = useState({ x: 50, y: 50 });
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [zoomScale, setZoomScale] = useState(1);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
 
   // Variant selection
   const [selectedSize, setSelectedSize] = useState<string>('');
@@ -204,13 +211,130 @@ export const ProductDetailPage: React.FC = () => {
   const activeStock = activeVariant?.stock || 0;
   const totalCatalogStock = product?.variants?.reduce((sum, v) => sum + (v.stock || 0), 0) || 0;
 
-  // Zoom lens handler
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-    const y = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
-    setZoomPos({ x, y });
+  // Interactive Zoom Lightbox Controls
+  const handleZoomIn = () => {
+    setZoomScale((prev) => Math.min(4, +(prev + 0.5).toFixed(1)));
   };
+
+  const handleZoomOut = () => {
+    setZoomScale((prev) => {
+      const next = Math.max(1, +(prev - 0.5).toFixed(1));
+      if (next === 1) setPanOffset({ x: 0, y: 0 });
+      return next;
+    });
+  };
+
+  const handleResetZoom = () => {
+    setZoomScale(1);
+    setPanOffset({ x: 0, y: 0 });
+  };
+
+  const handleToggleZoom = () => {
+    if (zoomScale > 1) {
+      handleResetZoom();
+    } else {
+      setZoomScale(2);
+    }
+  };
+
+  const handlePrevImage = () => {
+    setActiveImageIndex((prev) => (prev === 0 ? galleryImages.length - 1 : prev - 1));
+    handleResetZoom();
+  };
+
+  const handleNextImage = () => {
+    setActiveImageIndex((prev) => (prev === galleryImages.length - 1 ? 0 : prev + 1));
+    handleResetZoom();
+  };
+
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    if (e.deltaY < 0) {
+      handleZoomIn();
+    } else {
+      handleZoomOut();
+    }
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (zoomScale <= 1) return;
+    setIsPanning(true);
+    setPanStart({ x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
+  };
+
+  const handleMouseMoveCanvas = (e: React.MouseEvent) => {
+    if (!isPanning || zoomScale <= 1) return;
+    setPanOffset({
+      x: e.clientX - panStart.x,
+      y: e.clientY - panStart.y,
+    });
+  };
+
+  const handleMouseUp = () => {
+    setIsPanning(false);
+  };
+
+  // Touch handlers for mobile
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1 && zoomScale > 1) {
+      setIsPanning(true);
+      setPanStart({
+        x: e.touches[0].clientX - panOffset.x,
+        y: e.touches[0].clientY - panOffset.y,
+      });
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (isPanning && e.touches.length === 1 && zoomScale > 1) {
+      setPanOffset({
+        x: e.touches[0].clientX - panStart.x,
+        y: e.touches[0].clientY - panStart.y,
+      });
+    }
+  };
+
+  const handleTouchEnd = () => {
+    setIsPanning(false);
+  };
+
+  // Lock body scroll and register keyboard shortcuts when lightbox is open
+  useEffect(() => {
+    if (!isLightboxOpen) return;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsLightboxOpen(false);
+        handleResetZoom();
+      } else if (e.key === 'ArrowLeft') {
+        setActiveImageIndex((prev) => (prev === 0 ? galleryImages.length - 1 : prev - 1));
+        setZoomScale(1);
+        setPanOffset({ x: 0, y: 0 });
+      } else if (e.key === 'ArrowRight') {
+        setActiveImageIndex((prev) => (prev === galleryImages.length - 1 ? 0 : prev + 1));
+        setZoomScale(1);
+        setPanOffset({ x: 0, y: 0 });
+      } else if (e.key === '+' || e.key === '=') {
+        setZoomScale((prev) => Math.min(4, +(prev + 0.5).toFixed(1)));
+      } else if (e.key === '-') {
+        setZoomScale((prev) => {
+          const next = Math.max(1, +(prev - 0.5).toFixed(1));
+          if (next === 1) setPanOffset({ x: 0, y: 0 });
+          return next;
+        });
+      } else if (e.key === '0') {
+        setZoomScale(1);
+        setPanOffset({ x: 0, y: 0 });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = 'unset';
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isLightboxOpen, galleryImages.length]);
 
   // WhatsApp Inquiry CTA Action
   const handleWhatsAppInquiry = () => {
@@ -333,7 +457,7 @@ export const ProductDetailPage: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start">
           
-          {/* ── Left Column: AliExpress-Style Multi-Image Interactive Gallery (5/12 cols) ── */}
+          {/* ── Left Column: Multi-Image Interactive Gallery (5/12 cols) ── */}
           <div className="lg:col-span-6 flex flex-col-reverse sm:flex-row gap-3 sm:gap-4">
             {/* Thumbnail Strip */}
             {galleryImages.length > 1 && (
@@ -343,7 +467,7 @@ export const ProductDetailPage: React.FC = () => {
                     key={idx}
                     type="button"
                     onClick={() => setActiveImageIndex(idx)}
-                    className={`relative w-14 h-16 sm:w-16 sm:h-20 shrink-0 rounded-sm overflow-hidden border transition-all ${
+                    className={`relative w-14 h-16 sm:w-16 sm:h-20 shrink-0 rounded-sm overflow-hidden border transition-all bg-zinc-50 dark:bg-zinc-900 flex items-center justify-center p-1 ${
                       activeImageIndex === idx
                         ? 'border-zinc-950 dark:border-white ring-1 ring-zinc-950 dark:ring-white shadow-md'
                         : 'border-zinc-200 dark:border-zinc-800 opacity-70 hover:opacity-100 hover:border-zinc-400'
@@ -352,7 +476,7 @@ export const ProductDetailPage: React.FC = () => {
                     <img
                       src={imgUrl}
                       alt={`${product.name} - ${idx + 1}`}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain"
                       onError={handleImageError}
                     />
                   </button>
@@ -360,25 +484,18 @@ export const ProductDetailPage: React.FC = () => {
               </div>
             )}
 
-            {/* Main Crisp Preview with Zoomable Lens */}
+            {/* Main Crisp Preview with Zoom & Lightbox Trigger */}
             <div
-              className="relative aspect-[3/4] flex-1 w-full rounded-sm overflow-hidden bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-md group cursor-crosshair"
-              onMouseEnter={() => setIsZoomed(true)}
-              onMouseLeave={() => setIsZoomed(false)}
-              onMouseMove={handleMouseMove}
+              className="relative aspect-[3/4] flex-1 w-full rounded-sm overflow-hidden bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 shadow-md group flex items-center justify-center cursor-zoom-in p-2 sm:p-4"
+              onClick={() => {
+                setIsLightboxOpen(true);
+                handleResetZoom();
+              }}
             >
               <img
                 src={galleryImages[activeImageIndex] || FALLBACK_IMAGE}
                 alt={product.name}
-                className="w-full h-full object-cover transition-transform duration-300"
-                style={
-                  isZoomed
-                    ? {
-                        transformOrigin: `${zoomPos.x}% ${zoomPos.y}%`,
-                        transform: 'scale(1.9)',
-                      }
-                    : { transform: 'scale(1)' }
-                }
+                className="w-full h-full object-contain transition-transform duration-300 group-hover:scale-[1.02]"
                 onError={handleImageError}
               />
 
@@ -397,6 +514,24 @@ export const ProductDetailPage: React.FC = () => {
                   </span>
                 </div>
               )}
+
+              {/* Zoom & Expand Action Pill */}
+              <div className="absolute bottom-3 right-3 sm:bottom-4 sm:right-4 z-10">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsLightboxOpen(true);
+                    handleResetZoom();
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-sm bg-zinc-950/90 hover:bg-zinc-950 text-white dark:bg-white/95 dark:hover:bg-white dark:text-zinc-950 text-[10px] font-mono uppercase tracking-wider backdrop-blur-sm shadow-md transition-all group-hover:scale-105 cursor-pointer"
+                  title="Click to Zoom & Inspect Garment"
+                >
+                  <ZoomIn className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Zoom &amp; Inspect</span>
+                  <span className="sm:hidden">Zoom</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -687,6 +822,184 @@ export const ProductDetailPage: React.FC = () => {
           )}
         </section>
       </div>
+
+      {/* ── Interactive Image Zoom Lightbox Modal ── */}
+      {isLightboxOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex flex-col select-none animate-in fade-in-0 duration-200"
+          tabIndex={0}
+        >
+          {/* Top Header & Zoom Controls Bar */}
+          <div className="relative z-10 flex items-center justify-between px-3 sm:px-6 py-3 bg-black/60 border-b border-zinc-800">
+            <div className="flex items-center gap-2 sm:gap-3 text-white min-w-0">
+              <span className="font-serif text-xs sm:text-sm font-semibold uppercase tracking-wider truncate max-w-[140px] sm:max-w-xs">
+                {product.name}
+              </span>
+              <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 shrink-0">
+                {activeImageIndex + 1} / {galleryImages.length}
+              </span>
+            </div>
+
+            {/* Center Zoom Controls */}
+            <div className="flex items-center gap-1 sm:gap-1.5 bg-zinc-900/90 border border-zinc-800 px-2 py-1 rounded-full shadow-lg shrink-0">
+              <button
+                type="button"
+                onClick={handleZoomOut}
+                disabled={zoomScale <= 1}
+                className="p-1 sm:p-1.5 text-zinc-300 hover:text-white disabled:opacity-30 disabled:hover:text-zinc-300 rounded-full hover:bg-zinc-800 transition-colors"
+                title="Zoom Out (-)"
+                aria-label="Zoom Out"
+              >
+                <ZoomOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={handleResetZoom}
+                className="px-1.5 sm:px-2 py-0.5 text-[11px] sm:text-xs font-mono font-bold text-zinc-200 hover:text-white hover:bg-zinc-800 rounded transition-colors min-w-[42px] text-center"
+                title="Reset Zoom (0)"
+              >
+                {Math.round(zoomScale * 100)}%
+              </button>
+
+              <button
+                type="button"
+                onClick={handleZoomIn}
+                disabled={zoomScale >= 4}
+                className="p-1 sm:p-1.5 text-zinc-300 hover:text-white disabled:opacity-30 disabled:hover:text-zinc-300 rounded-full hover:bg-zinc-800 transition-colors"
+                title="Zoom In (+)"
+                aria-label="Zoom In"
+              >
+                <ZoomIn className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              </button>
+
+              <div className="h-3.5 w-px bg-zinc-700 mx-0.5" />
+
+              <button
+                type="button"
+                onClick={handleResetZoom}
+                className="p-1 sm:p-1.5 text-zinc-300 hover:text-white rounded-full hover:bg-zinc-800 transition-colors"
+                title="Reset Zoom (100%)"
+                aria-label="Reset Zoom"
+              >
+                <RotateCcw className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+              </button>
+            </div>
+
+            {/* Right Close Button */}
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLightboxOpen(false);
+                  handleResetZoom();
+                }}
+                className="p-1.5 sm:p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-full transition-colors"
+                title="Close Lightbox (Esc)"
+                aria-label="Close Lightbox"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Main Zoomable Image Canvas Area */}
+          <div
+            className="relative flex-1 w-full h-full overflow-hidden flex items-center justify-center cursor-default p-2 sm:p-4"
+            onWheel={handleWheel}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMoveCanvas}
+            onMouseUp={handleMouseUp}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onDoubleClick={handleToggleZoom}
+          >
+            <img
+              src={galleryImages[activeImageIndex] || FALLBACK_IMAGE}
+              alt={product.name}
+              draggable={false}
+              className={`max-h-[80vh] max-w-[90vw] object-contain transition-transform duration-100 ease-out select-none ${
+                zoomScale > 1
+                  ? isPanning
+                    ? 'cursor-grabbing'
+                    : 'cursor-grab'
+                  : 'cursor-zoom-in'
+              }`}
+              style={{
+                transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoomScale})`,
+                transformOrigin: 'center center',
+              }}
+              onError={handleImageError}
+            />
+
+            {/* Prev / Next Nav Arrows */}
+            {galleryImages.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handlePrevImage();
+                  }}
+                  className="absolute left-2 sm:left-6 top-1/2 -translate-y-1/2 p-2 sm:p-3 rounded-full bg-zinc-900/80 hover:bg-zinc-850 text-white border border-zinc-700/60 shadow-xl transition-all hover:scale-105"
+                  title="Previous Photo (Left Arrow)"
+                  aria-label="Previous Photo"
+                >
+                  <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleNextImage();
+                  }}
+                  className="absolute right-2 sm:right-6 top-1/2 -translate-y-1/2 p-2 sm:p-3 rounded-full bg-zinc-900/80 hover:bg-zinc-850 text-white border border-zinc-700/60 shadow-xl transition-all hover:scale-105"
+                  title="Next Photo (Right Arrow)"
+                  aria-label="Next Photo"
+                >
+                  <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6" />
+                </button>
+              </>
+            )}
+
+            {/* Mobile / Desktop Hint badge */}
+            {zoomScale === 1 && (
+              <div className="absolute bottom-3 sm:bottom-4 pointer-events-none px-3 py-1 rounded-full bg-black/70 text-zinc-400 text-[10px] sm:text-[11px] font-mono border border-zinc-800">
+                Click controls or Double-click to zoom • Scroll wheel supported
+              </div>
+            )}
+          </div>
+
+          {/* Bottom Thumbnail Strip */}
+          {galleryImages.length > 1 && (
+            <div className="relative z-10 px-4 py-2.5 bg-black/60 border-t border-zinc-800 flex items-center justify-center gap-2 overflow-x-auto">
+              {galleryImages.map((img, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => {
+                    setActiveImageIndex(idx);
+                    handleResetZoom();
+                  }}
+                  className={`w-11 h-13 sm:w-13 sm:h-16 rounded overflow-hidden border transition-all shrink-0 bg-zinc-900 p-0.5 ${
+                    activeImageIndex === idx
+                      ? 'border-white scale-105 ring-2 ring-white/50 shadow-md'
+                      : 'border-zinc-700 opacity-60 hover:opacity-100'
+                  }`}
+                >
+                  <img
+                    src={img}
+                    alt=""
+                    className="w-full h-full object-contain"
+                    onError={handleImageError}
+                  />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Authenticated Pricing Share Dialog */}
       {shareModalOpen && (

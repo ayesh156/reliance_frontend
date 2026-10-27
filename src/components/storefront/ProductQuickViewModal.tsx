@@ -95,7 +95,7 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
               <img
                 src={displayImage}
                 alt={product.name}
-                className="w-full h-full object-cover transition-all duration-500"
+                className="w-full h-full object-contain p-2 transition-all duration-500"
                 onError={handleImageError}
               />
 
