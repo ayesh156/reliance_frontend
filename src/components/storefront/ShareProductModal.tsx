@@ -9,7 +9,7 @@ import {
 import type { ProductItem } from '../../types/product';
 import { formatCurrency, getProductImageUrl, FALLBACK_IMAGE, handleImageError } from '../../lib/utils';
 import { toast } from 'react-toastify';
-import { Link2, Check, Tag, Building2, Copy, Sparkles, X } from 'lucide-react';
+import { Link2, Check, Tag, Building2, Copy, Sparkles } from 'lucide-react';
 
 interface ShareProductModalProps {
   open: boolean;
@@ -74,24 +74,14 @@ export const ShareProductModal: React.FC<ShareProductModalProps> = ({
     <Dialog open={open} onOpenChange={(val) => { if (!val) onClose(); }}>
       <DialogContent className="w-[95vw] sm:w-full sm:max-w-md mx-auto p-0 overflow-hidden border border-zinc-200 dark:border-zinc-800 bg-[#fbfbfa] dark:bg-[#0c0c0e] text-zinc-900 dark:text-zinc-100 shadow-2xl rounded-xl">
         {/* Modal Header */}
-        <div className="p-4 sm:p-5 pb-3 sm:pb-4 border-b border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-900/50">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100">
-                <Link2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-              </div>
-              <DialogTitle className="text-sm font-semibold tracking-wide uppercase font-serif">
-                Share Product Link
-              </DialogTitle>
+        <div className="p-4 sm:p-5 pr-12 pb-3 sm:pb-4 border-b border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-900/50">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100">
+              <Link2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-1 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors rounded-sm"
-              aria-label="Close modal"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            <DialogTitle className="text-sm font-semibold tracking-wide uppercase font-serif">
+              Share Product Link
+            </DialogTitle>
           </div>
           <DialogDescription className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
             Authenticated pricing link generator. Choose which price mode the recipient will see.

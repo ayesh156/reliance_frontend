@@ -50,6 +50,10 @@ export const ProductDetailPage: React.FC = () => {
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
 
+  // Desktop Daraz/Amazon-Style Hover Auto-Zoom (Magnifier) State
+  const [isHoverZoomed, setIsHoverZoomed] = useState(false);
+  const [hoverZoomOrigin, setHoverZoomOrigin] = useState({ x: 50, y: 50 });
+
   // Variant selection
   const [selectedSize, setSelectedSize] = useState<string>('');
   const [selectedColor, setSelectedColor] = useState<string>('');
@@ -274,9 +278,28 @@ export const ProductDetailPage: React.FC = () => {
     setIsPanning(false);
   };
 
-  // Touch handlers for mobile
+  // Desktop Hover Auto-Zoom (Magnifier) Handlers (md: 768px and above)
+  const handleImageMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (window.innerWidth < 768) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const x = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
+    const y = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
+    setHoverZoomOrigin({ x, y });
+    if (!isHoverZoomed) {
+      setIsHoverZoomed(true);
+    }
+  };
+
+  const handleImageMouseLeave = () => {
+    setIsHoverZoomed(false);
+    setHoverZoomOrigin({ x: 50, y: 50 });
+  };
+
+  // Touch handlers for mobile pan & zoom interaction
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length === 1 && zoomScale > 1) {
+      e.stopPropagation();
       setIsPanning(true);
       setPanStart({
         x: e.touches[0].clientX - panOffset.x,
@@ -287,6 +310,7 @@ export const ProductDetailPage: React.FC = () => {
 
   const handleTouchMove = (e: React.TouchEvent) => {
     if (isPanning && e.touches.length === 1 && zoomScale > 1) {
+      e.stopPropagation();
       setPanOffset({
         x: e.touches[0].clientX - panStart.x,
         y: e.touches[0].clientY - panStart.y,
@@ -294,13 +318,17 @@ export const ProductDetailPage: React.FC = () => {
     }
   };
 
-  const handleTouchEnd = () => {
-    setIsPanning(false);
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (isPanning) {
+      e.stopPropagation();
+      setIsPanning(false);
+    }
   };
 
   // Lock body scroll and register keyboard shortcuts when lightbox is open
   useEffect(() => {
     if (!isLightboxOpen) return;
+    const originalBodyOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -331,7 +359,7 @@ export const ProductDetailPage: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => {
-      document.body.style.overflow = 'unset';
+      document.body.style.overflow = originalBodyOverflow || 'unset';
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [isLightboxOpen, galleryImages.length]);
@@ -466,7 +494,10 @@ export const ProductDetailPage: React.FC = () => {
                   <button
                     key={idx}
                     type="button"
-                    onClick={() => setActiveImageIndex(idx)}
+                    onClick={() => {
+                      setActiveImageIndex(idx);
+                      handleImageMouseLeave();
+                    }}
                     className={`relative w-14 h-16 sm:w-16 sm:h-20 shrink-0 rounded-sm overflow-hidden border transition-all bg-zinc-50 dark:bg-zinc-900 flex items-center justify-center p-1 ${
                       activeImageIndex === idx
                         ? 'border-zinc-950 dark:border-white ring-1 ring-zinc-950 dark:ring-white shadow-md'
@@ -484,9 +515,11 @@ export const ProductDetailPage: React.FC = () => {
               </div>
             )}
 
-            {/* Main Crisp Preview with Zoom & Lightbox Trigger */}
+            {/* Main Crisp Preview with Desktop Hover Magnifier & Lightbox Trigger */}
             <div
               className="relative aspect-[3/4] flex-1 w-full rounded-sm overflow-hidden bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 shadow-md group flex items-center justify-center cursor-zoom-in p-2 sm:p-4"
+              onMouseMove={handleImageMouseMove}
+              onMouseLeave={handleImageMouseLeave}
               onClick={() => {
                 setIsLightboxOpen(true);
                 handleResetZoom();
@@ -495,7 +528,16 @@ export const ProductDetailPage: React.FC = () => {
               <img
                 src={galleryImages[activeImageIndex] || FALLBACK_IMAGE}
                 alt={product.name}
-                className="w-full h-full object-contain transition-transform duration-300 group-hover:scale-[1.02]"
+                className={`w-full h-full object-contain pointer-events-none transition-transform will-change-transform ${
+                  isHoverZoomed
+                    ? 'scale-[2] duration-75 ease-out'
+                    : 'scale-100 duration-300 ease-out group-hover:scale-[1.02]'
+                }`}
+                style={{
+                  transformOrigin: isHoverZoomed
+                    ? `${hoverZoomOrigin.x}% ${hoverZoomOrigin.y}%`
+                    : 'center center',
+                }}
                 onError={handleImageError}
               />
 
@@ -826,7 +868,8 @@ export const ProductDetailPage: React.FC = () => {
       {/* ── Interactive Image Zoom Lightbox Modal ── */}
       {isLightboxOpen && (
         <div
-          className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex flex-col select-none animate-in fade-in-0 duration-200"
+          className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex flex-col select-none animate-in fade-in-0 duration-200 touch-none"
+          style={{ touchAction: 'none' }}
           tabIndex={0}
         >
           {/* Top Header & Zoom Controls Bar */}
@@ -905,7 +948,8 @@ export const ProductDetailPage: React.FC = () => {
 
           {/* Main Zoomable Image Canvas Area */}
           <div
-            className="relative flex-1 w-full h-full overflow-hidden flex items-center justify-center cursor-default p-2 sm:p-4"
+            className="relative flex-1 w-full h-full overflow-hidden flex items-center justify-center cursor-default p-2 sm:p-4 touch-none"
+            style={{ touchAction: 'none' }}
             onWheel={handleWheel}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMoveCanvas}
@@ -919,7 +963,7 @@ export const ProductDetailPage: React.FC = () => {
               src={galleryImages[activeImageIndex] || FALLBACK_IMAGE}
               alt={product.name}
               draggable={false}
-              className={`max-h-[80vh] max-w-[90vw] object-contain transition-transform duration-100 ease-out select-none ${
+              className={`max-h-[80vh] max-w-[90vw] object-contain transition-transform duration-100 ease-out select-none touch-none ${
                 zoomScale > 1
                   ? isPanning
                     ? 'cursor-grabbing'
@@ -929,6 +973,7 @@ export const ProductDetailPage: React.FC = () => {
               style={{
                 transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoomScale})`,
                 transformOrigin: 'center center',
+                touchAction: 'none',
               }}
               onError={handleImageError}
             />
