@@ -60,10 +60,62 @@ export const generatePrintableInvoiceHtml = (order: any): string => {
 
     const invoiceHeading = isWholesale ? 'WHOLESALE INVOICE' : 'INVOICE';
 
+    // Extract itemized payments from order.payments, splitPayments, or cheques
+    interface PaymentHistoryEntry {
+      dateTimeStr: string;
+      method: string;
+      amount: number;
+      reference?: string;
+    }
+    const itemizedPayments: PaymentHistoryEntry[] = [];
+
+    if (Array.isArray(order.payments) && order.payments.length > 0) {
+      order.payments.forEach((p: any) => {
+        const d = p.paymentDate || p.createdAt || order.createdAt;
+        const dateStr = d ? new Date(d).toISOString().slice(0, 16).replace('T', ' ') : '-';
+        itemizedPayments.push({
+          dateTimeStr: dateStr,
+          method: String(p.method || 'CASH').toUpperCase(),
+          amount: Number(p.amount) || 0,
+          reference: p.reference || p.transactionId || (p.notes ? String(p.notes) : undefined),
+        });
+      });
+    }
+
+    if (itemizedPayments.length === 0 && Array.isArray(order.splitPayments) && order.splitPayments.length > 0) {
+      order.splitPayments.forEach((s: any) => {
+        const d = s.date || order.createdAt;
+        const dateStr = d ? new Date(d).toISOString().slice(0, 16).replace('T', ' ') : '-';
+        let ref = s.reference || '';
+        if (s.method === 'CHEQUE' && s.chequeNumber) {
+          ref = `Chq #${s.chequeNumber}${s.bankName ? ` (${s.bankName})` : ''}`;
+        }
+        itemizedPayments.push({
+          dateTimeStr: dateStr,
+          method: String(s.method || 'CASH').toUpperCase(),
+          amount: Number(s.amount) || 0,
+          reference: ref || undefined,
+        });
+      });
+    }
+
     // ⭐ 2. World-Class Credit Ledger Synchronization: Prevents Double-Counting on Re-print
-    const paidAmount = order.paidAmount !== undefined
-      ? Number(order.paidAmount)
-      : Math.min(total, tendered);
+    // When paymentMethod is CREDIT and no upfront payment was received, paidAmount is strictly Rs. 0.00
+    const rawPaid = Number(order.paidAmount);
+    const paidAmount = (!isNaN(rawPaid))
+      ? (paymentMethodLabel.includes('CREDIT') && itemizedPayments.length === 0 && rawPaid === 0 ? 0 : rawPaid)
+      : (paymentMethodLabel.includes('CREDIT') ? 0 : Math.min(total, tendered));
+
+    // If itemized payments are empty but paidAmount > 0 (e.g. direct cash sale), add entry
+    if (itemizedPayments.length === 0 && paidAmount > 0) {
+      const dStr = order.createdAt ? new Date(order.createdAt).toISOString().slice(0, 16).replace('T', ' ') : '-';
+      itemizedPayments.push({
+        dateTimeStr: dStr,
+        method: paymentMethodLabel.includes('CREDIT') ? 'CASH' : paymentMethodLabel,
+        amount: paidAmount,
+      });
+    }
+
     const settledDue = Number(order.settledDueAmount || 0);
     const remainingChange = Math.max(0, Math.round((tendered - paidAmount - settledDue) * 100) / 100);
     const balanceDue = Math.max(0, Math.round((total - paidAmount) * 100) / 100);
@@ -89,17 +141,18 @@ export const generatePrintableInvoiceHtml = (order: any): string => {
       ? discountAmount - lineItemDiscountTotal
       : discountAmount;
     const subtotalVal = Number(order.subtotal || (total + discountAmount) || 0);
-    const isFlatDiscount = order.discountType === 'FIXED';
-    const discountPercent = !isFlatDiscount
-      ? (Number(order.discountRate) || (subtotalVal > 0 ? ((billDiscountVal / subtotalVal) * 100) : 0))
-      : 0;
+    
+    const isPercentDiscount = order.discountType === 'PERCENT' || (!order.discountType && Number(order.discountRate) > 0);
+    const rawDiscountVal = Number(order.discountValue ?? order.discountRate ?? 0);
+    const computedPercent = subtotalVal > 0 ? (billDiscountVal / subtotalVal) * 100 : 0;
+    const displayPercent = rawDiscountVal > 0 ? rawDiscountVal : Math.round(computedPercent * 10) / 10;
 
-    let discountDisplay = 'Bill Discount:';
+    let discountDisplay = 'Bill Discount (Rs.):';
     if (billDiscountVal > 0) {
-      if (discountPercent > 0) {
-        discountDisplay = `Bill Discount (${discountPercent.toFixed(1).replace(/\.0$/, '')}%):`;
+      if (isPercentDiscount && displayPercent > 0) {
+        discountDisplay = `Bill Discount (${displayPercent}%):`;
       } else {
-        discountDisplay = 'Bill Discount:';
+        discountDisplay = 'Bill Discount (Rs.):';
       }
     }
 
@@ -621,14 +674,21 @@ export const generatePrintableInvoiceHtml = (order: any): string => {
 
           <!-- Customer Info -->
           <div class="customer-box">
-            <div>
+            <div style="flex: 1; margin-right: 15px;">
               <div class="section-title">Billed To</div>
-              <div class="customer-details">
-                <div class="customer-name">${order.customerName || order.customer?.name || 'Walk-in Customer'}</div>
-                ${(order.customer?.address || order.shippingAddress) ? `
-                  <div>${order.customer?.address || order.shippingAddress}</div>
-                ` : ''}
-                <div style="margin-top: 2px;"><strong>Contact:</strong> ${order.customerPhone || order.customer?.phone || '-'}</div>
+              <div class="customer-info-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 5px; background: #fafafa; border: 1px solid #e5e7eb; border-radius: 4px; padding: 7px 10px;">
+                <div>
+                  <div style="font-size: 8.5px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Customer Name</div>
+                  <div class="customer-name" style="font-size: 12px; font-weight: 800; color: #111; margin-top: 2px;">${order.customerName || order.customer?.name || 'Walk-in Customer'}</div>
+                </div>
+                <div>
+                  <div style="font-size: 8.5px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Contact Phone</div>
+                  <div style="font-size: 11.5px; font-weight: 600; color: #111; margin-top: 2px;">${order.customerPhone || order.customer?.phone || '-'}</div>
+                </div>
+                <div>
+                  <div style="font-size: 8.5px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Address / City</div>
+                  <div style="font-size: 11px; font-weight: 500; color: #111; margin-top: 2px; line-height: 1.3;">${[order.customer?.address || order.shippingAddress, order.customer?.city].filter(Boolean).join(', ') || '-'}</div>
+                </div>
               </div>
             </div>
             ${(displayNoteText || (splits && splits.length > 0)) ? `
@@ -782,44 +842,60 @@ export const generatePrintableInvoiceHtml = (order: any): string => {
                   <td class="value" style="color: #b91c1c;">- Rs ${totalReturnRefund.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
                 </tr>
                 ` : ''}
-                <!-- Current Invoice Total -->
+                <!-- 3. Net Bill Total -->
                 <tr class="total-row">
-                  <td class="label">${hasReturns ? 'Net Total Due (After Returns)' : 'Total Due (Current Bill)'}</td>
+                  <td class="label">${hasReturns ? 'Net Bill Total (After Returns)' : 'Net Bill Total'}</td>
                   <td class="value">Rs ${total.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
                 </tr>
 
-                <!-- 2. Tendered & Payment Breakdown (shown when customer tendered/paid cash or payment) -->
-                ${(tendered > 0 || paidAmount > 0) ? `
+                <!-- 4. Paid Amount (Current Bill) with itemized breakdown -->
                 <tr style="border-top: 1px dashed #888;">
-                  <td class="label" style="padding-top: 5px;">Customer Tendered (${paymentMethodLabel})</td>
-                  <td class="value" style="padding-top: 5px;">Rs ${tendered.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                  <td class="label" style="padding-top: 5px; font-weight: bold;">Paid Amount (Current Bill)</td>
+                  <td class="value" style="padding-top: 5px; font-weight: bold;">Rs ${paidAmount.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
                 </tr>
+                ${itemizedPayments.length > 0 ? `
                 <tr>
-                  <td class="label">Paid for Current Bill</td>
-                  <td class="value">Rs ${paidAmount.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
-                </tr>
-                ${settledDue > 0 ? `
-                <tr>
-                  <td class="label">Due Settled from Tendered</td>
-                  <td class="value">- Rs ${settledDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                  <td colspan="2" style="padding: 2px 0 4px 6px; font-size: 9.5px; color: #374151;">
+                    ${itemizedPayments.map((p) => `
+                      <div style="display: flex; justify-content: space-between; padding: 1px 0;">
+                        <span>&bull; ${p.dateTimeStr} | ${p.method}${p.reference ? ` (${p.reference})` : ''}</span>
+                        <span style="font-weight: 600;">Rs ${p.amount.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                    `).join('')}
+                  </td>
                 </tr>
                 ` : ''}
-                ${remainingChange > 0 ? `
+                ${(tendered > paidAmount && !paymentMethodLabel.includes('CREDIT')) ? `
                 <tr>
-                  <td class="label">Change Returned</td>
-                  <td class="value">Rs ${remainingChange.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                  <td class="label" style="font-size: 10px; color: #6b7280;">Cash Tendered</td>
+                  <td class="value" style="font-size: 10px; color: #6b7280;">Rs ${tendered.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
                 </tr>
-                ` : ''}
+                <tr>
+                  <td class="label" style="font-size: 10px; color: #6b7280;">Change Returned</td>
+                  <td class="value" style="font-size: 10px; color: #6b7280;">Rs ${remainingChange.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                </tr>
                 ` : ''}
 
-                <!-- 3. Previous Due & Total Accumulated Credit -->
+                <!-- 5. Balance Due (Current Bill) -->
+                <tr>
+                  <td class="label" style="font-weight: bold; color: ${balanceDue > 0 ? '#b91c1c' : '#111'};">Balance Due (Current Bill)</td>
+                  <td class="value" style="font-weight: bold; color: ${balanceDue > 0 ? '#b91c1c' : '#111'};">Rs ${balanceDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                </tr>
+
+                <!-- 6. Previous Due Balance & Total Accumulated Outstanding Due Balance -->
                 ${hasCreditLedger ? `
                 <tr style="border-top: 1px dashed #888;">
                   <td class="label" style="padding-top: 5px;">Previous Due (Old Bills)</td>
                   <td class="value" style="padding-top: 5px;">Rs ${truePreviousDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
                 </tr>
+                ${settledDue > 0 ? `
+                <tr>
+                  <td class="label" style="color: #059669;">Settled from Current Payment</td>
+                  <td class="value" style="color: #059669;">- Rs ${settledDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                ` : ''}
                 <tr class="cumulative-row">
-                  <td class="label">Total Accumulated Credit Due</td>
+                  <td class="label">Total Outstanding Due Balance</td>
                   <td class="value">Rs ${grandTotalCreditDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
                 </tr>
                 ` : ''}
@@ -983,23 +1059,13 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({ open, onClose, ord
   return (
     <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
       <DialogContent className="w-full max-w-full sm:max-w-4xl max-h-[92vh] flex flex-col p-2 sm:p-6 rounded-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 shadow-2xl overflow-x-hidden">
-        {/* Compact Modal Header: Clean Title & Close Icon Only */}
-        <DialogHeader className="pb-2 sm:pb-3 border-b border-slate-100 dark:border-zinc-800 shrink-0">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <FileText className="size-4 sm:size-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-              <DialogTitle className="text-sm sm:text-base font-bold text-slate-900 dark:text-white truncate">
-                Invoice Preview — #{order?.id ? `INV${order.id}` : 'NEW'}
-              </DialogTitle>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="size-8 sm:size-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer shrink-0"
-              aria-label="Close"
-            >
-              <X className="size-4 sm:size-5" />
-            </button>
+        {/* Compact Modal Header: Clean Title Only (DialogContent provides the close button) */}
+        <DialogHeader className="pb-2 sm:pb-3 border-b border-slate-100 dark:border-zinc-800 shrink-0 pr-8">
+          <div className="flex items-center gap-2 min-w-0">
+            <FileText className="size-4 sm:size-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+            <DialogTitle className="text-sm sm:text-base font-bold text-slate-900 dark:text-white truncate">
+              Invoice Preview — #{order?.id ? `INV${order.id}` : 'NEW'}
+            </DialogTitle>
           </div>
           <DialogDescription className="text-xs text-slate-500 dark:text-zinc-400 hidden sm:block">
             A4 format preview. Print directly to thermal/laser printer or download as PDF.

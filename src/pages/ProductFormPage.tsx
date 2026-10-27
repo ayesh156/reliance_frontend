@@ -266,18 +266,31 @@ export const ProductFormPage: React.FC = () => {
       // Guarantees only unique URLs are sent to backend
       formData.append('imageUrls', JSON.stringify(Array.from(new Set(existingUrls))));
 
+      let createdRes: any = null;
       if (isEdit) {
-        await put(`/products/${id}`, formData);
+        createdRes = await put(`/products/${id}`, formData);
         toast.success('Product updated successfully!');
       } else {
-        await post('/products', formData);
+        createdRes = await post('/products', formData);
         toast.success('Product created successfully!');
       }
 
-      // Quick Checkout හෝ වෙනත් තැනක සිට පැමිණියේ නම් නැවත එම පිටුවටම යවයි (Return-to-origin)
-      const returnUrl = new URLSearchParams(window.location.search).get('returnUrl');
-      if (returnUrl) {
-        navigate(returnUrl);
+      // Extract newly created product ID and save for seamless downstream rehydration
+      const createdId = createdRes?.data?.id || createdRes?.id || createdRes?.product?.id;
+      if (createdId) {
+        sessionStorage.setItem('NEWLY_CREATED_PRODUCT_ID', String(createdId));
+      }
+
+      // Return-to-origin support (e.g. returning to Cutting/Production draft without data loss)
+      const searchParams = new URLSearchParams(window.location.search);
+      const returnTo = searchParams.get('returnTo') || searchParams.get('returnUrl');
+      if (returnTo) {
+        let targetUrl = returnTo;
+        if (createdId && !targetUrl.includes('newlyCreatedProductId')) {
+          const sep = targetUrl.includes('?') ? '&' : '?';
+          targetUrl = `${targetUrl}${sep}newlyCreatedProductId=${createdId}`;
+        }
+        navigate(targetUrl);
       } else {
         navigate('/system/products');
       }
@@ -507,8 +520,9 @@ export const ProductFormPage: React.FC = () => {
             variant="outline"
             size="icon"
             onClick={() => {
-              const returnUrl = new URLSearchParams(window.location.search).get('returnUrl');
-              navigate(returnUrl || '/system/products');
+              const params = new URLSearchParams(window.location.search);
+              const returnTarget = params.get('returnTo') || params.get('returnUrl');
+              navigate(returnTarget || '/system/products');
             }}
             className="h-9 w-9 rounded-xl cursor-pointer"
             title="Return to products catalog"

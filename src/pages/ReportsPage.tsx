@@ -10,6 +10,7 @@ import { DateRangePicker, type DateRange } from '../components/ui/date-range-pic
 import { SearchableSelect, type SearchableSelectOption } from '../components/ui/searchable-select';
 import { toast } from 'react-toastify';
 import { generateCustomerDuesPdf } from '../utils/customerDuesPdf';
+import { generateMaterialProductionPdf } from '../utils/reportPdf';
 import { FinancialAuditModal, type FinancialMetricFocus } from '../components/reports/FinancialAuditModal';
 import {
   Dialog,
@@ -27,7 +28,7 @@ import {
   TableCell,
 } from '../components/ui/table';
 import { getProductImageUrl } from '../lib/utils';
-import { BatchActivityTimeline } from './ProductionListPage';
+import { BatchActivityTimeline } from './CuttingListPage';
 import {
   Download,
   Loader2,
@@ -119,6 +120,7 @@ export const ReportsPage: React.FC = () => {
   const [downloadingActivePdf, setDownloadingActivePdf] = useState<boolean>(false);
   const [downloadingConsolidatedPdf, setDownloadingConsolidatedPdf] = useState<boolean>(false);
   const [downloadingCustomerDuesPdf, setDownloadingCustomerDuesPdf] = useState<boolean>(false);
+  const [downloadingMaterialPdf, setDownloadingMaterialPdf] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [activeChequeTab, setActiveChequeTab] = useState<'PENDING' | 'REALIZED' | 'BOUNCED' | 'ALL'>('PENDING');
 
@@ -322,6 +324,263 @@ export const ReportsPage: React.FC = () => {
       toast.error(err.message || 'Failed to generate Customer Dues PDF');
     } finally {
       setDownloadingCustomerDuesPdf(false);
+    }
+  };
+
+  // 4. Date-Range Invoices Excel Sheet Export (Sales Module Specific)
+  const handleExportInvoicesExcel = () => {
+    try {
+      const invoices = reportData?.tableItems || [];
+      if (!invoices.length) {
+        toast.error('No invoices found to export for the selected date range');
+        return;
+      }
+
+      const headers = [
+        'Invoice No',
+        'Date & Time',
+        'Type (Retail / Wholesale)',
+        'Customer Name',
+        'Customer Phone',
+        'Customer Address',
+        'Items & Quantities',
+        'Sub Total (Rs.)',
+        'Discount (Rs. / %)',
+        'Returned Amount (Rs.)',
+        'Net Total (Rs.)',
+        'Paid Amount (Rs.)',
+        'Payment Method(s)',
+        'Balance Due (Rs.)',
+        'Sales Rep',
+        'Status',
+      ];
+
+      let sumSubTotal = 0;
+      let sumDiscount = 0;
+      let sumReturns = 0;
+      let sumNetTotal = 0;
+      let sumPaid = 0;
+      let sumDue = 0;
+
+      const rows = invoices.map((inv: any) => {
+        const sub = Number(inv.subtotal || 0);
+        const disc = Number(inv.discount || 0);
+        const ret = Number(inv.returnedAmount || 0);
+        const net = Number(inv.totalAmount || 0);
+        const paid = Number(inv.paidAmount || 0);
+        const due = Number(inv.dueAmount || 0);
+
+        sumSubTotal += sub;
+        sumDiscount += disc;
+        sumReturns += ret;
+        sumNetTotal += net;
+        sumPaid += paid;
+        sumDue += due;
+
+        const dateStr = inv.createdAt
+          ? (() => {
+              try {
+                const d = new Date(inv.createdAt);
+                return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+              } catch {
+                return String(inv.createdAt);
+              }
+            })()
+          : '-';
+
+        const invType = inv.orderType || inv.source || 'Retail';
+        const custName = inv.customerName || inv.customer?.name || 'Walk-in Customer';
+        const custPhone = inv.customerPhone || inv.customer?.phone || '-';
+        const custAddr = inv.customerAddress || inv.customerCity || (inv.customer?.address ? [inv.customer.address, inv.customer.city].filter(Boolean).join(', ') : '-');
+        const itemsQty = inv.itemsDetail || (inv.itemCount ? `${inv.itemCount} item(s)` : '-');
+        const discLabel = inv.discountType === 'PERCENT' || inv.discountType === 'PERCENTAGE'
+          ? `${disc.toFixed(2)} (${inv.discountPercent || ''}%)`
+          : disc.toFixed(2);
+        const payMethods = inv.paymentMethods || inv.paymentMethod || 'CASH';
+        const repName = inv.salesRep || inv.user?.name || '-';
+        const invStatus = String(inv.status || 'COMPLETED').toUpperCase();
+
+        return [
+          `"${String(inv.invoiceNumber || '').replace(/"/g, '""')}"`,
+          `"${String(dateStr).replace(/"/g, '""')}"`,
+          `"${String(invType).replace(/"/g, '""')}"`,
+          `"${String(custName).replace(/"/g, '""')}"`,
+          `"${String(custPhone).replace(/"/g, '""')}"`,
+          `"${String(custAddr).replace(/"/g, '""')}"`,
+          `"${String(itemsQty).replace(/"/g, '""')}"`,
+          sub.toFixed(2),
+          `"${discLabel}"`,
+          ret.toFixed(2),
+          net.toFixed(2),
+          paid.toFixed(2),
+          `"${String(payMethods).replace(/"/g, '""')}"`,
+          due.toFixed(2),
+          `"${String(repName).replace(/"/g, '""')}"`,
+          `"${String(invStatus).replace(/"/g, '""')}"`,
+        ];
+      });
+
+      // Bottom Summary / Totals Row summing Sub Total, Discount, Returns, Net Total, Paid Amount, and Balance Due
+      const totalsRow = [
+        `"TOTALS (${invoices.length} Invoices)"`,
+        '""',
+        '""',
+        '""',
+        '""',
+        '""',
+        '""',
+        sumSubTotal.toFixed(2),
+        sumDiscount.toFixed(2),
+        sumReturns.toFixed(2),
+        sumNetTotal.toFixed(2),
+        sumPaid.toFixed(2),
+        '""',
+        sumDue.toFixed(2),
+        '""',
+        '""',
+      ];
+
+      const csvContent = [headers.join(','), ...rows.map((r: any[]) => r.join(',')), totalsRow.join(',')].join('\r\n');
+      const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+
+      const startTag = reportData?.dateFilter?.startDate
+        ? new Date(reportData.dateFilter.startDate).toISOString().split('T')[0]
+        : new Date().toISOString().split('T')[0];
+      const endTag = reportData?.dateFilter?.endDate
+        ? new Date(reportData.dateFilter.endDate).toISOString().split('T')[0]
+        : startTag;
+
+      link.setAttribute('download', `Invoices_Report_${startTag}_to_${endTag}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success(`Invoices Excel exported successfully (${invoices.length} invoices)!`);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to export Invoices Excel sheet');
+    }
+  };
+
+  /**
+   * Generates executive Material & Production Audit PDF using jspdf-autotable
+   * matching the exact monochrome audit layout and date range filtering.
+   */
+  const handleDownloadMaterialPdf = async () => {
+    try {
+      setDownloadingMaterialPdf(true);
+      if (!reportData) return;
+      await generateMaterialProductionPdf(reportData, {
+        dateRangeLabel: formattedSelectedBadge,
+        generatedBy: user?.name ? `${user.name} (${user.role || 'Staff'})` : undefined,
+      });
+      toast.success('Material & Production PDF generated and downloaded successfully!');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to generate Material & Production PDF');
+    } finally {
+      setDownloadingMaterialPdf(false);
+    }
+  };
+
+  /**
+   * Exports raw material inventory, cutting consumption vs remaining balance,
+   * unit valuation, and scrap/waste logs to Excel/CSV with UTF-8 BOM.
+   */
+  const handleExportMaterialsExcel = () => {
+    try {
+      const items = reportData?.tableItems || [];
+      if (!items.length) {
+        toast.error('No material data found to export for the selected date range');
+        return;
+      }
+
+      const headers = [
+        'Material Code',
+        'Material Name',
+        'Unit of Measure',
+        'Current Stock',
+        'Period Cut Qty',
+        'Remaining Balance',
+        'Scrap / Waste Qty',
+        'Unit Cost Avg (Rs.)',
+        'Stock Valuation (Rs.)',
+        'Alert Threshold',
+        'Status',
+      ];
+
+      let sumStock = 0;
+      let sumCut = 0;
+      let sumRemaining = 0;
+      let sumWaste = 0;
+      let sumValuation = 0;
+
+      const rows = items.map((m: any) => {
+        const stock = Number(m.currentStock || 0);
+        const cut = Number(m.cutAmount ?? m.periodUsage ?? 0);
+        const remaining = Number(m.remainingAmount ?? m.currentStock ?? 0);
+        const waste = Number(m.wasteAmount ?? m.periodScrap ?? 0);
+        const unitCost = Number(m.unitCostAverage || 0);
+        const val = Number(m.totalValuation ?? (stock * unitCost));
+
+        sumStock += stock;
+        sumCut += cut;
+        sumRemaining += remaining;
+        sumWaste += waste;
+        sumValuation += val;
+
+        return [
+          `"${String(m.code || '').replace(/"/g, '""')}"`,
+          `"${String(m.name || '').replace(/"/g, '""')}"`,
+          `"${String(m.unit || 'METERS').replace(/"/g, '""')}"`,
+          stock.toFixed(2),
+          cut.toFixed(2),
+          remaining.toFixed(2),
+          waste.toFixed(2),
+          unitCost.toFixed(2),
+          val.toFixed(2),
+          Number(m.alertThreshold || 0).toFixed(2),
+          `"${String(m.status || 'Optimal').replace(/"/g, '""')}"`,
+        ];
+      });
+
+      // Bottom Totals Row
+      const totalsRow = [
+        `"TOTALS (${items.length} Materials)"`,
+        '""',
+        '""',
+        sumStock.toFixed(2),
+        sumCut.toFixed(2),
+        sumRemaining.toFixed(2),
+        sumWaste.toFixed(2),
+        '""',
+        sumValuation.toFixed(2),
+        '""',
+        '""',
+      ];
+
+      const csvContent = [headers.join(','), ...rows.map((r: any[]) => r.join(',')), totalsRow.join(',')].join('\r\n');
+      const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+
+      const startTag = reportData?.dateFilter?.startDate
+        ? new Date(reportData.dateFilter.startDate).toISOString().split('T')[0]
+        : new Date().toISOString().split('T')[0];
+      const endTag = reportData?.dateFilter?.endDate
+        ? new Date(reportData.dateFilter.endDate).toISOString().split('T')[0]
+        : startTag;
+
+      link.setAttribute('download', `Raw_Materials_Report_${startTag}_to_${endTag}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success(`Materials Excel exported successfully (${items.length} materials)!`);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to export Materials Excel sheet');
     }
   };
 
@@ -615,6 +874,56 @@ export const ReportsPage: React.FC = () => {
                   </>
                 )}
               </Button>
+            )}
+
+            {/* Sales: Export Invoices Excel */}
+            {activeModule === 'sales' && (
+              <Button
+                onClick={handleExportInvoicesExcel}
+                disabled={loading || !reportData || (reportData?.tableItems?.length || 0) === 0}
+                variant="outline"
+                className="h-10 px-3.5 rounded-xl text-xs font-semibold border-emerald-500/80 dark:border-emerald-600/80 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 shadow-xs shrink-0 cursor-pointer"
+                title="Export all invoices for the selected period / date range to Excel"
+              >
+                <FileSpreadsheet className="size-3.5 mr-1.5 text-emerald-600 dark:text-emerald-400" />
+                <span>Export Invoices Excel</span>
+              </Button>
+            )}
+
+            {/* Raw Materials & Production: PDF and Excel Buttons */}
+            {(activeModule === 'materials' || activeModule === 'production') && (
+              <>
+                <Button
+                  onClick={handleDownloadMaterialPdf}
+                  disabled={downloadingMaterialPdf || loading || !reportData}
+                  variant="outline"
+                  className="h-10 px-3.5 rounded-xl text-xs font-semibold border-amber-300 dark:border-amber-800/80 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 shadow-xs shrink-0 cursor-pointer"
+                  title="Download Material & Production Audit PDF"
+                >
+                  {downloadingMaterialPdf ? (
+                    <>
+                      <Loader2 className="size-3.5 mr-1.5 animate-spin text-amber-600" />
+                      <span>Generating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileText className="size-3.5 mr-1.5 text-amber-600" />
+                      <span>Material &amp; Production PDF</span>
+                    </>
+                  )}
+                </Button>
+
+                <Button
+                  onClick={handleExportMaterialsExcel}
+                  disabled={loading || !reportData || (reportData?.tableItems?.length || 0) === 0}
+                  variant="outline"
+                  className="h-10 px-3.5 rounded-xl text-xs font-semibold border-emerald-500/80 dark:border-emerald-600/80 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 shadow-xs shrink-0 cursor-pointer"
+                  title="Export Raw Material and Cutting yield to Excel"
+                >
+                  <FileSpreadsheet className="size-3.5 mr-1.5 text-emerald-600 dark:text-emerald-400" />
+                  <span>Export Material Excel</span>
+                </Button>
+              </>
             )}
 
             {/* Cheques: CSV Export Button (Moved up here next to PDF buttons) */}
@@ -1607,7 +1916,17 @@ export const ReportsPage: React.FC = () => {
                             <>
                               <td className="py-2.5 px-3 font-mono font-medium text-blue-600 dark:text-blue-400 whitespace-nowrap">{row.invoiceNumber}</td>
                               <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">{row.createdAt?.split('T')[0]}</td>
-                              <td className="py-2.5 px-3 font-medium text-slate-800 dark:text-zinc-200 break-words whitespace-normal">{row.customerName}</td>
+                              <td className="py-2.5 px-3 font-medium text-slate-800 dark:text-zinc-200 break-words whitespace-normal">
+                                <div>{row.customerName}</div>
+                                {row.customerPhone && row.customerPhone !== '-' && (
+                                  <div className="text-[11px] text-slate-500 font-mono">{row.customerPhone}</div>
+                                )}
+                                {row.customerAddress && row.customerAddress !== '-' && (
+                                  <div className="text-[10px] text-slate-400 truncate max-w-[200px]" title={row.customerAddress}>
+                                    {row.customerAddress}
+                                  </div>
+                                )}
+                              </td>
                               <td className="py-2.5 px-3 whitespace-nowrap">
                                 <Badge variant="outline" className="text-[10px]">
                                   {row.source === 'POS_WHOLESALE' ? 'Wholesale' : 'Retail'}

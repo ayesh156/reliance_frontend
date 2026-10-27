@@ -12,7 +12,6 @@ import { Badge } from '../components/ui/badge';
 import { Checkbox } from '../components/ui/checkbox';
 import { SearchableSelect } from '../components/ui/searchable-select';
 import { A4InvoiceModal } from '../components/pos/A4InvoiceModal';
-import { ReturnOrderModal } from '../components/invoices/ReturnOrderModal';
 import { InvoiceDetailModal } from '../components/invoices/InvoiceDetailModal';
 import {
   Dialog,
@@ -234,19 +233,9 @@ export const InvoicesPage: React.FC = () => {
   const { user, isAdmin, isRep } = useAuth();
   const dark = resolvedTheme === 'dark';
 
-  const canDeleteInvoice = (inv: InvoiceRecord): boolean => {
-    if (isAdmin) return true;
-    const isWholesale = inv.source === 'POS_WHOLESALE' || (inv as any).orderType === 'WHOLESALE';
-    const authId = user?.id ?? (user as any)?.userId;
-    const isOwner =
-      (authId !== undefined && Number(inv.userId) === Number(authId)) ||
-      (authId !== undefined && String(inv.userId) === String(authId)) ||
-      (authId !== undefined && Number((inv as any).createdById) === Number(authId));
-
-    if (isRep && isWholesale && isOwner) {
-      return true;
-    }
-    return false;
+  const canDeleteInvoice = (_inv: InvoiceRecord): boolean => {
+    if (user?.role === 'REP' || isRep) return false;
+    return Boolean(isAdmin);
   };
 
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
@@ -298,10 +287,6 @@ export const InvoicesPage: React.FC = () => {
   const [settleDateTime, setSettleDateTime] = useState<string>(getCurrentLocalISOString());
   const [settleReference, setSettleReference] = useState<string>('');
   const [isSettling, setIsSettling] = useState<boolean>(false);
-
-  // ⭐ In-Store Return & Stock Restoration Dialog State
-  const [returnInvoice, setReturnInvoice] = useState<InvoiceRecord | null>(null);
-  const [returnModalOpen, setReturnModalOpen] = useState(false);
 
   // ⭐ Invoice Summary & Cheque Lifecycle Management Modal State
   const [summaryModalInvoice, setSummaryModalInvoice] = useState<InvoiceRecord | null>(null);
@@ -371,11 +356,6 @@ export const InvoicesPage: React.FC = () => {
     } finally {
       setTogglingDispatchId(null);
     }
-  };
-
-  const handleOpenReturnModal = (inv: InvoiceRecord) => {
-    setReturnInvoice(inv);
-    setReturnModalOpen(true);
   };
 
   /**
@@ -1085,9 +1065,9 @@ export const InvoicesPage: React.FC = () => {
                     {/* Returns Pill */}
                     {inv.returns && inv.returns.length > 0 && (
                       <span
-                        onClick={() => handleOpenReturnModal(inv)}
+                        onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}&returnAction=true`)}
                         className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1 cursor-pointer"
-                        title="Click to view returns history"
+                        title="Click to process return / exchange items"
                       >
                         <RotateCcw className="size-2.5" />
                         Returns ({inv.returns.length})
@@ -1334,13 +1314,13 @@ export const InvoicesPage: React.FC = () => {
                           </DropdownMenuItem>
                         )}
 
-                        {/* 5. Process Return & Exchange (Always non-redundant secondary action) */}
+                        {/* 5. Process Return & Exchange (Direct Edit Invoice Return Flow) */}
                         <DropdownMenuItem
-                          onClick={() => handleOpenReturnModal(inv)}
-                          className="gap-2.5 cursor-pointer py-2 text-indigo-600 focus:text-indigo-700 font-medium"
+                          onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}&returnAction=true`)}
+                          className="gap-2.5 cursor-pointer py-2 text-rose-600 focus:text-rose-700 dark:text-rose-400 font-semibold"
                         >
-                          <RotateCcw className="size-4 text-indigo-600" />
-                          <span>Process Return</span>
+                          <RotateCcw className="size-4 text-rose-600 dark:text-rose-400" />
+                          <span>Return / Exchange Items</span>
                         </DropdownMenuItem>
 
                         {/* 6. Delete Invoice (Permission-restricted destructive action) */}
@@ -1433,10 +1413,10 @@ export const InvoicesPage: React.FC = () => {
                             <span
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleOpenReturnModal(inv);
+                                navigate(`/system/quick-invoice?editInvoiceId=${inv.id}&returnAction=true`);
                               }}
                               className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-0.5 hover:bg-indigo-200 cursor-pointer"
-                              title="Click to view returns history"
+                              title="Click to view/edit invoice returns"
                             >
                               <RotateCcw className="size-2.5" />
                               RET ({inv.returns.length})
@@ -1553,11 +1533,11 @@ export const InvoicesPage: React.FC = () => {
 
                               {/* ⭐ In-Store Return Action Button */}
                               <DropdownMenuItem
-                                onClick={() => handleOpenReturnModal(inv)}
+                                onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}&returnAction=true`)}
                                 className="gap-2 cursor-pointer text-indigo-600 focus:text-indigo-700 focus:bg-indigo-50 dark:focus:bg-indigo-950/30 font-medium"
                               >
                                 <RotateCcw className="size-3.5 text-indigo-600" />
-                                Process Return
+                                Return / Edit Return
                               </DropdownMenuItem>
 
                             {/* ⭐ Pay Due Balance Action (only shown if creditDue > 0) */}
@@ -1881,19 +1861,6 @@ export const InvoicesPage: React.FC = () => {
           )}
         </DialogContent>
       </Dialog>
-
-      {/* ⭐ INVOICE ITEM RETURN & RESTOCK MODAL */}
-      <ReturnOrderModal
-        isOpen={returnModalOpen}
-        onClose={() => {
-          setReturnModalOpen(false);
-          setReturnInvoice(null);
-        }}
-        invoice={returnInvoice}
-        onReturnSuccess={() => {
-          fetchInvoices(page);
-        }}
-      />
 
       {/* ⭐ COMPREHENSIVE INVOICE DETAILS & CHEQUE MANAGEMENT MODAL */}
       <InvoiceDetailModal

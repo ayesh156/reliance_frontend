@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronsUpDown, Tag, X } from 'lucide-react';
+import { Check, ChevronsUpDown, Tag, X, Plus } from 'lucide-react';
 
 export interface MaterialOption {
   id: number;
@@ -16,6 +16,7 @@ interface MaterialComboboxProps {
   options: MaterialOption[];
   placeholder?: string;
   disabled?: boolean;
+  onAddNewMaterial?: () => void;
 }
 
 export const MaterialCombobox: React.FC<MaterialComboboxProps> = ({
@@ -24,6 +25,7 @@ export const MaterialCombobox: React.FC<MaterialComboboxProps> = ({
   options,
   placeholder = 'Select Material...',
   disabled = false,
+  onAddNewMaterial,
 }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -124,6 +126,24 @@ export const MaterialCombobox: React.FC<MaterialComboboxProps> = ({
               </div>
 
               <div className="max-h-48 overflow-y-auto space-y-0.5">
+                {onAddNewMaterial && (
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setOpen(false);
+                      onAddNewMaterial();
+                    }}
+                    onClick={() => {
+                      setOpen(false);
+                      onAddNewMaterial();
+                    }}
+                    className="w-full flex items-center gap-2 px-2.5 py-2 mb-1 rounded-lg text-xs font-semibold bg-transparent hover:bg-slate-100 dark:hover:bg-zinc-800 text-emerald-600 dark:text-emerald-400 border-b border-slate-100 dark:border-zinc-800 cursor-pointer text-left transition-colors"
+                  >
+                    <Plus className="size-3.5 shrink-0 stroke-[2.5]" />
+                    <span>Add New Material</span>
+                  </button>
+                )}
                 {filtered.length === 0 ? (
                   <div className="p-3 text-center text-slate-400 text-[11px]">
                     No raw materials found

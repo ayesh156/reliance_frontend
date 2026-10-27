@@ -488,7 +488,7 @@ export const OrdersPage: React.FC = () => {
           <span>WhatsApp Share</span>
         </DropdownMenuItem>
 
-        {(user?.role === 'ADMIN' || (user?.role === 'REP' && (Number(order.userId) === Number(user?.id) || Number(order.userId) === Number((user as any)?.userId)))) && (
+        {user?.role === 'ADMIN' && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem

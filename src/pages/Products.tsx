@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -51,6 +51,11 @@ import {
   ChevronRight,
   X,
   SlidersHorizontal,
+  RotateCcw,
+  ShieldCheck,
+  AlertTriangle,
+  CheckCircle2,
+  ArrowRight,
 } from 'lucide-react';
 
 /**
@@ -73,6 +78,46 @@ const SORT_OPTIONS: SearchableSelectOption[] = [
   { value: 'price_asc', label: 'Price: Low to High' },
   { value: 'stock_asc', label: 'Stock: Low to High' },
 ];
+
+/**
+ * Return Inventory Record interface
+ */
+export interface ReturnInventoryItemRecord {
+  id: number;
+  orderId: number;
+  orderItemId: number;
+  productId: number;
+  variantId: number;
+  quantity: number;
+  restockedQty: number;
+  reason: 'UNSOLD' | 'DAMAGED';
+  status: 'IN_RETURN_STOCK' | 'RESTOCKED';
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  order?: {
+    id: number;
+    orderNumber: string;
+    createdAt: string;
+    customer?: {
+      id: number;
+      name: string;
+      phone?: string;
+    } | null;
+  };
+  product?: {
+    id: number;
+    name: string;
+    category?: { id: number; name: string } | null;
+  };
+  variant?: {
+    id: number;
+    size: string;
+    color: string;
+    sku: string;
+    stock: number;
+  };
+}
 
 export const Products: React.FC = () => {
   const navigate = useNavigate();
@@ -99,7 +144,41 @@ export const Products: React.FC = () => {
   const [selectedProduct, setSelectedProduct] = useState<ProductItem | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
-const fetchAll = useCallback(async () => {
+  // Main navigation tab: 'catalog' vs 'returns'
+  const [activeMainTab, setActiveMainTab] = useState<'catalog' | 'returns'>('catalog');
+
+  // Return Inventory states
+  const [returnItems, setReturnItems] = useState<ReturnInventoryItemRecord[]>([]);
+  const [loadingReturns, setLoadingReturns] = useState(false);
+  const [returnSearchQuery, setReturnSearchQuery] = useState('');
+  const [returnReasonFilter, setReturnReasonFilter] = useState<'ALL' | 'UNSOLD' | 'DAMAGED'>('ALL');
+  const [returnStatusFilter, setReturnStatusFilter] = useState<'ALL' | 'IN_RETURN_STOCK' | 'RESTOCKED'>('ALL');
+
+  // Restock modal state
+  const [restockModalOpen, setRestockModalOpen] = useState(false);
+  const [selectedReturnItem, setSelectedReturnItem] = useState<ReturnInventoryItemRecord | null>(null);
+  const [restockQty, setRestockQty] = useState(1);
+  const [isRestocking, setIsRestocking] = useState(false);
+  const isFetchingReturnsRef = useRef(false);
+
+  const fetchReturnInventory = useCallback(async () => {
+    if (isFetchingReturnsRef.current) return;
+    try {
+      isFetchingReturnsRef.current = true;
+      setLoadingReturns(true);
+      const data = await get<ReturnInventoryItemRecord[]>('/orders/return-inventory');
+      setReturnItems(data || []);
+    } catch (err: any) {
+      console.error('Failed to load return inventory:', err);
+      toast.error('Failed to load return inventory');
+      setReturnItems([]);
+    } finally {
+      setLoadingReturns(false);
+      isFetchingReturnsRef.current = false;
+    }
+  }, []);
+
+  const fetchAll = useCallback(async () => {
     try {
       setLoading(true);
       const [prods, cats] = await Promise.all([
@@ -117,7 +196,9 @@ const fetchAll = useCallback(async () => {
 
   useEffect(() => {
     fetchAll();
-  }, [fetchAll]);
+    fetchReturnInventory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const categoryOptions: SearchableSelectOption[] = useMemo(() => [
     { value: 'all', label: 'All Categories' },
@@ -252,6 +333,87 @@ const fetchAll = useCallback(async () => {
     }
   };
 
+  // Return Inventory Metrics & Filtering
+  const inStockReturnsCount = useMemo(() => {
+    return returnItems.filter((r) => r.status === 'IN_RETURN_STOCK').length;
+  }, [returnItems]);
+
+  const inStockReturnsQty = useMemo(() => {
+    return returnItems
+      .filter((r) => r.status === 'IN_RETURN_STOCK')
+      .reduce((sum, r) => sum + Math.max(0, r.quantity - r.restockedQty), 0);
+  }, [returnItems]);
+
+  const unsoldReturnsQty = useMemo(() => {
+    return returnItems
+      .filter((r) => r.reason === 'UNSOLD' && r.status === 'IN_RETURN_STOCK')
+      .reduce((sum, r) => sum + Math.max(0, r.quantity - r.restockedQty), 0);
+  }, [returnItems]);
+
+  const damagedReturnsQty = useMemo(() => {
+    return returnItems
+      .filter((r) => r.reason === 'DAMAGED' && r.status === 'IN_RETURN_STOCK')
+      .reduce((sum, r) => sum + Math.max(0, r.quantity - r.restockedQty), 0);
+  }, [returnItems]);
+
+  const filteredReturnItems = useMemo(() => {
+    return returnItems.filter((item) => {
+      // 1. Search Query
+      const q = returnSearchQuery.toLowerCase().trim();
+      const matchesSearch =
+        !q ||
+        Boolean(item.order?.orderNumber && item.order.orderNumber.toLowerCase().includes(q)) ||
+        Boolean(item.order?.customer?.name && item.order.customer.name.toLowerCase().includes(q)) ||
+        Boolean(item.product?.name && item.product.name.toLowerCase().includes(q)) ||
+        Boolean(item.variant?.sku && item.variant.sku.toLowerCase().includes(q)) ||
+        Boolean(item.variant?.size && item.variant.size.toLowerCase().includes(q)) ||
+        Boolean(item.variant?.color && item.variant.color.toLowerCase().includes(q));
+
+      // 2. Reason Filter
+      const matchesReason =
+        returnReasonFilter === 'ALL' || item.reason === returnReasonFilter;
+
+      // 3. Status Filter
+      const matchesStatus =
+        returnStatusFilter === 'ALL' || item.status === returnStatusFilter;
+
+      return matchesSearch && matchesReason && matchesStatus;
+    });
+  }, [returnItems, returnSearchQuery, returnReasonFilter, returnStatusFilter]);
+
+  const handleOpenRestock = (item: ReturnInventoryItemRecord) => {
+    setSelectedReturnItem(item);
+    const remaining = Math.max(1, item.quantity - item.restockedQty);
+    setRestockQty(remaining);
+    setRestockModalOpen(true);
+  };
+
+  const handleConfirmRestock = async () => {
+    if (!selectedReturnItem) return;
+    const remaining = Math.max(0, selectedReturnItem.quantity - selectedReturnItem.restockedQty);
+    if (restockQty <= 0 || restockQty > remaining) {
+      toast.error(`Please enter a valid quantity between 1 and ${remaining}`);
+      return;
+    }
+
+    try {
+      setIsRestocking(true);
+      const res = await post<{ message: string; newStock: number }>(
+        `/orders/return-inventory/${selectedReturnItem.id}/restock`,
+        { quantity: restockQty }
+      );
+      toast.success(res?.message || `Successfully restocked ${restockQty} pcs back into garment inventory!`);
+      setRestockModalOpen(false);
+      setSelectedReturnItem(null);
+      fetchReturnInventory();
+      fetchAll();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err?.message || 'Failed to restock item');
+    } finally {
+      setIsRestocking(false);
+    }
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6 w-full pb-10">
       <div className="flex items-center justify-between">
@@ -260,8 +422,8 @@ const fetchAll = useCallback(async () => {
           <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1">Multi-Variant Garment Catalog Engine</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="icon" onClick={fetchAll}>
-            <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />
+          <Button variant="outline" size="icon" onClick={() => { fetchAll(); fetchReturnInventory(); }}>
+            <RefreshCw className={`size-4 ${loading || loadingReturns ? 'animate-spin' : ''}`} />
           </Button>
           {!isRep && (
             <Button onClick={() => navigate('/system/products/new')} className="gap-2">
@@ -271,7 +433,53 @@ const fetchAll = useCallback(async () => {
         </div>
       </div>
 
-      {/* Metrics Row: Fluid 3 columns on tablet portrait (~534px) instead of single-column stacking */}
+      {/* Top Navigation Tabs: Garment Catalog vs Return Inventory & Restock Pipeline */}
+      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-zinc-800 pb-3">
+        <button
+          type="button"
+          onClick={() => setActiveMainTab('catalog')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
+            activeMainTab === 'catalog'
+              ? 'bg-indigo-600 text-white shadow-xs font-bold'
+              : 'bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-600 dark:text-zinc-300'
+          }`}
+        >
+          <Package className="size-4" />
+          <span>Garment Catalog</span>
+          <span className={`text-[11px] px-2 py-0.2 rounded-full font-mono font-bold ${
+            activeMainTab === 'catalog' ? 'bg-indigo-700 text-white' : 'bg-slate-200 dark:bg-zinc-700 text-slate-600 dark:text-zinc-300'
+          }`}>
+            {totalProducts}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setActiveMainTab('returns');
+            fetchReturnInventory();
+          }}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all cursor-pointer ${
+            activeMainTab === 'returns'
+              ? 'bg-rose-600 text-white shadow-xs font-bold'
+              : 'bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-600 dark:text-zinc-300'
+          }`}
+        >
+          <RotateCcw className="size-4" />
+          <span>Return Inventory &amp; Restock</span>
+          {inStockReturnsCount > 0 && (
+            <span className={`text-[11px] px-2 py-0.2 rounded-full font-mono font-bold ${
+              activeMainTab === 'returns' ? 'bg-rose-700 text-white' : 'bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400'
+            }`}>
+              {inStockReturnsCount}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {activeMainTab === 'catalog' && (
+        <div className="space-y-4 sm:space-y-6">
+          {/* Metrics Row: Fluid 3 columns on tablet portrait (~534px) instead of single-column stacking */}
       <div className="grid grid-cols-1 xs:grid-cols-3 gap-2 sm:gap-4 w-full">
         <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
           <div>
@@ -781,6 +989,317 @@ const fetchAll = useCallback(async () => {
           </>
         )}
       </div>
+      </div>
+      )}
+
+      {/* ── RETURN INVENTORY & RESTOCK PIPELINE VIEW ── */}
+      {activeMainTab === 'returns' && (
+        <div className="space-y-4 sm:space-y-6">
+          {/* Metrics Row for Return Inventory */}
+          <div className="grid grid-cols-1 xs:grid-cols-3 gap-2 sm:gap-4 w-full">
+            <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
+              <div>
+                <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Return Stock</span>
+                <h3 className="text-2xl font-bold text-slate-900 dark:text-white mt-1">
+                  {inStockReturnsCount} <span className="text-xs font-normal text-slate-400">records</span>
+                </h3>
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium mt-0.5">
+                  {inStockReturnsQty} pcs in return stock
+                </p>
+              </div>
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 rounded-xl">
+                <RotateCcw className="size-5" />
+              </div>
+            </div>
+
+            <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
+              <div>
+                <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Unsold (Good Condition)</span>
+                <h3 className="text-2xl font-bold text-emerald-600 mt-1">
+                  {unsoldReturnsQty} <span className="text-xs font-normal text-slate-400">pcs</span>
+                </h3>
+                <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium mt-0.5">
+                  Eligible for instant restock
+                </p>
+              </div>
+              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-xl">
+                <ShieldCheck className="size-5" />
+              </div>
+            </div>
+
+            <div className="rounded-2xl border p-3 sm:p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex justify-between items-center">
+              <div>
+                <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Damaged / Defect</span>
+                <h3 className={`text-2xl font-bold mt-1 ${damagedReturnsQty > 0 ? 'text-rose-600' : 'text-slate-900 dark:text-white'}`}>
+                  {damagedReturnsQty} <span className="text-xs font-normal text-slate-400">pcs</span>
+                </h3>
+                <p className="text-[11px] text-rose-500 dark:text-rose-400 font-medium mt-0.5">
+                  Requires repair or write-off
+                </p>
+              </div>
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 rounded-xl">
+                <AlertTriangle className="size-5" />
+              </div>
+            </div>
+          </div>
+
+          {/* Search & Filter Bar */}
+          <div className="bg-white dark:bg-zinc-900/60 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
+              <Input
+                value={returnSearchQuery}
+                onChange={(e) => setReturnSearchQuery(e.target.value)}
+                placeholder="Search by invoice #, customer, product, SKU, size..."
+                className="pl-9 pr-8 h-9 text-xs"
+              />
+              {returnSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setReturnSearchQuery('')}
+                  className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
+                >
+                  <X className="size-4" />
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Reason Filter */}
+              <div className="inline-flex rounded-xl border border-slate-200 dark:border-zinc-800 p-0.5 bg-slate-50 dark:bg-zinc-900">
+                <button
+                  type="button"
+                  onClick={() => setReturnReasonFilter('ALL')}
+                  className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                    returnReasonFilter === 'ALL'
+                      ? 'bg-white dark:bg-zinc-800 text-slate-900 dark:text-white shadow-2xs font-bold'
+                      : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900'
+                  }`}
+                >
+                  All Reasons
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReturnReasonFilter('UNSOLD')}
+                  className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                    returnReasonFilter === 'UNSOLD'
+                      ? 'bg-emerald-600 text-white shadow-2xs font-bold'
+                      : 'text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
+                  }`}
+                >
+                  Unsold (Good)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReturnReasonFilter('DAMAGED')}
+                  className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                    returnReasonFilter === 'DAMAGED'
+                      ? 'bg-rose-600 text-white shadow-2xs font-bold'
+                      : 'text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30'
+                  }`}
+                >
+                  Damaged
+                </button>
+              </div>
+
+              {/* Status Filter */}
+              <div className="inline-flex rounded-xl border border-slate-200 dark:border-zinc-800 p-0.5 bg-slate-50 dark:bg-zinc-900">
+                <button
+                  type="button"
+                  onClick={() => setReturnStatusFilter('ALL')}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                    returnStatusFilter === 'ALL'
+                      ? 'bg-white dark:bg-zinc-800 text-slate-900 dark:text-white shadow-2xs font-bold'
+                      : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900'
+                  }`}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReturnStatusFilter('IN_RETURN_STOCK')}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                    returnStatusFilter === 'IN_RETURN_STOCK'
+                      ? 'bg-amber-600 text-white shadow-2xs font-bold'
+                      : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900'
+                  }`}
+                >
+                  In Return Stock
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReturnStatusFilter('RESTOCKED')}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                    returnStatusFilter === 'RESTOCKED'
+                      ? 'bg-indigo-600 text-white shadow-2xs font-bold'
+                      : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900'
+                  }`}
+                >
+                  Restocked
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="bg-white dark:bg-zinc-900/60 rounded-2xl border border-slate-200 dark:border-zinc-800 overflow-hidden shadow-xs">
+            {loadingReturns ? (
+              <div className="p-12 flex flex-col items-center justify-center text-slate-400">
+                <Loader2 className="size-8 animate-spin text-rose-500 mb-2" />
+                <span className="text-xs font-medium">Loading return inventory pipeline...</span>
+              </div>
+            ) : filteredReturnItems.length === 0 ? (
+              <div className="p-12 text-center text-slate-400">
+                <Package className="size-8 mx-auto mb-2 opacity-50" />
+                <p className="text-sm font-semibold text-slate-600 dark:text-zinc-300">No return items found</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  When invoice returns are processed, returned garments are logged here before being restocked to active inventory.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-b border-slate-200 dark:border-zinc-800 bg-slate-50/75 dark:bg-zinc-900/75">
+                      <TableHead className="w-[120px] text-xs font-bold uppercase tracking-wider text-slate-500">Invoice #</TableHead>
+                      <TableHead className="w-[150px] text-xs font-bold uppercase tracking-wider text-slate-500">Customer</TableHead>
+                      <TableHead className="text-xs font-bold uppercase tracking-wider text-slate-500">Product / Garment</TableHead>
+                      <TableHead className="w-[110px] text-xs font-bold uppercase tracking-wider text-slate-500 text-center">Returned Qty</TableHead>
+                      <TableHead className="w-[120px] text-xs font-bold uppercase tracking-wider text-slate-500 text-center">Condition</TableHead>
+                      <TableHead className="w-[120px] text-xs font-bold uppercase tracking-wider text-slate-500 text-center">Status</TableHead>
+                      <TableHead className="w-[180px] text-xs font-bold uppercase tracking-wider text-slate-500 text-right">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredReturnItems.map((item) => {
+                      const remaining = Math.max(0, item.quantity - item.restockedQty);
+                      const isFullyRestocked = item.status === 'RESTOCKED' || remaining === 0;
+
+                      return (
+                        <TableRow key={item.id} className="border-b border-slate-100 dark:border-zinc-800/80 hover:bg-slate-50/50 dark:hover:bg-zinc-800/40">
+                          {/* Invoice # */}
+                          <TableCell className="text-xs font-mono font-bold text-slate-900 dark:text-white">
+                            <div>{item.order?.orderNumber || `#${item.orderId}`}</div>
+                            <div className="text-[10px] font-normal text-slate-400">
+                              {new Date(item.createdAt).toLocaleDateString()}
+                            </div>
+                          </TableCell>
+
+                          {/* Customer */}
+                          <TableCell className="text-xs">
+                            <div className="font-semibold text-slate-800 dark:text-zinc-200">
+                              {item.order?.customer?.name || 'Walk-in Customer'}
+                            </div>
+                            {item.order?.customer?.phone && (
+                              <div className="text-[10px] text-slate-400 font-mono">
+                                {item.order.customer.phone}
+                              </div>
+                            )}
+                          </TableCell>
+
+                          {/* Product / Garment */}
+                          <TableCell className="text-xs">
+                            <div className="font-bold text-slate-900 dark:text-white">
+                              {item.product?.name || 'Garment Item'}
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                              {item.variant?.size && (
+                                <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 text-[10px] font-mono font-semibold text-slate-700 dark:text-zinc-300">
+                                  Size: {item.variant.size}
+                                </span>
+                              )}
+                              {item.variant?.color && (
+                                <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 text-[10px] font-mono font-semibold text-slate-700 dark:text-zinc-300">
+                                  Color: {item.variant.color}
+                                </span>
+                              )}
+                              {item.variant?.sku && (
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  SKU: {item.variant.sku}
+                                </span>
+                              )}
+                              <span className="text-[10px] text-slate-500 font-medium ml-1">
+                                (Current Stock: {item.variant?.stock ?? 0} pcs)
+                              </span>
+                            </div>
+                          </TableCell>
+
+                          {/* Returned Qty */}
+                          <TableCell className="text-xs text-center font-mono">
+                            <div className="font-extrabold text-sm text-slate-900 dark:text-white">
+                              {item.quantity} pcs
+                            </div>
+                            {item.restockedQty > 0 && (
+                              <div className="text-[10.5px] text-emerald-600 font-semibold">
+                                Restocked: {item.restockedQty} pcs
+                              </div>
+                            )}
+                            {remaining > 0 && item.restockedQty > 0 && (
+                              <div className="text-[10px] text-amber-600 font-medium">
+                                Remaining: {remaining} pcs
+                              </div>
+                            )}
+                          </TableCell>
+
+                          {/* Condition */}
+                          <TableCell className="text-center">
+                            {item.reason === 'DAMAGED' ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-300 dark:border-rose-800">
+                                <AlertTriangle className="size-3 shrink-0" />
+                                <span>Damaged</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                                <CheckCircle2 className="size-3 shrink-0" />
+                                <span>Unsold (Good)</span>
+                              </span>
+                            )}
+                          </TableCell>
+
+                          {/* Status */}
+                          <TableCell className="text-center">
+                            {isFullyRestocked ? (
+                              <Badge variant="success" className="text-[10px] px-2 py-0.5 font-bold">
+                                Restocked
+                              </Badge>
+                            ) : (
+                              <Badge variant="warning" className="text-[10px] px-2 py-0.5 font-bold">
+                                In Return Stock
+                              </Badge>
+                            )}
+                          </TableCell>
+
+                          {/* Action */}
+                          <TableCell className="text-right">
+                            {!isRep && (
+                              remaining > 0 ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  onClick={() => handleOpenRestock(item)}
+                                  className="h-8 px-2.5 text-xs font-bold gap-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg shadow-2xs"
+                                >
+                                  <RotateCcw className="size-3.5" />
+                                  <span>Restock to Garment Stock</span>
+                                </Button>
+                              ) : (
+                                <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center justify-end gap-1">
+                                  <CheckCircle2 className="size-3.5" />
+                                  <span>Fully Restocked</span>
+                                </span>
+                              )
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Read-Only Product Inspection Dialog for Mobile/Tablet & Sales Representatives */}
       <Dialog open={!!inspectProduct} onOpenChange={(open) => !open && setInspectProduct(null)}>
@@ -957,6 +1476,154 @@ const fetchAll = useCallback(async () => {
           </AlertDialogContent>
         </AlertDialog>
       )}
+
+      {/* Restock to Garment Stock Confirmation Dialog */}
+      <Dialog open={restockModalOpen} onOpenChange={setRestockModalOpen}>
+        <DialogContent className="w-full max-w-md p-5 rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold flex items-center gap-2 text-slate-900 dark:text-white">
+              <RotateCcw className="size-5 text-emerald-600" />
+              <span>Restock to Garment Stock</span>
+            </DialogTitle>
+          </DialogHeader>
+
+          {selectedReturnItem && (
+            <div className="space-y-4 pt-2">
+              {/* Product & Variant Details Card */}
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-zinc-900/80 border border-slate-200 dark:border-zinc-800 space-y-2">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h4 className="font-bold text-sm text-slate-900 dark:text-white">
+                      {selectedReturnItem.product?.name || 'Garment Product'}
+                    </h4>
+                    <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+                      Invoice: <span className="font-mono font-semibold text-slate-700 dark:text-zinc-300">{selectedReturnItem.order?.orderNumber || `#${selectedReturnItem.orderId}`}</span>
+                    </p>
+                  </div>
+                  {selectedReturnItem.reason === 'DAMAGED' ? (
+                    <span className="px-2 py-0.5 text-[10.5px] font-bold rounded-full bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-300">
+                      Damaged
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 text-[10.5px] font-bold rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300">
+                      Unsold (Good)
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 text-xs flex-wrap pt-1 border-t border-slate-200/60 dark:border-zinc-800/60">
+                  <span className="font-medium text-slate-600 dark:text-zinc-400">
+                    Size: <strong className="font-mono text-slate-900 dark:text-white">{selectedReturnItem.variant?.size}</strong>
+                  </span>
+                  <span>•</span>
+                  <span className="font-medium text-slate-600 dark:text-zinc-400">
+                    Color: <strong className="font-mono text-slate-900 dark:text-white">{selectedReturnItem.variant?.color}</strong>
+                  </span>
+                  {selectedReturnItem.variant?.sku && (
+                    <>
+                      <span>•</span>
+                      <span className="font-mono text-slate-500 text-[11px]">
+                        SKU: {selectedReturnItem.variant.sku}
+                      </span>
+                    </>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-200/60 dark:border-zinc-800/60">
+                  <span className="text-slate-500">Current Garment Stock:</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-white">
+                    {selectedReturnItem.variant?.stock ?? 0} pcs
+                  </span>
+                </div>
+              </div>
+
+              {/* Damaged Alert Warning if applicable */}
+              {selectedReturnItem.reason === 'DAMAGED' && (
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-xs flex items-start gap-2">
+                  <AlertTriangle className="size-4 shrink-0 text-amber-600 mt-0.5" />
+                  <div>
+                    <span className="font-bold block">Caution: Returned as Damaged</span>
+                    <span>Restocking will increment active sellable inventory. Only proceed if this item has been inspected or repaired.</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Quantity Input with Quick Button */}
+              {(() => {
+                const remaining = Math.max(1, selectedReturnItem.quantity - selectedReturnItem.restockedQty);
+                return (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                      <label htmlFor="restockQtyInput">Quantity to Restock back into Main Stock:</label>
+                      <button
+                        type="button"
+                        onClick={() => setRestockQty(remaining)}
+                        className="text-[11px] font-bold text-emerald-600 hover:text-emerald-500 hover:underline cursor-pointer"
+                      >
+                        Restock Max ({remaining} pcs)
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="restockQtyInput"
+                        type="number"
+                        min={1}
+                        max={remaining}
+                        value={restockQty}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value) || 0;
+                          setRestockQty(Math.max(1, Math.min(remaining, val)));
+                        }}
+                        className="h-10 text-base font-mono font-bold text-center"
+                      />
+                      <span className="text-xs text-slate-400 font-semibold shrink-0">
+                        / {remaining} pcs available
+                      </span>
+                    </div>
+
+                    {/* Projected Stock Preview */}
+                    <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between text-xs text-emerald-900 dark:text-emerald-200 font-medium">
+                      <span>Projected Stock After Restock:</span>
+                      <span className="font-mono font-extrabold text-sm text-emerald-700 dark:text-emerald-300">
+                        {(selectedReturnItem.variant?.stock ?? 0) + restockQty} pcs
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Dialog Actions */}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setRestockModalOpen(false);
+                    setSelectedReturnItem(null);
+                  }}
+                  disabled={isRestocking}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleConfirmRestock}
+                  disabled={isRestocking || restockQty <= 0}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold gap-1.5"
+                >
+                  {isRestocking ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="size-4" />
+                  )}
+                  <span>Restock {restockQty} pcs</span>
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

@@ -19,13 +19,41 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
   className,
   disabled = false,
 }) => {
+  const hourInputRef = useRef<HTMLInputElement>(null);
   const minuteInputRef = useRef<HTMLInputElement>(null);
 
-  // Backup state to restore previous value if user leaves without typing
+  // Focus tracking to prevent incoming value prop updates from interrupting active user typing
+  const isHourFocusedRef = useRef<boolean>(false);
+  const isMinuteFocusedRef = useRef<boolean>(false);
+
+  // Live value refs to prevent stale closure reads when blur events fire synchronously
+  const currentHourRef = useRef<string>('12');
+  const currentMinuteRef = useRef<string>('00');
+
+  // Backup state to restore previous valid value if user leaves field empty
   const prevHourRef = useRef<string>('12');
   const prevMinuteRef = useRef<string>('00');
 
   const parseParts = (val: string) => {
+    // 1. Direct regex parsing for deterministic timezone-safe local string extraction
+    if (val) {
+      const match = val.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+      if (match) {
+        const [, y, m, d, hh, mm] = match;
+        let h = parseInt(hh, 10);
+        const p: 'AM' | 'PM' = h >= 12 ? 'PM' : 'AM';
+        h = h % 12;
+        h = h ? h : 12;
+        return {
+          dateObj: new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10)),
+          hour12: String(h).padStart(2, '0'),
+          minute: mm,
+          period: p,
+        };
+      }
+    }
+
+    // 2. Fallback to Date object parsing
     try {
       const d = val ? new Date(val) : new Date();
       const targetDate = isNaN(d.getTime()) ? new Date() : d;
@@ -60,20 +88,33 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
   };
 
   const initial = parseParts(value);
+  currentHourRef.current = initial.hour12;
+  currentMinuteRef.current = initial.minute;
+  prevHourRef.current = initial.hour12;
+  prevMinuteRef.current = initial.minute;
+
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(initial.dateObj);
   const [hour, setHour] = useState<string>(initial.hour12);
   const [minute, setMinute] = useState<string>(initial.minute);
   const [period, setPeriod] = useState<'AM' | 'PM'>(initial.period);
 
+  // Synchronize state when value changes externally, but avoid overwriting active user typing
   useEffect(() => {
     if (value) {
       const parts = parseParts(value);
       setSelectedDate(parts.dateObj);
-      setHour(parts.hour12);
-      setMinute(parts.minute);
       setPeriod(parts.period);
-      prevHourRef.current = parts.hour12;
-      prevMinuteRef.current = parts.minute;
+
+      if (!isHourFocusedRef.current) {
+        setHour(parts.hour12);
+        currentHourRef.current = parts.hour12;
+        prevHourRef.current = parts.hour12;
+      }
+      if (!isMinuteFocusedRef.current) {
+        setMinute(parts.minute);
+        currentMinuteRef.current = parts.minute;
+        prevMinuteRef.current = parts.minute;
+      }
     }
   }, [value]);
 
@@ -88,69 +129,129 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
       return;
     }
 
-    let h = parseInt(newHour, 10) || 12;
-    const m = Math.min(59, Math.max(0, parseInt(newMinute, 10) || 0));
+    let h = parseInt(newHour, 10);
+    if (isNaN(h) || h < 1 || h > 12) h = 12;
 
-    // Convert 12-hour format + AM/PM into 24-hour scale (0-23)
+    let m = parseInt(newMinute, 10);
+    if (isNaN(m) || m < 0 || m > 59) m = 0;
+
+    // Convert 12-hour format + AM/PM into 24-hour scale (00-23)
     if (newPeriod === 'PM' && h < 12) h += 12;
     if (newPeriod === 'AM' && h === 12) h = 0;
 
-    const combined = new Date(newDate);
-    combined.setHours(h, m, 0, 0);
-
-    const year = combined.getFullYear();
-    const month = String(combined.getMonth() + 1).padStart(2, '0');
-    const day = String(combined.getDate()).padStart(2, '0');
-    const hoursStr = String(combined.getHours()).padStart(2, '0');
-    const minsStr = String(combined.getMinutes()).padStart(2, '0');
+    const year = newDate.getFullYear();
+    const month = String(newDate.getMonth() + 1).padStart(2, '0');
+    const day = String(newDate.getDate()).padStart(2, '0');
+    const hoursStr = String(h).padStart(2, '0');
+    const minsStr = String(m).padStart(2, '0');
 
     onChange(`${year}-${month}-${day}T${hoursStr}:${minsStr}`);
   };
 
   const handleDateChange = (newDate: Date | undefined) => {
     setSelectedDate(newDate);
-    emitDateTime(newDate, hour || prevHourRef.current, minute || prevMinuteRef.current, period);
+    emitDateTime(
+      newDate,
+      currentHourRef.current || prevHourRef.current,
+      currentMinuteRef.current || prevMinuteRef.current,
+      period
+    );
   };
 
-  // Hour click: save current value in backup and clear display
-  const handleHourFocus = () => {
+  // Hour focus: select all text so user can immediately type without backspacing
+  const handleHourFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    isHourFocusedRef.current = true;
     if (hour) prevHourRef.current = hour;
-    setHour('');
+    const target = e.currentTarget;
+    setTimeout(() => {
+      target.select();
+    }, 0);
   };
 
-  // Minute click: save current value in backup and clear display
-  const handleMinuteFocus = () => {
+  // Minute focus: select all text
+  const handleMinuteFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    isMinuteFocusedRef.current = true;
     if (minute) prevMinuteRef.current = minute;
-    setMinute('');
+    const target = e.currentTarget;
+    setTimeout(() => {
+      target.select();
+    }, 0);
   };
 
   // Hour typing logic (01 - 12)
   const handleHourInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const rawVal = e.target.value.replace(/\D/g, '');
     if (!rawVal) {
+      currentHourRef.current = '';
       setHour('');
       return;
     }
 
-    const num = parseInt(rawVal, 10);
-
-    // If typed value is above 12, take only the last digit
-    if (num > 12) {
-      const lastDigit = rawVal.slice(-1);
-      const safeNum = parseInt(lastDigit, 10) || 1;
-      setHour(String(safeNum));
-      prevHourRef.current = String(safeNum).padStart(2, '0');
-      emitDateTime(selectedDate, prevHourRef.current, minute || prevMinuteRef.current, period);
+    // Single digit input
+    if (rawVal.length === 1) {
+      const digit = parseInt(rawVal, 10);
+      if (digit === 0 || digit === 1) {
+        // Could be the start of 01-09 or 10, 11, 12: wait for second digit without auto-advancing
+        currentHourRef.current = rawVal;
+        setHour(rawVal);
+      } else {
+        // Digits 2-9 cannot have a second hour digit (12-hour clock max is 12)
+        const formatted = `0${digit}`;
+        currentHourRef.current = formatted;
+        setHour(formatted);
+        prevHourRef.current = formatted;
+        emitDateTime(selectedDate, formatted, currentMinuteRef.current || prevMinuteRef.current, period);
+        setTimeout(() => {
+          minuteInputRef.current?.focus();
+          minuteInputRef.current?.select();
+        }, 10);
+      }
       return;
     }
 
-    setHour(rawVal);
-    prevHourRef.current = rawVal.padStart(2, '0');
-    emitDateTime(selectedDate, prevHourRef.current, minute || prevMinuteRef.current, period);
+    // Two or more digits: take the last two digits
+    const lastTwo = rawVal.slice(-2);
+    const num = parseInt(lastTwo, 10);
 
-    // Auto-focus minute only when 2 digits are entered
-    if (rawVal.length === 2) {
-      minuteInputRef.current?.focus();
+    if (num === 0) {
+      // 00 -> treat as 12
+      const formatted = '12';
+      currentHourRef.current = formatted;
+      setHour(formatted);
+      prevHourRef.current = formatted;
+      emitDateTime(selectedDate, formatted, currentMinuteRef.current || prevMinuteRef.current, period);
+      setTimeout(() => {
+        minuteInputRef.current?.focus();
+        minuteInputRef.current?.select();
+      }, 10);
+    } else if (num >= 1 && num <= 12) {
+      // Valid hour 01 - 12 (including 10, 11, 12)
+      const formatted = String(num).padStart(2, '0');
+      currentHourRef.current = formatted;
+      setHour(formatted);
+      prevHourRef.current = formatted;
+      emitDateTime(selectedDate, formatted, currentMinuteRef.current || prevMinuteRef.current, period);
+      setTimeout(() => {
+        minuteInputRef.current?.focus();
+        minuteInputRef.current?.select();
+      }, 10);
+    } else {
+      // Value > 12: fallback to last typed digit
+      const lastDigit = parseInt(rawVal.slice(-1), 10);
+      if (lastDigit === 0 || lastDigit === 1) {
+        currentHourRef.current = String(lastDigit);
+        setHour(String(lastDigit));
+      } else {
+        const formatted = `0${lastDigit}`;
+        currentHourRef.current = formatted;
+        setHour(formatted);
+        prevHourRef.current = formatted;
+        emitDateTime(selectedDate, formatted, currentMinuteRef.current || prevMinuteRef.current, period);
+        setTimeout(() => {
+          minuteInputRef.current?.focus();
+          minuteInputRef.current?.select();
+        }, 10);
+      }
     }
   };
 
@@ -158,46 +259,129 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
   const handleMinuteInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const rawVal = e.target.value.replace(/\D/g, '');
     if (!rawVal) {
+      currentMinuteRef.current = '';
       setMinute('');
       return;
     }
 
-    const num = parseInt(rawVal, 10);
-    if (num > 59) {
-      const lastDigit = rawVal.slice(-1);
-      setMinute(lastDigit);
-      prevMinuteRef.current = lastDigit.padStart(2, '0');
-      emitDateTime(selectedDate, hour || prevHourRef.current, prevMinuteRef.current, period);
+    if (rawVal.length === 1) {
+      const digit = parseInt(rawVal, 10);
+      if (digit >= 6) {
+        // Minutes cannot be 60+: format as 0X
+        const formatted = `0${digit}`;
+        currentMinuteRef.current = formatted;
+        setMinute(formatted);
+        prevMinuteRef.current = formatted;
+        emitDateTime(selectedDate, currentHourRef.current || prevHourRef.current, formatted, period);
+      } else {
+        // 0 - 5: wait for possible second digit
+        currentMinuteRef.current = rawVal;
+        setMinute(rawVal);
+      }
       return;
     }
 
-    setMinute(rawVal);
-    prevMinuteRef.current = rawVal.padStart(2, '0');
-    emitDateTime(selectedDate, hour || prevHourRef.current, prevMinuteRef.current, period);
-  };
+    // Two or more digits: take the last two digits
+    const lastTwo = rawVal.slice(-2);
+    const num = parseInt(lastTwo, 10);
 
-  // When clicking outside without typing: restore previous value
-  const handleHourBlur = () => {
-    if (!hour.trim()) {
-      setHour(prevHourRef.current);
+    if (num <= 59) {
+      const formatted = String(num).padStart(2, '0');
+      currentMinuteRef.current = formatted;
+      setMinute(formatted);
+      prevMinuteRef.current = formatted;
+      emitDateTime(selectedDate, currentHourRef.current || prevHourRef.current, formatted, period);
     } else {
-      const num = parseInt(hour, 10);
-      const formatted = isNaN(num) || num < 1 ? '12' : String(Math.min(12, Math.max(1, num))).padStart(2, '0');
-      setHour(formatted);
-      prevHourRef.current = formatted;
-      emitDateTime(selectedDate, formatted, minute || prevMinuteRef.current, period);
+      const lastDigit = rawVal.slice(-1);
+      currentMinuteRef.current = lastDigit;
+      setMinute(lastDigit);
     }
   };
 
+  // Hour blur: format single digit or restore previous value using live ref
+  const handleHourBlur = () => {
+    isHourFocusedRef.current = false;
+    const val = currentHourRef.current.trim();
+    if (!val) {
+      currentHourRef.current = prevHourRef.current;
+      setHour(prevHourRef.current);
+    } else {
+      const num = parseInt(val, 10);
+      const formatted = isNaN(num) || num < 1 ? '12' : String(Math.min(12, Math.max(1, num))).padStart(2, '0');
+      currentHourRef.current = formatted;
+      setHour(formatted);
+      prevHourRef.current = formatted;
+      emitDateTime(selectedDate, formatted, currentMinuteRef.current || prevMinuteRef.current, period);
+    }
+  };
+
+  // Minute blur: format single digit or restore previous value using live ref
   const handleMinuteBlur = () => {
-    if (!minute.trim()) {
+    isMinuteFocusedRef.current = false;
+    const val = currentMinuteRef.current.trim();
+    if (!val) {
+      currentMinuteRef.current = prevMinuteRef.current;
       setMinute(prevMinuteRef.current);
     } else {
-      const num = parseInt(minute, 10);
+      const num = parseInt(val, 10);
       const formatted = isNaN(num) || num < 0 ? '00' : String(Math.min(59, Math.max(0, num))).padStart(2, '0');
+      currentMinuteRef.current = formatted;
       setMinute(formatted);
       prevMinuteRef.current = formatted;
-      emitDateTime(selectedDate, hour || prevHourRef.current, formatted, period);
+      emitDateTime(selectedDate, currentHourRef.current || prevHourRef.current, formatted, period);
+    }
+  };
+
+  // Keyboard navigation & increment/decrement
+  const handleHourKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const current = parseInt(currentHourRef.current || prevHourRef.current, 10) || 12;
+      const next = current >= 12 ? 1 : current + 1;
+      const formatted = String(next).padStart(2, '0');
+      currentHourRef.current = formatted;
+      setHour(formatted);
+      prevHourRef.current = formatted;
+      emitDateTime(selectedDate, formatted, currentMinuteRef.current || prevMinuteRef.current, period);
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const current = parseInt(currentHourRef.current || prevHourRef.current, 10) || 12;
+      const next = current <= 1 ? 12 : current - 1;
+      const formatted = String(next).padStart(2, '0');
+      currentHourRef.current = formatted;
+      setHour(formatted);
+      prevHourRef.current = formatted;
+      emitDateTime(selectedDate, formatted, currentMinuteRef.current || prevMinuteRef.current, period);
+    } else if (e.key === ':' || e.key === 'ArrowRight' || e.key === 'Enter') {
+      e.preventDefault();
+      minuteInputRef.current?.focus();
+      minuteInputRef.current?.select();
+    }
+  };
+
+  const handleMinuteKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const current = parseInt(currentMinuteRef.current || prevMinuteRef.current, 10) || 0;
+      const next = current >= 59 ? 0 : current + 1;
+      const formatted = String(next).padStart(2, '0');
+      currentMinuteRef.current = formatted;
+      setMinute(formatted);
+      prevMinuteRef.current = formatted;
+      emitDateTime(selectedDate, currentHourRef.current || prevHourRef.current, formatted, period);
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const current = parseInt(currentMinuteRef.current || prevMinuteRef.current, 10) || 0;
+      const next = current <= 0 ? 59 : current - 1;
+      const formatted = String(next).padStart(2, '0');
+      currentMinuteRef.current = formatted;
+      setMinute(formatted);
+      prevMinuteRef.current = formatted;
+      emitDateTime(selectedDate, currentHourRef.current || prevHourRef.current, formatted, period);
+    } else if (e.key === 'ArrowLeft' || (e.key === 'Backspace' && !minute)) {
+      e.preventDefault();
+      hourInputRef.current?.focus();
+      hourInputRef.current?.select();
     }
   };
 
@@ -205,7 +389,12 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
     if (disabled) return;
     const nextPeriod: 'AM' | 'PM' = period === 'AM' ? 'PM' : 'AM';
     setPeriod(nextPeriod);
-    emitDateTime(selectedDate, hour || prevHourRef.current, minute || prevMinuteRef.current, nextPeriod);
+    emitDateTime(
+      selectedDate,
+      currentHourRef.current || prevHourRef.current,
+      currentMinuteRef.current || prevMinuteRef.current,
+      nextPeriod
+    );
   };
 
   return (
@@ -228,6 +417,7 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
         <div className="flex items-center justify-center gap-0.5 flex-1">
           {/* Hour Input Box (01-12) */}
           <input
+            ref={hourInputRef}
             type="text"
             inputMode="numeric"
             disabled={disabled}
@@ -235,9 +425,9 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
             onFocus={handleHourFocus}
             onChange={handleHourInput}
             onBlur={handleHourBlur}
+            onKeyDown={handleHourKeyDown}
             placeholder={prevHourRef.current}
-            maxLength={2}
-            className="w-6 text-center font-mono text-xs font-bold text-slate-800 dark:text-zinc-100 bg-transparent focus:outline-none p-0"
+            className="w-7 text-center font-mono text-xs font-bold text-slate-800 dark:text-zinc-100 bg-transparent focus:outline-none p-0 selection:bg-indigo-100 dark:selection:bg-indigo-900"
           />
 
           <span className="text-xs font-bold text-slate-400 select-none">:</span>
@@ -252,9 +442,9 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
             onFocus={handleMinuteFocus}
             onChange={handleMinuteInput}
             onBlur={handleMinuteBlur}
+            onKeyDown={handleMinuteKeyDown}
             placeholder={prevMinuteRef.current}
-            maxLength={2}
-            className="w-6 text-center font-mono text-xs font-bold text-slate-800 dark:text-zinc-100 bg-transparent focus:outline-none p-0"
+            className="w-7 text-center font-mono text-xs font-bold text-slate-800 dark:text-zinc-100 bg-transparent focus:outline-none p-0 selection:bg-indigo-100 dark:selection:bg-indigo-900"
           />
         </div>
 

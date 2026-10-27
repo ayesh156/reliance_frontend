@@ -48,8 +48,11 @@ export interface TargetProductItem {
   productName: string;
   sku?: string;
   barcode?: string;
+  cutQty: number;
   plannedQty?: number;
   sentToLineQty: number;
+  remaining: number;
+  progressPct: number;
   imageUrl?: string | null;
 }
 
@@ -100,14 +103,22 @@ export const SendToLineModal: React.FC<SendToLineModalProps> = ({
           const pId = Number(tp.productId || tp.id);
           const fullProduct = productsList.find((p) => p.id === pId);
           const rawImg = fullProduct?.images?.[0]?.imageUrl || (fullProduct as any)?.image;
+          const totalCut = Number(tp.cutQty ?? tp.plannedQty ?? tp.targetQuantity ?? tp.quantity ?? batch.cutQty ?? batch.targetQuantity ?? 0);
+          const sentLine = Number(tp.sentToLineQty ?? tp.lineSentQty) || 0;
+          const remaining = Math.max(0, totalCut - sentLine);
+          const progressPct = totalCut > 0 ? Math.min(100, Math.round((sentLine / totalCut) * 100)) : (sentLine > 0 ? 100 : 0);
+
           list.push({
             productId: pId,
             variantId: tp.variantId ? Number(tp.variantId) : null,
             productName: tp.productName || fullProduct?.name || `Product #${pId}`,
             sku: tp.sku || fullProduct?.variants?.[0]?.sku || '',
             barcode: tp.barcode || fullProduct?.variants?.[0]?.barcode || '',
-            plannedQty: Number(tp.plannedQty ?? tp.targetQuantity ?? tp.quantity ?? batch.targetQuantity ?? 0),
-            sentToLineQty: Number(tp.sentToLineQty ?? tp.lineSentQty) || 0,
+            cutQty: totalCut,
+            plannedQty: totalCut,
+            sentToLineQty: sentLine,
+            remaining,
+            progressPct,
             imageUrl: rawImg ? getProductImageUrl(rawImg) : null,
           });
         });
@@ -127,14 +138,22 @@ export const SendToLineModal: React.FC<SendToLineModalProps> = ({
               const pId = Number(tp.productId || tp.id);
               const fullProduct = productsList.find((p) => p.id === pId);
               const rawImg = fullProduct?.images?.[0]?.imageUrl || (fullProduct as any)?.image;
+              const totalCut = Number(tp.cutQty ?? tp.plannedQty ?? tp.targetQuantity ?? tp.quantity ?? batch.cutQty ?? batch.targetQuantity ?? 0);
+              const sentLine = Number(tp.sentToLineQty ?? tp.lineSentQty) || 0;
+              const remaining = Math.max(0, totalCut - sentLine);
+              const progressPct = totalCut > 0 ? Math.min(100, Math.round((sentLine / totalCut) * 100)) : (sentLine > 0 ? 100 : 0);
+
               list.push({
                 productId: pId,
                 variantId: tp.variantId ? Number(tp.variantId) : null,
                 productName: tp.productName || fullProduct?.name || `Product #${pId}`,
                 sku: tp.sku || fullProduct?.variants?.[0]?.sku || '',
                 barcode: tp.barcode || fullProduct?.variants?.[0]?.barcode || '',
-                plannedQty: Number(tp.plannedQty ?? tp.targetQuantity ?? tp.quantity ?? batch.targetQuantity ?? 0),
-                sentToLineQty: Number(tp.sentToLineQty ?? tp.lineSentQty) || 0,
+                cutQty: totalCut,
+                plannedQty: totalCut,
+                sentToLineQty: sentLine,
+                remaining,
+                progressPct,
                 imageUrl: rawImg ? getProductImageUrl(rawImg) : null,
               });
             }
@@ -145,14 +164,22 @@ export const SendToLineModal: React.FC<SendToLineModalProps> = ({
 
     if (list.length === 0 && batch.product) {
       const rawImg = batch.product.images?.[0]?.imageUrl || (batch.product as any)?.image;
+      const totalCut = Number(batch.cutQty || batch.targetQuantity || 0);
+      const sentLine = Number(batch.lineSentQty) || 0;
+      const remaining = Math.max(0, totalCut - sentLine);
+      const progressPct = totalCut > 0 ? Math.min(100, Math.round((sentLine / totalCut) * 100)) : (sentLine > 0 ? 100 : 0);
+
       list.push({
         productId: batch.productId,
         variantId: batch.variantId || null,
         productName: batch.product.name,
         sku: batch.variant?.sku || '',
         barcode: batch.variant?.barcode || '',
-        plannedQty: Number(batch.targetQuantity || 0),
-        sentToLineQty: Number(batch.lineSentQty) || 0,
+        cutQty: totalCut,
+        plannedQty: totalCut,
+        sentToLineQty: sentLine,
+        remaining,
+        progressPct,
         imageUrl: rawImg ? getProductImageUrl(rawImg) : null,
       });
     }
@@ -254,7 +281,7 @@ export const SendToLineModal: React.FC<SendToLineModalProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[96vw] max-w-xl max-h-[92vh] flex flex-col p-0 gap-0 overflow-hidden rounded-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 shadow-2xl">
+      <DialogContent className="w-[95vw] sm:max-w-3xl lg:max-w-4xl max-h-[92vh] flex flex-col p-0 gap-0 overflow-hidden rounded-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 shadow-2xl">
         {/* Header */}
         <DialogHeader className="px-5 py-4 border-b border-slate-100 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 z-10 flex flex-col gap-1.5">
           <div className="flex items-center justify-between">
@@ -387,13 +414,13 @@ export const SendToLineModal: React.FC<SendToLineModalProps> = ({
 
                         {/* Compact Data Badges Inline on Right */}
                         <div className="flex items-center gap-1.5 text-xs shrink-0">
-                          {plannedQty > 0 && (
+                          {(tp.cutQty > 0 || plannedQty > 0) && (
                             <div className="px-2 py-1 rounded-lg bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-center">
                               <span className="text-[9px] uppercase font-bold text-slate-400 block leading-none mb-0.5">
-                                Cut Target
+                                Cut Pieces
                               </span>
                               <span className="font-mono font-bold text-slate-800 dark:text-zinc-200 leading-none">
-                                {plannedQty} Pcs
+                                {tp.cutQty || plannedQty} Pcs
                               </span>
                             </div>
                           )}

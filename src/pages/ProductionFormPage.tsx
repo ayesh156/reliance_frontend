@@ -19,6 +19,7 @@ import {
 } from '../components/ui/table';
 import { get, post, put } from '../lib/api';
 import { toast } from 'react-toastify';
+import { MaterialFormModal, type CreatedMaterialResult } from '../components/materials/MaterialFormModal';
 import {
   ArrowLeft,
   Factory,
@@ -61,6 +62,34 @@ export const ProductionFormPage: React.FC = () => {
   const [loadingPrereqs, setLoadingPrereqs] = useState(true);
   const [loadingEditData, setLoadingEditData] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Inline Material Creation Modal state
+  const [isMaterialModalOpen, setIsMaterialModalOpen] = useState(false);
+  const [activeMaterialLineIndex, setActiveMaterialLineIndex] = useState<number | null>(null);
+
+  const handleMaterialCreated = (newMat: CreatedMaterialResult) => {
+    setRawMaterialsList((prev) => {
+      const exists = prev.some((m) => m.id === newMat.id);
+      if (exists) return prev;
+      return [
+        {
+          id: newMat.id,
+          name: newMat.name,
+          code: newMat.code,
+          unit: newMat.unit,
+          currentStock: newMat.currentStock,
+        },
+        ...prev,
+      ];
+    });
+
+    if (activeMaterialLineIndex !== null && activeMaterialLineIndex < formMaterials.length) {
+      handleMaterialLineChange(activeMaterialLineIndex, 'rawMaterialId', newMat.id);
+    }
+
+    setIsMaterialModalOpen(false);
+    setActiveMaterialLineIndex(null);
+  };
 
   // Form Fields
   const [batchNo, setBatchNo] = useState<string>('');
@@ -416,6 +445,9 @@ export const ProductionFormPage: React.FC = () => {
                 setFormVariantId('');
               }}
               options={productsList}
+              onAddNewProduct={() => {
+                navigate('/system/products/new?returnTo=/system/production/new');
+              }}
               placeholder="Search product from catalog..."
             />
           </div>
@@ -582,6 +614,10 @@ export const ProductionFormPage: React.FC = () => {
                       value={line.rawMaterialId}
                       onChange={(val) => handleMaterialLineChange(idx, 'rawMaterialId', val)}
                       options={rawMaterialsList}
+                      onAddNewMaterial={() => {
+                        setActiveMaterialLineIndex(idx);
+                        setIsMaterialModalOpen(true);
+                      }}
                       placeholder="Select raw material..."
                     />
                   </div>
@@ -872,6 +908,14 @@ export const ProductionFormPage: React.FC = () => {
           )}
         </Button>
       </div>
+
+      {/* Inline Material Creation Modal with Initial Stock Addition */}
+      <MaterialFormModal
+        open={isMaterialModalOpen}
+        onOpenChange={setIsMaterialModalOpen}
+        onMaterialCreated={handleMaterialCreated}
+        dark={dark}
+      />
     </form>
   );
 };

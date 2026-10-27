@@ -45,15 +45,16 @@ import { DateTimePicker } from '../components/ui/date-time-picker';
 import { get, post, put, del } from '../lib/api';
 import { getProductImageUrl } from '../lib/utils';
 import { toast } from 'react-toastify';
-import ProductionBatchModal from '../components/production/ProductionBatchModal';
-import ProductionBatchDetailModal, {
+import CuttingModal from '../components/production/CuttingModal';
+import CuttingDetailModal, {
   formatSriLankaDateTime,
   resolveStageTransition,
   type StageTransitionInfo,
-} from '../components/production/ProductionBatchDetailModal';
+} from '../components/production/CuttingDetailModal';
 import CreateLineBatchModal from '../components/production/CreateLineBatchModal';
 import SendToWashModal from '../components/production/SendToWashModal';
-import ProductionBatchEditModal from '../components/production/ProductionBatchEditModal';
+import { SendToLineModal } from '../components/production/SendToLineModal';
+import CuttingEditModal from '../components/production/CuttingEditModal';
 import { BatchStatusBadge } from '../components/production/BatchStatusBadge';
 import {
   Factory,
@@ -727,9 +728,26 @@ export const BatchActivityTimeline: React.FC<{
                     </div>
                   </div>
 
-                <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-zinc-400 mt-2 pt-1.5 border-t border-slate-100 dark:border-zinc-800/60">
-                  <span>{ev.subtitle}</span>
-                  <span className="bg-slate-100 dark:bg-zinc-800/80 px-2 py-0.5 rounded text-[10px] font-mono font-medium text-slate-700 dark:text-zinc-300 border border-slate-200/50 dark:border-zinc-700/50">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-500 dark:text-zinc-400 mt-2 pt-1.5 border-t border-slate-100 dark:border-zinc-800/60">
+                  <div className="space-y-0.5 flex-1 min-w-0">
+                    {(() => {
+                      const text = ev.subtitle || '';
+                      const rawParts = text
+                        .split(/(?:•|\n|;|\|)/g)
+                        .map((s) => s.trim())
+                        .filter(Boolean);
+
+                      const lines = rawParts.length > 0 ? rawParts : [text];
+
+                      return lines.map((line, lIdx) => (
+                        <div key={lIdx} className="flex items-start gap-1.5 text-[11px] text-slate-600 dark:text-zinc-300 font-mono">
+                          <span className="text-cyan-500 dark:text-cyan-400 mt-0.5 shrink-0">•</span>
+                          <span className="break-words">{line}</span>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                  <span className="self-start sm:self-center shrink-0 bg-slate-100 dark:bg-zinc-800/80 px-2 py-0.5 rounded text-[10px] font-mono font-medium text-slate-700 dark:text-zinc-300 border border-slate-200/50 dark:border-zinc-700/50">
                     Logged by: <strong>{ev.role}</strong>
                   </span>
                 </div>
@@ -742,7 +760,7 @@ export const BatchActivityTimeline: React.FC<{
   );
 };
 
-export const ProductionListPage: React.FC = () => {
+export const CuttingListPage: React.FC = () => {
   const navigate = useNavigate();
   const { resolvedTheme } = useTheme();
   const { user, isAdmin } = useAuth();
@@ -774,6 +792,10 @@ export const ProductionListPage: React.FC = () => {
   const [isGarmentsModalOpen, setIsGarmentsModalOpen] = useState(false);
   const [garmentsSearch, setGarmentsSearch] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<ProductionOrder | null>(null);
+
+  // Send to Line Modal state
+  const [sendToLineOrder, setSendToLineOrder] = useState<any | null>(null);
+  const [isSendToLineOpen, setIsSendToLineOpen] = useState(false);
 
   // Delete / Rollback Alert
   const [orderToDelete, setOrderToDelete] = useState<ProductionOrder | null>(null);
@@ -880,6 +902,21 @@ export const ProductionListPage: React.FC = () => {
 
   useEffect(() => {
     fetchProducts();
+  }, [fetchProducts]);
+
+  // Check for saved cutting draft state on mount (e.g. returning after creating a new product)
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const shouldOpen =
+      searchParams.get('openAddCutting') === 'true' ||
+      Boolean(sessionStorage.getItem('CUTTING_FORM_DRAFT'));
+
+    if (shouldOpen) {
+      // Ensure products and raw materials catalogs are fresh before opening modal
+      fetchProducts();
+      setEditingOrderForCutting(null);
+      setIsCutBatchModalOpen(true);
+    }
   }, [fetchProducts]);
 
   useEffect(() => {
@@ -1324,10 +1361,10 @@ export const ProductionListPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-            Production &amp; Inventory
+            Cutting
           </h1>
           <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1">
-            Garment Manufacturing Runs, Material Yardage Tracking &amp; Stock Sync
+            Raw Material Allocation, Fabric Cutting Logs &amp; Sewing Line Dispatch
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -1740,7 +1777,7 @@ export const ProductionListPage: React.FC = () => {
                 <TableHeader>
                   <TableRow className="bg-slate-50 dark:bg-zinc-900/80 border-b border-slate-200/80 dark:border-zinc-800">
                     <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-28 min-w-[100px]">
-                      Batch No
+                      Cutting No
                     </TableHead>
                     <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-28">
                       Date &amp; Time
@@ -1885,13 +1922,23 @@ export const ProductionListPage: React.FC = () => {
                             <DropdownMenuTrigger asChild>
                               <button
                                 type="button"
-                                aria-label="Batch Actions"
+                                aria-label="Cutting Actions"
                                 className="p-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300 transition-colors cursor-pointer"
                               >
                                 <MoreVertical className="w-4 h-4" />
                               </button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-44 rounded-xl">
+                            <DropdownMenuContent align="end" className="w-48 rounded-xl shadow-xl">
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setSendToLineOrder(order);
+                                  setIsSendToLineOpen(true);
+                                }}
+                                className="cursor-pointer gap-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400 focus:text-indigo-600 focus:bg-indigo-50 dark:focus:bg-indigo-950/50"
+                              >
+                                <ArrowRight className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                                <span>Send to Line</span>
+                              </DropdownMenuItem>
                               <DropdownMenuItem
                                 onClick={() => handleOpenEditCuttingModal(order)}
                                 className="cursor-pointer gap-2 text-xs font-medium"
@@ -1912,10 +1959,10 @@ export const ProductionListPage: React.FC = () => {
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 onClick={() => setOrderToDelete(order)}
-                                className="cursor-pointer gap-2 text-xs font-medium text-rose-600 dark:text-rose-400 focus:text-rose-600"
+                                className="cursor-pointer gap-2 text-xs font-medium text-rose-600 dark:text-rose-400 focus:text-rose-600 focus:bg-rose-50 dark:focus:bg-rose-950/50"
                               >
                                 <Trash2 className="w-4 h-4 text-rose-600" />
-                                <span>Delete Batch</span>
+                                <span>Delete Cutting</span>
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
@@ -2039,7 +2086,17 @@ export const ProductionListPage: React.FC = () => {
                             <span>Actions</span>
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-44 rounded-xl">
+                        <DropdownMenuContent align="end" className="w-48 rounded-xl shadow-xl">
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setSendToLineOrder(order);
+                              setIsSendToLineOpen(true);
+                            }}
+                            className="cursor-pointer gap-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400 focus:text-indigo-600 focus:bg-indigo-50 dark:focus:bg-indigo-950/50"
+                          >
+                            <ArrowRight className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                            <span>Send to Line</span>
+                          </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => handleOpenEditCuttingModal(order)}
                             className="cursor-pointer gap-2 text-xs font-medium"
@@ -2060,10 +2117,10 @@ export const ProductionListPage: React.FC = () => {
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             onClick={() => setOrderToDelete(order)}
-                            className="cursor-pointer gap-2 text-xs font-medium text-rose-600 dark:text-rose-400 focus:text-rose-600"
+                            className="cursor-pointer gap-2 text-xs font-medium text-rose-600 dark:text-rose-400 focus:text-rose-600 focus:bg-rose-50 dark:focus:bg-rose-950/50"
                           >
                             <Trash2 className="w-4 h-4 text-rose-600" />
-                            <span>Delete Batch</span>
+                            <span>Delete Cutting</span>
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -2262,7 +2319,7 @@ export const ProductionListPage: React.FC = () => {
       {/* ─────────────────────────────────────────────────────────────
           MODAL 1: VIEW FULL MATERIAL BREAKDOWN & TARGET OUTPUT DETAIL
       ───────────────────────────────────────────────────────────── */}
-      <ProductionBatchDetailModal
+      <CuttingDetailModal
         open={isDetailModalOpen}
         onOpenChange={setIsDetailModalOpen}
         order={selectedOrder}
@@ -2424,31 +2481,40 @@ export const ProductionListPage: React.FC = () => {
 
 
       {/* ─────────────────────────────────────────────────────────────
-          ALERT DIALOG: ROLLBACK & DELETE PRODUCTION RUN (Admin Only)
+          ALERT DIALOG: ROLLBACK & DELETE CUTTING RECORD (Admin Only)
       ───────────────────────────────────────────────────────────── */}
       {isAdmin && (
         <AlertDialog open={Boolean(orderToDelete)} onOpenChange={() => setOrderToDelete(null)}>
-          <AlertDialogContent className="w-full max-w-lg sm:max-w-2xl max-h-[90vh] overflow-y-auto bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-6">
+          <AlertDialogContent className="w-full max-w-lg sm:max-w-xl max-h-[90vh] overflow-y-auto bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-6 shadow-2xl">
             <AlertDialogHeader>
               <AlertDialogTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <AlertCircle className="w-5 h-5 text-rose-500" />
-                Rollback &amp; Delete Production Batch #{orderToDelete?.productionNo}?
+                Delete Cutting Record #{orderToDelete?.productionNo}?
               </AlertDialogTitle>
-              <AlertDialogDescription className="text-xs text-slate-500 dark:text-zinc-400 space-y-2">
+              <AlertDialogDescription className="text-xs text-slate-500 dark:text-zinc-400 space-y-2 pt-2">
                 <p>
-                  This action will perform an atomic inventory rollback:
+                  Are you sure you want to delete Cutting Record{' '}
+                  <strong className="text-slate-900 dark:text-white font-mono font-bold">
+                    #{orderToDelete?.productionNo}
+                  </strong>?
                 </p>
-                <ul className="list-disc pl-4 space-y-1 text-slate-700 dark:text-zinc-300">
-                  <li>
-                    Restores <strong>consumed raw materials</strong> back to warehouse inventory stock.
-                  </li>
-                  <li>
-                    Deducts <strong>{orderToDelete?.completedQty} finished garment units</strong> from product stock.
-                  </li>
-                  <li>
-                    Permanently removes this batch record from the production ledger.
-                  </li>
-                </ul>
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 text-xs text-rose-900 dark:text-rose-200 space-y-1.5">
+                  <div className="font-semibold flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
+                    <span>Cascading Delete &amp; Inventory Restoration:</span>
+                  </div>
+                  <p>
+                    • Permanently deletes the Cutting record AND removes its associated Line and Wash stage progress/logs.
+                  </p>
+                  <p>
+                    • Restores all allocated raw material yardage and rolls back to Raw Material warehouse stock.
+                  </p>
+                  {orderToDelete?.isStockSynced && (
+                    <p>
+                      • Reverses any finished product stock increments (+{orderToDelete.completedQty} units) previously added to sellable stock.
+                    </p>
+                  )}
+                </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter className="sticky bottom-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm pt-3 border-t border-slate-100 dark:border-zinc-800 gap-2 mt-2">
@@ -2460,7 +2526,7 @@ export const ProductionListPage: React.FC = () => {
                 onClick={handleConfirmDelete}
                 className="bg-rose-600 hover:bg-rose-700 text-white text-xs rounded-xl font-semibold shadow-sm cursor-pointer"
               >
-                {isDeleting ? 'Rolling Back...' : 'Yes, Rollback & Delete'}
+                {isDeleting ? 'Deleting...' : 'Yes, Delete & Restore Materials'}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -2468,9 +2534,21 @@ export const ProductionListPage: React.FC = () => {
       )}
 
       {/* ─────────────────────────────────────────────────────────────
-          MODAL 4: MULTI-MATERIAL & MULTI-PRODUCT CUT BATCH (CREATE / EDIT)
+          MODAL: SEND TO LINE MODAL
       ───────────────────────────────────────────────────────────── */}
-      <ProductionBatchModal
+      <SendToLineModal
+        open={isSendToLineOpen}
+        onOpenChange={setIsSendToLineOpen}
+        batch={sendToLineOrder}
+        productsList={productsList}
+        dark={dark}
+        onSuccess={() => fetchProductionData()}
+      />
+
+      {/* ─────────────────────────────────────────────────────────────
+          MODAL 4: MULTI-MATERIAL & MULTI-PRODUCT CUTTING (CREATE / EDIT)
+      ───────────────────────────────────────────────────────────── */}
+      <CuttingModal
         open={isCutBatchModalOpen}
         onOpenChange={(open) => {
           setIsCutBatchModalOpen(open);
@@ -2482,6 +2560,9 @@ export const ProductionListPage: React.FC = () => {
         rawMaterialsList={rawMaterialsList}
         productsList={productsList}
         dark={dark}
+        onMaterialAdded={(newMat) => {
+          setRawMaterialsList((prev) => [newMat, ...prev]);
+        }}
         onSuccess={() => {
           setEditingOrderForCutting(null);
           setEditingOrderId(null);
@@ -2491,9 +2572,9 @@ export const ProductionListPage: React.FC = () => {
       />
 
       {/* ─────────────────────────────────────────────────────────────
-          MODAL 5: BATCH EDIT MODAL FULL HYDRATION SUPPORT
+          MODAL 5: CUTTING EDIT MODAL FULL HYDRATION SUPPORT
       ───────────────────────────────────────────────────────────── */}
-      <ProductionBatchEditModal
+      <CuttingEditModal
         open={isEditBatchModalOpen}
         onOpenChange={setIsEditBatchModalOpen}
         order={selectedOrder}
@@ -2666,4 +2747,5 @@ export const ProductionListPage: React.FC = () => {
   );
 };
 
-export default ProductionListPage;
+export const ProductionListPage = CuttingListPage;
+export default CuttingListPage;

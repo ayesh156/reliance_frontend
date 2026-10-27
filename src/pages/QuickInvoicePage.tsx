@@ -59,6 +59,8 @@ import {
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../utils/whatsapp';
 import { resolveImageUrl, handleImageError } from '../utils/imageUrl';
+import { ReturnSplitModal } from '../components/pos/ReturnSplitModal';
+import { SalesRepCommissionCard } from '../components/pos/SalesRepCommissionCard';
 
 
 interface CatalogVariant {
@@ -103,6 +105,7 @@ interface CartItem {
   showDiscount?: boolean;
   // ⭐ Return Item Mode
   isReturn?: boolean;
+  returnReason?: 'UNSOLD' | 'DAMAGED';
 }
 
 interface PosCustomer {
@@ -113,6 +116,8 @@ interface PosCustomer {
   city?: string;
   creditLimit?: number;
   outstandingBalance?: number;
+  repId?: number;
+  rep?: { id: number; name: string };
 }
 
 export interface ChequeEntry {
@@ -200,6 +205,10 @@ export const QuickInvoicePage: React.FC = () => {
   // Edit Mode state tracking
   const [isEditing, setIsEditing] = useState(false);
   const [originalInvoice, setOriginalInvoice] = useState<any>(null);
+
+  // Return item partial splitting modal state
+  const [returnSplitModalOpen, setReturnSplitModalOpen] = useState(false);
+  const [splittingItemIndex, setSplittingItemIndex] = useState<number | null>(null);
 
   // Quick Customer Add Modal states
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
@@ -973,7 +982,7 @@ export const QuickInvoicePage: React.FC = () => {
    * Add specific variant item to current cashier cart with consolidated sizes & colors
    */
   const addItemToCart = (variant: CatalogVariant, qtyToAdd: number = 1) => {
-    if (variant.stock <= 0) {
+    if (variant.stock <= 0 && !isReturnBillMode) {
       toast.error(`"${variant.product.name}" is out of stock`);
       return;
     }
@@ -982,15 +991,15 @@ export const QuickInvoicePage: React.FC = () => {
 
     // Check total quantity of this physical variant row in cart
     const currentTotalQtyForVariant = cart
-      .filter((i) => i.variantId === variant.id)
+      .filter((i) => i.variantId === variant.id && !i.isReturn)
       .reduce((sum, i) => sum + i.quantity, 0);
 
-    if (currentTotalQtyForVariant + qtyToAdd > variant.stock) {
+    if (currentTotalQtyForVariant + qtyToAdd > variant.stock && !isReturnBillMode) {
       toast.error(`Cannot add more. Only ${variant.stock} total in stock for this product.`);
       return;
     }
 
-    const existingIndex = cart.findIndex((i) => i.variantId === variant.id);
+    const existingIndex = cart.findIndex((i) => i.variantId === variant.id && (isReturnBillMode ? i.isReturn : !i.isReturn));
 
     const sizeText = (variant as any).sizes || variant.size || '';
     const colorText = (variant as any).colors || variant.color || '';
@@ -1013,9 +1022,10 @@ export const QuickInvoicePage: React.FC = () => {
           imageUrl: variant.product.images?.[0]?.imageUrl,
           unitPrice: price,
           quantity: qtyToAdd,
-          maxStock: variant.stock,
+          maxStock: Math.max(qtyToAdd, variant.stock),
           itemKey: `${variant.id}_${Date.now()}`,
           isReturn: isReturnBillMode,
+          returnReason: isReturnBillMode ? 'UNSOLD' : undefined,
         },
       ]);
     }
@@ -1025,7 +1035,7 @@ export const QuickInvoicePage: React.FC = () => {
    * ⭐ Retrieve the current quantity of a specific variant already assigned to the order cart
    */
   const getVariantCartQty = (variantId: number): number => {
-    return cart.find((i) => i.variantId === variantId)?.quantity || 0;
+    return cart.find((i) => i.variantId === variantId && !i.isReturn)?.quantity || 0;
   };
 
   /**
@@ -1048,7 +1058,7 @@ export const QuickInvoicePage: React.FC = () => {
     const colorText = (variant as any).colors || variant.color || '';
 
     setCart((prev) => {
-      const existingIndex = prev.findIndex((i) => i.variantId === variant.id);
+      const existingIndex = prev.findIndex((i) => i.variantId === variant.id && (isReturnBillMode ? i.isReturn : !i.isReturn));
       if (existingIndex > -1) {
         const next = [...prev];
         const existing = next[existingIndex];
@@ -1078,9 +1088,10 @@ export const QuickInvoicePage: React.FC = () => {
             imageUrl: variant.product.images?.[0]?.imageUrl,
             unitPrice: price,
             quantity: targetQty,
-            maxStock: variant.stock,
+            maxStock: Math.max(targetQty, variant.stock),
             itemKey: `${variant.id}_${Date.now()}`,
             isReturn: isReturnBillMode,
+            returnReason: isReturnBillMode ? 'UNSOLD' : undefined,
           },
         ];
       }
@@ -1088,13 +1099,94 @@ export const QuickInvoicePage: React.FC = () => {
   };
 
   /**
-   * ⭐ Toggle cart item between Standard Sale and Return Item
+   * ⭐ Toggle cart item between Standard Sale and Return Item or trigger partial return split
    */
   const toggleItemReturn = (index: number) => {
+    const item = cart[index];
+    if (!item) return;
+
+    if (item.isReturn) {
+      // Toggle back to regular sale item
+      setCart((prev) => {
+        const next = [...prev];
+        next[index] = { ...next[index], isReturn: false, returnReason: undefined };
+        return next;
+      });
+      return;
+    }
+
+    // If item quantity > 1, open split return dialog
+    if (item.quantity > 1) {
+      setSplittingItemIndex(index);
+      setReturnSplitModalOpen(true);
+    } else {
+      setCart((prev) => {
+        const next = [...prev];
+        next[index] = { ...next[index], isReturn: true, returnReason: 'UNSOLD' };
+        return next;
+      });
+    }
+  };
+
+  /**
+   * Confirm partial return split in QuickInvoice
+   */
+  const handleConfirmReturnSplit = (returnQty: number, returnReason: 'UNSOLD' | 'DAMAGED') => {
+    if (splittingItemIndex === null) return;
+    const item = cart[splittingItemIndex];
+    if (!item) return;
+
+    const clampedReturnQty = Math.max(1, Math.min(item.quantity, returnQty));
+
+    if (clampedReturnQty >= item.quantity) {
+      setCart((prev) => {
+        const next = [...prev];
+        next[splittingItemIndex] = {
+          ...item,
+          isReturn: true,
+          returnReason,
+        };
+        return next;
+      });
+    } else {
+      const keptQty = item.quantity - clampedReturnQty;
+      const keptDisc = calculateLineDiscount(item.unitPrice, keptQty, item.discountType, item.discountInput);
+      const returnDisc = calculateLineDiscount(item.unitPrice, clampedReturnQty, item.discountType, item.discountInput);
+
+      setCart((prev) => {
+        const next = [...prev];
+        next[splittingItemIndex] = {
+          ...item,
+          quantity: keptQty,
+          discount: keptDisc,
+          isReturn: false,
+        };
+        const returnLineItem: CartItem = {
+          ...item,
+          quantity: clampedReturnQty,
+          discount: returnDisc,
+          isReturn: true,
+          returnReason,
+          showDiscount: returnDisc > 0,
+          itemKey: `return_split_${item.variantId}_${Date.now()}`,
+        };
+        next.splice(splittingItemIndex + 1, 0, returnLineItem);
+        return next;
+      });
+    }
+
+    setReturnSplitModalOpen(false);
+    setSplittingItemIndex(null);
+  };
+
+  /**
+   * Update return reason condition on a returned line item
+   */
+  const handleItemReturnReasonChange = (index: number, reason: 'UNSOLD' | 'DAMAGED') => {
     setCart((prev) => {
       const next = [...prev];
       if (next[index]) {
-        next[index] = { ...next[index], isReturn: !next[index].isReturn };
+        next[index] = { ...next[index], returnReason: reason };
       }
       return next;
     });
@@ -1125,7 +1217,7 @@ export const QuickInvoicePage: React.FC = () => {
    * Immediately adds product variant to cart without prompt.
    */
   const handleCatalogItemClick = (variant: CatalogVariant) => {
-    if (variant.stock <= 0) {
+    if (variant.stock <= 0 && !isReturnBillMode) {
       toast.error(`"${variant.product.name}" is out of stock`);
       return;
     }
@@ -1490,42 +1582,118 @@ export const QuickInvoicePage: React.FC = () => {
     return cheques.reduce((acc, curr) => acc + (Math.max(0, Number(curr.amount)) || 0), 0);
   }, [cheques, paymentMethod, splitPayments]);
 
-  // Subtotal and Net Payable Total calculation
-  // Gross Subtotal (sum of unitPrice * quantity, with return items treated as negative deductions)
-  const grossSubtotal = useMemo(
-    () => cart.reduce((acc, curr) => {
-      const lineTotal = curr.unitPrice * curr.quantity;
-      return acc + (curr.isReturn ? -lineTotal : lineTotal);
-    }, 0),
-    [cart]
-  );
-  // Total Item-level discounts (sum of all line-item discounts for standard items)
-  const totalItemDiscounts = useMemo(
-    () => cart.reduce((acc, curr) => {
-      if (curr.isReturn) return acc;
-      return acc + (Number((curr as any).discountAmount ?? curr.discount ?? 0));
-    }, 0),
-    [cart]
-  );
-  // Net Subtotal after deducting item-level discounts (can be negative if returns exceed sales)
-  const subtotal = grossSubtotal - totalItemDiscounts;
+  /**
+   * Advanced Return Discount Calculation & Financial Breakdown
+   * - Kept items retain their full proportion of item & bill discounts.
+   * - Returned items have their item discount deducted and proportionally deduct ONLY their share
+   *   of the bill discount, crediting the customer the exact net unit price originally paid.
+   */
+  const {
+    grossSaleSubtotal,
+    saleItemDiscounts,
+    netSaleBeforeBill,
+    grossReturnSubtotal,
+    returnItemDiscounts,
+    netReturnBeforeBill,
+    saleBillDiscount,
+    returnBillDiscountDeduction,
+    effectiveReturnCredit,
+    effectiveNetSale,
+    numericOrderDiscount,
+    calculatedTotalAmount,
+  } = useMemo(() => {
+    const saleItems = cart.filter((i) => !i.isReturn);
+    const returnItems = cart.filter((i) => Boolean(i.isReturn));
 
-  // Compute final order discount value in Rs based on selected mode (FIXED or PERCENT)
-  const discountAmount = useMemo(() => {
-    if (!discountInput || discountInput <= 0 || subtotal <= 0) return 0;
-    if (discountType === 'PERCENT') {
-      const percentage = Math.min(100, Math.max(0, discountInput));
-      return Math.round((subtotal * percentage) / 100);
+    const grossSale = saleItems.reduce((acc, i) => acc + (Number(i.quantity) || 0) * (Number(i.unitPrice) || 0), 0);
+    const saleDisc = saleItems.reduce((acc, i) => acc + (Number((i as any).discountAmount ?? i.discount ?? 0)), 0);
+    const netSale = Math.max(0, grossSale - saleDisc);
+
+    const grossReturn = returnItems.reduce((acc, i) => acc + (Number(i.quantity) || 0) * (Number(i.unitPrice) || 0), 0);
+    const returnDisc = returnItems.reduce((acc, i) => acc + (Number((i as any).discountAmount ?? i.discount ?? 0)), 0);
+    const netReturn = Math.max(0, grossReturn - returnDisc);
+
+    let saleBill = 0;
+    let returnBill = 0;
+
+    const rawBillDisc = Number(discountInput) || 0;
+    if (rawBillDisc > 0) {
+      if (discountType === 'PERCENT') {
+        const p = Math.min(100, Math.max(0, rawBillDisc));
+        saleBill = Math.round((netSale * p) / 100);
+        returnBill = Math.round((netReturn * p) / 100);
+      } else {
+        const totalBase = netSale + netReturn;
+        if (totalBase > 0) {
+          const returnShare = netReturn / totalBase;
+          returnBill = Math.round(rawBillDisc * returnShare);
+          saleBill = Math.max(0, rawBillDisc - returnBill);
+          saleBill = Math.min(netSale, saleBill);
+        } else {
+          saleBill = 0;
+          returnBill = 0;
+        }
+      }
     }
-    return Math.min(subtotal, Math.max(0, discountInput));
-  }, [subtotal, discountInput, discountType]);
 
-  const total = subtotal - discountAmount;
+    const effReturn = Math.max(0, netReturn - returnBill);
+    const effSale = Math.max(0, netSale - saleBill);
+    const totalVal = effSale - effReturn;
+
+    return {
+      grossSaleSubtotal: grossSale,
+      saleItemDiscounts: saleDisc,
+      netSaleBeforeBill: netSale,
+      grossReturnSubtotal: grossReturn,
+      returnItemDiscounts: returnDisc,
+      netReturnBeforeBill: netReturn,
+      saleBillDiscount: saleBill,
+      returnBillDiscountDeduction: returnBill,
+      effectiveReturnCredit: effReturn,
+      effectiveNetSale: effSale,
+      numericOrderDiscount: saleBill,
+      calculatedTotalAmount: totalVal,
+    };
+  }, [cart, discountInput, discountType]);
+
+  const grossSubtotal = grossSaleSubtotal - grossReturnSubtotal;
+  const totalItemDiscounts = saleItemDiscounts;
+  const subtotal = netSaleBeforeBill;
+  const discountAmount = numericOrderDiscount;
+  const total = calculatedTotalAmount;
+
   const isNetCredit = total < 0;
   const netCreditValue = isNetCredit ? Math.abs(total) : 0;
   const cashRefundAmount = netCreditValue > 0
     ? (previousDue <= 0 ? netCreditValue : Math.max(0, netCreditValue - previousDue))
     : 0;
+
+  /**
+   * Sales Rep Settlement & Commission Calculation
+   */
+  const repCommissionData = useMemo(() => {
+    const repObj =
+      selectedCustomer?.rep ||
+      (originalInvoice?.user?.role === 'REP' ? originalInvoice.user : null) ||
+      (originalInvoice?.customer?.rep) ||
+      (isRepUser ? user : null);
+
+    if (!repObj) return null;
+
+    const commissionRate = 0.05; // 5% wholesale sales rep commission standard
+    const initialBase = effectiveNetSale + effectiveReturnCredit;
+    const initialEarning = Math.round(initialBase * commissionRate);
+    const returnDeduction = Math.round(effectiveReturnCredit * commissionRate);
+    const netRepPayable = Math.max(0, initialEarning - returnDeduction);
+
+    return {
+      repName: repObj.name || 'Assigned Rep',
+      commissionRatePct: 5,
+      initialEarning,
+      returnDeduction,
+      netRepPayable,
+    };
+  }, [selectedCustomer, originalInvoice, isRepUser, user, effectiveNetSale, effectiveReturnCredit]);
 
   // Client Cash parsing (dynamically treat empty, negative, or invalid input as 0)
   const parsedClientCash = Math.max(0, Number(clientGivenCash) || 0);
@@ -1921,10 +2089,12 @@ export const QuickInvoicePage: React.FC = () => {
           quantity: i.quantity,
           unitPrice: i.unitPrice,
           isReturn: Boolean(i.isReturn),
-          discount: i.isReturn ? 0 : (i.discount || 0),
-          discountType: i.discountType || 'FIXED',
+          returnReason: i.isReturn ? (i.returnReason || 'UNSOLD') : undefined,
+          discount: Number(i.discount) || 0,
+          discountType: i.discountType === 'PERCENT' ? 'PERCENT' : 'AMOUNT',
+          discountValue: i.discountInput !== undefined && i.discountInput !== '' ? Number(i.discountInput) : 0,
           discountInput: i.discountInput !== undefined && i.discountInput !== '' ? Number(i.discountInput) : 0,
-          price: i.isReturn ? -(i.unitPrice * i.quantity) : Math.max(0, (i.unitPrice * i.quantity) - (i.discount || 0)),
+          price: i.isReturn ? -((i.unitPrice * i.quantity) - (Number(i.discount) || 0)) : Math.max(0, (i.unitPrice * i.quantity) - (Number(i.discount) || 0)),
           size: i.size,
           color: i.color,
           selectedSize: i.size,
@@ -1932,7 +2102,8 @@ export const QuickInvoicePage: React.FC = () => {
         })),
         subtotal: grossSubtotal,
         discount: totalItemDiscounts + discountAmount,
-        discountType,
+        discountType: discountType === 'PERCENT' ? 'PERCENT' : 'AMOUNT',
+        discountValue: Number(discountInput) || 0,
         discountInput,
         discountRate: discountType === 'PERCENT' ? (discountInput > 0 ? discountInput : undefined) : undefined,
         totalAmount: total,
@@ -2934,6 +3105,39 @@ export const QuickInvoicePage: React.FC = () => {
                         </div>
                       </div>
                     )}
+
+                    {/* Return Condition / Reason Selector Pill */}
+                    {item.isReturn && (
+                      <div className="mt-1 pt-1.5 border-t border-rose-200/60 dark:border-rose-900/40 flex items-center justify-between text-xs">
+                        <span className="text-[10px] font-semibold text-rose-700 dark:text-rose-300">
+                          Return Condition:
+                        </span>
+                        <div className="inline-flex rounded-lg p-0.5 bg-rose-100/60 dark:bg-zinc-800 border border-rose-200 dark:border-zinc-700">
+                          <button
+                            type="button"
+                            onClick={() => handleItemReturnReasonChange(idx, 'UNSOLD')}
+                            className={`px-1.5 py-0.5 text-[9.5px] font-bold rounded cursor-pointer transition-all ${
+                              (item.returnReason || 'UNSOLD') === 'UNSOLD'
+                                ? 'bg-emerald-600 text-white shadow-2xs'
+                                : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900'
+                            }`}
+                          >
+                            Unsold (Good)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleItemReturnReasonChange(idx, 'DAMAGED')}
+                            className={`px-1.5 py-0.5 text-[9.5px] font-bold rounded cursor-pointer transition-all ${
+                              item.returnReason === 'DAMAGED'
+                                ? 'bg-rose-600 text-white shadow-2xs'
+                                : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900'
+                            }`}
+                          >
+                            Damaged / Defect
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })
@@ -3019,6 +3223,26 @@ export const QuickInvoicePage: React.FC = () => {
                 />
               </div>
             </div>
+
+            {/* Return Credit Breakdown Row */}
+            {effectiveReturnCredit > 0 && (
+              <div className="flex flex-col gap-0.5 pt-1 border-t border-slate-200/60 dark:border-zinc-800/60">
+                <div className="flex items-center justify-between text-rose-600 dark:text-rose-400">
+                  <span className="text-[11px] font-semibold flex items-center gap-1">
+                    <RotateCcw className="size-3" />
+                    <span>Return Credit (Net):</span>
+                  </span>
+                  <span className="font-mono font-bold text-[11px]">
+                    - Rs. {effectiveReturnCredit.toLocaleString()}
+                  </span>
+                </div>
+                {returnBillDiscountDeduction > 0 && (
+                  <span className="text-[9.5px] text-slate-400 dark:text-zinc-500 italic">
+                    (Proportionally deducted Rs. {returnBillDiscountDeduction.toLocaleString()} bill discount share)
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Current Bill Total & Tendered Input */}
@@ -3077,6 +3301,19 @@ export const QuickInvoicePage: React.FC = () => {
                   Refund Due
                 </span>
               </div>
+            </div>
+          )}
+
+          {/* Sales Rep Settlement Card */}
+          {repCommissionData && (
+            <div className="mt-1">
+              <SalesRepCommissionCard
+                repName={repCommissionData.repName}
+                commissionRatePct={repCommissionData.commissionRatePct}
+                initialEarning={repCommissionData.initialEarning}
+                returnDeduction={repCommissionData.returnDeduction}
+                netRepPayable={repCommissionData.netRepPayable}
+              />
             </div>
           )}
 
@@ -3808,6 +4045,37 @@ export const QuickInvoicePage: React.FC = () => {
                           </div>
                         </div>
                       )}
+
+                      {/* Mobile Return Condition Selector Pill */}
+                      {item.isReturn && (
+                        <div className="pt-1.5 mt-1 border-t border-rose-200/60 dark:border-rose-900/40 flex items-center justify-between text-xs bg-rose-50/70 dark:bg-rose-950/30 p-1.5 rounded-lg animate-in fade-in duration-150">
+                          <span className="text-[10px] font-bold text-rose-700 dark:text-rose-300">Condition:</span>
+                          <div className="inline-flex rounded-md border border-rose-200 dark:border-rose-800 p-0.5 bg-white dark:bg-zinc-900 shadow-2xs">
+                            <button
+                              type="button"
+                              onClick={() => handleItemReturnReasonChange(idx, 'UNSOLD')}
+                              className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
+                                (item.returnReason || 'UNSOLD') === 'UNSOLD'
+                                  ? 'bg-emerald-600 text-white font-bold'
+                                  : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900'
+                              }`}
+                            >
+                              Unsold
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleItemReturnReasonChange(idx, 'DAMAGED')}
+                              className={`px-2 py-0.5 text-[10px] font-semibold rounded transition-colors ${
+                                item.returnReason === 'DAMAGED'
+                                  ? 'bg-rose-600 text-white font-bold'
+                                  : 'text-slate-600 dark:text-zinc-400 hover:text-rose-600'
+                              }`}
+                            >
+                              Damaged
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })
@@ -3892,6 +4160,26 @@ export const QuickInvoicePage: React.FC = () => {
                     />
                   </div>
                 </div>
+
+                {/* Return Credit Breakdown Row */}
+                {effectiveReturnCredit > 0 && (
+                  <div className="flex flex-col gap-0.5 pt-1 border-t border-slate-200/60 dark:border-zinc-800/60">
+                    <div className="flex items-center justify-between text-rose-600 dark:text-rose-400">
+                      <span className="text-[11px] font-semibold flex items-center gap-1">
+                        <RotateCcw className="size-3" />
+                        <span>Return Credit (Net):</span>
+                      </span>
+                      <span className="font-mono font-bold text-[11px]">
+                        - Rs. {effectiveReturnCredit.toLocaleString()}
+                      </span>
+                    </div>
+                    {returnBillDiscountDeduction > 0 && (
+                      <span className="text-[9.5px] text-slate-400 dark:text-zinc-500 italic">
+                        (Proportionally deducted Rs. {returnBillDiscountDeduction.toLocaleString()} bill discount share)
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Bill Total & Tendered Input */}
@@ -4175,6 +4463,17 @@ export const QuickInvoicePage: React.FC = () => {
                   </button>
                 </div>
               </div>
+
+              {/* Sales Rep Commission Breakdown Card (Mobile) */}
+              {repCommissionData && (
+                <SalesRepCommissionCard
+                  repName={repCommissionData.repName}
+                  commissionRatePct={repCommissionData.commissionRatePct}
+                  initialEarning={repCommissionData.initialEarning}
+                  returnDeduction={repCommissionData.returnDeduction}
+                  netRepPayable={repCommissionData.netRepPayable}
+                />
+              )}
             </div>
           </div>
 
@@ -4428,6 +4727,24 @@ export const QuickInvoicePage: React.FC = () => {
           }
         }}
       />
+
+      {/* Partial Quantity Return Split Dialog */}
+      {splittingItemIndex !== null && cart[splittingItemIndex] && (
+        <ReturnSplitModal
+          open={returnSplitModalOpen}
+          onOpenChange={(open: boolean) => {
+            setReturnSplitModalOpen(open);
+            if (!open) setSplittingItemIndex(null);
+          }}
+          productName={cart[splittingItemIndex].name || 'Garment Item'}
+          size={cart[splittingItemIndex].size}
+          color={cart[splittingItemIndex].color}
+          unitPrice={cart[splittingItemIndex].unitPrice}
+          originalQty={cart[splittingItemIndex].quantity}
+          currentReturnReason={cart[splittingItemIndex].returnReason || 'UNSOLD'}
+          onConfirm={handleConfirmReturnSplit}
+        />
+      )}
 
       {/* Dedicated Hidden 80mm Thermal Receipt Layout (X-Printer format) */}
       <ThermalReceipt80mm order={savedOrderForPrint} />

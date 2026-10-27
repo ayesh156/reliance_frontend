@@ -13,10 +13,27 @@ import {
   TableRow,
   TableCell,
 } from '../components/ui/table';
-import { get } from '../lib/api';
+import { get, del } from '../lib/api';
 import { getProductImageUrl } from '../lib/utils';
 import { toast } from 'react-toastify';
 import { BatchStatusBadge } from '../components/production/BatchStatusBadge';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '../components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../components/ui/alert-dialog';
 import {
   Shirt,
   Search,
@@ -35,13 +52,17 @@ import {
   ArrowRight,
   SlidersHorizontal,
   X,
+  MoreVertical,
+  Trash2,
+  AlertCircle,
 } from 'lucide-react';
 import { SearchableSelect, type SearchableSelectOption } from '../components/ui/searchable-select';
 import { DateRangePicker, type DateRange } from '../components/ui/date-range-picker';
-import ProductionBatchDetailModal, {
+import CuttingDetailModal, {
   formatSriLankaDateTime,
-} from '../components/production/ProductionBatchDetailModal';
+} from '../components/production/CuttingDetailModal';
 import SendToWashModal from '../components/production/SendToWashModal';
+import { LogSewnModal } from '../components/production/LogSewnModal';
 
 const renderSriLankaDateTime = (dateStr: string | Date | null | undefined) => {
   const formatted = formatSriLankaDateTime(dateStr);
@@ -68,6 +89,7 @@ interface LineBatchItem {
   lineSentQty?: number;
   sentToWashQty: number;
   washedQty: number;
+  sewnQty?: number;
   status: string;
   isStockSynced?: boolean;
   reason?: string | null;
@@ -98,6 +120,7 @@ interface ParsedBatchProduct {
   sku?: string;
   sentToLineQty: number;
   sentToWashQty: number;
+  sewnQty: number;
   imageUrl?: string | null;
 }
 
@@ -120,6 +143,7 @@ const getBatchProducts = (batch: LineBatchItem, productsList: any[] = []): Parse
         const rawImg = fullProduct?.images?.[0]?.imageUrl || (fullProduct as any)?.image;
         const sentQty = Number(tp.sentToLineQty ?? tp.lineSentQty ?? 0);
         const washQty = Number(tp.sentToWashQty || 0);
+        const sewnQty = Number(tp.sewnQty || 0);
         return {
           productId: pId,
           variantId: tp.variantId ? Number(tp.variantId) : null,
@@ -127,6 +151,7 @@ const getBatchProducts = (batch: LineBatchItem, productsList: any[] = []): Parse
           sku: tp.sku || fullProduct?.variants?.[0]?.sku || batch.variant?.sku || '',
           sentToLineQty: sentQty,
           sentToWashQty: washQty,
+          sewnQty: sewnQty,
           imageUrl: rawImg ? getProductImageUrl(rawImg) : null,
         };
       });
@@ -143,6 +168,7 @@ const getBatchProducts = (batch: LineBatchItem, productsList: any[] = []): Parse
       sku: batch.variant?.sku || '',
       sentToLineQty: singleSent,
       sentToWashQty: Number(batch.sentToWashQty || 0),
+      sewnQty: Number(batch.sewnQty || 0),
       imageUrl: rawImg ? getProductImageUrl(rawImg) : null,
     },
   ];
@@ -165,6 +191,15 @@ export const LinePage: React.FC = () => {
   // Selected batch for Send to Wash Modal
   const [selectedBatchForWash, setSelectedBatchForWash] = useState<LineBatchItem | null>(null);
   const [isSendToWashOpen, setIsSendToWashOpen] = useState(false);
+
+  // Log Daily Sewn Modal state
+  const [logSewnBatch, setLogSewnBatch] = useState<LineBatchItem | null>(null);
+  const [showLogSewnSelector, setShowLogSewnSelector] = useState(false);
+  const [isLogSewnOpen, setIsLogSewnOpen] = useState(false);
+
+  // Line Rollback Alert State
+  const [batchToRollback, setBatchToRollback] = useState<LineBatchItem | null>(null);
+  const [isRollingBack, setIsRollingBack] = useState(false);
 
   // Detail Modal
   const [detailOrder, setDetailOrder] = useState<any | null>(null);
@@ -228,6 +263,23 @@ export const LinePage: React.FC = () => {
   useEffect(() => {
     fetchLineBatches();
   }, [fetchLineBatches]);
+
+  // Stage Rollback Handler (Delete in Line)
+  const handleConfirmRollback = async () => {
+    if (!batchToRollback) return;
+    setIsRollingBack(true);
+    try {
+      await del(`/production/${batchToRollback.id}/line`);
+      toast.success(`Sewing Line progress for #${batchToRollback.productionNo} rolled back to Cutting stage.`);
+      setBatchToRollback(null);
+      fetchLineBatches();
+    } catch (err: any) {
+      console.error('Failed to rollback Line stage:', err);
+      toast.error(err?.response?.data?.message || err?.message || 'Failed to rollback stage');
+    } finally {
+      setIsRollingBack(false);
+    }
+  };
 
   // Active filter count for mobile badge
   const activeFilterCount = useMemo(() => {
@@ -394,10 +446,26 @@ export const LinePage: React.FC = () => {
           </Button>
 
           <Button
-            onClick={() => navigate('/system/production')}
+            onClick={() => {
+              if (batches.length > 0) {
+                setLogSewnBatch(batches[0]);
+                setShowLogSewnSelector(true);
+                setIsLogSewnOpen(true);
+              } else {
+                toast.info('No active sewing line batch available to log sewn output.');
+              }
+            }}
+            className="h-9 gap-1.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-xs cursor-pointer"
+          >
+            <Shirt className="size-3.5" />
+            <span>Log Daily Sewn</span>
+          </Button>
+
+          <Button
+            onClick={() => navigate('/system/cutting')}
             className="h-9 gap-1.5 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-xs cursor-pointer"
           >
-            <span>Production Ledger</span>
+            <span>Cutting Ledger</span>
             <ArrowRight className="size-3.5" />
           </Button>
         </div>
@@ -503,7 +571,7 @@ export const LinePage: React.FC = () => {
                 setSearchQuery(e.target.value);
                 setCurrentPage(1);
               }}
-              placeholder="Search batch #, garment style, SKU..."
+              placeholder="Search cutting #, garment style, SKU..."
               className="bg-transparent outline-none w-full text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400"
             />
             {searchQuery && (
@@ -611,7 +679,7 @@ export const LinePage: React.FC = () => {
             onChange={(e) => {
               setSearchQuery(e.target.value);
             }}
-            placeholder="Search by batch number, garment style, SKU, or notes..."
+            placeholder="Search by cutting number, garment style, SKU, or notes..."
             className="bg-transparent outline-none w-full text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400"
           />
           {searchQuery && (
@@ -711,7 +779,7 @@ export const LinePage: React.FC = () => {
               <TableHeader>
                 <TableRow className="bg-slate-50 dark:bg-zinc-900/80 border-b border-slate-200/80 dark:border-zinc-800">
                   <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-28 min-w-[100px]">
-                    Batch No
+                    Cutting No
                   </TableHead>
                   <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-28">
                     Date &amp; Time
@@ -734,8 +802,8 @@ export const LinePage: React.FC = () => {
                   <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-center w-24">
                     Status
                   </TableHead>
-                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-right w-36">
-                    Action
+                  <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-right w-20">
+                    Actions
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -744,10 +812,12 @@ export const LinePage: React.FC = () => {
                   const prods = getBatchProducts(batch, productsList);
                   const batchTotalDispatched = prods.reduce((sum, p) => sum + p.sentToLineQty, 0);
                   const batchTotalWash = prods.reduce((sum, p) => sum + p.sentToWashQty, 0);
+                  const batchTotalSewn = prods.reduce((sum, p) => sum + p.sewnQty, 0) || Number(batch.sewnQty || 0);
                   const lineQty = batchTotalDispatched > 0 ? batchTotalDispatched : (batch.lineSentQty || batch.targetQuantity || batch.completedQty || 0);
                   const washQty = batchTotalWash > 0 ? batchTotalWash : (batch.sentToWashQty || 0);
                   const remainingOnLine = Math.max(0, lineQty - washQty);
                   const overallPercent = lineQty > 0 ? Math.min(100, Math.round((washQty / lineQty) * 100)) : 0;
+                  const sewnPercent = lineQty > 0 ? Math.min(100, Math.round((batchTotalSewn / lineQty) * 100)) : 0;
 
                   // "Send to Wash" remains active and accessible as long as sentToLineQty > sentToWashQty for ANY product in the batch
                   const hasRemainingToWash = prods.length > 0
@@ -885,20 +955,41 @@ export const LinePage: React.FC = () => {
                         </span>
                       </TableCell>
 
-                      {/* 7. Remaining Progress */}
-                      <TableCell className="align-middle w-36">
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between text-[11px] font-mono">
-                            <span className="font-bold text-amber-600 dark:text-amber-400">
-                              {remainingOnLine} Pcs Left
-                            </span>
-                            <span className="text-slate-400 text-[10px]">{overallPercent}%</span>
+                      {/* 7. Progress: Daily Sewn & Wash Forwarding */}
+                      <TableCell className="align-middle w-48 min-w-[170px]">
+                        <div className="space-y-1.5">
+                          {/* Daily Sewn Progress */}
+                          <div className="space-y-0.5">
+                            <div className="flex items-center justify-between text-[10px] font-mono leading-tight">
+                              <span className="font-bold text-purple-700 dark:text-purple-300">
+                                Sewn: {batchTotalSewn} / {lineQty} Pcs
+                              </span>
+                              <span className="text-purple-600 dark:text-purple-400 font-bold">{sewnPercent}%</span>
+                            </div>
+                            <div className="h-1.5 w-full bg-slate-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all duration-300 ${
+                                  sewnPercent >= 100 ? 'bg-emerald-500' : 'bg-purple-600'
+                                }`}
+                                style={{ width: `${sewnPercent}%` }}
+                              />
+                            </div>
                           </div>
-                          <div className="h-1.5 w-full bg-slate-100 dark:bg-zinc-800 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-emerald-500 rounded-full transition-all duration-300"
-                              style={{ width: `${overallPercent}%` }}
-                            />
+
+                          {/* Wash Forwarding Progress */}
+                          <div className="space-y-0.5">
+                            <div className="flex items-center justify-between text-[10px] font-mono leading-tight">
+                              <span className="font-semibold text-cyan-700 dark:text-cyan-300">
+                                Wash: {washQty} / {lineQty} Pcs
+                              </span>
+                              <span className="text-cyan-600 dark:text-cyan-400 font-bold">{overallPercent}%</span>
+                            </div>
+                            <div className="h-1.5 w-full bg-slate-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-cyan-500 rounded-full transition-all duration-300"
+                                style={{ width: `${overallPercent}%` }}
+                              />
+                            </div>
                           </div>
                         </div>
                       </TableCell>
@@ -908,39 +999,58 @@ export const LinePage: React.FC = () => {
                         <BatchStatusBadge status={batch.status} isStockSynced={batch.isStockSynced} />
                       </TableCell>
 
-                      {/* 9. Action (Send to Wash + History quick-access button) */}
-                      <TableCell className="align-middle text-right w-36" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-1.5">
-                          {isLineDone ? (
-                            <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 font-bold px-2 py-1 rounded-xl shrink-0 inline-flex items-center gap-1 shadow-2xs">
-                              <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400" />
-                              <span className="text-[10px]">DONE</span>
-                            </Badge>
-                          ) : (
-                            <Button
-                              size="sm"
-                              onClick={() => handleOpenSendToWash(batch)}
-                              className="h-8 text-xs bg-cyan-600 hover:bg-cyan-700 text-white font-semibold rounded-xl flex items-center gap-1.5 shadow-xs cursor-pointer px-2.5 shrink-0"
+                      {/* 9. Action (Standardized 3-dots actions menu) */}
+                      <TableCell className="align-middle text-right w-20" onClick={(e) => e.stopPropagation()}>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              aria-label="Line Actions"
+                              className="p-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300 transition-colors cursor-pointer"
                             >
-                              <Waves className="size-3.5" />
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-48 rounded-xl shadow-xl">
+                            <DropdownMenuItem
+                              disabled={isLineDone}
+                              onClick={() => handleOpenSendToWash(batch)}
+                              className="cursor-pointer gap-2 text-xs font-semibold text-cyan-600 dark:text-cyan-400 focus:text-cyan-600 focus:bg-cyan-50 dark:focus:bg-cyan-950/50"
+                            >
+                              <Waves className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
                               <span>Send to Wash</span>
-                            </Button>
-                          )}
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              setDetailOrder(batch);
-                              setIsDetailModalOpen(true);
-                            }}
-                            className="h-8 w-8 p-0 rounded-xl border-slate-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300 shrink-0 cursor-pointer shadow-xs"
-                            title="View Batch History"
-                            aria-label="View Batch History"
-                          >
-                            <Clock className="size-3.5" />
-                          </Button>
-                        </div>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setLogSewnBatch(batch);
+                                setShowLogSewnSelector(false);
+                                setIsLogSewnOpen(true);
+                              }}
+                              className="cursor-pointer gap-2 text-xs font-semibold text-purple-600 dark:text-purple-400 focus:text-purple-600 focus:bg-purple-50 dark:focus:bg-purple-950/50"
+                            >
+                              <Shirt className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                              <span>Log Daily Sewn</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setDetailOrder(batch);
+                                setIsDetailModalOpen(true);
+                              }}
+                              className="cursor-pointer gap-2 text-xs font-medium"
+                            >
+                              <Eye className="w-4 h-4 text-blue-600" />
+                              <span>History</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => setBatchToRollback(batch)}
+                              className="cursor-pointer gap-2 text-xs font-medium text-rose-600 dark:text-rose-400 focus:text-rose-600 focus:bg-rose-50 dark:focus:bg-rose-950/50"
+                            >
+                              <Trash2 className="w-4 h-4 text-rose-600" />
+                              <span>Delete</span>
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
                   );
@@ -1053,36 +1163,58 @@ export const LinePage: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="pt-1 flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
-                    {isLineDone ? (
-                      <div className="flex-1 flex items-center justify-center p-2 rounded-xl bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 font-bold text-xs gap-1.5 shadow-2xs">
-                        <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400" />
-                        <span>LINE STAGE COMPLETED</span>
-                      </div>
-                    ) : (
-                      <Button
-                        size="sm"
-                        onClick={() => handleOpenSendToWash(batch)}
-                        className="flex-1 h-8 text-xs bg-cyan-600 hover:bg-cyan-700 text-white font-bold rounded-xl flex items-center gap-1.5 shadow-xs justify-center cursor-pointer"
-                      >
-                        <Waves className="size-3.5" />
-                        <span>Send to Wash</span>
-                      </Button>
-                    )}
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setDetailOrder(batch);
-                        setIsDetailModalOpen(true);
-                      }}
-                      className="h-8 w-8 p-0 rounded-xl border-slate-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300 shrink-0 cursor-pointer shadow-xs"
-                      title="View Batch History"
-                      aria-label="View Batch History"
-                    >
-                      <Clock className="size-3.5" />
-                    </Button>
+                  <div className="pt-2 border-t border-slate-200/70 dark:border-zinc-800 flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2.5 rounded-lg text-xs gap-1 cursor-pointer"
+                        >
+                          <MoreVertical className="size-3.5" />
+                          <span>Actions</span>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48 rounded-xl shadow-xl">
+                        <DropdownMenuItem
+                          disabled={isLineDone}
+                          onClick={() => handleOpenSendToWash(batch)}
+                          className="cursor-pointer gap-2 text-xs font-semibold text-cyan-600 dark:text-cyan-400 focus:text-cyan-600 focus:bg-cyan-50 dark:focus:bg-cyan-950/50"
+                        >
+                          <Waves className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
+                          <span>Send to Wash</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setLogSewnBatch(batch);
+                            setShowLogSewnSelector(false);
+                            setIsLogSewnOpen(true);
+                          }}
+                          className="cursor-pointer gap-2 text-xs font-semibold text-purple-600 dark:text-purple-400 focus:text-purple-600 focus:bg-purple-50 dark:focus:bg-purple-950/50"
+                        >
+                          <Shirt className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                          <span>Log Daily Sewn</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setDetailOrder(batch);
+                            setIsDetailModalOpen(true);
+                          }}
+                          className="cursor-pointer gap-2 text-xs font-medium"
+                        >
+                          <Eye className="w-4 h-4 text-blue-600" />
+                          <span>History</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={() => setBatchToRollback(batch)}
+                          className="cursor-pointer gap-2 text-xs font-medium text-rose-600 dark:text-rose-400 focus:text-rose-600 focus:bg-rose-50 dark:focus:bg-rose-950/50"
+                        >
+                          <Trash2 className="w-4 h-4 text-rose-600" />
+                          <span>Delete</span>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
               );
@@ -1121,7 +1253,7 @@ export const LinePage: React.FC = () => {
       )}
 
       {/* ── Detail History Modal ── */}
-      <ProductionBatchDetailModal
+      <CuttingDetailModal
         open={isDetailModalOpen}
         onOpenChange={setIsDetailModalOpen}
         order={detailOrder}
@@ -1141,6 +1273,64 @@ export const LinePage: React.FC = () => {
           fetchLineBatches();
         }}
       />
+      {/* ── Log Daily Sewn Modal ── */}
+      <LogSewnModal
+        open={isLogSewnOpen}
+        onOpenChange={setIsLogSewnOpen}
+        batch={logSewnBatch}
+        batches={batches}
+        showBatchSelector={showLogSewnSelector}
+        productsList={productsList}
+        dark={isDark}
+        onSuccess={() => fetchLineBatches()}
+      />
+
+      {/* ── AlertDialog: Rollback Sewing Line Stage ── */}
+      <AlertDialog open={Boolean(batchToRollback)} onOpenChange={() => setBatchToRollback(null)}>
+        <AlertDialogContent className="w-full max-w-lg sm:max-w-xl max-h-[90vh] overflow-y-auto bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 sm:p-6 shadow-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-rose-500" />
+              Reset Sewing Line Stage #{batchToRollback?.productionNo}?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-xs text-slate-500 dark:text-zinc-400 space-y-2 pt-2">
+              <p>
+                Are you sure you want to rollback Sewing Line progress for{' '}
+                <strong className="text-slate-900 dark:text-white font-mono font-bold">
+                  #{batchToRollback?.productionNo}
+                </strong>?
+              </p>
+              <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 text-xs text-rose-900 dark:text-rose-200 space-y-1.5">
+                <div className="font-semibold flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Line Stage Rollback Impact:</span>
+                </div>
+                <p>
+                  • Resets/deletes the Line stage progress AND any downstream Wash stage progress.
+                </p>
+                <p>
+                  • Reverts any finished product stock increments previously synced to inventory.
+                </p>
+                <p>
+                  • Resets pieces sent from Cutting back to 0 so the record returns cleanly to the Cutting stage.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="sticky bottom-0 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-sm pt-3 border-t border-slate-100 dark:border-zinc-800 gap-2 mt-2">
+            <AlertDialogCancel disabled={isRollingBack} className="text-xs rounded-xl">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isRollingBack}
+              onClick={handleConfirmRollback}
+              className="bg-rose-600 hover:bg-rose-700 text-white text-xs rounded-xl font-semibold shadow-sm cursor-pointer"
+            >
+              {isRollingBack ? 'Resetting...' : 'Yes, Reset to Cutting'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

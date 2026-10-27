@@ -16,6 +16,8 @@ import { Drawer, DrawerContent } from '../components/ui/drawer';
 import { TooltipSimple } from '../components/ui/tooltip';
 import { AnimatedInlineQtyInput } from '../components/pos/AnimatedInlineQtyInput';
 import { ProductPreviewModal } from '../components/pos/ProductPreviewModal';
+import { ReturnSplitModal } from '../components/pos/ReturnSplitModal';
+import { SalesRepCommissionCard } from '../components/pos/SalesRepCommissionCard';
 import { get, post, put, downloadBlob } from '../lib/api';
 import { toast } from 'react-toastify';
 import { useTheme } from '../contexts/ThemeContext';
@@ -90,6 +92,7 @@ interface OrderCartItem {
   showDiscount?: boolean;
   notes?: string;
   isReturn?: boolean;
+  returnReason?: 'UNSOLD' | 'DAMAGED';
 }
 
 interface CustomerRecord {
@@ -99,6 +102,8 @@ interface CustomerRecord {
   address?: string;
   city?: string;
   outstandingBalance?: number;
+  repId?: number;
+  rep?: { id: number; name: string };
 }
 
 /**
@@ -127,7 +132,12 @@ export const OrderCreatePage: React.FC = () => {
   // Mode and edit state
   const [isEditMode, setIsEditMode] = useState<boolean>(Boolean(editOrderId || editInvoiceId));
   const [editingOrderNumber, setEditingOrderNumber] = useState<string>('');
+  const [editingOrder, setEditingOrder] = useState<any>(null);
   const [savedRefundedCashAmount, setSavedRefundedCashAmount] = useState<number>(0);
+
+  // Return splitting modal state
+  const [splitModalOpen, setSplitModalOpen] = useState<boolean>(false);
+  const [splittingItemIndex, setSplittingItemIndex] = useState<number | null>(null);
 
   // Prerequisite Data
   const [catalogVariants, setCatalogVariants] = useState<CatalogVariantItem[]>([]);
@@ -257,6 +267,8 @@ export const OrderCreatePage: React.FC = () => {
               address: c.address || '',
               city: c.city || '',
               outstandingBalance: Number(c.outstandingBalance) || 0,
+              repId: c.repId,
+              rep: c.rep || undefined,
             }))
           );
         }
@@ -289,6 +301,7 @@ export const OrderCreatePage: React.FC = () => {
         if (!isMounted || !order) return;
 
         setIsEditMode(true);
+        setEditingOrder(order);
         setEditingOrderNumber(order.invoiceNumber || order.orderNumber || (editInvoiceId ? `INV-${order.id}` : `ORD-${order.id}`));
         setSavedRefundedCashAmount(Number(order.refundedCashAmount) || 0);
 
@@ -329,6 +342,7 @@ export const OrderCreatePage: React.FC = () => {
               const sizeVal = it.size || it.selectedSize || it.variant?.size || 'FREE';
               const colorVal = it.color || it.selectedColor || it.variant?.color || 'Default';
               const isItemReturn = Boolean(it.isReturn || Number(it.price) < 0 || Number(it.unitPrice) < 0 || Number(it.quantity) < 0);
+              const returnReason = it.returnReason || (parsedNotes?.itemReturnReasons?.[idx]) || 'UNSOLD';
 
               return {
                 variantId: Number(it.variantId || it.variant?.id || 0),
@@ -348,15 +362,22 @@ export const OrderCreatePage: React.FC = () => {
                 showDiscount: discVal > 0,
                 notes: it.notes || '',
                 isReturn: isItemReturn,
+                returnReason: isItemReturn ? returnReason : undefined,
               };
             })
           );
         }
 
         // 4. Populate Order Level Discount with exact financial hydration
-        if (parsedNotes?.discountType && parsedNotes?.discountInput !== undefined && parsedNotes.discountInput !== '') {
-          setDiscountType(parsedNotes.discountType);
-          setDiscountInput(Number(parsedNotes.discountInput));
+        if (order.discountType || (parsedNotes?.discountType && parsedNotes?.discountInput !== undefined && parsedNotes.discountInput !== '')) {
+          const dt = order.discountType === 'PERCENT' || parsedNotes?.discountType === 'PERCENT' ? 'PERCENT' : 'FIXED';
+          setDiscountType(dt);
+          const dv = order.discountValue !== undefined && Number(order.discountValue) > 0
+            ? Number(order.discountValue)
+            : parsedNotes?.discountInput !== undefined && parsedNotes.discountInput !== ''
+            ? Number(parsedNotes.discountInput)
+            : Number(order.discount || 0);
+          setDiscountInput(dv > 0 ? dv : '');
         } else {
           const existingDisc = Number(order.discount) || 0;
           if (existingDisc > 0) {
@@ -469,20 +490,20 @@ export const OrderCreatePage: React.FC = () => {
    * Add variant directly to cart (increments quantity or initializes item)
    */
   const addItemToCart = (variant: CatalogVariantItem, qtyToAdd: number = 1) => {
-    if (variant.stock <= 0) {
+    if (variant.stock <= 0 && !isReturnOrderMode) {
       toast.error(`"${variant.productName}" is out of stock`);
       return;
     }
 
     setCart((prev) => {
-      const existingIndex = prev.findIndex((i) => i.variantId === variant.id);
+      const existingIndex = prev.findIndex((i) => i.variantId === variant.id && (isReturnOrderMode ? i.isReturn : !i.isReturn));
       const defaultPrice = Number(variant.wholesalePrice || variant.retailPrice || 0);
 
       if (existingIndex > -1) {
         const next = [...prev];
         const existing = next[existingIndex];
         const newQty = existing.quantity + qtyToAdd;
-        if (newQty > variant.stock) {
+        if (newQty > variant.stock && !isReturnOrderMode) {
           toast.warn(`Only ${variant.stock} available in stock for "${variant.productName}"`);
           return prev;
         }
@@ -512,12 +533,13 @@ export const OrderCreatePage: React.FC = () => {
             imageUrl: variant.imageUrl,
             unitPrice: defaultPrice,
             quantity: qtyToAdd,
-            maxStock: variant.stock,
+            maxStock: Math.max(qtyToAdd, variant.stock),
             discountType: 'FIXED',
             discountInput: '',
             discount: 0,
             showDiscount: false,
             isReturn: isReturnOrderMode,
+            returnReason: isReturnOrderMode ? 'UNSOLD' : undefined,
           },
         ];
       }
@@ -541,7 +563,7 @@ export const OrderCreatePage: React.FC = () => {
     const defaultPrice = Number(variant.wholesalePrice || variant.retailPrice || 0);
 
     setCart((prev) => {
-      const existingIndex = prev.findIndex((i) => i.variantId === variant.id);
+      const existingIndex = prev.findIndex((i) => i.variantId === variant.id && (isReturnOrderMode ? i.isReturn : !i.isReturn));
       if (existingIndex > -1) {
         const next = [...prev];
         const existing = next[existingIndex];
@@ -571,12 +593,13 @@ export const OrderCreatePage: React.FC = () => {
             imageUrl: variant.imageUrl,
             unitPrice: defaultPrice,
             quantity: targetQty,
-            maxStock: variant.stock,
+            maxStock: Math.max(targetQty, variant.stock),
             discountType: 'FIXED',
             discountInput: '',
             discount: 0,
             showDiscount: false,
             isReturn: isReturnOrderMode,
+            returnReason: isReturnOrderMode ? 'UNSOLD' : undefined,
           },
         ];
       }
@@ -584,13 +607,96 @@ export const OrderCreatePage: React.FC = () => {
   };
 
   /**
-   * Toggle cart item Return Mode
+   * Toggle cart item Return Mode or trigger partial quantity return split
    */
   const toggleItemReturn = (index: number) => {
+    const item = cart[index];
+    if (!item) return;
+
+    if (item.isReturn) {
+      // Toggle back to regular sale item
+      setCart((prev) => {
+        const next = [...prev];
+        next[index] = { ...next[index], isReturn: false, returnReason: undefined };
+        return next;
+      });
+      return;
+    }
+
+    // Item is not return: check quantity
+    if (item.quantity > 1) {
+      setSplittingItemIndex(index);
+      setSplitModalOpen(true);
+    } else {
+      // Single quantity: toggle directly to return
+      setCart((prev) => {
+        const next = [...prev];
+        next[index] = { ...next[index], isReturn: true, returnReason: 'UNSOLD' };
+        return next;
+      });
+    }
+  };
+
+  /**
+   * Handle partial quantity return split confirmation
+   */
+  const handleConfirmReturnSplit = (returnQty: number, returnReason: 'UNSOLD' | 'DAMAGED') => {
+    if (splittingItemIndex === null) return;
+    const item = cart[splittingItemIndex];
+    if (!item) return;
+
+    const clampedReturnQty = Math.max(1, Math.min(item.quantity, returnQty));
+
+    if (clampedReturnQty >= item.quantity) {
+      // Full return of this line
+      setCart((prev) => {
+        const next = [...prev];
+        next[splittingItemIndex] = {
+          ...item,
+          isReturn: true,
+          returnReason,
+        };
+        return next;
+      });
+    } else {
+      // Split quantity: reduce kept qty and insert separate return line
+      const keptQty = item.quantity - clampedReturnQty;
+      const keptDisc = calculateItemDiscount(item.unitPrice, keptQty, item.discountType, item.discountInput);
+      const returnDisc = calculateItemDiscount(item.unitPrice, clampedReturnQty, item.discountType, item.discountInput);
+
+      setCart((prev) => {
+        const next = [...prev];
+        next[splittingItemIndex] = {
+          ...item,
+          quantity: keptQty,
+          discount: keptDisc,
+          isReturn: false,
+        };
+        const returnLineItem: OrderCartItem = {
+          ...item,
+          quantity: clampedReturnQty,
+          discount: returnDisc,
+          isReturn: true,
+          returnReason,
+          showDiscount: returnDisc > 0,
+        };
+        next.splice(splittingItemIndex + 1, 0, returnLineItem);
+        return next;
+      });
+    }
+
+    setSplitModalOpen(false);
+    setSplittingItemIndex(null);
+  };
+
+  /**
+   * Change Return Reason condition (UNSOLD vs DAMAGED) for a return item
+   */
+  const handleItemReturnReasonChange = (index: number, reason: 'UNSOLD' | 'DAMAGED') => {
     setCart((prev) => {
       const next = [...prev];
       if (next[index]) {
-        next[index] = { ...next[index], isReturn: !next[index].isReturn };
+        next[index] = { ...next[index], returnReason: reason };
       }
       return next;
     });
@@ -761,41 +867,115 @@ export const OrderCreatePage: React.FC = () => {
   };
 
   /**
-   * Financial Summary Calculations (Pure Presales Order)
+   * Advanced Return Discount Calculation & Financial Summary
+   * - Kept items retain their full proportion of item & bill discounts.
+   * - Returned items have their item discount deducted and proportionally deduct ONLY their share
+   *   of the bill discount, crediting the customer the exact net unit price originally paid.
    */
-  const grossSubtotal = useMemo(() => {
-    return cart.reduce((acc, item) => {
-      const lineAmt = item.quantity * item.unitPrice;
-      return acc + (item.isReturn ? -lineAmt : lineAmt);
-    }, 0);
-  }, [cart]);
+  const {
+    grossSaleSubtotal,
+    saleItemDiscounts,
+    netSaleBeforeBill,
+    grossReturnSubtotal,
+    returnItemDiscounts,
+    netReturnBeforeBill,
+    saleBillDiscount,
+    returnBillDiscountDeduction,
+    effectiveReturnCredit,
+    effectiveNetSale,
+    numericOrderDiscount,
+    calculatedTotalAmount,
+  } = useMemo(() => {
+    const saleItems = cart.filter((i) => !i.isReturn);
+    const returnItems = cart.filter((i) => Boolean(i.isReturn));
 
-  const calculatedItemTotalDiscount = useMemo(() => {
-    return cart.reduce((acc, item) => {
-      if (item.isReturn) return acc;
-      return acc + (Number(item.discount) || 0);
-    }, 0);
-  }, [cart]);
+    const grossSale = saleItems.reduce((acc, i) => acc + (Number(i.quantity) || 0) * (Number(i.unitPrice) || 0), 0);
+    const saleDisc = saleItems.reduce((acc, i) => acc + (Number(i.discount) || 0), 0);
+    const netSale = Math.max(0, grossSale - saleDisc);
 
-  const calculatedSubtotal = grossSubtotal - calculatedItemTotalDiscount;
+    const grossReturn = returnItems.reduce((acc, i) => acc + (Number(i.quantity) || 0) * (Number(i.unitPrice) || 0), 0);
+    const returnDisc = returnItems.reduce((acc, i) => acc + (Number(i.discount) || 0), 0);
+    const netReturn = Math.max(0, grossReturn - returnDisc);
 
-  const numericOrderDiscount = useMemo(() => {
-    if (discountInput === '' || Number(discountInput) <= 0 || calculatedSubtotal <= 0) return 0;
-    const val = Number(discountInput);
-    if (discountType === 'PERCENT') {
-      const percentage = Math.min(100, Math.max(0, val));
-      return Math.round((calculatedSubtotal * percentage) / 100);
+    let saleBill = 0;
+    let returnBill = 0;
+
+    const rawBillDisc = Number(discountInput) || 0;
+    if (rawBillDisc > 0) {
+      if (discountType === 'PERCENT') {
+        const p = Math.min(100, Math.max(0, rawBillDisc));
+        saleBill = Math.round((netSale * p) / 100);
+        returnBill = Math.round((netReturn * p) / 100);
+      } else {
+        const totalBase = netSale + netReturn;
+        if (totalBase > 0) {
+          const returnShare = netReturn / totalBase;
+          returnBill = Math.round(rawBillDisc * returnShare);
+          saleBill = Math.max(0, rawBillDisc - returnBill);
+          saleBill = Math.min(netSale, saleBill);
+        } else {
+          saleBill = 0;
+          returnBill = 0;
+        }
+      }
     }
-    return Math.min(calculatedSubtotal, Math.max(0, val));
-  }, [calculatedSubtotal, discountInput, discountType]);
 
-  const calculatedTotalAmount = calculatedSubtotal - numericOrderDiscount;
+    const effReturn = Math.max(0, netReturn - returnBill);
+    const effSale = Math.max(0, netSale - saleBill);
+    const total = effSale - effReturn;
+
+    return {
+      grossSaleSubtotal: grossSale,
+      saleItemDiscounts: saleDisc,
+      netSaleBeforeBill: netSale,
+      grossReturnSubtotal: grossReturn,
+      returnItemDiscounts: returnDisc,
+      netReturnBeforeBill: netReturn,
+      saleBillDiscount: saleBill,
+      returnBillDiscountDeduction: returnBill,
+      effectiveReturnCredit: effReturn,
+      effectiveNetSale: effSale,
+      numericOrderDiscount: saleBill,
+      calculatedTotalAmount: total,
+    };
+  }, [cart, discountInput, discountType]);
+
+  const grossSubtotal = grossSaleSubtotal - grossReturnSubtotal;
+  const calculatedItemTotalDiscount = saleItemDiscounts;
+  const calculatedSubtotal = netSaleBeforeBill;
+
   const isNetCredit = calculatedTotalAmount < 0;
   const netCreditValue = isNetCredit ? Math.abs(calculatedTotalAmount) : 0;
   const liveCashRefundAmount = netCreditValue > 0
     ? (previousDue <= 0 ? netCreditValue : Math.max(0, netCreditValue - previousDue))
     : 0;
   const cashRefundAmount = liveCashRefundAmount > 0 ? liveCashRefundAmount : savedRefundedCashAmount;
+
+  /**
+   * Sales Rep Settlement & Commission Breakdown calculation
+   */
+  const repCommissionData = useMemo(() => {
+    const repObj =
+      selectedCustomer?.rep ||
+      (editingOrder?.user?.role === 'REP' ? editingOrder.user : null) ||
+      (isRepUser ? user : null);
+
+    if (!repObj) return null;
+
+    const commissionRate = 0.05; // 5% wholesale rep commission standard
+    const initialBase = effectiveNetSale + effectiveReturnCredit;
+    const initialEarning = Math.round(initialBase * commissionRate);
+    const returnDeduction = Math.round(effectiveReturnCredit * commissionRate);
+    const netRepPayable = Math.max(0, initialEarning - returnDeduction);
+
+    return {
+      repName: repObj.name || 'Assigned Rep',
+      commissionRatePct: 5,
+      initialEarning,
+      returnDeduction,
+      netRepPayable,
+    };
+  }, [selectedCustomer, editingOrder, isRepUser, user, effectiveNetSale, effectiveReturnCredit]);
 
   const totalPiecesQuantity = useMemo(() => {
     return cart.reduce((acc, it) => acc + (Number(it.quantity) || 0), 0);
@@ -1001,6 +1181,7 @@ export const OrderCreatePage: React.FC = () => {
               : '',
           discount: Number(item.discount) || 0,
         })),
+        itemReturnReasons: validItems.map((item) => item.returnReason || 'UNSOLD'),
       });
 
       const payload = {
@@ -1012,6 +1193,8 @@ export const OrderCreatePage: React.FC = () => {
         customerCity: finalCustomerCity || undefined,
         subtotal: grossSubtotal,
         discount: calculatedItemTotalDiscount + numericOrderDiscount,
+        discountType: discountType === 'PERCENT' ? 'PERCENT' : 'AMOUNT',
+        discountValue: Number(discountInput) || 0,
         totalAmount: calculatedTotalAmount,
         refundedCashAmount: liveCashRefundAmount,
         notes: structuredNotes,
@@ -1024,7 +1207,10 @@ export const OrderCreatePage: React.FC = () => {
           quantity: Number(item.quantity),
           unitPrice: Number(item.unitPrice),
           isReturn: Boolean(item.isReturn),
+          returnReason: item.isReturn ? (item.returnReason || 'UNSOLD') : undefined,
           discount: item.isReturn ? 0 : (Number(item.discount) || 0),
+          discountType: item.discountType === 'PERCENT' ? 'PERCENT' : 'AMOUNT',
+          discountValue: Number(item.discountInput) || 0,
           totalPrice: item.isReturn
             ? -(Number(item.quantity) * Number(item.unitPrice))
             : Math.max(0, Number(item.quantity) * Number(item.unitPrice) - (Number(item.discount) || 0)),
@@ -1039,6 +1225,8 @@ export const OrderCreatePage: React.FC = () => {
           customerPhone: finalCustomerPhone || undefined,
           subtotal: grossSubtotal,
           discount: calculatedItemTotalDiscount + numericOrderDiscount,
+          discountType: discountType === 'PERCENT' ? 'PERCENT' : 'AMOUNT',
+          discountValue: Number(discountInput) || 0,
           totalAmount: calculatedTotalAmount,
           refundedCashAmount: liveCashRefundAmount,
           notes: structuredNotes,
@@ -1046,11 +1234,14 @@ export const OrderCreatePage: React.FC = () => {
             variantId: Number(item.variantId),
             quantity: Number(item.quantity),
             unitPrice: Number(item.unitPrice),
-            discount: item.isReturn ? 0 : (Number(item.discount) || 0),
+            discount: item.isReturn ? (Number(item.discount) || 0) : (Number(item.discount) || 0),
+            discountType: item.discountType === 'PERCENT' ? 'PERCENT' : 'AMOUNT',
+            discountValue: Number(item.discountInput) || 0,
             price: item.isReturn
-              ? -(Number(item.quantity) * Number(item.unitPrice))
+              ? -(Number(item.quantity) * Number(item.unitPrice) - (Number(item.discount) || 0))
               : Math.max(0, Number(item.quantity) * Number(item.unitPrice) - (Number(item.discount) || 0)),
             isReturn: Boolean(item.isReturn),
+            returnReason: item.isReturn ? (item.returnReason || 'UNSOLD') : undefined,
           })),
         };
         const updated = await put<any>(`/orders/invoices/${editInvoiceId}`, invoicePayload);
@@ -1548,6 +1739,39 @@ export const OrderCreatePage: React.FC = () => {
                   </div>
                 </div>
               )}
+
+              {/* Return Condition / Reason Selector Pill */}
+              {item.isReturn && (
+                <div className="pt-1.5 mt-1 border-t border-rose-200/60 dark:border-rose-900/40 flex items-center justify-between text-xs">
+                  <span className="text-[10px] font-semibold text-rose-700 dark:text-rose-300">
+                    Return Condition:
+                  </span>
+                  <div className="inline-flex rounded-lg p-0.5 bg-rose-100/60 dark:bg-zinc-800 border border-rose-200 dark:border-zinc-700">
+                    <button
+                      type="button"
+                      onClick={() => handleItemReturnReasonChange(idx, 'UNSOLD')}
+                      className={`px-1.5 py-0.5 text-[9.5px] font-bold rounded cursor-pointer transition-all ${
+                        (item.returnReason || 'UNSOLD') === 'UNSOLD'
+                          ? 'bg-emerald-600 text-white shadow-2xs'
+                          : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900'
+                      }`}
+                    >
+                      Unsold (Good)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleItemReturnReasonChange(idx, 'DAMAGED')}
+                      className={`px-1.5 py-0.5 text-[9.5px] font-bold rounded cursor-pointer transition-all ${
+                        item.returnReason === 'DAMAGED'
+                          ? 'bg-rose-600 text-white shadow-2xs'
+                          : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900'
+                      }`}
+                    >
+                      Damaged / Defect
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           );
 
@@ -1663,6 +1887,26 @@ export const OrderCreatePage: React.FC = () => {
             </div>
           </div>
 
+          {/* Return Credit Breakdown Row */}
+          {effectiveReturnCredit > 0 && (
+            <div className="flex flex-col gap-0.5 pt-1 border-t border-slate-200/60 dark:border-zinc-800/60">
+              <div className="flex items-center justify-between text-rose-600 dark:text-rose-400">
+                <span className="text-[11px] font-semibold flex items-center gap-1">
+                  <RotateCcw className="size-3" />
+                  <span>Return Credit (Net):</span>
+                </span>
+                <span className="font-mono font-bold text-[11px]">
+                  - Rs. {effectiveReturnCredit.toLocaleString()}
+                </span>
+              </div>
+              {returnBillDiscountDeduction > 0 && (
+                <span className="text-[9.5px] text-slate-400 dark:text-zinc-500 italic">
+                  (Proportionally deducted Rs. {returnBillDiscountDeduction.toLocaleString()} bill discount share)
+                </span>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center justify-between pt-1.5 border-t border-slate-200 dark:border-zinc-800 text-sm font-bold text-slate-900 dark:text-white">
             <span>{isNetCredit ? 'Customer Credit (Refund):' : 'Total Order Value:'}</span>
             <span className={`font-mono text-base font-extrabold ${isNetCredit ? 'text-rose-600 dark:text-rose-400' : 'text-indigo-600 dark:text-indigo-400'}`}>
@@ -1694,6 +1938,19 @@ export const OrderCreatePage: React.FC = () => {
                   Refund Due
                 </span>
               </div>
+            </div>
+          )}
+
+          {/* Dedicated Sales Rep Settlement & Commission Card */}
+          {repCommissionData && (
+            <div className="mt-1.5">
+              <SalesRepCommissionCard
+                repName={repCommissionData.repName}
+                commissionRatePct={repCommissionData.commissionRatePct}
+                initialEarning={repCommissionData.initialEarning}
+                returnDeduction={repCommissionData.returnDeduction}
+                netRepPayable={repCommissionData.netRepPayable}
+              />
             </div>
           )}
         </div>
@@ -2353,6 +2610,23 @@ export const OrderCreatePage: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Partial Quantity Return Split Dialog */}
+      {splittingItemIndex !== null && cart[splittingItemIndex] && (
+        <ReturnSplitModal
+          open={splitModalOpen}
+          onClose={() => {
+            setSplitModalOpen(false);
+            setSplittingItemIndex(null);
+          }}
+          productName={cart[splittingItemIndex].productName}
+          variantDetails={`${cart[splittingItemIndex].size || 'FREE'} · ${cart[splittingItemIndex].color || 'Default'}`}
+          unitPrice={cart[splittingItemIndex].unitPrice}
+          totalQuantity={cart[splittingItemIndex].quantity}
+          initialReason={cart[splittingItemIndex].returnReason || 'UNSOLD'}
+          onConfirmSplit={handleConfirmReturnSplit}
+        />
+      )}
     </div>
   );
 };

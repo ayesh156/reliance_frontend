@@ -33,6 +33,7 @@ export interface CustomerDueItem {
 export interface CustomerDueGroup {
   customerName: string;
   customerPhone: string;
+  customerAddress?: string;
   invoices: CustomerDueItem[];
   totalInvoiced: number;
   totalPaid: number;
@@ -140,6 +141,7 @@ export function filterAndNormalizeDueInvoices(invoices: CustomerDueInvoice[]) {
   const groupMap = new Map<string, {
     customerName: string;
     customerPhone: string;
+    customerAddress?: string;
     invoices: CustomerDueItem[];
     totalInvoiced: number;
     totalPaid: number;
@@ -160,8 +162,9 @@ export function filterAndNormalizeDueInvoices(invoices: CustomerDueInvoice[]) {
     // Strict filter: ONLY include invoices with dueBalance > 0
     if (due <= 0) continue;
 
-    const custName = String(inv.customerName || 'Walk-in Customer').trim();
-    const custPhone = String(inv.customerPhone || '').trim();
+    const custName = String(inv.customerName || (inv as any).customer?.name || 'Walk-in Customer').trim();
+    const custPhone = String(inv.customerPhone || (inv as any).customer?.phone || '').trim();
+    const custAddr = String((inv as any).customerAddress || (inv as any).customer?.address || [(inv as any).customer?.address, (inv as any).customer?.city].filter(Boolean).join(', ') || '').trim();
     const groupKey = `${custName.toLowerCase()}|||${custPhone.toLowerCase()}`;
 
     let dateStr = '-';
@@ -188,6 +191,7 @@ export function filterAndNormalizeDueInvoices(invoices: CustomerDueInvoice[]) {
       groupMap.set(groupKey, {
         customerName: custName,
         customerPhone: custPhone,
+        customerAddress: custAddr,
         invoices: [],
         totalInvoiced: 0,
         totalPaid: 0,
@@ -214,6 +218,7 @@ export function filterAndNormalizeDueInvoices(invoices: CustomerDueInvoice[]) {
     return {
       customerName: g.customerName,
       customerPhone: g.customerPhone,
+      customerAddress: g.customerAddress,
       invoices: g.invoices,
       totalInvoiced: Math.round(g.totalInvoiced * 100) / 100,
       totalPaid: Math.round(g.totalPaid * 100) / 100,
@@ -414,7 +419,8 @@ export async function generateCustomerDuesPdf(
 
     // ── Customer Sub-Header ──
     const phoneText = group.customerPhone && group.customerPhone !== '-' ? `  |  Phone: ${group.customerPhone}` : '';
-    const customerHeading = `Customer: ${group.customerName}${phoneText}`;
+    const addressText = group.customerAddress && group.customerAddress !== '-' ? `  |  Address: ${group.customerAddress}` : '';
+    const customerHeading = `Customer: ${group.customerName}${phoneText}${addressText}`;
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);

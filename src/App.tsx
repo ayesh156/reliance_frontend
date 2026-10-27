@@ -29,7 +29,7 @@ import { OrdersPage } from './pages/OrdersPage';
 import { OrderCreatePage } from './pages/OrderCreatePage';
 import { BuyRawMaterialsPage } from './pages/BuyRawMaterialsPage';
 import BuyRawMaterialFormPage from './pages/BuyRawMaterialFormPage';
-import { ProductionListPage } from './pages/ProductionListPage';
+import { CuttingListPage } from './pages/CuttingListPage';
 import { LinePage } from './pages/LinePage';
 import { WashPage } from './pages/WashPage';
 import { ReportsPage } from './pages/ReportsPage';
@@ -292,27 +292,43 @@ export function App() {
               <Route path="/orders" element={<Navigate to="/system/orders" replace />} />
               <Route path="/orders/new" element={<Navigate to="/system/orders/new" replace />} />
 
-              {/* Garment Production & Material Consumption Routes */}
+              {/* Garment Cutting & Production Routes */}
               <Route
-                path="/system/production"
+                path="/system/cutting"
                 element={
-                  <ProtectedRoute requiredPermission="production" requiredRole={['ADMIN', 'STAFF']}>
+                  <ProtectedRoute requiredPermission="cutting" requiredRole={['ADMIN', 'STAFF']}>
                     <AdminPage>
-                      <ProductionListPage />
+                      <CuttingListPage />
                     </AdminPage>
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="/system/cutting/new"
+                element={<Navigate to="/system/cutting" replace />}
+              />
+              <Route
+                path="/system/cutting/edit/:id"
+                element={<Navigate to="/system/cutting" replace />}
+              />
 
+              {/* Legacy /system/production Redirect & Aliasing (Preserves Existing Bookmarks & Links) */}
+              <Route
+                path="/system/production"
+                element={<Navigate to="/system/cutting" replace />}
+              />
               <Route
                 path="/system/production/new"
-                element={<Navigate to="/system/production" replace />}
+                element={<Navigate to="/system/cutting" replace />}
               />
-
               <Route
                 path="/system/production/edit/:id"
-                element={<Navigate to="/system/production" replace />}
+                element={<Navigate to="/system/cutting" replace />}
               />
+
+              {/* Direct Root Shortcuts for Cutting */}
+              <Route path="/cutting" element={<Navigate to="/system/cutting" replace />} />
+              <Route path="/production" element={<Navigate to="/system/cutting" replace />} />
 
               {/* Direct Root Shortcuts for Sewing Line */}
               <Route path="/line" element={<Navigate to="/system/line" replace />} />

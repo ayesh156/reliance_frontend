@@ -254,7 +254,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (user.role === 'ADMIN') return true;
     if (!permission) return true;
     const permissions = user.permissions || (user.role === 'STAFF' ? DEFAULT_STAFF_PERMISSIONS : []);
-    return permissions.includes(permission);
+    if (permissions.includes(permission)) return true;
+    // Seamless alias between 'cutting' and 'production'
+    if (permission === 'cutting' && permissions.includes('production')) return true;
+    if (permission === 'production' && permissions.includes('cutting')) return true;
+    return false;
   }, [user]);
 
   return (

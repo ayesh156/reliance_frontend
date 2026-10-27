@@ -888,8 +888,13 @@ export const CustomersPage: React.FC = () => {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-xs font-mono text-slate-600 dark:text-zinc-300">
-                      {cust.phone}
+                    <TableCell className="text-xs text-slate-600 dark:text-zinc-300">
+                      <div className="font-mono font-medium">{cust.phone}</div>
+                      {(cust.address || cust.city) && (
+                        <div className="text-[10px] text-slate-400 truncate max-w-[200px]" title={[cust.address, cust.city].filter(Boolean).join(', ')}>
+                          {[cust.address, cust.city].filter(Boolean).join(', ')}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge

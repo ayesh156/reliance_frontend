@@ -21,10 +21,27 @@ import {
   DialogFooter,
 } from '../components/ui/dialog';
 import { DateTimePicker } from '../components/ui/date-time-picker';
-import { get, post } from '../lib/api';
+import { get, post, del } from '../lib/api';
 import { getProductImageUrl, getCurrentLocalDateTime } from '../lib/utils';
 import { toast } from 'react-toastify';
 import { BatchStatusBadge } from '../components/production/BatchStatusBadge';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../components/ui/alert-dialog';
 import {
   Waves,
   Search,
@@ -46,12 +63,14 @@ import {
   Check,
   SlidersHorizontal,
   X,
+  MoreVertical,
+  Trash2,
 } from 'lucide-react';
 import { SearchableSelect, type SearchableSelectOption } from '../components/ui/searchable-select';
 import { DateRangePicker, type DateRange } from '../components/ui/date-range-picker';
-import ProductionBatchDetailModal, {
+import CuttingDetailModal, {
   formatSriLankaDateTime,
-} from '../components/production/ProductionBatchDetailModal';
+} from '../components/production/CuttingDetailModal';
 
 const renderSriLankaDateTime = (dateStr: string | Date | null | undefined) => {
   const formatted = formatSriLankaDateTime(dateStr);
@@ -191,6 +210,29 @@ export const WashPage: React.FC = () => {
   // Detail Modal
   const [detailOrder, setDetailOrder] = useState<any | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+
+  // Rollback / Delete Wash Stage
+  const [batchToRollbackWash, setBatchToRollbackWash] = useState<any | null>(null);
+  const [isRollingBackWash, setIsRollingBackWash] = useState(false);
+
+  const handleConfirmRollbackWash = async () => {
+    if (!batchToRollbackWash) return;
+    setIsRollingBackWash(true);
+    try {
+      await del(`/production/${batchToRollbackWash.id}/wash`);
+      toast.success(
+        `Wash stage for Cutting #${batchToRollbackWash.batchNumber} has been rolled back and returned to Line stage.`
+      );
+      setBatchToRollbackWash(null);
+      fetchWashBatches();
+    } catch (err: any) {
+      console.error('Failed to rollback wash stage:', err);
+      toast.error(err.message || 'Failed to rollback wash stage');
+    } finally {
+      setIsRollingBackWash(false);
+    }
+  };
+
   const [rawMaterialsList, setRawMaterialsList] = useState<any[]>([]);
   const [productsList, setProductsList] = useState<any[]>([]);
   const [selectedProductFilter, setSelectedProductFilter] = useState('all');
@@ -550,7 +592,7 @@ export const WashPage: React.FC = () => {
               onChange={(e) => {
                 setSearchQuery(e.target.value);
               }}
-              placeholder="Search batch #, garment, notes..."
+              placeholder="Search cutting #, garment, notes..."
               className="bg-transparent outline-none w-full text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400"
             />
             {searchQuery && (
@@ -657,7 +699,7 @@ export const WashPage: React.FC = () => {
             onChange={(e) => {
               setSearchQuery(e.target.value);
             }}
-            placeholder="Search by batch number, garment name, or notes..."
+            placeholder="Search by cutting number, garment name, or notes..."
             className="bg-transparent outline-none w-full text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400"
           />
           {searchQuery && (
@@ -758,7 +800,7 @@ export const WashPage: React.FC = () => {
               <TableHeader>
                 <TableRow className="bg-slate-50 dark:bg-zinc-900/80 border-b border-slate-200/80 dark:border-zinc-800">
                   <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-28 min-w-[100px]">
-                    Batch No
+                    Cutting No
                   </TableHead>
                   <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-28">
                     Date &amp; Time
@@ -918,8 +960,8 @@ export const WashPage: React.FC = () => {
                         <BatchStatusBadge status={batch.status} isStockSynced={batch.isStockSynced} />
                       </TableCell>
 
-                      {/* 8. Action (Send to Stock + History quick-access button) */}
-                      <TableCell className="align-middle text-right w-36" onClick={(e) => e.stopPropagation()}>
+                      {/* 8. Action (Standardized 3-dots menu: Send to Stock, History, Delete) */}
+                      <TableCell className="align-middle text-right w-44" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1.5">
                           <Button
                             size="sm"
@@ -938,11 +980,49 @@ export const WashPage: React.FC = () => {
                               setIsDetailModalOpen(true);
                             }}
                             className="h-8 w-8 p-0 rounded-xl border-slate-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300 shrink-0 cursor-pointer shadow-xs"
-                            title="View Batch History"
-                            aria-label="View Batch History"
+                            title="View Cutting History"
+                            aria-label="View Cutting History"
                           >
                             <Clock className="w-3.5 h-3.5" />
                           </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-600 dark:text-zinc-300 cursor-pointer shrink-0"
+                              >
+                                <MoreVertical className="w-4 h-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-52">
+                              <DropdownMenuItem
+                                onClick={() => handleOpenLogWashModal(batch)}
+                                className="cursor-pointer gap-2"
+                              >
+                                <Package className="w-4 h-4 text-cyan-600" />
+                                <span>Send to Stock</span>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setDetailOrder(batch);
+                                  setIsDetailModalOpen(true);
+                                }}
+                                className="cursor-pointer gap-2"
+                              >
+                                <Clock className="w-4 h-4 text-slate-500" />
+                                <span>History</span>
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => setBatchToRollbackWash(batch)}
+                                className="cursor-pointer gap-2 text-rose-600 focus:text-rose-600 focus:bg-rose-50 dark:focus:bg-rose-950/30"
+                              >
+                                <Trash2 className="w-4 h-4 text-rose-600" />
+                                <span>Delete (Rollback to Line)</span>
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -1069,11 +1149,49 @@ export const WashPage: React.FC = () => {
                         setIsDetailModalOpen(true);
                       }}
                       className="h-8 w-8 p-0 rounded-xl border-slate-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300 shrink-0 cursor-pointer shadow-xs"
-                      title="View Batch History"
-                      aria-label="View Batch History"
+                      title="View Cutting History"
+                      aria-label="View Cutting History"
                     >
                       <Clock className="w-3.5 h-3.5" />
                     </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-600 dark:text-zinc-300 cursor-pointer shrink-0"
+                        >
+                          <MoreVertical className="w-4 h-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-52">
+                        <DropdownMenuItem
+                          onClick={() => handleOpenLogWashModal(batch)}
+                          className="cursor-pointer gap-2"
+                        >
+                          <Package className="w-4 h-4 text-cyan-600" />
+                          <span>Send to Stock</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setDetailOrder(batch);
+                            setIsDetailModalOpen(true);
+                          }}
+                          className="cursor-pointer gap-2"
+                        >
+                          <Clock className="w-4 h-4 text-slate-500" />
+                          <span>History</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={() => setBatchToRollbackWash(batch)}
+                          className="cursor-pointer gap-2 text-rose-600 focus:text-rose-600 focus:bg-rose-50 dark:focus:bg-rose-950/30"
+                        >
+                          <Trash2 className="w-4 h-4 text-rose-600" />
+                          <span>Delete (Rollback to Line)</span>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
               );
@@ -1086,7 +1204,7 @@ export const WashPage: React.FC = () => {
           MODAL: LOG WASHED ITEMS & PARTIAL SELLABLE STOCK SYNC
       ───────────────────────────────────────────────────────────── */}
       <Dialog open={isLogWashModalOpen} onOpenChange={setIsLogWashModalOpen}>
-        <DialogContent className="w-[96vw] sm:max-w-2xl lg:max-w-3xl max-h-[92vh] flex flex-col p-0 gap-0 rounded-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 shadow-2xl">
+        <DialogContent className="w-[95vw] sm:max-w-3xl lg:max-w-4xl max-h-[92vh] flex flex-col p-0 gap-0 rounded-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 shadow-2xl">
           {selectedBatch && (() => {
             const products = getBatchProducts(selectedBatch);
             const totalToWashNow = products.reduce((sum, _, idx) => {
@@ -1364,7 +1482,7 @@ export const WashPage: React.FC = () => {
 
       {/* Detail Modal */}
       {detailOrder && (
-        <ProductionBatchDetailModal
+        <CuttingDetailModal
           open={isDetailModalOpen}
           onOpenChange={(op) => {
             setIsDetailModalOpen(op);
@@ -1378,6 +1496,64 @@ export const WashPage: React.FC = () => {
           dark={isDark}
         />
       )}
+
+      {/* AlertDialog Confirmation for Wash Stage Rollback */}
+      <AlertDialog
+        open={Boolean(batchToRollbackWash)}
+        onOpenChange={(op) => {
+          if (!op && !isRollingBackWash) setBatchToRollbackWash(null);
+        }}
+      >
+        <AlertDialogContent className="max-w-md bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-base font-bold text-rose-600 dark:text-rose-400 flex items-center gap-2">
+              <Trash2 className="w-5 h-5 text-rose-600 dark:text-rose-400" />
+              <span>Delete / Rollback Wash Stage?</span>
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2 text-xs text-slate-600 dark:text-zinc-300">
+              <p>
+                Are you sure you want to rollback the Washing stage for Cutting No{' '}
+                <span className="font-mono font-bold text-slate-900 dark:text-white">
+                  #{batchToRollbackWash?.batchNumber}
+                </span>
+                ?
+              </p>
+              <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-[11px] text-amber-800 dark:text-amber-300 space-y-1">
+                <p className="font-semibold">Stage Rollback Impact:</p>
+                <ul className="list-disc list-inside space-y-0.5 text-[11px]">
+                  <li>Resets all washed quantities logged in this batch.</li>
+                  <li>Reverses and deducts any sellable finished product stock increments created from this wash batch.</li>
+                  <li>Resets pieces sent to wash back to 0, returning all pieces cleanly to the Sewing Line remaining balance.</li>
+                  <li>Transitions cutting order status back to <strong>LINE</strong>.</li>
+                </ul>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              disabled={isRollingBackWash}
+              onClick={() => setBatchToRollbackWash(null)}
+              className="text-xs h-8"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isRollingBackWash}
+              onClick={handleConfirmRollbackWash}
+              className="text-xs h-8 bg-rose-600 hover:bg-rose-700 text-white font-semibold cursor-pointer"
+            >
+              {isRollingBackWash ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                  <span>Rolling Back...</span>
+                </>
+              ) : (
+                'Confirm Rollback to Line'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
