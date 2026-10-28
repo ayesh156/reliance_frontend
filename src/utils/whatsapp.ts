@@ -399,9 +399,10 @@ export const generateCustomerInvoiceWhatsAppMessage = (
  * If both balance and pending cheques are cleared, outputs a clean "No Outstanding Dues" statement.
  */
 export const generateCustomerDebtSummaryWhatsAppMessage = (
-  cust: { name: string; outstandingBalance: number; phone?: string; pendingCheques?: any[] },
+  cust: { name: string; outstandingBalance: number; phone?: string; pendingCheques?: any[]; latestReceipt?: any; masterReceipt?: any },
   invoices: any[] = [],
-  pendingCheques: any[] = []
+  pendingCheques: any[] = [],
+  masterReceiptParam?: any
 ): string => {
   const currentDate = new Date().toISOString().split('T')[0];
   const currentTime = new Date().toLocaleTimeString('en-US', {
@@ -473,6 +474,63 @@ export const generateCustomerDebtSummaryWhatsAppMessage = (
   text += `*Statement Date:* ${currentDate} (${currentTime})\n`;
   text += `*TOTAL OUTSTANDING BALANCE:* *Rs. ${outstandingBal.toLocaleString('en-LK', { minimumFractionDigits: 2 })}*\n`;
   text += `-------------------------------------------\n\n`;
+
+  // Extract Master Receipts / Full Payment History
+  const rawMasterReceipts: any[] = Array.isArray(masterReceiptParam)
+    ? masterReceiptParam
+    : masterReceiptParam
+    ? [masterReceiptParam]
+    : Array.isArray((cust as any)?.masterReceipts)
+    ? (cust as any).masterReceipts
+    : (cust as any)?.masterReceipt
+    ? [(cust as any).masterReceipt]
+    : (cust as any)?.latestReceipt
+    ? [(cust as any).latestReceipt]
+    : [];
+
+  const buildFullPaymentHistorySection = (receipts: any[]): string => {
+    if (!receipts || receipts.length === 0) return '';
+    let section = `*FULL PAYMENT & SETTLEMENT HISTORY (${receipts.length}):*\n`;
+    section += `-------------------------------------------\n`;
+    receipts.forEach((r: any, idx: number) => {
+      const rNum = r.receiptNumber || `REC-${r.id || idx + 1}`;
+      let rDateStr = currentDate;
+      let rTimeStr = '';
+      const rawDate = r.receiptDate || r.createdAt;
+      if (rawDate) {
+        try {
+          const d = new Date(rawDate);
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          rDateStr = `${y}-${m}-${day}`;
+          rTimeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+        } catch {}
+      }
+      const rAmt = Number(r.totalAmount || 0).toLocaleString('en-LK', { minimumFractionDigits: 2 });
+      const rMethod = String(r.paymentMethod || 'CASH').toUpperCase();
+      section += `${idx + 1}. *Receipt #${rNum}* | Rs. ${rAmt} [${rMethod}]\n`;
+      section += `   *Date:* ${rDateStr}${rTimeStr ? ` (${rTimeStr})` : ''}\n`;
+      if (r.reference) {
+        section += `   *Reference:* ${r.reference}\n`;
+      }
+      if (r.notes) {
+        section += `   *Notes:* ${r.notes}\n`;
+      }
+      const payments = Array.isArray(r.payments) ? r.payments : [];
+      if (payments.length > 0) {
+        section += `   *Settled Invoices Breakdown:*\n`;
+        payments.forEach((p: any) => {
+          const invNum = p.invoiceNumber || p.order?.invoiceNumber || (p.orderId ? `#INV-${p.orderId}` : 'Bill');
+          const pAmt = Number(p.amount || 0).toLocaleString('en-LK', { minimumFractionDigits: 2 });
+          section += `     ↳ ${invNum}: Settled Rs. ${pAmt}\n`;
+        });
+      }
+      section += `\n`;
+    });
+    section += `-------------------------------------------\n`;
+    return section;
+  };
 
   // Itemized Invoices Breakdown
   if (Array.isArray(invoices) && invoices.length > 0) {
@@ -548,12 +606,35 @@ export const generateCustomerDebtSummaryWhatsAppMessage = (
 
       text += `   *Remaining Due: Rs. ${dueFormatted}*\n\n`;
     });
+
+    // Dedicated Recent Settlement / Total Balance Deduction Summary section
+    const totalHistoricalDue = invoices.reduce((sum, inv) => sum + Number(inv.totalAmount || inv.total || 0), 0);
+    const totalPaidAcrossBills = invoices.reduce((sum, inv) => sum + Number(inv.paidAmount || inv.paid || 0), 0);
+    const netDueBalance = outstandingBal > 0 ? outstandingBal : Math.max(0, totalHistoricalDue - totalPaidAcrossBills);
+
+    text += `*RECENT SETTLEMENT / TOTAL BALANCE DEDUCTION SUMMARY:*\n`;
+    text += `-------------------------------------------\n`;
+
+    if (rawMasterReceipts.length > 0) {
+      text += buildFullPaymentHistorySection(rawMasterReceipts);
+    }
+
+    text += `• Total Historical / Previous Due: Rs. ${totalHistoricalDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}\n`;
+    text += `• Total Paid / Settled Across Bills: - Rs. ${totalPaidAcrossBills.toLocaleString('en-LK', { minimumFractionDigits: 2 })}\n`;
+    text += `• *Final Net Outstanding Balance Due: Rs. ${netDueBalance.toLocaleString('en-LK', { minimumFractionDigits: 2 })}*\n`;
+    text += `-------------------------------------------\n\n`;
   } else if (isZeroBalance && !hasPendingCheques) {
     // Retain clean "No Outstanding Dues" statement when debt is 0 and no cheques exist
     text += `*ACCOUNT STATUS: NO OUTSTANDING DUES*\n`;
     text += `_All prior invoices, credits, and ledger bills are fully settled._\n\n`;
+    if (rawMasterReceipts.length > 0) {
+      text += buildFullPaymentHistorySection(rawMasterReceipts);
+    }
   } else {
     text += `_All prior invoices are fully settled._\n\n`;
+    if (rawMasterReceipts.length > 0) {
+      text += buildFullPaymentHistorySection(rawMasterReceipts);
+    }
   }
 
   // Pending / Unrealized Cheques Section
@@ -960,4 +1041,58 @@ export const openProductWhatsAppInquiry = (
     window.open(url, '_blank', 'noopener,noreferrer');
   }
 };
+
+/**
+ * Generate Master Receipt / Bulk Payment Settlement WhatsApp Message
+ */
+export const generateMasterReceiptWhatsAppMessage = (
+  cust: { name: string; phone?: string; outstandingBalance?: number },
+  receipt: {
+    receiptNumber?: string | null;
+    totalAmount: number;
+    paymentMethod: string;
+    reference?: string | null;
+    receiptDate: string | Date;
+    notes?: string | null;
+    payments?: Array<{
+      orderId: number;
+      amount: number;
+      invoiceNumber?: string;
+    }>;
+  }
+): string => {
+  const currentDate = new Date(receipt.receiptDate || new Date()).toISOString().split('T')[0];
+  let text = `*MASTER RECEIPT / OFFICIAL PAYMENT ACKNOWLEDGEMENT*\n`;
+  text += `*RELIANCE CLOTHING - CREDIT MANAGEMENT DIVISION*\n`;
+  text += `-------------------------------------------\n`;
+  text += `*Customer:* ${cust.name}\n`;
+  text += `*Receipt No:* ${receipt.receiptNumber || 'REC'}\n`;
+  text += `*Receipt Date:* ${currentDate}\n`;
+  text += `*Payment Method:* ${receipt.paymentMethod || 'CASH'}\n`;
+  if (receipt.reference) {
+    text += `*Reference:* ${receipt.reference}\n`;
+  }
+  text += `-------------------------------------------\n`;
+  text += `*TOTAL AMOUNT RECEIVED:* Rs. ${Number(receipt.totalAmount).toLocaleString('en-LK', { minimumFractionDigits: 2 })}\n`;
+  text += `-------------------------------------------\n`;
+
+  if (Array.isArray(receipt.payments) && receipt.payments.length > 0) {
+    text += `*CLEARED INVOICES BREAKDOWN:*\n`;
+    receipt.payments.forEach((p) => {
+      const invNum = p.invoiceNumber || `#INV-${p.orderId}`;
+      text += `  • ${invNum}: Cleared Rs. ${Number(p.amount).toLocaleString('en-LK', { minimumFractionDigits: 2 })}\n`;
+    });
+    text += `-------------------------------------------\n`;
+  }
+
+  if (cust.outstandingBalance !== undefined) {
+    text += `*Current Remaining Outstanding Due:* Rs. ${Number(cust.outstandingBalance).toLocaleString('en-LK', { minimumFractionDigits: 2 })}\n`;
+    text += `-------------------------------------------\n`;
+  }
+
+  text += `Thank you for your business!\n`;
+  text += `*Finance Hotline:* 041-2268739 / 071-1350123\n`;
+  return text;
+};
+
 

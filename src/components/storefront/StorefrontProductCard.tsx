@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import type { ProductItem } from '../../types/product';
 import { formatCurrency, getProductImageUrl, FALLBACK_IMAGE, handleImageError } from '../../lib/utils';
 import { openProductWhatsAppInquiry } from '../../utils/whatsapp';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePriceTier } from '../../utils/priceTier';
 import { ShareProductModal } from './ShareProductModal';
 import { toast } from 'react-toastify';
 import { Eye, Link2, Check, MessageSquare } from 'lucide-react';
@@ -20,14 +21,15 @@ export const StorefrontProductCard: React.FC<StorefrontProductCardProps> = ({
   priceTier,
 }) => {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const { isWholesale: globalIsWholesale } = usePriceTier();
   const { user } = useAuth();
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
-  // Determine active tier (from prop or search params)
-  const currentTierParam = priceTier || searchParams.get('tier') || searchParams.get('price');
-  const isWholesaleTier = currentTierParam === 'w' || currentTierParam === 'wholesale';
+  // Determine active tier (from prop or global tier hook)
+  const isWholesaleTier = priceTier
+    ? (priceTier === 'w' || priceTier === 'wholesale')
+    : globalIsWholesale;
 
   const primaryVariant = product.variants?.[0];
   const retailPrice = primaryVariant?.retailPrice || 0;
@@ -42,9 +44,9 @@ export const StorefrontProductCard: React.FC<StorefrontProductCardProps> = ({
     product.images?.[0]?.imageUrl;
   const resolvedImage = getProductImageUrl(primaryImage) || FALLBACK_IMAGE;
 
-  // Navigate to single product view page
+  // Navigate to single product view page propagating active tier
   const handleCardNavigate = () => {
-    const tierQuery = isWholesaleTier ? '?tier=w' : '';
+    const tierQuery = isWholesaleTier ? '?tier=w' : '?tier=r';
     navigate(`/product/${product.id}${tierQuery}`);
   };
 
@@ -65,9 +67,9 @@ export const StorefrontProductCard: React.FC<StorefrontProductCardProps> = ({
       return;
     }
 
-    // Visitor: directly copy retail price link
+    // Visitor: directly copy link matching active tier
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const url = `${origin}/product/${product.id}?tier=r`;
+    const url = `${origin}/product/${product.id}${isWholesaleTier ? '?tier=w' : '?tier=r'}`;
 
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -82,7 +84,7 @@ export const StorefrontProductCard: React.FC<StorefrontProductCardProps> = ({
       }
 
       setCopiedLink(true);
-      toast.success('Product link copied to clipboard!');
+      toast.success(isWholesaleTier ? 'Wholesale product link copied!' : 'Retail product link copied!');
       setTimeout(() => setCopiedLink(false), 2000);
     } catch {
       toast.error('Failed to copy product link');
@@ -117,7 +119,7 @@ export const StorefrontProductCard: React.FC<StorefrontProductCardProps> = ({
                     e.stopPropagation();
                     onQuickView(product);
                   }}
-                  className="w-full py-2 px-3 bg-zinc-950/95 text-white hover:bg-zinc-900 dark:bg-white/95 dark:text-zinc-950 dark:hover:bg-white text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.2em] rounded-sm shadow-xl flex items-center justify-center gap-1.5 transform translate-y-2 group-hover:translate-y-0 transition-all duration-300"
+                  className="w-full py-2 px-3 bg-zinc-950/95 text-white hover:bg-zinc-900 dark:bg-white/95 dark:text-zinc-950 dark:hover:bg-white text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.2em] rounded-sm shadow-xl flex items-center justify-center gap-1.5 transform translate-y-2 group-hover:translate-y-0 transition-all duration-300 cursor-pointer"
                 >
                   <Eye className="w-3.5 h-3.5" />
                   <span>Quick View</span>
@@ -129,7 +131,7 @@ export const StorefrontProductCard: React.FC<StorefrontProductCardProps> = ({
                   e.stopPropagation();
                   handleCardNavigate();
                 }}
-                className="w-full py-2 px-3 bg-white/90 text-zinc-900 hover:bg-white dark:bg-zinc-900/90 dark:text-white dark:hover:bg-zinc-900 text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.2em] rounded-sm shadow-xl flex items-center justify-center gap-1.5 transform translate-y-2 group-hover:translate-y-0 transition-all duration-300"
+                className="w-full py-2 px-3 bg-white/90 text-zinc-900 hover:bg-white dark:bg-zinc-900/90 dark:text-white dark:hover:bg-zinc-900 text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.2em] rounded-sm shadow-xl flex items-center justify-center gap-1.5 transform translate-y-2 group-hover:translate-y-0 transition-all duration-300 cursor-pointer"
               >
                 <span>View Product</span>
               </button>
@@ -165,19 +167,19 @@ export const StorefrontProductCard: React.FC<StorefrontProductCardProps> = ({
         {/* Card Content & Action Bar */}
         <div className="p-2.5 sm:p-4 flex flex-col justify-between flex-1 bg-transparent">
           <div>
-            {/* Top Meta Line: Category (left) + Action Icons (WhatsApp & Copy Link moved upwards) */}
+            {/* Top Meta Line: Category (left) + Action Icons */}
             <div className="flex items-center justify-between gap-1 mb-1.5">
               <span className="text-[8px] sm:text-[9px] uppercase tracking-widest text-zinc-600 dark:text-zinc-400 font-mono truncate">
                 {product.category?.name || "Men's Wear"}
               </span>
 
-              {/* Action Buttons: WhatsApp + Copy Link moved upwards */}
+              {/* Action Buttons: WhatsApp + Copy Link */}
               <div className="flex items-center gap-1 shrink-0">
-                {/* WhatsApp Button (Emerald styling) */}
+                {/* WhatsApp Button */}
                 <button
                   type="button"
                   onClick={handleWhatsAppClick}
-                  className="p-1 sm:p-1.5 text-emerald-600 dark:text-emerald-400 hover:text-white hover:bg-emerald-600 dark:hover:bg-emerald-600 rounded-sm transition-colors border border-emerald-500/30 hover:border-emerald-600 bg-emerald-50/50 dark:bg-emerald-950/30 shadow-xs"
+                  className="p-1 sm:p-1.5 text-emerald-600 dark:text-emerald-400 hover:text-white hover:bg-emerald-600 dark:hover:bg-emerald-600 rounded-sm transition-colors border border-emerald-500/30 hover:border-emerald-600 bg-emerald-50/50 dark:bg-emerald-950/30 shadow-xs cursor-pointer"
                   title="Inquire on WhatsApp"
                   aria-label="Inquire on WhatsApp"
                 >
@@ -188,7 +190,7 @@ export const StorefrontProductCard: React.FC<StorefrontProductCardProps> = ({
                 <button
                   type="button"
                   onClick={handleCopyLinkClick}
-                  className={`p-1 sm:p-1.5 rounded-sm transition-colors border shadow-xs ${
+                  className={`p-1 sm:p-1.5 rounded-sm transition-colors border shadow-xs cursor-pointer ${
                     copiedLink
                       ? 'text-emerald-600 bg-emerald-50 border-emerald-300 dark:bg-emerald-950/40 dark:border-emerald-700'
                       : 'text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 border-zinc-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/60'
@@ -214,12 +216,12 @@ export const StorefrontProductCard: React.FC<StorefrontProductCardProps> = ({
             </h3>
           </div>
 
-          {/* Bottom Price Row: "Rs." and Amount strictly remain on the exact same single line */}
+          {/* Bottom Price Row: Displays ONLY Wholesale Price or ONLY Retail Price */}
           <div className="mt-2.5 pt-2 border-t border-[#e5e5e0] dark:border-zinc-900 flex items-center justify-between gap-1">
             <span className="text-[8px] sm:text-[9px] uppercase tracking-wider text-zinc-500 font-mono truncate">
-              {isWholesaleTier ? 'Wholesale Price' : 'Retail Price'}
+              {isWholesaleTier ? 'WHOLESALE PRICE' : 'RETAIL PRICE'}
             </span>
-            <span className="whitespace-nowrap font-mono text-xs sm:text-sm font-bold text-[#09090b] dark:text-white">
+            <span className={`whitespace-nowrap font-mono text-xs sm:text-sm font-bold ${isWholesaleTier ? 'text-amber-600 dark:text-amber-400' : 'text-[#09090b] dark:text-white'}`}>
               {formatCurrency(displayedPrice)}
             </span>
           </div>

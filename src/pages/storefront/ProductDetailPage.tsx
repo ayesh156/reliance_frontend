@@ -5,6 +5,7 @@ import type { ProductItem, ProductVariant } from '../../types/product';
 import { formatCurrency, getProductImageUrl, FALLBACK_IMAGE, handleImageError } from '../../lib/utils';
 import { openProductWhatsAppInquiry } from '../../utils/whatsapp';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePriceTier } from '../../utils/priceTier';
 import { StorefrontProductCard } from '../../components/storefront/StorefrontProductCard';
 import { ShareProductModal } from '../../components/storefront/ShareProductModal';
 import { toast } from 'react-toastify';
@@ -63,11 +64,8 @@ export const ProductDetailPage: React.FC = () => {
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
-  // ── Pricing Tier Mode Enforcement ──
-  // When tier=w or price=wholesale: wholesale ONLY mode
-  // When tier=r or price=retail or no param: retail ONLY mode
-  const tierParam = searchParams.get('tier') || searchParams.get('price');
-  const isWholesaleMode = tierParam === 'w' || tierParam === 'wholesale';
+  // ── Pricing Tier Mode Enforcement with Global Persistence ──
+  const { isWholesale: isWholesaleMode, appendTier } = usePriceTier();
 
   // 1. Fetch Product by ID or slug
   useEffect(() => {
@@ -442,11 +440,11 @@ export const ProductDetailPage: React.FC = () => {
       <div className="border-b border-[#e5e5e0] dark:border-zinc-900 bg-white/50 dark:bg-zinc-950/40 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between text-xs font-mono">
           <div className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400 truncate">
-            <Link to="/" className="hover:text-zinc-950 dark:hover:text-white transition-colors">
+            <Link to={appendTier('/')} className="hover:text-zinc-950 dark:hover:text-white transition-colors">
               Home
             </Link>
             <ChevronRight className="w-3 h-3 shrink-0" />
-            <Link to="/shop" className="hover:text-zinc-950 dark:hover:text-white transition-colors">
+            <Link to={appendTier('/shop')} className="hover:text-zinc-950 dark:hover:text-white transition-colors">
               Shop
             </Link>
             <ChevronRight className="w-3 h-3 shrink-0" />
@@ -605,7 +603,7 @@ export const ProductDetailPage: React.FC = () => {
                   <div>
                     <span className="text-[9px] uppercase tracking-[0.2em] font-mono text-amber-600 dark:text-amber-400 font-bold mb-0.5 flex items-center gap-1.5">
                       <Building2 className="w-3 h-3" />
-                      Wholesale Price (Authorized B2B)
+                      WHOLESALE PRICE
                     </span>
                     <div className="text-2xl sm:text-3xl font-bold font-mono text-amber-700 dark:text-amber-400 tracking-tight">
                       {formatCurrency(wholesalePrice)}
@@ -616,7 +614,7 @@ export const ProductDetailPage: React.FC = () => {
                   <div>
                     <span className="text-[9px] uppercase tracking-[0.2em] font-mono text-zinc-500 font-semibold mb-0.5 flex items-center gap-1.5">
                       <Tag className="w-3 h-3 text-zinc-400" />
-                      Retail Price
+                      RETAIL PRICE
                     </span>
                     <div className="text-2xl sm:text-3xl font-bold font-mono text-zinc-950 dark:text-white tracking-tight">
                       {formatCurrency(retailPrice)}
@@ -839,7 +837,7 @@ export const ProductDetailPage: React.FC = () => {
               </h3>
             </div>
             <Link
-              to="/shop"
+              to={appendTier('/shop')}
               className="text-xs uppercase tracking-widest font-mono text-zinc-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-white flex items-center gap-1 transition-colors"
             >
               <span>View All</span>

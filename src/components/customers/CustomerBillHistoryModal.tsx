@@ -40,11 +40,13 @@ import {
 } from 'lucide-react';
 import { get, put, post, del } from '../../lib/api';
 import { toast } from 'react-toastify';
+import { DatePicker } from '../ui/date-picker';
 import {
   openWhatsAppChat,
   generateCustomerInvoiceWhatsAppMessage,
   generateCustomerDebtSummaryWhatsAppMessage,
   generateReturnCreditNoteWhatsAppMessage,
+  generateMasterReceiptWhatsAppMessage,
 } from '../../utils/whatsapp';
 import { getInvoiceAgeInfo } from '../../utils/invoiceAge';
 
@@ -191,8 +193,115 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
   const [invoices, setInvoices] = useState<CustomerInvoiceItem[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [activeFilter, setActiveFilter] = useState<'ALL' | 'DUE' | 'PAID' | 'RETURNS'>('ALL');
+  const [activeFilter, setActiveFilter] = useState<'ALL' | 'DUE' | 'PAID' | 'RETURNS' | 'RECEIPTS'>('ALL');
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
+
+  // Master Receipts Ledger state
+  interface MasterReceiptItem {
+    id: number;
+    receiptNumber: string;
+    customerId: number;
+    totalAmount: number;
+    paymentMethod: string;
+    reference?: string | null;
+    receiptDate: string;
+    notes?: string | null;
+    createdAt: string;
+    payments: Array<{
+      id: number;
+      orderId: number;
+      amount: number;
+      method: string;
+      reference?: string;
+      createdAt: string;
+      invoiceNumber: string;
+      invoiceTotal: number;
+      invoicePaid: number;
+      invoiceStatus: string;
+      invoiceDate?: string;
+    }>;
+    clearedInvoicesCount: number;
+  }
+
+  const [masterReceipts, setMasterReceipts] = useState<MasterReceiptItem[]>([]);
+  const [loadingReceipts, setLoadingReceipts] = useState<boolean>(false);
+  const [receiptStartDate, setReceiptStartDate] = useState<string>('');
+  const [receiptEndDate, setReceiptEndDate] = useState<string>('');
+  const [expandedReceiptId, setExpandedReceiptId] = useState<number | null>(null);
+
+  const fetchMasterReceipts = async () => {
+    if (!customer?.id) return;
+    setLoadingReceipts(true);
+    try {
+      const params = new URLSearchParams();
+      if (receiptStartDate) params.append('startDate', receiptStartDate);
+      if (receiptEndDate) params.append('endDate', receiptEndDate);
+      const query = params.toString() ? `?${params.toString()}` : '';
+      const res = await get<any>(`/credit/customers/${customer.id}/receipts${query}`);
+      const list = res?.receipts || (Array.isArray(res) ? res : []);
+      setMasterReceipts(list);
+    } catch (err: any) {
+      console.error('Failed to fetch customer receipts:', err);
+    } finally {
+      setLoadingReceipts(false);
+    }
+  };
+
+  const parseDateString = (str?: string): Date | undefined => {
+    if (!str) return undefined;
+    const parts = str.split('-');
+    if (parts.length !== 3) return undefined;
+    const [y, m, d] = parts.map(Number);
+    if (isNaN(y) || isNaN(m) || isNaN(d)) return undefined;
+    return new Date(y, m - 1, d);
+  };
+
+  const formatDateToString = (d?: Date): string => {
+    if (!d) return '';
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const handleApplyReceiptPreset = (preset: 'ALL' | 'TODAY' | 'WEEK' | 'MONTH' | '30DAYS') => {
+    const today = new Date();
+    const todayStr = formatDateToString(today);
+    if (preset === 'ALL') {
+      setReceiptStartDate('');
+      setReceiptEndDate('');
+    } else if (preset === 'TODAY') {
+      setReceiptStartDate(todayStr);
+      setReceiptEndDate(todayStr);
+    } else if (preset === 'WEEK') {
+      const d = new Date();
+      d.setDate(d.getDate() - 7);
+      setReceiptStartDate(formatDateToString(d));
+      setReceiptEndDate(todayStr);
+    } else if (preset === 'MONTH') {
+      const d = new Date(today.getFullYear(), today.getMonth(), 1);
+      setReceiptStartDate(formatDateToString(d));
+      setReceiptEndDate(todayStr);
+    } else if (preset === '30DAYS') {
+      const d = new Date();
+      d.setDate(d.getDate() - 30);
+      setReceiptStartDate(formatDateToString(d));
+      setReceiptEndDate(todayStr);
+    }
+  };
+
+  const handleShareMasterReceipt = (receipt: MasterReceiptItem) => {
+    if (!customer) return;
+    const msg = generateMasterReceiptWhatsAppMessage(
+      {
+        name: customer.name,
+        phone: customer.phone,
+        outstandingBalance: customer.outstandingBalance,
+      },
+      receipt
+    );
+    openWhatsAppChat(customer.phone, msg);
+  };
 
   // Expanded Invoice IDs for inline payment history breakdown
   const [expandedInvoices, setExpandedInvoices] = useState<Set<number>>(new Set());
@@ -260,10 +369,18 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
       setActiveFilter('ALL');
       setExpandedInvoices(new Set());
       fetchCustomerInvoices();
+      fetchMasterReceipts();
     } else {
       setInvoices([]);
+      setMasterReceipts([]);
     }
   }, [isOpen, customer?.id]);
+
+  useEffect(() => {
+    if (isOpen && customer?.id && activeFilter === 'RECEIPTS') {
+      fetchMasterReceipts();
+    }
+  }, [receiptStartDate, receiptEndDate, activeFilter]);
 
   /**
    * Stream generated Invoice PDF directly to browser download.
@@ -362,7 +479,7 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
       outstandingBalance: Number(customer.outstandingBalance !== undefined ? customer.outstandingBalance : totalDue),
       phone: customer.phone,
     };
-    const waMsg = generateCustomerDebtSummaryWhatsAppMessage(waCustomer, dueInvoices, pendingUnclearedCheques);
+    const waMsg = generateCustomerDebtSummaryWhatsAppMessage(waCustomer, dueInvoices, pendingUnclearedCheques, masterReceipts);
     openWhatsAppChat(customer.phone, waMsg);
   };
 
@@ -872,6 +989,10 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                     key: 'RETURNS',
                     label: `Returns (${invoices.filter((i) => i.returns && i.returns.length > 0).length})`,
                   },
+                  {
+                    key: 'RECEIPTS',
+                    label: `Full Payment History (${masterReceipts.length})`,
+                  },
                 ] as const
               ).map((tab) => (
                 <button
@@ -912,7 +1033,210 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
 
           {/* Scrollable Invoices List Container with Dynamic Viewport Bounds */}
           <div className="flex-1 min-h-0 sm:min-h-[200px] overflow-y-auto overscroll-contain p-2.5 sm:p-4 pr-1 sm:pr-3 space-y-2">
-            {loading ? (
+            {activeFilter === 'RECEIPTS' ? (
+              <div className="space-y-3 pb-4">
+                {/* Master Receipts Date Range Filter Bar */}
+                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800 space-y-2.5">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <span className="text-xs font-bold text-slate-800 dark:text-zinc-200 flex items-center gap-1.5">
+                      <Receipt className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                      <span>Full Payment History & Settlements</span>
+                    </span>
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {(
+                        [
+                          { key: 'ALL', label: 'All' },
+                          { key: 'TODAY', label: 'Today' },
+                          { key: 'WEEK', label: '7 Days' },
+                          { key: 'MONTH', label: 'This Month' },
+                          { key: '30DAYS', label: '30 Days' },
+                        ] as const
+                      ).map((p) => (
+                        <button
+                          key={p.key}
+                          type="button"
+                          onClick={() => handleApplyReceiptPreset(p.key)}
+                          className="px-2 py-0.5 text-[10px] font-semibold rounded-md border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 hover:border-emerald-500 hover:text-emerald-600 cursor-pointer transition-colors"
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                    <div className="sm:col-span-5 flex items-center gap-1.5">
+                      <span className="text-[10.5px] font-medium text-slate-500 dark:text-zinc-400 shrink-0">From:</span>
+                      <DatePicker
+                        date={parseDateString(receiptStartDate)}
+                        onDateChange={(d) => setReceiptStartDate(formatDateToString(d))}
+                        placeholder="Start date"
+                        className="h-8 text-xs bg-white dark:bg-zinc-950 rounded-lg flex-1"
+                      />
+                    </div>
+                    <div className="sm:col-span-5 flex items-center gap-1.5">
+                      <span className="text-[10.5px] font-medium text-slate-500 dark:text-zinc-400 shrink-0">To:</span>
+                      <DatePicker
+                        date={parseDateString(receiptEndDate)}
+                        onDateChange={(d) => setReceiptEndDate(formatDateToString(d))}
+                        placeholder="End date"
+                        className="h-8 text-xs bg-white dark:bg-zinc-950 rounded-lg flex-1"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={fetchMasterReceipts}
+                        disabled={loadingReceipts}
+                        className="w-full h-8 px-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg cursor-pointer shrink-0"
+                      >
+                        {loadingReceipts ? <Loader2 className="size-3 animate-spin" /> : 'Filter'}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Master Receipts Cards List */}
+                {loadingReceipts ? (
+                  <div className="py-12 flex flex-col items-center justify-center gap-2">
+                    <Loader2 className="size-7 animate-spin text-emerald-500" />
+                    <p className="text-xs text-slate-500">Loading master receipts...</p>
+                  </div>
+                ) : masterReceipts.length === 0 ? (
+                  <div className="py-12 text-center border border-dashed border-slate-200 dark:border-zinc-800 rounded-2xl p-6">
+                    <Receipt className="size-9 text-slate-400 mx-auto mb-2 opacity-50" />
+                    <h4 className="text-sm font-bold text-slate-700 dark:text-zinc-300">
+                      No Master Receipts Found
+                    </h4>
+                    <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                      No master payment receipts recorded for this customer in this date range.
+                    </p>
+                  </div>
+                ) : (
+                  masterReceipts.map((receipt) => {
+                    const rDate = new Date(receipt.receiptDate);
+                    const formattedRDate = rDate.toISOString().split('T')[0];
+                    const formattedRTime = rDate.toLocaleTimeString('en-US', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: true,
+                    });
+                    const isExpanded = expandedReceiptId === receipt.id;
+
+                    return (
+                      <div
+                        key={receipt.id}
+                        className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 p-3.5 sm:p-4 shadow-xs transition-all hover:border-emerald-300 dark:hover:border-emerald-800/80"
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-mono text-xs sm:text-sm font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                                <Receipt className="size-3.5" />
+                                <span>{receipt.receiptNumber || `REC-${receipt.id}`}</span>
+                              </span>
+                              <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                                {receipt.paymentMethod}
+                              </span>
+                              <span className="text-[9px] font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700">
+                                {receipt.clearedInvoicesCount || receipt.payments.length} Bill(s) Settled
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-3 text-[11px] text-slate-500 dark:text-zinc-400 flex-wrap">
+                              <span className="flex items-center gap-1">
+                                <Calendar className="size-3 text-slate-400" /> {formattedRDate}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Clock className="size-3 text-slate-400" /> {formattedRTime}
+                              </span>
+                              {receipt.reference && (
+                                <span className="text-slate-600 dark:text-zinc-300 italic">
+                                  Ref: {receipt.reference}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200 dark:border-zinc-800">
+                            <div className="text-right">
+                              <span className="text-[10px] text-slate-400 uppercase font-semibold block leading-tight">
+                                Full Payment Amount
+                              </span>
+                              <span className="text-base sm:text-lg font-extrabold font-mono text-emerald-600 dark:text-emerald-400">
+                                Rs. {Number(receipt.totalAmount).toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setExpandedReceiptId(isExpanded ? null : receipt.id)}
+                                className="h-8 px-2.5 text-xs text-slate-600 hover:text-slate-900 dark:text-zinc-300 dark:hover:text-white inline-flex items-center gap-1 border-slate-200 dark:border-zinc-700 hover:border-emerald-400 cursor-pointer transition-colors shadow-2xs"
+                                title={isExpanded ? 'Hide Breakdown' : 'View Cleared Bills'}
+                              >
+                                <span className="text-[11px] font-medium hidden sm:inline">
+                                  {isExpanded ? 'Hide Details' : 'Details'}
+                                </span>
+                                {isExpanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Cleared past bills breakdown */}
+                        {isExpanded && (
+                          <div className="mt-3 pt-3 border-t border-slate-200/80 dark:border-zinc-800/80 space-y-2">
+                            <div className="text-xs font-bold text-slate-700 dark:text-zinc-300 flex items-center justify-between">
+                              <span>Cleared Invoices Breakdown ({receipt.payments.length} items)</span>
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                Allocated Payment
+                              </span>
+                            </div>
+
+                            <div className="rounded-xl border border-slate-200 dark:border-zinc-800 overflow-hidden bg-slate-50/50 dark:bg-zinc-950/40">
+                              <table className="w-full text-xs text-left border-collapse font-mono">
+                                <thead className="bg-slate-100/80 dark:bg-zinc-800/60 text-slate-500 dark:text-zinc-400 text-[10px] uppercase border-b border-slate-200 dark:border-zinc-800">
+                                  <tr>
+                                    <th className="py-1.5 px-2.5">Invoice #</th>
+                                    <th className="py-1.5 px-2 text-right">Invoice Total</th>
+                                    <th className="py-1.5 px-2 text-right">Settled In This Receipt</th>
+                                    <th className="py-1.5 px-2.5 text-right">Status</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60">
+                                  {receipt.payments.map((p) => (
+                                    <tr key={p.id} className="hover:bg-slate-100/50 dark:hover:bg-zinc-800/30">
+                                      <td className="py-1.5 px-2.5 font-bold text-slate-900 dark:text-white">
+                                        {p.invoiceNumber}
+                                      </td>
+                                      <td className="py-1.5 px-2 text-right text-slate-600 dark:text-zinc-400">
+                                        Rs. {Number(p.invoiceTotal).toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                                      </td>
+                                      <td className="py-1.5 px-2 text-right font-bold text-emerald-600 dark:text-emerald-400">
+                                        - Rs. {Number(p.amount).toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                                      </td>
+                                      <td className="py-1.5 px-2.5 text-right">
+                                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                                          {p.invoiceStatus}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            ) : loading ? (
               <div className="py-16 text-center">
                 <Loader2 className="size-7 animate-spin mx-auto text-emerald-500 mb-2" />
                 <p className="text-xs text-slate-400">Loading complete invoice history...</p>

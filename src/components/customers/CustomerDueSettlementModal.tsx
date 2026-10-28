@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { get, post, put, del } from '../../lib/api';
 import { toast } from 'react-toastify';
 import {
@@ -30,7 +30,7 @@ import {
   AlertTriangle,
   MessageSquare,
 } from 'lucide-react';
-import { openWhatsAppChat, generateCustomerDebtSummaryWhatsAppMessage } from '../../utils/whatsapp';
+import { openWhatsAppChat, generateCustomerDebtSummaryWhatsAppMessage, generateMasterReceiptWhatsAppMessage } from '../../utils/whatsapp';
 // Enterprise Shadcn SearchableSelect Component
 
 import { useTheme } from '../../contexts/ThemeContext';
@@ -160,6 +160,166 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
   const [isSubmittingDelete, setIsSubmittingDelete] = useState(false);
   const [pendingCheques, setPendingCheques] = useState<any[]>([]);
 
+  // Post-Settlement Reconciliation Summary State
+  interface PostSettlementSummaryData {
+    paidAmount: number;
+    previousBalance: number;
+    newBalance: number;
+    allocations: Array<{
+      orderId: number;
+      invoiceNumber: string;
+      dateFormatted: string;
+      dueBefore: number;
+      allocated: number;
+      dueAfter: number;
+    }>;
+  }
+  const [postSettlementSummary, setPostSettlementSummary] = useState<PostSettlementSummaryData | null>(null);
+
+  // Tab Mode: 'DUES' | 'RECEIPTS'
+  const [activeTab, setActiveTab] = useState<'DUES' | 'RECEIPTS'>('DUES');
+
+  // Master Receipts Ledger state
+  interface MasterReceiptPayment {
+    id: number;
+    orderId: number;
+    amount: number;
+    method: string;
+    reference?: string;
+    createdAt: string;
+    invoiceNumber: string;
+    invoiceTotal: number;
+    invoicePaid: number;
+    invoiceStatus: string;
+    invoiceDate?: string;
+  }
+
+  interface MasterReceiptItem {
+    id: number;
+    receiptNumber: string;
+    customerId: number;
+    totalAmount: number;
+    paymentMethod: string;
+    reference?: string | null;
+    receiptDate: string;
+    notes?: string | null;
+    createdAt: string;
+    payments: MasterReceiptPayment[];
+    clearedInvoicesCount: number;
+  }
+
+  const [masterReceipts, setMasterReceipts] = useState<MasterReceiptItem[]>([]);
+  const [loadingReceipts, setLoadingReceipts] = useState<boolean>(false);
+  const [receiptStartDate, setReceiptStartDate] = useState<string>('');
+  const [receiptEndDate, setReceiptEndDate] = useState<string>('');
+  const [receiptSearch, setReceiptSearch] = useState<string>('');
+  const [expandedReceiptId, setExpandedReceiptId] = useState<number | null>(null);
+
+  const fetchMasterReceipts = async () => {
+    if (!customerId) return;
+    setLoadingReceipts(true);
+    try {
+      const params = new URLSearchParams();
+      if (receiptStartDate) params.append('startDate', receiptStartDate);
+      if (receiptEndDate) params.append('endDate', receiptEndDate);
+      if (receiptSearch.trim()) params.append('search', receiptSearch.trim());
+      const query = params.toString() ? `?${params.toString()}` : '';
+      const res = await get<any>(`/credit/customers/${customerId}/receipts${query}`);
+      const list = res?.receipts || (Array.isArray(res) ? res : []);
+      setMasterReceipts(list);
+    } catch (err: any) {
+      console.error('Failed to fetch master receipts:', err);
+    } finally {
+      setLoadingReceipts(false);
+    }
+  };
+
+  const parseDateString = (str?: string): Date | undefined => {
+    if (!str) return undefined;
+    const parts = str.split('-');
+    if (parts.length !== 3) return undefined;
+    const [y, m, d] = parts.map(Number);
+    if (isNaN(y) || isNaN(m) || isNaN(d)) return undefined;
+    return new Date(y, m - 1, d);
+  };
+
+  const formatDateToString = (d?: Date): string => {
+    if (!d) return '';
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const handleApplyDatePreset = (preset: 'ALL' | 'TODAY' | 'WEEK' | 'MONTH' | '30DAYS') => {
+    const today = new Date();
+    const todayStr = formatDateToString(today);
+
+    if (preset === 'ALL') {
+      setReceiptStartDate('');
+      setReceiptEndDate('');
+    } else if (preset === 'TODAY') {
+      setReceiptStartDate(todayStr);
+      setReceiptEndDate(todayStr);
+    } else if (preset === 'WEEK') {
+      const d = new Date();
+      d.setDate(d.getDate() - 7);
+      setReceiptStartDate(formatDateToString(d));
+      setReceiptEndDate(todayStr);
+    } else if (preset === 'MONTH') {
+      const d = new Date(today.getFullYear(), today.getMonth(), 1);
+      setReceiptStartDate(formatDateToString(d));
+      setReceiptEndDate(todayStr);
+    } else if (preset === '30DAYS') {
+      const d = new Date();
+      d.setDate(d.getDate() - 30);
+      setReceiptStartDate(formatDateToString(d));
+      setReceiptEndDate(todayStr);
+    }
+  };
+
+  const handleShareMasterReceipt = (receipt: MasterReceiptItem) => {
+    const phone = customerPhoneState || customerPhone;
+    const msg = generateMasterReceiptWhatsAppMessage(
+      {
+        name: customerName || 'Customer',
+        phone: phone || undefined,
+        outstandingBalance: totalOutstanding,
+      },
+      receipt
+    );
+    openWhatsAppChat(phone || '', msg);
+  };
+
+  // Live multi-bill payment allocation preview computed using FIFO strategy
+  const liveAllocations = useMemo(() => {
+    let remainingPayment = Math.max(0, parseFloat(quickPayAmount) || 0);
+    return bills.map((bill) => {
+      const dueBefore = Number(bill.dueAmount || 0);
+      const allocated = Math.min(dueBefore, remainingPayment);
+      const dueAfter = Math.max(0, Math.round((dueBefore - allocated) * 100) / 100);
+      remainingPayment = Math.max(0, Math.round((remainingPayment - allocated) * 100) / 100);
+      const rawDate = bill.createdAt;
+      let dateFormatted = '-';
+      if (rawDate) {
+        try {
+          const d = new Date(rawDate);
+          dateFormatted = d.toISOString().split('T')[0];
+        } catch {
+          dateFormatted = String(rawDate);
+        }
+      }
+      return {
+        orderId: bill.orderId,
+        invoiceNumber: bill.invoiceNumber,
+        dateFormatted,
+        dueBefore,
+        allocated,
+        dueAfter,
+      };
+    });
+  }, [bills, quickPayAmount]);
+
   // බිල්පත් දත්ත backend එකෙන් ලබා ගැනීම
   const fetchDueBills = async () => {
     if (!customerId) return;
@@ -190,6 +350,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
   useEffect(() => {
     if (isOpen && customerId) {
       fetchDueBills();
+      fetchMasterReceipts();
       setPayingOrderId(null);
       setPayAmount('');
       setQuickPayAmount('');
@@ -198,8 +359,19 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
       setShowQuickPayForm(false);
       setEditingPayment(null);
       setDeletingPayment(null);
+    } else {
+      setBills([]);
+      setTotalOutstanding(0);
+      setMasterReceipts([]);
+      setActiveTab('DUES');
     }
   }, [isOpen, customerId]);
+
+  useEffect(() => {
+    if (isOpen && customerId && activeTab === 'RECEIPTS') {
+      fetchMasterReceipts();
+    }
+  }, [receiptStartDate, receiptEndDate, activeTab]);
 
   // One-click / Custom Whole Balance Settlement Submit
   const handleQuickSettleSubmit = async (e?: React.FormEvent) => {
@@ -217,6 +389,11 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
 
     setIsSubmittingQuickPay(true);
     try {
+      // Snapshot allocations for live post-settlement reconciliation summary
+      const snapshotAllocations = liveAllocations.filter((a) => a.allocated > 0);
+      const prevBal = totalOutstanding;
+      const newBal = Math.max(0, Math.round((prevBal - numericAmount) * 100) / 100);
+
       await post(`/orders/customers/${customerId}/settle-debt`, {
         amount: numericAmount,
         strategy: 'FIFO',
@@ -226,11 +403,18 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
       });
 
       toast.success(`Payment of Rs. ${numericAmount.toFixed(2)} settled successfully!`);
+      setPostSettlementSummary({
+        paidAmount: numericAmount,
+        previousBalance: prevBal,
+        newBalance: newBal,
+        allocations: snapshotAllocations,
+      });
       setQuickPayAmount('');
       setQuickPayRef('');
       setQuickPayDateTime(new Date().toISOString());
       setShowQuickPayForm(false);
       await fetchDueBills();
+      await fetchMasterReceipts();
       if (onPaymentSuccess) {
         onPaymentSuccess();
       }
@@ -362,6 +546,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
       setPayDate(getCurrentLocalISOString());
       
       await fetchDueBills();
+      await fetchMasterReceipts();
       if (onPaymentSuccess) {
         onPaymentSuccess();
       }
@@ -404,8 +589,18 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
     }
   };
 
-  // Send Statement / Due Breakdown on WhatsApp
-  const handleSendWhatsAppStatement = () => {
+  // Send Statement / Due Breakdown & Full Payment History on WhatsApp
+  const handleSendWhatsAppStatement = async () => {
+    let receiptsToUse = masterReceipts;
+    if (receiptsToUse.length === 0 && customerId) {
+      try {
+        const res = await get<any>(`/credit/customers/${customerId}/receipts`);
+        receiptsToUse = res?.receipts || (Array.isArray(res) ? res : []);
+      } catch (err) {
+        console.error('Failed to load receipts for WhatsApp statement:', err);
+      }
+    }
+
     const activePhone = customerPhone || customerPhoneState;
     if (!activePhone) {
       const manual = window.prompt('Enter customer mobile number for WhatsApp statement:');
@@ -423,8 +618,10 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
           paidAmount: b.paidAmount,
           dueAmount: b.dueAmount,
           source: b.source,
+          payments: b.paymentHistory || (b as any).payments,
         })),
-        pendingCheques
+        pendingCheques,
+        receiptsToUse
       );
       openWhatsAppChat(manual.trim(), waMsg);
       return;
@@ -442,8 +639,10 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
         paidAmount: b.paidAmount,
         dueAmount: b.dueAmount,
         source: b.source,
+        payments: b.paymentHistory || (b as any).payments,
       })),
-      pendingCheques
+      pendingCheques,
+      receiptsToUse
     );
     openWhatsAppChat(activePhone, waMsg);
   };
@@ -523,6 +722,37 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
             >
               <MessageSquare className="size-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>WhatsApp</span>
+            </button>
+          </div>
+
+          {/* View Tab Switcher: Due Invoices vs Master Receipts Ledger */}
+          <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-zinc-900 rounded-xl border border-slate-200/80 dark:border-zinc-800">
+            <button
+              type="button"
+              onClick={() => setActiveTab('DUES')}
+              className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all inline-flex items-center justify-center gap-1.5 cursor-pointer ${
+                activeTab === 'DUES'
+                  ? 'bg-white dark:bg-zinc-800 text-slate-900 dark:text-white shadow-xs'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white'
+              }`}
+            >
+              <FileText className="size-3.5" />
+              <span>Pending Dues ({bills.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('RECEIPTS');
+                if (masterReceipts.length === 0) fetchMasterReceipts();
+              }}
+              className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all inline-flex items-center justify-center gap-1.5 cursor-pointer ${
+                activeTab === 'RECEIPTS'
+                  ? 'bg-white dark:bg-zinc-800 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-white'
+              }`}
+            >
+              <Receipt className="size-3.5" />
+              <span>Full Payment History</span>
             </button>
           </div>
         </DialogHeader>
@@ -628,6 +858,76 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                   />
                 </div>
 
+                {/* ── Live Multi-Bill Allocation Preview & Total Reconciliation ── */}
+                {bills.length > 0 && (
+                  <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-zinc-800">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-zinc-200 flex items-center gap-1.5">
+                        <Receipt className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                        <span>Live Allocation Preview</span>
+                      </span>
+                      <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60">
+                        FIFO Strategy
+                      </span>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200/80 dark:border-zinc-800 overflow-hidden bg-slate-50/50 dark:bg-zinc-900/40">
+                      <div className="max-h-48 overflow-y-auto scrollbar-thin">
+                        <table className="w-full text-[11px] text-left border-collapse">
+                          <thead className="bg-slate-100/80 dark:bg-zinc-800/70 text-slate-500 dark:text-zinc-400 text-[10px] uppercase font-mono sticky top-0 border-b border-slate-200 dark:border-zinc-800">
+                            <tr>
+                              <th className="py-1.5 px-2">Bill #</th>
+                              <th className="py-1.5 px-2">Bill Date</th>
+                              <th className="py-1.5 px-2 text-right">Due Before</th>
+                              <th className="py-1.5 px-2 text-right">Allocated</th>
+                              <th className="py-1.5 px-2 text-right">Due After</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60 font-mono">
+                            {liveAllocations.map((row) => (
+                              <tr key={row.orderId} className="hover:bg-slate-100/50 dark:hover:bg-zinc-800/40 transition-colors">
+                                <td className="py-1.5 px-2 font-bold text-slate-900 dark:text-white">
+                                  {row.invoiceNumber}
+                                </td>
+                                <td className="py-1.5 px-2 text-slate-600 dark:text-zinc-400 text-[10px]">
+                                  {row.dateFormatted}
+                                </td>
+                                <td className="py-1.5 px-2 text-right text-slate-700 dark:text-zinc-300">
+                                  Rs. {row.dueBefore.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                                </td>
+                                <td className="py-1.5 px-2 text-right font-bold text-emerald-600 dark:text-emerald-400">
+                                  {row.allocated > 0 ? `- Rs. ${row.allocated.toLocaleString('en-LK', { minimumFractionDigits: 2 })}` : 'Rs. 0.00'}
+                                </td>
+                                <td className="py-1.5 px-2 text-right font-bold text-rose-600 dark:text-rose-400">
+                                  Rs. {row.dueAfter.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Total Due Balance Reconciliation */}
+                      <div className="p-3 bg-white dark:bg-zinc-900 border-t border-slate-200 dark:border-zinc-800 space-y-1 font-mono text-xs">
+                        <div className="flex items-center justify-between text-slate-600 dark:text-zinc-400">
+                          <span>Previous Total Due Balance:</span>
+                          <span className="font-bold">Rs. {totalOutstanding.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400 font-bold">
+                          <span>Total Amount Paid / Deducted:</span>
+                          <span>- Rs. {(parseFloat(quickPayAmount) || 0).toLocaleString('en-LK', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-slate-900 dark:text-white font-extrabold border-t border-slate-200 dark:border-zinc-800 pt-1 text-xs sm:text-sm">
+                          <span>New Remaining Total Due Balance:</span>
+                          <span className="text-rose-600 dark:text-rose-400">
+                            Rs. {Math.max(0, totalOutstanding - (parseFloat(quickPayAmount) || 0)).toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Action Footer */}
                 <div className="pt-2 space-y-2">
                   <Button
@@ -651,7 +951,313 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
             </DialogContent>
           </Dialog>
 
-          {loading ? (
+          {/* ── Post-Settlement Summary & Reconciliation Modal ── */}
+          <Dialog open={postSettlementSummary !== null} onOpenChange={(val) => { if (!val) setPostSettlementSummary(null); }}>
+            <DialogContent className="w-full max-w-md max-h-[90vh] overflow-y-auto p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-2xl z-[80]">
+              <DialogHeader className="pb-2 border-b border-slate-100 dark:border-zinc-800">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="size-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <DialogTitle className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+                    Settlement Summary &amp; Reconciliation
+                  </DialogTitle>
+                </div>
+                <DialogDescription className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+                  Payment successfully allocated across pending bills for <strong>{customerName || 'Customer'}</strong>.
+                </DialogDescription>
+              </DialogHeader>
+
+              {postSettlementSummary && (
+                <div className="space-y-4 pt-2">
+                  <div className="rounded-xl border border-slate-200 dark:border-zinc-800 overflow-hidden bg-slate-50/50 dark:bg-zinc-900/40">
+                    <div className="px-3 py-2 bg-slate-100 dark:bg-zinc-800/80 text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-zinc-300">
+                      Settled Invoices Breakdown
+                    </div>
+                    <div className="max-h-48 overflow-y-auto scrollbar-thin">
+                      <table className="w-full text-[11px] text-left border-collapse">
+                        <thead className="bg-white dark:bg-zinc-900 text-slate-500 font-mono text-[10px] uppercase border-b border-slate-200 dark:border-zinc-800">
+                          <tr>
+                            <th className="py-1 px-2">Bill #</th>
+                            <th className="py-1 px-2 text-right">Due Before</th>
+                            <th className="py-1 px-2 text-right">Allocated</th>
+                            <th className="py-1 px-2 text-right">Due After</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60 font-mono">
+                          {postSettlementSummary.allocations.map((a) => (
+                            <tr key={a.orderId} className="hover:bg-slate-100/50 dark:hover:bg-zinc-800/30">
+                              <td className="py-1.5 px-2 font-bold text-slate-900 dark:text-white">{a.invoiceNumber}</td>
+                              <td className="py-1.5 px-2 text-right text-slate-600 dark:text-zinc-400">Rs. {a.dueBefore.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                              <td className="py-1.5 px-2 text-right font-bold text-emerald-600 dark:text-emerald-400">- Rs. {a.allocated.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                              <td className="py-1.5 px-2 text-right font-bold text-rose-600 dark:text-rose-400">Rs. {a.dueAfter.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="p-3 bg-white dark:bg-zinc-900 border-t border-slate-200 dark:border-zinc-800 space-y-1.5 font-mono text-xs">
+                      <div className="flex justify-between text-slate-600 dark:text-zinc-400">
+                        <span>Previous Total Due Balance:</span>
+                        <span className="font-bold">Rs. {postSettlementSummary.previousBalance.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                      <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-bold">
+                        <span>Total Amount Paid / Deducted:</span>
+                        <span>- Rs. {postSettlementSummary.paidAmount.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</span>
+                      </div>
+                      <div className="flex justify-between text-slate-900 dark:text-white font-extrabold border-t border-slate-200 dark:border-zinc-800 pt-1.5 text-sm">
+                        <span>New Remaining Total Due Balance:</span>
+                        <span className="text-rose-600 dark:text-rose-400">
+                          Rs. {postSettlementSummary.newBalance.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <Button
+                      type="button"
+                      onClick={handleDownloadStatement}
+                      className="flex-1 h-10 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-200 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Download className="size-3.5 text-emerald-600" />
+                      <span>Statement PDF</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={handleSendWhatsAppStatement}
+                      className="flex-1 h-10 border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <MessageSquare className="size-3.5 text-emerald-600" />
+                      <span>WhatsApp</span>
+                    </Button>
+                  </div>
+
+                  <Button
+                    type="button"
+                    onClick={() => setPostSettlementSummary(null)}
+                    className="w-full h-10 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-zinc-900 text-white font-semibold text-xs rounded-xl cursor-pointer"
+                  >
+                    Done
+                  </Button>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
+
+          {activeTab === 'RECEIPTS' ? (
+            <div className="space-y-3 pb-4">
+              {/* Filter Controls Tray */}
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800 space-y-2.5">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <span className="text-xs font-bold text-slate-800 dark:text-zinc-200 flex items-center gap-1.5">
+                    <Receipt className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>Full Payment History & Ledger</span>
+                  </span>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {(
+                      [
+                        { key: 'ALL', label: 'All' },
+                        { key: 'TODAY', label: 'Today' },
+                        { key: 'WEEK', label: '7 Days' },
+                        { key: 'MONTH', label: 'This Month' },
+                        { key: '30DAYS', label: '30 Days' },
+                      ] as const
+                    ).map((p) => (
+                      <button
+                        key={p.key}
+                        type="button"
+                        onClick={() => handleApplyDatePreset(p.key)}
+                        className="px-2 py-0.5 text-[10px] font-semibold rounded-md border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 hover:border-emerald-500 hover:text-emerald-600 cursor-pointer transition-colors"
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                  <div className="sm:col-span-4 flex items-center gap-1.5">
+                    <span className="text-[10.5px] font-medium text-slate-500 dark:text-zinc-400 shrink-0">From:</span>
+                    <DatePicker
+                      date={parseDateString(receiptStartDate)}
+                      onDateChange={(d) => setReceiptStartDate(formatDateToString(d))}
+                      placeholder="Start date"
+                      className="h-8 text-xs bg-white dark:bg-zinc-950 rounded-lg flex-1"
+                    />
+                  </div>
+                  <div className="sm:col-span-4 flex items-center gap-1.5">
+                    <span className="text-[10.5px] font-medium text-slate-500 dark:text-zinc-400 shrink-0">To:</span>
+                    <DatePicker
+                      date={parseDateString(receiptEndDate)}
+                      onDateChange={(d) => setReceiptEndDate(formatDateToString(d))}
+                      placeholder="End date"
+                      className="h-8 text-xs bg-white dark:bg-zinc-950 rounded-lg flex-1"
+                    />
+                  </div>
+                  <div className="sm:col-span-4 flex items-center gap-1.5">
+                    <Input
+                      type="text"
+                      placeholder="Search receipt / ref..."
+                      value={receiptSearch}
+                      onChange={(e) => setReceiptSearch(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && fetchMasterReceipts()}
+                      className="h-8 text-xs bg-white dark:bg-zinc-950 rounded-lg flex-1"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={fetchMasterReceipts}
+                      disabled={loadingReceipts}
+                      className="h-8 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg cursor-pointer shrink-0"
+                    >
+                      {loadingReceipts ? <Loader2 className="size-3 animate-spin" /> : 'Filter'}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Master Receipts Cards List */}
+              {loadingReceipts ? (
+                <div className="py-12 flex flex-col items-center justify-center gap-2">
+                  <Loader2 className="size-7 animate-spin text-emerald-500" />
+                  <p className="text-xs text-slate-500">Loading full payment history...</p>
+                </div>
+              ) : masterReceipts.length === 0 ? (
+                <div className="py-12 text-center border border-dashed border-slate-200 dark:border-zinc-800 rounded-2xl p-6">
+                  <Receipt className="size-9 text-slate-400 mx-auto mb-2 opacity-50" />
+                  <h4 className="text-sm font-bold text-slate-700 dark:text-zinc-300">
+                    No Full Payment Records Found
+                  </h4>
+                  <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                    No bulk debt settlements or full payment receipts recorded for this selected date range.
+                  </p>
+                </div>
+              ) : (
+                masterReceipts.map((receipt) => {
+                  const rDate = new Date(receipt.receiptDate);
+                  const formattedRDate = rDate.toISOString().split('T')[0];
+                  const formattedRTime = rDate.toLocaleTimeString('en-US', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: true,
+                  });
+                  const isExpanded = expandedReceiptId === receipt.id;
+
+                  return (
+                    <div
+                      key={receipt.id}
+                      className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 p-3.5 sm:p-4 shadow-xs transition-all hover:border-emerald-300 dark:hover:border-emerald-800/80"
+                    >
+                      {/* Top Header of Receipt Card */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-xs sm:text-sm font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                              <Receipt className="size-3.5" />
+                              <span>{receipt.receiptNumber || `REC-${receipt.id}`}</span>
+                            </span>
+                            <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                              {formatPaymentMethod(receipt.paymentMethod)}
+                            </span>
+                            <span className="text-[9px] font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700">
+                              {receipt.clearedInvoicesCount || receipt.payments.length} Bill(s) Settled
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-3 text-[11px] text-slate-500 dark:text-zinc-400 flex-wrap">
+                            <span className="flex items-center gap-1">
+                              <Calendar className="size-3 text-slate-400" /> {formattedRDate}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Clock className="size-3 text-slate-400" /> {formattedRTime}
+                            </span>
+                            {receipt.reference && (
+                              <span className="text-slate-600 dark:text-zinc-300 italic">
+                                Ref: {receipt.reference}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Amount & Actions */}
+                        <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200 dark:border-zinc-800">
+                          <div className="text-right">
+                            <span className="text-[10px] text-slate-400 uppercase font-semibold block leading-tight">
+                              Total Payment Amount
+                            </span>
+                            <span className="text-base sm:text-lg font-extrabold font-mono text-emerald-600 dark:text-emerald-400">
+                              Rs. {receipt.totalAmount.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setExpandedReceiptId(isExpanded ? null : receipt.id)}
+                              className="h-8 px-2.5 text-xs text-slate-600 hover:text-slate-900 dark:text-zinc-300 dark:hover:text-white inline-flex items-center gap-1 border-slate-200 dark:border-zinc-700 hover:border-emerald-400 cursor-pointer transition-colors shadow-2xs"
+                              title={isExpanded ? 'Hide Breakdown' : 'View Cleared Bills'}
+                            >
+                              <span className="text-[11px] font-medium hidden sm:inline">
+                                {isExpanded ? 'Hide Details' : 'Details'}
+                              </span>
+                              {isExpanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Cleared Invoices Breakdown Accordion */}
+                      {isExpanded && (
+                        <div className="mt-3 pt-3 border-t border-slate-200/80 dark:border-zinc-800/80 space-y-2">
+                          <div className="text-xs font-bold text-slate-700 dark:text-zinc-300 flex items-center justify-between">
+                            <span>Cleared Invoices Breakdown ({receipt.payments.length} items)</span>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              Settled Across Invoices
+                            </span>
+                          </div>
+
+                          <div className="rounded-xl border border-slate-200 dark:border-zinc-800 overflow-hidden bg-slate-50/50 dark:bg-zinc-950/40">
+                            <table className="w-full text-xs text-left border-collapse font-mono">
+                              <thead className="bg-slate-100/80 dark:bg-zinc-800/60 text-slate-500 dark:text-zinc-400 text-[10px] uppercase border-b border-slate-200 dark:border-zinc-800">
+                                <tr>
+                                  <th className="py-1.5 px-2.5">Invoice #</th>
+                                  <th className="py-1.5 px-2 text-right">Invoice Total</th>
+                                  <th className="py-1.5 px-2 text-right">Settled In This Receipt</th>
+                                  <th className="py-1.5 px-2.5 text-right">Status</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60">
+                                {receipt.payments.map((p) => (
+                                  <tr key={p.id} className="hover:bg-slate-100/50 dark:hover:bg-zinc-800/30">
+                                    <td className="py-1.5 px-2.5 font-bold text-slate-900 dark:text-white">
+                                      {p.invoiceNumber}
+                                    </td>
+                                    <td className="py-1.5 px-2 text-right text-slate-600 dark:text-zinc-400">
+                                      Rs. {Number(p.invoiceTotal).toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                                    </td>
+                                    <td className="py-1.5 px-2 text-right font-bold text-emerald-600 dark:text-emerald-400">
+                                      - Rs. {Number(p.amount).toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                                    </td>
+                                    <td className="py-1.5 px-2.5 text-right">
+                                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                                        {p.invoiceStatus}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          ) : loading ? (
             <div className="py-16 flex flex-col items-center justify-center gap-2">
               <Loader2 className="size-8 animate-spin text-emerald-500" />
               <p className="text-xs text-slate-500">හිඟ බිල්පත් ගණනය වෙමින් පවතී...</p>

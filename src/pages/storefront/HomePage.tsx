@@ -7,6 +7,7 @@ import { ProductQuickViewModal } from '../../components/storefront/ProductQuickV
 import { StorefrontProductCard } from '../../components/storefront/StorefrontProductCard';
 import { openWhatsAppChat } from '../../utils/whatsapp';
 import { preloadCriticalImageAsset } from '../../utils/imagePreloader';
+import { usePriceTier } from '../../utils/priceTier';
 import {
   ArrowRight,
   Sparkles,
@@ -35,6 +36,7 @@ import {
  * - Dynamic product showcase and craftsmanship pillars
  */
 export const HomePage: React.FC = () => {
+  const { tier, appendTier } = usePriceTier();
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'all' | 'denim' | 'tees' | 'shorts' | 'trousers'>('all');
@@ -148,7 +150,7 @@ export const HomePage: React.FC = () => {
           {/* Editorial CTAs */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 max-w-md mx-auto">
             <Link
-              to="/shop"
+              to={appendTier('/shop')}
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 text-xs font-semibold uppercase tracking-[0.24em] rounded-sm transition-all duration-300 shadow-xl"
             >
               <span>Explore Collection</span>
@@ -156,7 +158,7 @@ export const HomePage: React.FC = () => {
             </Link>
 
             <Link
-              to="/about"
+              to={appendTier('/about')}
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-3.5 bg-white/90 hover:bg-white border border-zinc-300 text-zinc-950 dark:bg-zinc-900/80 dark:hover:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-200 text-xs font-medium uppercase tracking-[0.24em] rounded-sm transition-all duration-300 shadow-sm"
             >
               <span>The Atelier Story</span>
@@ -238,6 +240,7 @@ export const HomePage: React.FC = () => {
               <StorefrontProductCard
                 key={product.id}
                 product={product}
+                priceTier={tier}
                 onQuickView={(p) => setSelectedProduct(p)}
               />
             ))}
@@ -247,7 +250,7 @@ export const HomePage: React.FC = () => {
         {/* View Full Catalog Link */}
         <div className="mt-12 text-center">
           <Link
-            to="/shop"
+            to={appendTier('/shop')}
             className="inline-flex items-center gap-2 px-8 py-3.5 border border-zinc-300 hover:border-zinc-950 dark:border-zinc-800 dark:hover:border-white text-xs font-semibold uppercase tracking-[0.22em] text-[#09090b] dark:text-white rounded-sm hover:bg-zinc-950 hover:text-white dark:hover:bg-white dark:hover:text-zinc-950 transition-all duration-300 shadow-sm"
           >
             <span>Browse Full Runway Catalog ({products.length} Designs)</span>
@@ -430,6 +433,7 @@ export const HomePage: React.FC = () => {
       <ProductQuickViewModal
         product={selectedProduct}
         onClose={() => setSelectedProduct(null)}
+        priceTier={tier}
       />
     </div>
   );

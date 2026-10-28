@@ -45,6 +45,18 @@ export interface GenerateCustomerDuesPdfOptions {
   dateRangeLabel?: string;
   generatedBy?: string;
   filename?: string;
+  masterReceipt?: {
+    receiptNumber?: string | null;
+    totalAmount: number;
+    paymentMethod: string;
+    receiptDate?: string | Date;
+    reference?: string | null;
+    payments?: Array<{
+      orderId: number;
+      amount: number;
+      invoiceNumber?: string;
+    }>;
+  };
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -397,6 +409,62 @@ export async function generateCustomerDuesPdf(
   });
 
   curY += cardHeight + 16;
+
+  // ── Dedicated Master Receipt / Full Payment Section (When Present) ──
+  if (options.masterReceipt && Number(options.masterReceipt.totalAmount) > 0) {
+    const mr = options.masterReceipt;
+    const rDateStr = mr.receiptDate
+      ? new Date(mr.receiptDate).toISOString().split('T')[0]
+      : new Date().toISOString().split('T')[0];
+
+    const mrHead = [
+      [
+        {
+          content: `MASTER RECEIPT / FULL PAYMENT ACKNOWLEDGEMENT (${mr.receiptNumber || 'REC'} - ${rDateStr})`,
+          colSpan: 3,
+          styles: { halign: 'left', fontStyle: 'bold', fillColor: [240, 253, 244], textColor: [21, 128, 61] },
+        },
+        {
+          content: `Total Paid: Rs. ${formatAmountNum(mr.totalAmount)} (${mr.paymentMethod || 'CASH'})`,
+          colSpan: 2,
+          styles: { halign: 'right', fontStyle: 'bold', fillColor: [240, 253, 244], textColor: [21, 128, 61] },
+        },
+      ],
+    ];
+
+    const mrBody: any[] = [];
+    if (Array.isArray(mr.payments) && mr.payments.length > 0) {
+      mr.payments.forEach((p) => {
+        mrBody.push([
+          { content: p.invoiceNumber || `INV #${p.orderId}`, styles: { fontStyle: 'bold' } },
+          { content: 'Cleared Against Debt', colSpan: 2, styles: { textColor: [100, 100, 100] } },
+          { content: `Allocated: Rs. ${formatAmountNum(p.amount)}`, colSpan: 2, styles: { halign: 'right', fontStyle: 'bold', textColor: [21, 128, 61] } },
+        ]);
+      });
+    }
+
+    autoTable(doc, {
+      startY: curY,
+      margin: { left: startX, right: pageWidth - rightMargin },
+      theme: 'plain',
+      head: mrHead as any,
+      body: mrBody,
+      headStyles: {
+        fontSize: 7.5,
+        cellPadding: { top: 4, bottom: 4, left: 4, right: 4 },
+        lineColor: [21, 128, 61],
+        lineWidth: { top: 0.8, bottom: 0.8, left: 0.8, right: 0.8 },
+      },
+      bodyStyles: {
+        fontSize: 7,
+        cellPadding: { top: 3.5, bottom: 3.5, left: 4, right: 4 },
+        lineColor: [226, 232, 240],
+        lineWidth: { bottom: 0.4 },
+      },
+    });
+
+    curY = ((doc as any).lastAutoTable?.finalY || curY + 30) + 12;
+  }
 
   // ── Customer-Wise Iteration & Dedicated Mini-Tables ──
   // Proportional 5-column width allocation totaling exactly 510.28 pt (contentWidth):

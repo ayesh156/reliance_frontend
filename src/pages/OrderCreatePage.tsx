@@ -129,6 +129,18 @@ export const OrderCreatePage: React.FC = () => {
   const { user, isRep } = useAuth();
   const isRepUser = isRep || user?.role === 'REP';
 
+  // Default billing mode / order source: Wholesale by default unless explicitly overridden
+  const [billingMode, setBillingMode] = useState<'WHOLESALE' | 'RETAIL'>(() => {
+    if (isRepUser) return 'WHOLESALE';
+    const modeParam = searchParams.get('mode')?.toUpperCase();
+    if (modeParam === 'RETAIL') return 'RETAIL';
+    if (modeParam === 'WHOLESALE') return 'WHOLESALE';
+    const tierParam = searchParams.get('tier')?.toLowerCase();
+    if (tierParam === 'r') return 'RETAIL';
+    if (tierParam === 'w') return 'WHOLESALE';
+    return 'WHOLESALE';
+  });
+
   // Mode and edit state
   const [isEditMode, setIsEditMode] = useState<boolean>(Boolean(editOrderId || editInvoiceId));
   const [editingOrderNumber, setEditingOrderNumber] = useState<string>('');
@@ -303,6 +315,11 @@ export const OrderCreatePage: React.FC = () => {
         setIsEditMode(true);
         setEditingOrder(order);
         setEditingOrderNumber(order.invoiceNumber || order.orderNumber || (editInvoiceId ? `INV-${order.id}` : `ORD-${order.id}`));
+        if (order.source === 'POS_RETAIL' || order.orderType === 'RETAIL') {
+          setBillingMode('RETAIL');
+        } else if (order.source === 'POS_WHOLESALE' || order.orderType === 'WHOLESALE') {
+          setBillingMode('WHOLESALE');
+        }
         setSavedRefundedCashAmount(Number(order.refundedCashAmount) || 0);
 
         // 1. Populate Customer Mode & details
@@ -416,8 +433,16 @@ export const OrderCreatePage: React.FC = () => {
    * Outstanding previous due balance for selected customer ledger
    */
   const previousDue = useMemo(() => {
-    return Number(selectedCustomer?.outstandingBalance || 0);
-  }, [selectedCustomer]);
+    if (!selectedCustomer) return 0;
+    const custTotal = Number(selectedCustomer.outstandingBalance || 0);
+    if (isEditMode && editInvoiceId && editingOrder && String(editingOrder.customerId) === String(selectedCustomerId)) {
+      const origTot = Number(editingOrder.totalAmount || 0);
+      const origPd = Number(editingOrder.paidAmount || 0);
+      const origUnpaid = origTot < 0 ? origTot : Math.max(0, origTot - origPd);
+      return Math.round((custTotal - origUnpaid) * 100) / 100;
+    }
+    return Math.round(custTotal * 100) / 100;
+  }, [selectedCustomer, isEditMode, editInvoiceId, editingOrder, selectedCustomerId]);
 
   /**
    * Customer options mapped for top header SearchableSelect dropdown
@@ -497,7 +522,11 @@ export const OrderCreatePage: React.FC = () => {
 
     setCart((prev) => {
       const existingIndex = prev.findIndex((i) => i.variantId === variant.id && (isReturnOrderMode ? i.isReturn : !i.isReturn));
-      const defaultPrice = Number(variant.wholesalePrice || variant.retailPrice || 0);
+      const defaultPrice = Number(
+        billingMode === 'RETAIL'
+          ? (variant.retailPrice || variant.wholesalePrice || 0)
+          : (variant.wholesalePrice || variant.retailPrice || 0)
+      );
 
       if (existingIndex > -1) {
         const next = [...prev];
@@ -560,7 +589,11 @@ export const OrderCreatePage: React.FC = () => {
       targetQty = variant.stock;
     }
 
-    const defaultPrice = Number(variant.wholesalePrice || variant.retailPrice || 0);
+    const defaultPrice = Number(
+      billingMode === 'RETAIL'
+        ? (variant.retailPrice || variant.wholesalePrice || 0)
+        : (variant.wholesalePrice || variant.retailPrice || 0)
+    );
 
     setCart((prev) => {
       const existingIndex = prev.findIndex((i) => i.variantId === variant.id && (isReturnOrderMode ? i.isReturn : !i.isReturn));
@@ -607,6 +640,18 @@ export const OrderCreatePage: React.FC = () => {
   };
 
   /**
+   * Helper to check if two cart items represent the identical product variant and price
+   */
+  const isSameCartVariant = (a: OrderCartItem, b: OrderCartItem) => {
+    const sameVariantId = Number(a.variantId) > 0 && Number(a.variantId) === Number(b.variantId);
+    const sameSku = Boolean(a.sku && b.sku && a.sku === b.sku);
+    const sameName = Boolean(a.productName && b.productName && a.productName === b.productName && (a.size || '') === (b.size || '') && (a.color || '') === (b.color || ''));
+    const sameVariant = sameVariantId || sameSku || sameName;
+    const samePrice = Math.abs(Number(a.unitPrice) - Number(b.unitPrice)) < 0.05;
+    return sameVariant && samePrice;
+  };
+
+  /**
    * Toggle cart item Return Mode or trigger partial quantity return split
    */
   const toggleItemReturn = (index: number) => {
@@ -622,11 +667,11 @@ export const OrderCreatePage: React.FC = () => {
 
         // Check if there is already an existing non-return (sale) line for the same variant
         const existingSaleIndex = next.findIndex(
-          (i, idx) => idx !== index && i.variantId === target.variantId && !i.isReturn && i.unitPrice === target.unitPrice
+          (i, idx) => idx !== index && !i.isReturn && isSameCartVariant(i, target)
         );
 
         if (existingSaleIndex !== -1) {
-          // Merge into existing sale line
+          // Immediately merge/add the quantity back into that original line item
           const existingSale = next[existingSaleIndex];
           const mergedQty = existingSale.quantity + target.quantity;
           const mergedDisc = calculateItemDiscount(existingSale.unitPrice, mergedQty, existingSale.discountType, existingSale.discountInput);
@@ -636,6 +681,7 @@ export const OrderCreatePage: React.FC = () => {
             discount: mergedDisc,
           };
           next.splice(index, 1);
+          toast.info(`Merged ${target.quantity} return units back into ${target.productName}`);
         } else {
           const disc = calculateItemDiscount(target.unitPrice, target.quantity, target.discountType, target.discountInput);
           next[index] = { ...target, isReturn: false, returnReason: undefined, discount: disc };
@@ -658,7 +704,7 @@ export const OrderCreatePage: React.FC = () => {
 
         // Check if a return line for the same variant already exists
         const existingReturnIndex = next.findIndex(
-          (i, idx) => idx !== index && i.variantId === target.variantId && i.isReturn && i.unitPrice === target.unitPrice
+          (i, idx) => idx !== index && i.isReturn && isSameCartVariant(i, target)
         );
 
         if (existingReturnIndex !== -1) {
@@ -872,7 +918,38 @@ export const OrderCreatePage: React.FC = () => {
   };
 
   const removeFromCart = (index: number) => {
-    setCart((prev) => prev.filter((_, idx) => idx !== index));
+    setCart((prev) => {
+      const target = prev[index];
+      if (!target) return prev;
+
+      // If removing a RETURN row that was split from a sale item, auto-merge quantity back into original line
+      if (target.isReturn) {
+        const existingSaleIndex = prev.findIndex(
+          (i, idx) => idx !== index && !i.isReturn && isSameCartVariant(i, target)
+        );
+        if (existingSaleIndex !== -1) {
+          const next = [...prev];
+          const existingSale = next[existingSaleIndex];
+          const mergedQty = existingSale.quantity + target.quantity;
+          const mergedDisc = calculateItemDiscount(
+            existingSale.unitPrice,
+            mergedQty,
+            existingSale.discountType,
+            existingSale.discountInput
+          );
+          next[existingSaleIndex] = {
+            ...existingSale,
+            quantity: mergedQty,
+            discount: mergedDisc,
+          };
+          next.splice(index, 1);
+          toast.info(`Merged ${target.quantity} return units back into ${target.productName}`);
+          return next;
+        }
+      }
+
+      return prev.filter((_, idx) => idx !== index);
+    });
   };
 
   /**
@@ -939,8 +1016,10 @@ export const OrderCreatePage: React.FC = () => {
   /**
    * Advanced Return Discount Calculation & Financial Summary
    * - Kept items retain their full proportion of item & bill discounts.
-   * - Returned items have their item discount deducted and proportionally deduct ONLY their share
-   *   of the bill discount, crediting the customer the exact net unit price originally paid.
+   * - Returned items have their item discount deducted and proportionally deduct their share
+   *   of the global bill discount, crediting the customer the exact net unit price originally paid.
+   * - Formula: Net Return Credit = (Returned Qty * Unit Price) - ((Returned Qty * Unit Price) * Global Bill Discount %)
+   *   Example: For 25 items at Rs. 2,090 with a 5% global bill discount: 52,250 - (52,250 * 0.05) = 49,637.50.
    */
   const {
     grossSaleSubtotal,
@@ -965,22 +1044,40 @@ export const OrderCreatePage: React.FC = () => {
 
     const grossReturn = returnItems.reduce((acc, i) => acc + (Number(i.quantity) || 0) * (Number(i.unitPrice) || 0), 0);
     const returnDisc = returnItems.reduce((acc, i) => acc + (Number(i.discount) || 0), 0);
-    // ⭐ Return Discount Deduction: Shop retains the discount originally granted on the item.
-    // The customer only receives return credit for the net amount actually paid (Gross minus Item Discount).
     const netReturn = Math.max(0, grossReturn - returnDisc);
 
     let saleBill = 0;
+    let returnBillDiscountShare = 0;
     const rawBillDisc = Number(discountInput) || 0;
     if (rawBillDisc > 0) {
       if (discountType === 'PERCENT') {
         const p = Math.min(100, Math.max(0, rawBillDisc));
         saleBill = Math.round((netSale * p) / 100);
+        returnBillDiscountShare = Math.round((netReturn * p) / 100);
       } else {
-        saleBill = Math.min(netSale, rawBillDisc);
+        const totalNet = netSale + netReturn;
+        const effectiveRate = totalNet > 0 ? (rawBillDisc / totalNet) : 0;
+        saleBill = Math.min(netSale, Math.round(netSale * effectiveRate));
+        returnBillDiscountShare = Math.round(netReturn * effectiveRate);
+      }
+    } else if (editingOrder) {
+      const origSub = Number(editingOrder.subtotal || 0);
+      const origDisc = Number(editingOrder.discount || 0);
+      let origPct = 0;
+      if (editingOrder.discountType === 'PERCENT' && Number(editingOrder.discountValue) > 0) {
+        origPct = Number(editingOrder.discountValue);
+      } else if (origSub > 0 && origDisc > 0) {
+        origPct = (origDisc / origSub) * 100;
+      }
+      if (origPct > 0) {
+        returnBillDiscountShare = Math.round((netReturn * origPct) / 100);
       }
     }
 
-    const effReturn = netReturn;
+    // Formula: Net Return Credit = (Returned Qty * Unit Price) - ((Returned Qty * Unit Price) * Global Bill Discount %)
+    // Shop retains: returnDisc (item discount on returned units) + returnBillDiscountShare (bill discount share).
+    const discountRecoveredByShop = returnDisc + returnBillDiscountShare;
+    const effReturn = Math.max(0, grossReturn - discountRecoveredByShop);
     const effSale = Math.max(0, netSale - saleBill);
     const total = effSale - effReturn;
 
@@ -992,24 +1089,38 @@ export const OrderCreatePage: React.FC = () => {
       returnItemDiscounts: returnDisc,
       netReturnBeforeBill: netReturn,
       saleBillDiscount: saleBill,
-      returnBillDiscountDeduction: 0,
+      returnBillDiscountDeduction: returnBillDiscountShare,
+      discountRecoveredByShop,
       effectiveReturnCredit: effReturn,
       effectiveNetSale: effSale,
       numericOrderDiscount: saleBill,
       calculatedTotalAmount: total,
     };
-  }, [cart, discountInput, discountType]);
+  }, [cart, discountInput, discountType, editingOrder]);
 
-  const grossSubtotal = grossSaleSubtotal - grossReturnSubtotal;
+  const grossSubtotal = grossSaleSubtotal;
   const calculatedItemTotalDiscount = saleItemDiscounts;
   const calculatedSubtotal = netSaleBeforeBill;
 
+  // When return is processed on Credit (registered customer or credit invoice), do NOT prompt cash refund
+  const isCreditReturn = Boolean(
+    editingOrder?.paymentMethod === 'CREDIT' ||
+    (customerMode === 'registered' && selectedCustomer)
+  );
+
   const isNetCredit = calculatedTotalAmount < 0;
   const netCreditValue = isNetCredit ? Math.abs(calculatedTotalAmount) : 0;
-  const liveCashRefundAmount = netCreditValue > 0
+  const liveCashRefundAmount = (!isCreditReturn && netCreditValue > 0)
     ? (previousDue <= 0 ? netCreditValue : Math.max(0, netCreditValue - previousDue))
     : 0;
-  const cashRefundAmount = liveCashRefundAmount > 0 ? liveCashRefundAmount : savedRefundedCashAmount;
+  const cashRefundAmount = isCreditReturn ? 0 : (liveCashRefundAmount > 0 ? liveCashRefundAmount : savedRefundedCashAmount);
+
+  // Total Accumulated Credit Due = Previous Due (Old Bills) + Current Net Bill Due - Paid for Current Bill
+  // Signed arithmetic without clamping allows negative return credits to offset previous customer receivables.
+  const currentNetBillDue = isNetCredit
+    ? (isCreditReturn || billingMode === 'WHOLESALE' ? calculatedTotalAmount : calculatedTotalAmount)
+    : Math.max(0, calculatedTotalAmount);
+  const totalAccumulatedDue = Math.round((previousDue + currentNetBillDue) * 100) / 100;
 
   /**
    * Sales Rep Settlement & Commission Breakdown calculation
@@ -1246,6 +1357,8 @@ export const OrderCreatePage: React.FC = () => {
 
       const payload = {
         isReturnOrder: isReturnOrderMode || calculatedTotalAmount < 0,
+        source: billingMode === 'WHOLESALE' ? 'POS_WHOLESALE' : 'POS_RETAIL',
+        orderType: billingMode,
         customerId: customerMode === 'registered' && selectedCustomerId ? Number(selectedCustomerId) : undefined,
         customerName: finalCustomerName,
         customerPhone: finalCustomerPhone || undefined,
@@ -1260,24 +1373,36 @@ export const OrderCreatePage: React.FC = () => {
         totalAmount: calculatedTotalAmount,
         refundedCashAmount: liveCashRefundAmount,
         notes: structuredNotes,
-        items: validItems.map((item) => ({
-          variantId: Number(item.variantId),
-          productName: item.productName,
-          variantName: item.variantName,
-          sku: item.sku,
-          imageUrl: item.imageUrl || undefined,
-          quantity: Number(item.quantity),
-          unitPrice: Number(item.unitPrice),
-          isReturn: Boolean(item.isReturn),
-          returnReason: item.isReturn ? (item.returnReason || 'UNSOLD') : undefined,
-          discount: item.isReturn ? 0 : (Number(item.discount) || 0),
-          discountType: item.discountType === 'PERCENT' ? 'PERCENT' : 'AMOUNT',
-          discountValue: Number(item.discountInput) || 0,
-          totalPrice: item.isReturn
-            ? -(Number(item.quantity) * Number(item.unitPrice))
-            : Math.max(0, Number(item.quantity) * Number(item.unitPrice) - (Number(item.discount) || 0)),
-          notes: item.notes || undefined,
-        })),
+        items: validItems.map((item) => {
+          const lineGross = Number(item.quantity) * Number(item.unitPrice);
+          const lineItemDisc = Number(item.discount) || 0;
+          const lineBillDiscShare = (discountType === 'PERCENT' && Number(discountInput) > 0)
+            ? Math.round(((lineGross - lineItemDisc) * Number(discountInput)) / 100)
+            : (returnBillDiscountDeduction > 0 && netReturnBeforeBill > 0
+                ? Math.round(((lineGross - lineItemDisc) / netReturnBeforeBill) * returnBillDiscountDeduction)
+                : 0);
+          const lineTotalReclaimedDisc = lineItemDisc + lineBillDiscShare;
+          const netReturnLine = Math.max(0, lineGross - lineTotalReclaimedDisc);
+
+          return {
+            variantId: Number(item.variantId),
+            productName: item.productName,
+            variantName: item.variantName,
+            sku: item.sku,
+            imageUrl: item.imageUrl || undefined,
+            quantity: Number(item.quantity),
+            unitPrice: Number(item.unitPrice),
+            isReturn: Boolean(item.isReturn),
+            returnReason: item.isReturn ? (item.returnReason || 'UNSOLD') : undefined,
+            discount: item.isReturn ? lineTotalReclaimedDisc : lineItemDisc,
+            discountType: item.discountType === 'PERCENT' ? 'PERCENT' : 'AMOUNT',
+            discountValue: Number(item.discountInput) || 0,
+            totalPrice: item.isReturn
+              ? -netReturnLine
+              : Math.max(0, lineGross - lineItemDisc),
+            notes: item.notes || undefined,
+          };
+        }),
       };
 
       if (isEditMode && editInvoiceId) {
@@ -1289,6 +1414,8 @@ export const OrderCreatePage: React.FC = () => {
           customerCity: finalCustomerCity || undefined,
           shippingAddress: finalCustomerAddress || undefined,
           city: finalCustomerCity || undefined,
+          source: billingMode === 'WHOLESALE' ? 'POS_WHOLESALE' : 'POS_RETAIL',
+          orderType: billingMode,
           subtotal: grossSubtotal,
           discount: calculatedItemTotalDiscount + numericOrderDiscount,
           discountType: discountType === 'PERCENT' ? 'PERCENT' : 'AMOUNT',
@@ -1296,19 +1423,31 @@ export const OrderCreatePage: React.FC = () => {
           totalAmount: calculatedTotalAmount,
           refundedCashAmount: liveCashRefundAmount,
           notes: structuredNotes,
-          items: validItems.map((item) => ({
-            variantId: Number(item.variantId),
-            quantity: Number(item.quantity),
-            unitPrice: Number(item.unitPrice),
-            discount: item.isReturn ? (Number(item.discount) || 0) : (Number(item.discount) || 0),
-            discountType: item.discountType === 'PERCENT' ? 'PERCENT' : 'AMOUNT',
-            discountValue: Number(item.discountInput) || 0,
-            price: item.isReturn
-              ? -(Number(item.quantity) * Number(item.unitPrice) - (Number(item.discount) || 0))
-              : Math.max(0, Number(item.quantity) * Number(item.unitPrice) - (Number(item.discount) || 0)),
-            isReturn: Boolean(item.isReturn),
-            returnReason: item.isReturn ? (item.returnReason || 'UNSOLD') : undefined,
-          })),
+          items: validItems.map((item) => {
+            const lineGross = Number(item.quantity) * Number(item.unitPrice);
+            const lineItemDisc = Number(item.discount) || 0;
+            const lineBillDiscShare = (discountType === 'PERCENT' && Number(discountInput) > 0)
+              ? Math.round(((lineGross - lineItemDisc) * Number(discountInput)) / 100)
+              : (returnBillDiscountDeduction > 0 && netReturnBeforeBill > 0
+                  ? Math.round(((lineGross - lineItemDisc) / netReturnBeforeBill) * returnBillDiscountDeduction)
+                  : 0);
+            const lineTotalReclaimedDisc = lineItemDisc + lineBillDiscShare;
+            const netReturnLine = Math.max(0, lineGross - lineTotalReclaimedDisc);
+
+            return {
+              variantId: Number(item.variantId),
+              quantity: Number(item.quantity),
+              unitPrice: Number(item.unitPrice),
+              discount: item.isReturn ? lineTotalReclaimedDisc : lineItemDisc,
+              discountType: item.discountType === 'PERCENT' ? 'PERCENT' : 'AMOUNT',
+              discountValue: Number(item.discountInput) || 0,
+              price: item.isReturn
+                ? -netReturnLine
+                : Math.max(0, lineGross - lineItemDisc),
+              isReturn: Boolean(item.isReturn),
+              returnReason: item.isReturn ? (item.returnReason || 'UNSOLD') : undefined,
+            };
+          }),
         };
         const updated = await put<any>(`/orders/invoices/${editInvoiceId}`, invoicePayload);
         setCreatedOrder(updated);
@@ -1897,12 +2036,16 @@ export const OrderCreatePage: React.FC = () => {
         {/* Financial Breakdown (Scrolls cohesively with cart items and '+ Add Products' ribbon) */}
         <div className="flex flex-col gap-1 text-xs bg-slate-50/60 dark:bg-zinc-900/40 p-2 rounded-lg border border-slate-100 dark:border-zinc-800">
           <div className="flex items-center justify-between text-slate-600 dark:text-zinc-400">
-            <span className="font-semibold text-slate-700 dark:text-zinc-300">Sub Total:</span>
-            <span className="font-mono font-bold text-slate-900 dark:text-white">Rs. {grossSubtotal.toLocaleString()}</span>
+            <span className="font-semibold text-slate-700 dark:text-zinc-300">
+              {grossReturnSubtotal > 0 ? 'Kept Items Gross:' : 'Sub Total:'}
+            </span>
+            <span className="font-mono font-bold text-slate-900 dark:text-white">Rs. {grossSaleSubtotal.toLocaleString()}</span>
           </div>
 
           <div className="flex items-center justify-between text-slate-600 dark:text-zinc-400 pt-1 border-t border-slate-200/60 dark:border-zinc-800/60">
-            <span className="text-[11px] font-medium">Item Total Discount:</span>
+            <span className="text-[11px] font-medium">
+              {grossReturnSubtotal > 0 ? 'Item Discount (Kept):' : 'Item Total Discount:'}
+            </span>
             <span className={`font-mono font-bold text-[11px] ${calculatedItemTotalDiscount > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
               {calculatedItemTotalDiscount > 0 ? `- Rs. ${calculatedItemTotalDiscount.toLocaleString()}` : 'Rs. 0'}
             </span>
@@ -1910,7 +2053,9 @@ export const OrderCreatePage: React.FC = () => {
 
           <div className="flex flex-wrap items-center justify-between gap-1 pt-1 border-t border-slate-200/60 dark:border-zinc-800/60">
             <div className="flex items-center gap-1">
-              <span className="text-slate-600 dark:text-zinc-400 font-medium text-[11px]">Bill Discount:</span>
+              <span className="text-slate-600 dark:text-zinc-400 font-medium text-[11px]">
+                {grossReturnSubtotal > 0 ? 'Bill Discount (Kept):' : 'Bill Discount:'}
+              </span>
               <div className="inline-flex rounded border border-slate-200 dark:border-zinc-800 p-0.5 bg-slate-100 dark:bg-zinc-900 shrink-0">
                 <button
                   type="button"
@@ -1953,13 +2098,20 @@ export const OrderCreatePage: React.FC = () => {
             </div>
           </div>
 
+          {grossReturnSubtotal > 0 && (
+            <div className="flex items-center justify-between text-slate-700 dark:text-zinc-300 pt-1 border-t border-slate-200/60 dark:border-zinc-800/60 font-semibold text-[11px]">
+              <span>Kept Items Net Total:</span>
+              <span className="font-mono font-bold">Rs. {effectiveNetSale.toLocaleString()}</span>
+            </div>
+          )}
+
           {/* Return Credit Breakdown Row */}
-          {effectiveReturnCredit > 0 && (
-            <div className="flex flex-col gap-0.5 pt-1 border-t border-slate-200/60 dark:border-zinc-800/60">
+          {grossReturnSubtotal > 0 && (
+            <div className="flex flex-col gap-0.5 pt-1 border-t border-slate-200/60 dark:border-zinc-800/60 bg-rose-50/60 dark:bg-rose-950/20 p-1.5 rounded">
               <div className="flex items-center justify-between text-rose-600 dark:text-rose-400">
                 <span className="text-[11px] font-semibold flex items-center gap-1">
                   <RotateCcw className="size-3" />
-                  <span>Return Credit (Net):</span>
+                  <span>Returned Items:</span>
                 </span>
                 <span className="font-mono font-bold text-[11px]">
                   - Rs. {effectiveReturnCredit.toLocaleString()}
@@ -1970,6 +2122,12 @@ export const OrderCreatePage: React.FC = () => {
                   (Proportionally deducted Rs. {returnBillDiscountDeduction.toLocaleString()} bill discount share)
                 </span>
               )}
+              <div className="text-[9.5px] text-slate-500 dark:text-zinc-400 font-mono">
+                Gross: Rs. {grossReturnSubtotal.toLocaleString()} | Discount Reclaimed by Shop: +Rs. {(returnItemDiscounts + returnBillDiscountDeduction).toLocaleString()}
+              </div>
+              <div className="text-[10px] font-bold text-rose-600 dark:text-rose-400 font-mono text-right">
+                Net Return Credit: -Rs. {effectiveReturnCredit.toLocaleString()}
+              </div>
             </div>
           )}
 
@@ -1980,30 +2138,65 @@ export const OrderCreatePage: React.FC = () => {
             </span>
           </div>
 
-          {/* Distinct Cash Refund to Customer Highlighted Box */}
-          {cashRefundAmount > 0 && (
-            <div className="mt-1 p-2 rounded-xl bg-emerald-500/10 dark:bg-emerald-950/40 border-2 border-emerald-500/40 dark:border-emerald-600/50 shadow-xs flex items-center justify-between animate-in fade-in duration-200">
-              <div className="flex items-center gap-2">
-                <div className="p-1.5 rounded-lg bg-emerald-500 text-white shadow-2xs">
-                  <RotateCcw className="size-3.5" />
-                </div>
-                <div>
-                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-800 dark:text-emerald-300 block leading-tight">
+          {/* Customer Accumulated Credit Due Section */}
+          {selectedCustomer && (
+            <div className="pt-1.5 border-t border-dashed border-slate-200 dark:border-zinc-800 space-y-1">
+              <div className="flex items-center justify-between text-[11px] text-slate-600 dark:text-zinc-400">
+                <span>Previous Due (Old Bills):</span>
+                <span className="font-mono font-bold text-slate-900 dark:text-white">
+                  Rs. {previousDue.toLocaleString()}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-amber-700 dark:text-amber-300 font-extrabold">
+                <span className="text-[9.5px] uppercase tracking-wider font-bold">Total Accumulated Credit Due:</span>
+                <span className="font-mono font-black text-xs">
+                  {totalAccumulatedDue < 0
+                    ? `- Rs. ${Math.abs(totalAccumulatedDue).toLocaleString()} (Credit Balance)`
+                    : `Rs. ${totalAccumulatedDue.toLocaleString()}`}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Distinct Cash Refund to Customer Highlighted Box (Strictly Hidden for Credit Returns) */}
+          {cashRefundAmount > 0 && !isCreditReturn && (
+            <div className="p-3.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 rounded-lg shadow-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-2 w-2 rounded-full bg-rose-600 animate-pulse" />
+                  <span className="text-xs font-bold text-rose-800 dark:text-rose-300 uppercase tracking-wider">
                     Cash Refund to Customer
                   </span>
-                  <span className="text-[9.5px] text-emerald-600 dark:text-emerald-400 font-medium block">
-                    Hand back physical cash to customer
-                  </span>
                 </div>
-              </div>
-              <div className="text-right">
-                <span className="font-mono text-sm font-black text-emerald-700 dark:text-emerald-300 block">
+                <span className="text-base font-black font-mono text-rose-700 dark:text-rose-400">
                   Rs. {cashRefundAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </span>
-                <span className="text-[8.5px] font-bold text-emerald-600/90 dark:text-emerald-400 uppercase tracking-widest">
-                  Refund Due
+              </div>
+              <p className="text-[10px] text-rose-600 dark:text-rose-400/80 mt-1">
+                Net credit exceeds any previous due balance. Hand over this cash refund amount to the customer.
+              </p>
+            </div>
+          )}
+
+          {/* Credit Return Adjustment Box: Deducted from new items or customer outstanding balance */}
+          {isCreditReturn && (isNetCredit || effectiveReturnCredit > 0) && (
+            <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 rounded-lg shadow-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-2 w-2 rounded-full bg-emerald-600 animate-pulse" />
+                  <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300 uppercase tracking-wider">
+                    {effectiveNetSale > 0 ? 'Return Credit Deducted from Bill' : 'Credit Deducted from Due Balance'}
+                  </span>
+                </div>
+                <span className="text-base font-black font-mono text-emerald-700 dark:text-emerald-400">
+                  - Rs. {effectiveReturnCredit.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </span>
               </div>
+              <p className="text-[10px] text-emerald-700 dark:text-emerald-300/80 mt-1">
+                {effectiveNetSale >= effectiveReturnCredit
+                  ? 'Net return credit is automatically deducted from newly purchased items in this bill. No cash refund issued on credit.'
+                  : 'Return credit is credited toward customer account ledger to offset existing receivables (Previous Due). No physical cash payout.'}
+              </p>
             </div>
           )}
 

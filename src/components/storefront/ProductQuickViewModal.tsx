@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import type { ProductItem, VariantItem } from '../../types/product';
 import { formatCurrency, getProductImageUrl, FALLBACK_IMAGE, handleImageError } from '../../lib/utils';
 import { openWhatsAppChat } from '../../utils/whatsapp';
+import { usePriceTier } from '../../utils/priceTier';
 import {
   X,
   Phone,
@@ -11,18 +12,27 @@ import {
   ChevronLeft,
   ChevronRight,
   Layers,
+  Building2,
+  Tag,
 } from 'lucide-react';
 
 interface ProductQuickViewModalProps {
   product: ProductItem | null;
   onClose: () => void;
+  priceTier?: 'wholesale' | 'retail' | 'w' | 'r';
 }
 
 export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
   product,
   onClose,
+  priceTier,
 }) => {
   if (!product) return null;
+
+  const { isWholesale: globalIsWholesale } = usePriceTier();
+  const isWholesaleMode = priceTier
+    ? (priceTier === 'w' || priceTier === 'wholesale')
+    : globalIsWholesale;
 
   // Variants and images calculation
   const variants = product.variants || [];
@@ -48,9 +58,11 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
 
   const [activeImageIdx, setActiveImageIdx] = useState(0);
 
-  // Active prices
-  const activePrice = selectedVariant?.retailPrice ?? (variants[0]?.retailPrice || 0);
-  const wholesalePrice = selectedVariant?.wholesalePrice ?? (variants[0]?.wholesalePrice || 0);
+  // Active prices based on tier
+  const activeRetailPrice = selectedVariant?.retailPrice ?? (variants[0]?.retailPrice || 0);
+  const activeWholesalePrice = selectedVariant?.wholesalePrice ?? (variants[0]?.wholesalePrice || activeRetailPrice);
+  const displayedPrice = isWholesaleMode ? activeWholesalePrice : activeRetailPrice;
+
   const totalStock = variants.reduce((acc, v) => acc + (v.stock || 0), 0);
   const activeStock = selectedVariant ? selectedVariant.stock : totalStock;
   const sku = selectedVariant?.sku || variants[0]?.sku || product.searchKey || 'RL-HAUTE';
@@ -69,7 +81,8 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
       : FALLBACK_IMAGE;
 
   const handleWhatsAppInquiry = () => {
-    const rawMessage = `Hello Reliance Atelier,\n\nI am interested in acquiring:\n- Garment: ${product.name}\n- SKU/Ref: ${sku}\n- Size: ${selectedVariant?.size || 'Unspecified'}\n- Color: ${selectedVariant?.color || 'Standard'}\n- Retail Price: ${formatCurrency(activePrice)}\n\nPlease advise on current availability and bespoke fittings.`;
+    const tierLabel = isWholesaleMode ? 'Wholesale Price' : 'Retail Price';
+    const rawMessage = `Hello Reliance Atelier,\n\nI am interested in acquiring:\n- Garment: ${product.name}\n- SKU/Ref: ${sku}\n- Size: ${selectedVariant?.size || 'Unspecified'}\n- Color: ${selectedVariant?.color || 'Standard'}\n- ${tierLabel}: ${formatCurrency(displayedPrice)}\n\nPlease advise on current availability and bespoke fittings.`;
     openWhatsAppChat('94711350123', rawMessage);
   };
 
@@ -82,7 +95,7 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
         {/* Close button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 z-20 p-2 text-zinc-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-white bg-white/80 hover:bg-white dark:bg-zinc-900/80 dark:hover:bg-zinc-800 rounded-full transition-colors border border-zinc-200 dark:border-zinc-800 shadow-sm"
+          className="absolute top-4 right-4 z-20 p-2 text-zinc-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-white bg-white/80 hover:bg-white dark:bg-zinc-900/80 dark:hover:bg-zinc-800 rounded-full transition-colors border border-zinc-200 dark:border-zinc-800 shadow-sm cursor-pointer"
           aria-label="Close modal"
         >
           <X className="w-5 h-5" />
@@ -98,41 +111,24 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
                 className="w-full h-full object-contain p-2 transition-all duration-500"
                 onError={handleImageError}
               />
-
-              {allImages.length > 1 && (
-                <>
-                  <button
-                    onClick={() =>
-                      setActiveImageIdx((prev) =>
-                        prev === 0 ? allImages.length - 1 : prev - 1
-                      )
-                    }
-                    className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 bg-black/60 hover:bg-black text-white rounded-full transition-colors shadow-md"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() =>
-                      setActiveImageIdx((prev) =>
-                        prev === allImages.length - 1 ? 0 : prev + 1
-                      )
-                    }
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-black/60 hover:bg-black text-white rounded-full transition-colors shadow-md"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </>
+              {/* Wholesale Mode Indicator Badge */}
+              {isWholesaleMode && (
+                <div className="absolute top-3 left-3 pointer-events-none">
+                  <span className="text-[9px] uppercase tracking-wider font-mono font-bold px-2 py-0.5 rounded bg-amber-500/95 text-white backdrop-blur-sm shadow-md">
+                    Wholesale View
+                  </span>
+                </div>
               )}
             </div>
 
-            {/* Thumbnails */}
+            {/* Thumbnail Navigator */}
             {allImages.length > 1 && (
               <div className="flex items-center gap-2 mt-4 overflow-x-auto max-w-full pb-1">
                 {allImages.slice(0, 6).map((img, idx) => (
                   <button
                     key={idx}
                     onClick={() => setActiveImageIdx(idx)}
-                    className={`w-12 h-14 rounded-sm overflow-hidden border transition-all shrink-0 ${
+                    className={`w-12 h-14 rounded-sm overflow-hidden border transition-all shrink-0 cursor-pointer ${
                       activeImageIdx === idx
                         ? 'border-zinc-950 dark:border-white scale-105 shadow-sm'
                         : 'border-zinc-300 dark:border-zinc-800 opacity-60 hover:opacity-100'
@@ -185,16 +181,14 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
                 )}
               </div>
 
-              {/* Price */}
-              <div className="flex items-baseline gap-3 pb-4 border-b border-zinc-200 dark:border-zinc-900">
-                <span className="font-serif text-2xl font-semibold text-zinc-950 dark:text-white">
-                  {formatCurrency(activePrice)}
+              {/* Price Row: Displays ONLY Wholesale Price or ONLY Retail Price */}
+              <div className="pb-4 border-b border-zinc-200 dark:border-zinc-900">
+                <span className={`block text-[9px] uppercase tracking-[0.2em] font-mono font-bold mb-1 ${isWholesaleMode ? 'text-amber-600 dark:text-amber-400' : 'text-zinc-500'}`}>
+                  {isWholesaleMode ? 'WHOLESALE PRICE' : 'RETAIL PRICE'}
                 </span>
-                {wholesalePrice > 0 && (
-                  <span className="text-xs text-zinc-500 dark:text-zinc-400 font-mono">
-                    Wholesale: {formatCurrency(wholesalePrice)}
-                  </span>
-                )}
+                <span className={`font-serif text-2xl font-semibold ${isWholesaleMode ? 'text-amber-700 dark:text-amber-400' : 'text-zinc-950 dark:text-white'}`}>
+                  {formatCurrency(displayedPrice)}
+                </span>
               </div>
 
               {/* Garment Specifications */}
@@ -215,10 +209,10 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
                               const found = variants.find((v) => v.size === sz);
                               if (found) setSelectedVariant(found);
                             }}
-                            className={`px-3 py-1.5 text-xs font-mono rounded-sm border transition-all ${
+                            className={`px-3 py-1.5 text-xs font-mono rounded-sm border transition-all cursor-pointer ${
                               isMatch
                                 ? 'border-zinc-950 bg-zinc-950 text-white dark:border-white dark:bg-white dark:text-black font-semibold shadow-sm'
-                                : 'border-zinc-300 bg-white dark:border-zinc-800 dark:bg-zinc-900/60 text-zinc-700 dark:text-zinc-300 hover:border-zinc-500 dark:hover:border-zinc-600'
+                                : 'border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:border-zinc-500'
                             }`}
                           >
                             {sz}
@@ -233,7 +227,7 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
                 {availableColors.length > 0 && (
                   <div>
                     <label className="block text-[10px] uppercase tracking-[0.2em] text-zinc-600 dark:text-zinc-400 mb-2 font-medium">
-                      Color Palette
+                      Select Shade
                     </label>
                     <div className="flex flex-wrap gap-2">
                       {availableColors.map((clr) => {
@@ -245,10 +239,10 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
                               const found = variants.find((v) => v.color === clr);
                               if (found) setSelectedVariant(found);
                             }}
-                            className={`px-3 py-1.5 text-xs rounded-sm border transition-all ${
+                            className={`px-3 py-1.5 text-xs uppercase tracking-wider rounded-sm border transition-all cursor-pointer ${
                               isMatch
-                                ? 'border-zinc-950 bg-zinc-100 text-zinc-950 dark:border-white dark:bg-zinc-800 dark:text-white font-medium'
-                                : 'border-zinc-300 bg-white text-zinc-600 hover:border-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/40 dark:text-zinc-400 dark:hover:border-zinc-700'
+                                ? 'border-zinc-950 bg-zinc-950 text-white dark:border-white dark:bg-white dark:text-black font-semibold shadow-sm'
+                                : 'border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:border-zinc-500'
                             }`}
                           >
                             {clr}
@@ -258,44 +252,27 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
                     </div>
                   </div>
                 )}
-
-                {/* Tailoring Guarantee */}
-                <div className="p-3 bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-900 rounded-sm text-[11px] text-zinc-600 dark:text-zinc-400 space-y-1">
-                  <div className="flex items-center gap-1.5 text-zinc-800 dark:text-zinc-300 font-medium">
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                    <span>Makandura Atelier Standard</span>
-                  </div>
-                  <p className="text-[10px] leading-relaxed">
-                    Custom-finished seams, reinforced stress points, and pre-shrunk premium textile matrix.
-                  </p>
-                </div>
               </div>
             </div>
 
-            {/* Actions: WhatsApp Concierge + Phone Call */}
-            <div className="space-y-2.5 pt-4 border-t border-zinc-200 dark:border-zinc-900">
+            {/* Direct WhatsApp Concierge Button */}
+            <div className="pt-4 border-t border-zinc-200 dark:border-zinc-900 space-y-3">
               <button
+                type="button"
                 onClick={handleWhatsAppInquiry}
-                className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold uppercase tracking-[0.2em] rounded-sm transition-all shadow-lg shadow-emerald-950/20"
+                className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold uppercase tracking-[0.2em] rounded-sm transition-all duration-300 shadow-xl flex items-center justify-center gap-2 cursor-pointer"
               >
                 <MessageSquare className="w-4 h-4" />
-                <span>Order Inquiry via WhatsApp</span>
+                <span>Inquire on WhatsApp</span>
               </button>
 
-              <div className="flex gap-2">
-                <a
-                  href="tel:0711350123"
-                  className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 border border-zinc-300 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200 text-xs font-medium uppercase tracking-wider rounded-sm transition-colors"
-                >
-                  <Phone className="w-3.5 h-3.5" />
-                  <span>Call 071 135 0123</span>
-                </a>
-                <button
-                  onClick={onClose}
-                  className="px-4 py-2.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 border border-zinc-300 dark:border-zinc-800 text-zinc-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-white text-xs uppercase tracking-wider rounded-sm transition-colors"
-                >
-                  Close
-                </button>
+              <div className="flex items-center justify-center gap-4 text-[10px] text-zinc-500 dark:text-zinc-400 uppercase tracking-widest font-mono">
+                <span className="flex items-center gap-1">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  Makandura Atelier
+                </span>
+                <span>&bull;</span>
+                <span>Direct Inquiry</span>
               </div>
             </div>
           </div>

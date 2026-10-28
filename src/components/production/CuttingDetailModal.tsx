@@ -27,8 +27,22 @@ import {
   Clock,
   History,
   ArrowRight,
+  RotateCcw,
+  Loader2,
 } from 'lucide-react';
 import { BatchStatusBadge } from './BatchStatusBadge';
+import { post } from '../../lib/api';
+import { toast } from 'react-toastify';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../ui/alert-dialog';
 import { SendToLineModal } from './SendToLineModal';
 
 export interface StageTransitionInfo {
@@ -144,6 +158,7 @@ export function formatSriLankaDateTime(dateStr?: string | Date | null): string {
     const timePart = d.toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
+      second: '2-digit',
       hour12: true,
     });
     return `${datePart} ${timePart}`;
@@ -177,6 +192,8 @@ export const CuttingDetailModal: React.FC<CuttingDetailModalProps> = ({
 }) => {
   const [currentOrder, setCurrentOrder] = useState<any | null>(initialOrder);
   const [isSendToLineOpen, setIsSendToLineOpen] = useState<boolean>(false);
+  const [logToRevert, setLogToRevert] = useState<any | null>(null);
+  const [isReverting, setIsReverting] = useState(false);
 
   useEffect(() => {
     setCurrentOrder(initialOrder);
@@ -188,6 +205,31 @@ export const CuttingDetailModal: React.FC<CuttingDetailModalProps> = ({
     setCurrentOrder(newOrder);
     if (onOrderUpdate) onOrderUpdate(newOrder);
     if (onRefresh) onRefresh();
+  };
+
+  const chronologicalLogs = useMemo(() => {
+    if (!order?.activityLogs || !Array.isArray(order.activityLogs)) return [];
+    return [...order.activityLogs].sort(
+      (a: any, b: any) =>
+        new Date(a.timestamp || a.createdAt).getTime() - new Date(b.timestamp || b.createdAt).getTime()
+    );
+  }, [order?.activityLogs]);
+
+  const handleConfirmRevert = async () => {
+    if (!logToRevert || !order?.id) return;
+    setIsReverting(true);
+    try {
+      const res: any = await post(`/production/${order.id}/revert-log/${logToRevert.id}`, {});
+      const updated = res?.data || res;
+      toast.success('Successfully returned to previous state and removed log entry');
+      setLogToRevert(null);
+      handleBatchUpdated(updated);
+    } catch (err: any) {
+      console.error('Failed to revert activity log:', err);
+      toast.error(err.message || 'Failed to revert step to previous state');
+    } finally {
+      setIsReverting(false);
+    }
   };
 
   // Parse target finished products from order
@@ -375,14 +417,28 @@ export const CuttingDetailModal: React.FC<CuttingDetailModalProps> = ({
                 <span>Manufacturing Log &amp; Audit Trail</span>
               </h4>
 
-              {order.activityLogs && order.activityLogs.length > 0 ? (
+              {chronologicalLogs.length > 0 ? (
                 <div className="space-y-2">
-                  {order.activityLogs.map((log: any) => {
+                  {chronologicalLogs.map((log: any) => {
                     const trans = resolveStageTransition(log.stage, log.action, log.notes);
+                    const actUpper = (log.action || '').toUpperCase();
+                    const isRevertible =
+                      !actUpper.includes('INITIAL') &&
+                      !actUpper.includes('CANCEL') &&
+                      (actUpper.includes('SEND_TO_LINE') ||
+                        actUpper.includes('SEND_TO_WASH') ||
+                        actUpper.includes('LOG_SEWN') ||
+                        actUpper.includes('SEWN') ||
+                        actUpper.includes('STOCK') ||
+                        actUpper.includes('WASHED') ||
+                        actUpper.includes('WASH_COMPLETED') ||
+                        log.stage === 'LINE' ||
+                        log.stage === 'WASHING');
+
                     return (
                       <div
                         key={log.id}
-                        className="p-2.5 bg-white dark:bg-zinc-950 rounded-lg border border-slate-200/90 dark:border-zinc-800 space-y-1 shadow-2xs text-xs"
+                        className="p-2.5 bg-white dark:bg-zinc-950 rounded-lg border border-slate-200/90 dark:border-zinc-800 space-y-1.5 shadow-2xs text-xs"
                       >
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-1.5">
@@ -394,7 +450,7 @@ export const CuttingDetailModal: React.FC<CuttingDetailModalProps> = ({
                               {trans.toStage}
                             </span>
                           </div>
-                          <span className="text-[10px] font-mono text-slate-400">
+                          <span className="text-[10px] font-mono text-slate-500 dark:text-zinc-400 font-medium">
                             {formatSriLankaDateTime(log.timestamp || log.createdAt)}
                           </span>
                         </div>
@@ -418,9 +474,28 @@ export const CuttingDetailModal: React.FC<CuttingDetailModalProps> = ({
                             })()}
                           </div>
                         )}
-                        <div className="text-[10px] text-slate-400 flex items-center justify-between pt-0.5">
+                        <div className="text-[10px] text-slate-400 flex items-center justify-between pt-1 border-t border-slate-100 dark:border-zinc-800/80">
                           <span>Operator: {log.userName || 'System'}</span>
-                          {log.quantity > 0 && <span className="font-mono font-bold text-slate-700 dark:text-zinc-300">Qty: {log.quantity} Pcs</span>}
+                          <div className="flex items-center gap-2">
+                            {log.quantity > 0 && (
+                              <span className="font-mono font-bold text-slate-700 dark:text-zinc-300">
+                                Qty: {log.quantity} Pcs
+                              </span>
+                            )}
+                            {isRevertible && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setLogToRevert(log)}
+                                className="h-5 px-1.5 text-[9.5px] font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 gap-1 rounded cursor-pointer"
+                                title="Return to previous state and remove this step from history"
+                              >
+                                <RotateCcw className="size-2.5" />
+                                <span>Return to Previous State</span>
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
@@ -468,6 +543,39 @@ export const CuttingDetailModal: React.FC<CuttingDetailModalProps> = ({
           handleBatchUpdated(updated);
         }}
       />
+
+      {/* Confirmation Dialog: Return to Previous State (Revert Step) */}
+      <AlertDialog open={!!logToRevert} onOpenChange={(open) => !open && setLogToRevert(null)}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-base font-bold flex items-center gap-2 text-rose-600 dark:text-rose-400">
+              <RotateCcw className="size-4" />
+              <span>Return to Previous State</span>
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-xs text-slate-600 dark:text-zinc-400 space-y-2">
+              <p>
+                Are you sure you want to revert this step (<strong>{logToRevert?.notes || logToRevert?.action}</strong>)?
+              </p>
+              <p>
+                This will accurately roll back the recorded quantities, restore the previous stage status, and permanently remove this entry from the manufacturing audit timeline.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isReverting} className="text-xs h-8">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmRevert}
+              disabled={isReverting}
+              className="bg-rose-600 hover:bg-rose-700 text-white text-xs h-8 gap-1.5"
+            >
+              {isReverting ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />}
+              <span>Confirm Revert</span>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 };

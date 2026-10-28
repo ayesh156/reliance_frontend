@@ -144,10 +144,25 @@ export const QuickInvoicePage: React.FC = () => {
   const [customers, setCustomers] = useState<PosCustomer[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingCustomerBalance, setLoadingCustomerBalance] = useState(false);
+    const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const editInvoiceId = searchParams.get('editInvoiceId');
+  const convertOrderId = searchParams.get('convertOrderId');
+  const isReturnBillMode = searchParams.get('mode') === 'return';
 
   // Mode: Retail vs Wholesale (Locked to Wholesale for REP)
   const isRepUser = isRep || user?.role === 'REP';
-  const [pricingMode, setPricingMode] = useState<'RETAIL' | 'WHOLESALE'>(() => isRepUser ? 'WHOLESALE' : 'RETAIL');
+  const [pricingMode, setPricingMode] = useState<'RETAIL' | 'WHOLESALE'>(() => {
+    if (isRepUser) return 'WHOLESALE';
+    const modeParam = searchParams.get('mode')?.toUpperCase();
+    if (modeParam === 'RETAIL') return 'RETAIL';
+    if (modeParam === 'WHOLESALE') return 'WHOLESALE';
+    const tierParam = searchParams.get('tier')?.toLowerCase();
+    if (tierParam === 'r') return 'RETAIL';
+    if (tierParam === 'w') return 'WHOLESALE';
+    return 'WHOLESALE';
+  });
 
   useEffect(() => {
     if (isRepUser) {
@@ -183,13 +198,6 @@ export const QuickInvoicePage: React.FC = () => {
   const [cheques, setCheques] = useState<ChequeEntry[]>([
     { id: '1', chequeNumber: '', bankName: '', chequeDate: new Date().toISOString().split('T')[0], amount: '' },
   ]);
-
-  const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const editInvoiceId = searchParams.get('editInvoiceId');
-  const convertOrderId = searchParams.get('convertOrderId');
-  const isReturnBillMode = searchParams.get('mode') === 'return';
 
   // ⭐ Inline unit price edit state for returns and custom rates
   const [editingPriceIndex, setEditingPriceIndex] = useState<number | null>(null);
@@ -300,24 +308,27 @@ export const QuickInvoicePage: React.FC = () => {
   ): number => {
     if (!cust) return 0;
     const custTotal = Number(cust.outstandingBalance ?? (cust as any).due ?? 0);
-    if (custTotal <= 0) return 0;
 
     if (isEditMode && origInv && String(origInv.customerId) === String(cust.id)) {
-      const origUnpaid = Math.max(0, Number(origInv.totalAmount || 0) - Number(origInv.paidAmount || 0));
+      const origTot = Number(origInv.totalAmount || 0);
+      const origPd = Number(origInv.paidAmount || 0);
+      // Signed arithmetic: If original invoice was a negative return credit (e.g. -52,560),
+      // custTotal - origUnpaid becomes custTotal - (-52,560) = custTotal + 52,560, accurately restoring baseline previous due
+      const origUnpaid = origTot < 0 ? origTot : Math.max(0, origTot - origPd);
       const origSettled = Number(origInv.settledDueAmount || 0);
 
       // Account for historical settled due amount recorded on this invoice
       const rawDiff = custTotal - origUnpaid + origSettled;
-      const calcDue = Math.max(0, Math.round(rawDiff * 100) / 100);
+      const calcDue = Math.round(rawDiff * 100) / 100;
 
       // If the difference evaluates to 0 but customer has existing outstanding balance > 0, preserve customer balance correctly
-      if (calcDue === 0 && custTotal > 0) {
-        return origSettled > 0 ? origSettled : custTotal;
+      if (calcDue === 0 && custTotal > 0 && origSettled > 0) {
+        return origSettled;
       }
       return calcDue;
     }
 
-    return custTotal;
+    return Math.round(custTotal * 100) / 100;
   };
 
   /**
@@ -1663,8 +1674,10 @@ export const QuickInvoicePage: React.FC = () => {
   /**
    * Advanced Return Discount Calculation & Financial Breakdown
    * - Kept items retain their full proportion of item & bill discounts.
-   * - Returned items have their item discount deducted and proportionally deduct ONLY their share
-   *   of the bill discount, crediting the customer the exact net unit price originally paid.
+   * - Returned items have their item discount deducted and proportionally deduct their share
+   *   of the global bill discount, crediting the customer the exact net unit price originally paid.
+   * - Formula: Net Return Credit = (Returned Qty * Unit Price) - ((Returned Qty * Unit Price) * Global Bill Discount %)
+   *   Example: For 25 items at Rs. 2,090 with a 5% global bill discount: 52,250 - (52,250 * 0.05) = 49,637.50.
    */
   const {
     grossSaleSubtotal,
@@ -1689,22 +1702,44 @@ export const QuickInvoicePage: React.FC = () => {
 
     const grossReturn = returnItems.reduce((acc, i) => acc + (Number(i.quantity) || 0) * (Number(i.unitPrice) || 0), 0);
     const returnDisc = returnItems.reduce((acc, i) => acc + (Number((i as any).discountAmount ?? i.discount ?? 0)), 0);
-    // ⭐ Return Discount Deduction: Shop retains the discount originally granted on the item.
-    // The customer only receives return credit for the net amount actually paid (Gross minus Item Discount).
+    // Net return before bill discount = Gross return minus item-level discount
     const netReturn = Math.max(0, grossReturn - returnDisc);
 
     let saleBill = 0;
+    let returnBillDiscountShare = 0;
     const rawBillDisc = Number(discountInput) || 0;
+
+    // Detect original bill discount percentage if editing an existing invoice
+    let origBillDiscPct = 0;
+    if (originalInvoice) {
+      const origSub = Number(originalInvoice.subtotal || 0);
+      const origDisc = Number(originalInvoice.discount || 0);
+      if (originalInvoice.discountType === 'PERCENT' && Number(originalInvoice.discountValue) > 0) {
+        origBillDiscPct = Number(originalInvoice.discountValue);
+      } else if (origSub > 0 && origDisc > 0) {
+        origBillDiscPct = (origDisc / origSub) * 100;
+      }
+    }
+
     if (rawBillDisc > 0) {
       if (discountType === 'PERCENT') {
         const p = Math.min(100, Math.max(0, rawBillDisc));
         saleBill = Math.round((netSale * p) / 100);
+        returnBillDiscountShare = Math.round((netReturn * p) / 100);
       } else {
-        saleBill = Math.min(netSale, rawBillDisc);
+        const totalNet = netSale + netReturn;
+        const effectiveRate = totalNet > 0 ? (rawBillDisc / totalNet) : 0;
+        saleBill = Math.min(netSale, Math.round(netSale * effectiveRate));
+        returnBillDiscountShare = Math.round(netReturn * effectiveRate);
       }
+    } else if (origBillDiscPct > 0) {
+      returnBillDiscountShare = Math.round((netReturn * origBillDiscPct) / 100);
     }
 
-    const effReturn = netReturn;
+    // Formula: Net Return Credit = (Returned Qty * Unit Price) - ((Returned Qty * Unit Price) * Global Bill Discount %)
+    // The shop retains: returnDisc (item discount) + returnBillDiscountShare (proportional bill discount share).
+    const discountRecoveredByShop = returnDisc + returnBillDiscountShare;
+    const effReturn = Math.max(0, grossReturn - discountRecoveredByShop);
     const effSale = Math.max(0, netSale - saleBill);
     const totalVal = effSale - effReturn;
 
@@ -1716,13 +1751,13 @@ export const QuickInvoicePage: React.FC = () => {
       returnItemDiscounts: returnDisc,
       netReturnBeforeBill: netReturn,
       saleBillDiscount: saleBill,
-      returnBillDiscountDeduction: 0,
+      returnBillDiscountDeduction: returnBillDiscountShare,
       effectiveReturnCredit: effReturn,
       effectiveNetSale: effSale,
       numericOrderDiscount: saleBill,
       calculatedTotalAmount: totalVal,
     };
-  }, [cart, discountInput, discountType]);
+  }, [cart, discountInput, discountType, originalInvoice]);
 
   const grossSubtotal = grossSaleSubtotal - grossReturnSubtotal;
   const totalItemDiscounts = saleItemDiscounts;
@@ -1732,7 +1767,8 @@ export const QuickInvoicePage: React.FC = () => {
 
   const isNetCredit = total < 0;
   const netCreditValue = isNetCredit ? Math.abs(total) : 0;
-  const cashRefundAmount = netCreditValue > 0
+  // If payment method is CREDIT, this negative balance offsets customer ledger receivables; no cash refund is paid out
+  const cashRefundAmount = (netCreditValue > 0 && paymentMethod !== 'CREDIT')
     ? (previousDue <= 0 ? netCreditValue : Math.max(0, netCreditValue - previousDue))
     : 0;
 
@@ -1789,14 +1825,21 @@ export const QuickInvoicePage: React.FC = () => {
           : (paymentMethod === 'CREDIT' ? 0 : effectivePayableTotal))));
 
   const excessAmount = Math.max(0, tenderedAmount - effectivePayableTotal);
-  const currentBillDue = isNetCredit ? 0 : Math.max(0, effectivePayableTotal - paidAmount);
+
+  // Current Net Bill Due (Signed: positive for underpaid debt, negative for return credit on Credit mode)
+  const currentNetBillDue = isNetCredit
+    ? (paymentMethod === 'CREDIT' ? total : 0)
+    : Math.max(0, total - paidAmount);
+  const currentBillDue = currentNetBillDue;
 
   // Outstanding Balance calculations (Previous Due & Accumulated Credit)
   const rawCustomerOutstanding = selectedCustomer ? Number(selectedCustomer.outstandingBalance || 0) : 0;
   
   // In edit mode, subtract original invoice's credit due from live database balance if editing the same customer
   const currentInvoiceUnpaidDebt = isEditing && originalInvoice && String(originalInvoice.customerId) === String(selectedCustomerId)
-    ? Math.max(0, Number(originalInvoice.totalAmount || 0) - Number(originalInvoice.paidAmount || 0))
+    ? (Number(originalInvoice.totalAmount || 0) < 0
+        ? Number(originalInvoice.totalAmount || 0)
+        : Math.max(0, Number(originalInvoice.totalAmount || 0) - Number(originalInvoice.paidAmount || 0)))
     : 0;
 
   // Excess Cash Settlement Mode logic
@@ -1805,8 +1848,10 @@ export const QuickInvoicePage: React.FC = () => {
   const settledDueAmount = isSettlingDue ? Math.min(previousDue, excessAmount) : 0;
   const remainingChange = isSettlingDue ? Math.max(0, excessAmount - settledDueAmount) : excessAmount;
 
-  // Grand cumulative total credit due (TOTAL ACCUMULATED BALANCE DUE = previousDue - settledDueAmount + currentBillDue)
-  const totalAccumulatedDue = Math.max(0, Math.round((previousDue - settledDueAmount + currentBillDue) * 100) / 100);
+  // Grand cumulative total credit due (TOTAL ACCUMULATED CREDIT DUE):
+  // Formula: Total Accumulated Credit Due = Previous Due (Old Bills) + Current Net Bill Due - Paid for Current Bill - settledDueAmount
+  // Clamping (Math.max(0, ...)) removed per business requirements so negative return credit balances strictly offset previous debt (e.g. 91,650 + (-52,560) = Rs. 39,090).
+  const totalAccumulatedDue = Math.round((previousDue - settledDueAmount + currentNetBillDue) * 100) / 100;
 
   // Multi-Cheque Split row helpers
   const handleAddCheque = () => {
@@ -2152,22 +2197,33 @@ export const QuickInvoicePage: React.FC = () => {
         customerId: !isWalkIn && selectedCust ? selectedCust.id : undefined,
         customerName: selectedCust ? selectedCust.name : 'Walk-in Customer',
         customerPhone: selectedCust ? selectedCust.phone : undefined,
-        items: cart.map((i) => ({
-          variantId: i.variantId,
-          quantity: i.quantity,
-          unitPrice: i.unitPrice,
-          isReturn: Boolean(i.isReturn),
-          returnReason: i.isReturn ? (i.returnReason || 'UNSOLD') : undefined,
-          discount: Number(i.discount) || 0,
-          discountType: i.discountType === 'PERCENT' ? 'PERCENT' : 'AMOUNT',
-          discountValue: i.discountInput !== undefined && i.discountInput !== '' ? Number(i.discountInput) : 0,
-          discountInput: i.discountInput !== undefined && i.discountInput !== '' ? Number(i.discountInput) : 0,
-          price: i.isReturn ? -((i.unitPrice * i.quantity) - (Number(i.discount) || 0)) : Math.max(0, (i.unitPrice * i.quantity) - (Number(i.discount) || 0)),
-          size: i.size,
-          color: i.color,
-          selectedSize: i.size,
-          selectedColor: i.color,
-        })),
+        items: cart.map((i) => {
+          const lineGross = (Number(i.unitPrice) || 0) * (Number(i.quantity) || 0);
+          const lineItemDisc = Number(i.discount) || 0;
+          const lineNetBeforeBill = Math.max(0, lineGross - lineItemDisc);
+          const lineBillDiscShare = returnBillDiscountDeduction > 0 && netReturnBeforeBill > 0
+            ? Math.round((lineNetBeforeBill / netReturnBeforeBill) * returnBillDiscountDeduction)
+            : 0;
+          const lineTotalReclaimed = lineItemDisc + lineBillDiscShare;
+          const netReturnLine = Math.max(0, lineGross - lineTotalReclaimed);
+
+          return {
+            variantId: i.variantId,
+            quantity: i.quantity,
+            unitPrice: i.unitPrice,
+            isReturn: Boolean(i.isReturn),
+            returnReason: i.isReturn ? (i.returnReason || 'UNSOLD') : undefined,
+            discount: Number(i.discount) || 0,
+            discountType: i.discountType === 'PERCENT' ? 'PERCENT' : 'AMOUNT',
+            discountValue: i.discountInput !== undefined && i.discountInput !== '' ? Number(i.discountInput) : 0,
+            discountInput: i.discountInput !== undefined && i.discountInput !== '' ? Number(i.discountInput) : 0,
+            price: i.isReturn ? -netReturnLine : Math.max(0, lineGross - lineItemDisc),
+            size: i.size,
+            color: i.color,
+            selectedSize: i.size,
+            selectedColor: i.color,
+          };
+        }),
         subtotal: grossSubtotal,
         discount: totalItemDiscounts + discountAmount,
         discountType: discountType === 'PERCENT' ? 'PERCENT' : 'AMOUNT',
@@ -3345,8 +3401,20 @@ export const QuickInvoicePage: React.FC = () => {
             </div>
           </div>
 
-          {/* Cash Refund to Customer Highlighted Box */}
-          {cashRefundAmount > 0 && (
+          {/* Customer Credit (Refund) Notice: Compact informational indicator */}
+          {isNetCredit && paymentMethod === 'CREDIT' && (
+            <div className="py-1 px-2 rounded-lg bg-emerald-500/10 dark:bg-emerald-950/30 border border-emerald-500/30 flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300 animate-in fade-in duration-200">
+              <RotateCcw className="size-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <span className="text-[9.5px] font-medium leading-tight">
+                {previousDue > 0
+                  ? 'Net return credit offsets customer account ledger debt (Previous Due).'
+                  : 'Net return credit credited to customer ledger as advance balance.'}
+              </span>
+            </div>
+          )}
+
+          {/* Cash Refund to Customer Highlighted Box (Strictly for non-Credit payments) */}
+          {cashRefundAmount > 0 && paymentMethod !== 'CREDIT' && (
             <div className="p-2.5 rounded-xl bg-emerald-500/10 dark:bg-emerald-950/40 border-2 border-emerald-500/40 dark:border-emerald-600/50 shadow-xs flex items-center justify-between animate-in fade-in duration-200">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-emerald-500 text-white shadow-2xs">
@@ -3394,6 +3462,19 @@ export const QuickInvoicePage: React.FC = () => {
                 Rs. {paidAmount.toLocaleString()}
               </span>
             </div>
+
+            {/* Credit Offset on Customer Ledger row (strictly right-aligned in price column) */}
+            {isNetCredit && paymentMethod === 'CREDIT' && (
+              <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 dark:bg-emerald-950/40 px-1 py-0.5 rounded">
+                <span className="w-[58%] font-semibold flex items-center gap-1 text-[10px]">
+                  <RotateCcw className="size-2.5 shrink-0" />
+                  <span>Credit Offset on Ledger:</span>
+                </span>
+                <span className="w-[42%] text-right font-mono font-extrabold text-emerald-700 dark:text-emerald-300 text-[11px]">
+                  - Rs. {Math.abs(total).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+            )}
 
             {/* Conditionally hide settledDueAmount if 0 */}
             {settledDueAmount > 0 && (
@@ -3452,7 +3533,9 @@ export const QuickInvoicePage: React.FC = () => {
                 <div className="flex items-center justify-between pt-0.5 text-amber-700 dark:text-amber-300 font-extrabold">
                   <span className="w-[58%] text-[9.5px] uppercase tracking-wider font-bold">Total Accumulated Credit Due:</span>
                   <span className="w-[42%] text-right font-mono text-[11px] font-black">
-                    Rs. {totalAccumulatedDue.toLocaleString()}
+                    {totalAccumulatedDue < 0
+                      ? `- Rs. ${Math.abs(totalAccumulatedDue).toLocaleString()} (Credit Balance)`
+                      : `Rs. ${totalAccumulatedDue.toLocaleString()}`}
                   </span>
                 </div>
               </>
@@ -4282,8 +4365,20 @@ export const QuickInvoicePage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Cash Refund to Customer Highlighted Box */}
-              {cashRefundAmount > 0 && (
+              {/* Customer Credit (Refund) Notice: Compact informational indicator */}
+              {isNetCredit && paymentMethod === 'CREDIT' && (
+                <div className="py-1 px-2 rounded-lg bg-emerald-500/10 dark:bg-emerald-950/30 border border-emerald-500/30 flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300 animate-in fade-in duration-200">
+                  <RotateCcw className="size-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <span className="text-[9.5px] font-medium leading-tight">
+                    {previousDue > 0
+                      ? 'Net return credit offsets customer account ledger debt (Previous Due).'
+                      : 'Net return credit credited to customer ledger as advance balance.'}
+                  </span>
+                </div>
+              )}
+
+              {/* Cash Refund to Customer Highlighted Box (Strictly for non-Credit payments) */}
+              {cashRefundAmount > 0 && paymentMethod !== 'CREDIT' && (
                 <div className="p-2.5 rounded-xl bg-emerald-500/10 dark:bg-emerald-950/40 border-2 border-emerald-500/40 dark:border-emerald-600/50 shadow-xs flex items-center justify-between animate-in fade-in duration-200">
                   <div className="flex items-center gap-2">
                     <div className="p-1.5 rounded-lg bg-emerald-500 text-white shadow-2xs">
@@ -4317,6 +4412,19 @@ export const QuickInvoicePage: React.FC = () => {
                     Rs. {paidAmount.toLocaleString()}
                   </span>
                 </div>
+
+                {/* Credit Offset on Customer Ledger row (strictly right-aligned in price column) */}
+                {isNetCredit && paymentMethod === 'CREDIT' && (
+                  <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 dark:bg-emerald-950/40 px-1 py-0.5 rounded">
+                    <span className="w-[58%] font-semibold flex items-center gap-1 text-[10px]">
+                      <RotateCcw className="size-2.5 shrink-0" />
+                      <span>Credit Offset on Ledger:</span>
+                    </span>
+                    <span className="w-[42%] text-right font-mono font-extrabold text-emerald-700 dark:text-emerald-300 text-[11px]">
+                      - Rs. {Math.abs(total).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                )}
 
                 {settledDueAmount > 0 && (
                   <div className="flex items-center justify-between text-blue-600 dark:text-blue-400">
@@ -4370,7 +4478,9 @@ export const QuickInvoicePage: React.FC = () => {
                     <div className="flex items-center justify-between pt-0.5 text-amber-700 dark:text-amber-300 font-extrabold">
                       <span className="w-[58%] text-[9.5px] uppercase tracking-wider font-bold">Total Accumulated Credit Due:</span>
                       <span className="w-[42%] text-right font-mono text-[11px] font-black">
-                        Rs. {totalAccumulatedDue.toLocaleString()}
+                        {totalAccumulatedDue < 0
+                          ? `- Rs. ${Math.abs(totalAccumulatedDue).toLocaleString()} (Credit Balance)`
+                          : `Rs. ${totalAccumulatedDue.toLocaleString()}`}
                       </span>
                     </div>
                   </>

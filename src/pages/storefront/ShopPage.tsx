@@ -7,6 +7,7 @@ import { ProductQuickViewModal } from '../../components/storefront/ProductQuickV
 import { StorefrontProductCard } from '../../components/storefront/StorefrontProductCard';
 import { ShareCatalogModal } from '../../components/storefront/ShareCatalogModal';
 import { openWhatsAppChat } from '../../utils/whatsapp';
+import { usePriceTier } from '../../utils/priceTier';
 import {
   Search,
   SlidersHorizontal,
@@ -41,10 +42,8 @@ export const ShopPage: React.FC = () => {
   const [selectedProduct, setSelectedProduct] = useState<ProductItem | null>(null);
   const [shareCatalogOpen, setShareCatalogOpen] = useState(false);
 
-  // Pricing Tier Query Param Parsing (?tier=w for Wholesale, ?tier=r for Retail)
-  const [searchParams, setSearchParams] = useSearchParams();
-  const currentTierParam = searchParams.get('tier') || searchParams.get('price');
-  const isWholesaleTier = currentTierParam === 'w' || currentTierParam === 'wholesale';
+  // Pricing Tier Synchronization with persistence (?tier=w for Wholesale, ?tier=r for Retail)
+  const { isWholesale: isWholesaleTier, switchTier } = usePriceTier();
 
   // Filters State
   const [searchQuery, setSearchQuery] = useState('');
@@ -396,13 +395,8 @@ export const ShopPage: React.FC = () => {
             </div>
             <button
               type="button"
-              onClick={() => {
-                const nextParams = new URLSearchParams(searchParams);
-                nextParams.delete('tier');
-                nextParams.delete('price');
-                setSearchParams(nextParams);
-              }}
-              className="text-[10px] font-mono uppercase tracking-wider px-2.5 py-1 rounded bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-400 shrink-0 font-medium"
+              onClick={() => switchTier('r')}
+              className="text-[10px] font-mono uppercase tracking-wider px-2.5 py-1 rounded bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-400 shrink-0 font-medium cursor-pointer"
             >
               Switch to Retail
             </button>
@@ -448,6 +442,7 @@ export const ShopPage: React.FC = () => {
       <ProductQuickViewModal
         product={selectedProduct}
         onClose={() => setSelectedProduct(null)}
+        priceTier={isWholesaleTier ? 'wholesale' : 'retail'}
       />
 
       {/* ── Global Catalog Pricing Share Modal ── */}

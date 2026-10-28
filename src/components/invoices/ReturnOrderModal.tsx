@@ -104,6 +104,15 @@ export const ReturnOrderModal: React.FC<ReturnOrderModalProps> = ({
       ? Number(invoice.originalTotalAmount)
       : Number(invoice.totalAmount) + pastReturnsTotal;
 
+    const originalSubtotal = Number(invoice.subtotal || 0);
+    const originalDiscount = Number(invoice.discount || 0);
+    let orderDiscountPercent = 0;
+    if (invoice.discountType === 'PERCENT' && Number(invoice.discountValue) > 0) {
+      orderDiscountPercent = Number(invoice.discountValue);
+    } else if (originalSubtotal > 0 && originalDiscount > 0) {
+      orderDiscountPercent = (originalDiscount / originalSubtotal) * 100;
+    }
+
     let thisReturnTotal = 0;
     let totalItemsToReturn = 0;
 
@@ -113,7 +122,17 @@ export const ReturnOrderModal: React.FC<ReturnOrderModalProps> = ({
         if (qty > 0) {
           totalItemsToReturn += qty;
           const unitPrice = Number(item.unitPrice || (item.quantity ? item.price / item.quantity : 0));
-          thisReturnTotal += qty * unitPrice;
+          const gross = qty * unitPrice;
+          // Proportional Return Credit Calculation:
+          // Formula: Net Return Credit = (Returned Qty * Unit Price) - ((Returned Qty * Unit Price) * Global Bill Discount %)
+          const itemDiscShare = item.discount && item.quantity > 0
+            ? Math.round((Number(item.discount) * (qty / Number(item.quantity))) * 100) / 100
+            : 0;
+          const itemTotal = Math.max(0, gross - itemDiscShare);
+          const billDiscShare = orderDiscountPercent > 0
+            ? Math.round((itemTotal * (orderDiscountPercent / 100)) * 100) / 100
+            : 0;
+          thisReturnTotal += Math.max(0, itemTotal - billDiscShare);
         }
       });
     }

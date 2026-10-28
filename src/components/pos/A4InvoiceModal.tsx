@@ -850,7 +850,7 @@ export const generatePrintableInvoiceHtml = (
                   <td class="value">Rs ${originalBillTotal.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
                 </tr>
                 <tr>
-                  <td class="label" style="color: #b91c1c;">Return Adjustments</td>
+                  <td class="label" style="color: #b91c1c;">Return Adjustments (Net Credit)</td>
                   <td class="value" style="color: #b91c1c;">- Rs ${totalReturnRefund.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
                 </tr>
                 ` : ''}

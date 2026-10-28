@@ -623,7 +623,7 @@ export const BatchActivityTimeline: React.FC<{
       });
     }
 
-    return list.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+    return list.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   }, [order]);
 
   if (events.length === 0) {

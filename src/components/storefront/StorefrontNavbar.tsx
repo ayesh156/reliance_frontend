@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { ThemeToggle, ThemeSegmentedSwitch } from '../ThemeToggle';
+import { usePriceTier } from '../../utils/priceTier';
+import { ShareCatalogModal } from './ShareCatalogModal';
 import {
   Lock,
   Menu,
@@ -10,6 +12,7 @@ import {
   ShieldCheck,
   ShoppingBag,
   Sparkles,
+  Share2,
 } from 'lucide-react';
 
 /**
@@ -28,9 +31,11 @@ export const StorefrontNavbar: React.FC = () => {
   const { isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const { appendTier } = usePriceTier();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [shareCatalogOpen, setShareCatalogOpen] = useState(false);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -68,7 +73,7 @@ export const StorefrontNavbar: React.FC = () => {
     setTimeout(() => {
       setMobileMenuOpen(false);
       setIsClosing(false);
-      navigate(targetPath);
+      navigate(appendTier(targetPath));
     }, 150);
   };
 
@@ -93,7 +98,7 @@ export const StorefrontNavbar: React.FC = () => {
           <div className="flex items-center justify-between gap-2 sm:gap-4">
             {/* ── Brand Emblem & Title (Locked with shrink-0) ── */}
             <Link
-              to="/"
+              to={appendTier('/')}
               className="flex items-center gap-2.5 sm:gap-3 group text-left focus:outline-none shrink-0"
             >
               <div className="relative w-8 h-8 sm:w-10 sm:h-10 rounded-sm overflow-hidden border border-zinc-300 dark:border-zinc-700/60 shadow-sm bg-white dark:bg-zinc-900 flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105">
@@ -123,8 +128,8 @@ export const StorefrontNavbar: React.FC = () => {
                 return (
                   <NavLink
                     key={item.path}
-                    to={item.path}
-                    className={`relative text-[11px] lg:text-xs uppercase tracking-[0.24em] font-medium transition-all py-1.5 ${
+                    to={appendTier(item.path)}
+                    className={`relative whitespace-nowrap text-[11px] lg:text-xs uppercase tracking-[0.24em] font-medium transition-all py-1.5 ${
                       isActive
                         ? 'text-zinc-950 dark:text-white font-semibold'
                         : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-950 dark:hover:text-white'
@@ -140,16 +145,42 @@ export const StorefrontNavbar: React.FC = () => {
             </nav>
 
             {/* ── Right Portal & Theme Actions (Streamlined on Mobile) ── */}
-            <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+            <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
               {/* Quick Shop Shortcut (Desktop / Tablet) */}
               <Link
-                to="/shop"
-                className="hidden sm:inline-flex items-center gap-1.5 text-xs text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white uppercase tracking-widest px-3 py-1.5 rounded-sm hover:bg-zinc-200/50 dark:hover:bg-zinc-900 transition-all"
+                to={appendTier('/shop')}
+                className="hidden sm:inline-flex items-center gap-1.5 text-xs text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white uppercase tracking-widest px-3 py-1.5 rounded-sm hover:bg-zinc-200/50 dark:hover:bg-zinc-900 transition-all whitespace-nowrap"
                 title="Browse Garments"
               >
                 <ShoppingBag className="w-3.5 h-3.5" />
                 <span className="hidden lg:inline text-[10px]">Catalog</span>
               </Link>
+
+              {/* ── Authenticated Global Catalog Share Button (Desktop) ── */}
+              {isAuthenticated && (
+                <button
+                  type="button"
+                  onClick={() => setShareCatalogOpen(true)}
+                  className="hidden sm:flex h-9 w-9 p-0 rounded-full border border-zinc-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/70 backdrop-blur-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-emerald-600 dark:text-emerald-400 items-center justify-center transition-all duration-300 shadow-sm focus:outline-none cursor-pointer"
+                  title="Share Catalog"
+                  aria-label="Share Catalog"
+                >
+                  <Share2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                </button>
+              )}
+
+              {/* ── Authenticated Global Catalog Share Button (Mobile Compact < 640px) ── */}
+              {isAuthenticated && (
+                <button
+                  type="button"
+                  onClick={() => setShareCatalogOpen(true)}
+                  className="sm:hidden p-2 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 rounded-full transition-colors"
+                  title="Share Catalog"
+                  aria-label="Share Catalog"
+                >
+                  <Share2 className="w-4 h-4" />
+                </button>
+              )}
 
               {/* ── Desktop Theme Toggle Trigger ── */}
               <div className="hidden sm:flex items-center">
@@ -269,7 +300,7 @@ export const StorefrontNavbar: React.FC = () => {
                 <ThemeSegmentedSwitch />
               </div>
 
-              <div className="pt-4 border-t border-[#e5e5e0] dark:border-zinc-800 max-w-xs mx-auto">
+              <div className="pt-3 border-t border-[#e5e5e0] dark:border-zinc-800 max-w-xs mx-auto">
                 <button
                   type="button"
                   onClick={() => handleCloseAndNavigate(isAuthenticated ? '/system/invoices' : '/login')}
@@ -288,6 +319,23 @@ export const StorefrontNavbar: React.FC = () => {
                   )}
                 </button>
               </div>
+
+              {/* ── Mobile Drawer "Share Catalog" Button (Positioned Below System Portal) ── */}
+              {isAuthenticated && (
+                <div className="pt-2 max-w-xs mx-auto">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      setShareCatalogOpen(true);
+                    }}
+                    className="w-full flex items-center justify-center gap-2.5 py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold uppercase tracking-[0.24em] rounded-sm shadow-md transition-colors cursor-pointer"
+                  >
+                    <Share2 className="w-4 h-4" />
+                    <span>Share Catalog</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Minimal Branding in Drawer Footer */}
@@ -302,6 +350,12 @@ export const StorefrontNavbar: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Global Catalog Share Modal */}
+      <ShareCatalogModal
+        open={shareCatalogOpen}
+        onClose={() => setShareCatalogOpen(false)}
+      />
     </>
   );
 };
