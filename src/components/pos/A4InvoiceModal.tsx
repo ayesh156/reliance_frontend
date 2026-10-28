@@ -48,9 +48,12 @@ export const generatePrintableInvoiceHtml = (
 ): string => {
   if (!order) return '';
   const resolvedCust = resolveMatchedCustomer(order, matchedCustomer, allCustomers);
-  const resolvedCustName = order.customerName || resolvedCust?.name || order.customer?.name || 'Walk-in Customer';
-  const resolvedCustPhone = order.customerPhone || resolvedCust?.phone || order.customer?.phone || '-';
-  const resolvedCustAddr = formatCustomerAddressCity(order, resolvedCust, allCustomers);
+  const foundCustFromStore = Array.isArray(allCustomers) && (order?.customerId || order?.customer?.id)
+    ? allCustomers.find((c) => Number(c.id) === Number(order.customerId || order.customer?.id))
+    : null;
+  const resolvedCustName = order.customerName || resolvedCust?.name || foundCustFromStore?.name || order.customer?.name || 'Walk-in Customer';
+  const resolvedCustPhone = order.customerPhone || resolvedCust?.phone || foundCustFromStore?.phone || order.customer?.phone || '-';
+  const resolvedCustAddr = formatCustomerAddressCity(order, resolvedCust || foundCustFromStore, allCustomers);
 
   const invoiceNo = `INV${order.id || String(Date.now()).slice(-4)}`;
     const dateStr = order.createdAt
@@ -70,7 +73,13 @@ export const generatePrintableInvoiceHtml = (
       ? order.paymentMethod.toUpperCase() 
       : (isWholesale ? 'WHOLESALE CREDIT' : 'CASH');
 
-    const invoiceHeading = isWholesale ? 'WHOLESALE INVOICE' : 'INVOICE';
+    const isReturnBill = Boolean(order.isReturnBill === true || Number(order.totalAmount) < 0);
+    const creditApplied = Math.abs(Number(order.totalAmount || 0)) - (Number(order.refundedCashAmount) || 0);
+    const trueReturnCreditApplied = creditApplied;
+    const returnCreditApplied = creditApplied;
+    const refundedCashAmount = Number(order.refundedCashAmount || 0);
+
+    const invoiceHeading = isReturnBill ? 'RETURN INVOICE' : (isWholesale ? 'WHOLESALE INVOICE' : 'INVOICE');
 
     // Extract itemized payments from order.payments, splitPayments, or cheques
     interface PaymentHistoryEntry {
@@ -135,8 +144,32 @@ export const generatePrintableInvoiceHtml = (
     const isCreditOrder = paymentMethodLabel.includes('CREDIT') || balanceDue > 0;
     const currentBillCredit = isCreditOrder ? balanceDue : 0;
     
-    // Total live balance recorded in database for this customer
-    const liveCustomerBalance = Number(order.customer?.outstandingBalance ?? order.prevBalance ?? 0);
+    // Total live balance recorded in database for this customer with store fallback
+    const liveCustRecord = foundCustFromStore || matchedCustomer || resolvedCust;
+    const rawOrderCustBal = order.customer?.outstandingBalance !== undefined ? Number(order.customer.outstandingBalance) : null;
+    const rawLiveCustBal = liveCustRecord?.outstandingBalance !== undefined ? Number(liveCustRecord.outstandingBalance) : null;
+
+    let authoritativeCustomerBalance = 0;
+    if (isReturnBill) {
+      if (rawLiveCustBal !== null && rawOrderCustBal !== null && rawLiveCustBal > rawOrderCustBal) {
+        authoritativeCustomerBalance = rawLiveCustBal;
+      } else if (rawOrderCustBal !== null) {
+        authoritativeCustomerBalance = rawOrderCustBal;
+      } else if (rawLiveCustBal !== null) {
+        authoritativeCustomerBalance = rawLiveCustBal;
+      }
+    } else {
+      authoritativeCustomerBalance = Number(
+        order.customer?.outstandingBalance ??
+        matchedCustomer?.outstandingBalance ??
+        resolvedCust?.outstandingBalance ??
+        foundCustFromStore?.outstandingBalance ??
+        0
+      );
+    }
+
+    const updatedBalance = Number(authoritativeCustomerBalance || 0);
+    const liveCustomerBalance = updatedBalance;
     
     // When re-printing a saved order, the order's credit is ALREADY included in liveCustomerBalance.
     // Therefore, true prior debt is: live balance MINUS this invoice's credit PLUS any settled due amount.
@@ -145,6 +178,9 @@ export const generatePrintableInvoiceHtml = (
     
     // Cumulative total outstanding (Current Bill Credit + True Previous Due - Settled Due)
     const grandTotalCreditDue = Math.max(0, Math.round((currentBillCredit + truePreviousDue - settledDue) * 100) / 100);
+    const updatedOutstandingBalance = updatedBalance;
+    const prevDue = updatedBalance + creditApplied;
+    const previousDueBeforeReturn = prevDue;
 
     // ⭐ 2. Resolve discount label dynamically based on effective discount percentage or flat mode
     const lineItemDiscountTotal = (order.items || []).reduce((sum: number, it: any) => sum + (Number(it.discountAmount ?? it.discount ?? 0)), 0);
@@ -830,7 +866,7 @@ export const generatePrintableInvoiceHtml = (
                 <!-- 1. Bill Calculation -->
                 <tr>
                   <td class="label">Sub Total</td>
-                  <td class="value">Rs ${subtotalVal.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                  <td class="value">Rs ${(isReturnBill ? Math.abs(total) : subtotalVal).toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
                 </tr>
                 ${lineItemDiscountTotal > 0 ? `
                 <tr>
@@ -854,6 +890,29 @@ export const generatePrintableInvoiceHtml = (
                   <td class="value" style="color: #b91c1c;">- Rs ${totalReturnRefund.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
                 </tr>
                 ` : ''}
+                ${isReturnBill ? `
+                <!-- Return Bill Summary -->
+                <tr class="total-row">
+                  <td class="label">Total Return Value</td>
+                  <td class="value">Rs ${Math.abs(Number(order.totalAmount || total)).toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                <tr style="border-top: 1px dashed #888;">
+                  <td class="label" style="padding-top: 5px;">Previous Due (Before Return):</td>
+                  <td class="value" style="padding-top: 5px;">Rs ${prevDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                <tr>
+                  <td class="label" style="padding-top: 2px; font-weight: 600; color: #059669;">Deducted from Previous Due:</td>
+                  <td class="value" style="padding-top: 2px; font-weight: 600; color: #059669;">- Rs ${creditApplied.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                <tr>
+                  <td class="label" style="font-weight: 600; color: ${(Number(order.refundedCashAmount) || 0) > 0 ? '#b91c1c' : '#374151'};">Cash Refunded (If Any):</td>
+                  <td class="value" style="font-weight: 600; color: ${(Number(order.refundedCashAmount) || 0) > 0 ? '#b91c1c' : '#374151'};">Rs ${(Number(order.refundedCashAmount) || 0).toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                <tr class="cumulative-row">
+                  <td class="label">Updated Outstanding Balance:</td>
+                  <td class="value">Rs ${updatedBalance.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
+                </tr>
+                ` : `
                 <!-- 3. Net Bill Total -->
                 <tr class="total-row">
                   <td class="label">${hasReturns ? 'Net Bill Total (After Returns)' : 'Net Bill Total'}</td>
@@ -911,6 +970,7 @@ export const generatePrintableInvoiceHtml = (
                   <td class="value">Rs ${grandTotalCreditDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</td>
                 </tr>
                 ` : ''}
+                `}
               </table>
             </div>
 

@@ -147,12 +147,17 @@ export const printInvoiceDirectly = (
  * Specifically optimized for Sales Rep portable and counter X-Printers with 80mm roll width.
  * Strictly formats Wholesale prices and excludes signature blocks.
  */
-export const print80mmThermalReceiptDirectly = (order: any, onComplete?: () => void): void => {
+export const print80mmThermalReceiptDirectly = (
+  order: any,
+  onComplete?: () => void,
+  matchedCustomer?: any,
+  allCustomers?: any[]
+): void => {
   if (!order) {
     if (onComplete) onComplete();
     return;
   }
-  const html = generate80mmThermalReceiptHtml(order);
+  const html = generate80mmThermalReceiptHtml(order, matchedCustomer, allCustomers);
   const invoiceNo = `INV${order.id || String(Date.now()).slice(-4)}`;
   printHtmlDirectly(html, `Receipt-80mm-${invoiceNo}`, onComplete);
 };

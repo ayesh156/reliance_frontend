@@ -98,7 +98,11 @@ export const formatReceiptDiscount = (
  * Standalone HTML Generator for 80mm POS Thermal Receipt (X-Printer Format).
  * Used for headless iframe printing without intermediate modal popups.
  */
-export const generate80mmThermalReceiptHtml = (order: ThermalOrder | null | undefined): string => {
+export const generate80mmThermalReceiptHtml = (
+  order: ThermalOrder | null | undefined,
+  matchedCustomer?: any,
+  allCustomers?: any[]
+): string => {
   if (!order) return '';
 
   const invoiceNo = order.id ? `INV${order.id}` : 'INV-DRAFT';
@@ -116,6 +120,32 @@ export const generate80mmThermalReceiptHtml = (order: ThermalOrder | null | unde
   const paidAmount = Number(order.paidAmount || 0);
   const billDiscountAmount = Number(order.discountAmount ?? order.discount ?? 0);
   const due = Math.max(0, total - paidAmount);
+
+  const isReturnBill = Boolean((order as any).isReturnBill || total < 0);
+  const foundCustFromStore = Array.isArray(allCustomers) && ((order as any)?.customerId || order?.customer?.id)
+    ? allCustomers.find((c) => Number(c.id) === Number((order as any)?.customerId || order?.customer?.id))
+    : null;
+  const liveCustRecord = foundCustFromStore || matchedCustomer || (order as any).matchedCustomer;
+
+  const rawOrderCustBal = order.customer?.outstandingBalance !== undefined ? Number(order.customer.outstandingBalance) : null;
+  const rawLiveCustBal = liveCustRecord?.outstandingBalance !== undefined ? Number(liveCustRecord.outstandingBalance) : null;
+
+  let authoritativeCustomerBalance = 0;
+  if (isReturnBill) {
+    if (rawLiveCustBal !== null && rawOrderCustBal !== null && rawLiveCustBal > rawOrderCustBal) {
+      authoritativeCustomerBalance = rawLiveCustBal;
+    } else if (rawOrderCustBal !== null) {
+      authoritativeCustomerBalance = rawOrderCustBal;
+    } else if (rawLiveCustBal !== null) {
+      authoritativeCustomerBalance = rawLiveCustBal;
+    }
+  } else {
+    authoritativeCustomerBalance = Number(order.customer?.outstandingBalance ?? liveCustRecord?.outstandingBalance ?? 0);
+  }
+
+  const creditApplied = Math.abs(total) - Number((order as any).refundedCashAmount || 0);
+  const updatedBalance = Number(authoritativeCustomerBalance || 0);
+  const prevDue = updatedBalance + creditApplied;
 
   const customerName = order.customer?.name || order.customerName || 'Walk-in Customer';
   const customerPhone = order.customer?.phone || order.customerPhone || '';
@@ -272,6 +302,29 @@ export const generate80mmThermalReceiptHtml = (order: ThermalOrder | null | unde
 
   <!-- Financial Summary: Subtotal, Discount Separation, Total Due -->
   <div style="font-size: 10.5px; line-height: 1.35;">
+    ${isReturnBill ? `
+    <div class="flex-between" style="font-size: 12px; font-weight: 800; border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 3px 0; margin: 3px 0;">
+      <span>TOTAL RETURN VALUE:</span>
+      <span>Rs. ${formatReceiptPrice(Math.abs(total))}</span>
+    </div>
+    <div class="flex-between">
+      <span>Previous Due (Before Return):</span>
+      <span>Rs. ${formatReceiptPrice(prevDue)}</span>
+    </div>
+    <div class="flex-between" style="color: #059669; font-weight: 600;">
+      <span>Deducted from Previous Due:</span>
+      <span>- Rs. ${formatReceiptPrice(creditApplied)}</span>
+    </div>
+    ${Number((order as any).refundedCashAmount || 0) > 0 ? `
+    <div class="flex-between">
+      <span>Cash Refunded:</span>
+      <span>Rs. ${formatReceiptPrice(Number((order as any).refundedCashAmount || 0))}</span>
+    </div>` : ''}
+    <div class="flex-between" style="font-weight: 800; border-top: 1px dashed #000; padding-top: 2px; margin-top: 2px;">
+      <span>UPDATED OUTSTANDING:</span>
+      <span>Rs. ${formatReceiptPrice(updatedBalance)}</span>
+    </div>
+    ` : `
     <div class="flex-between">
       <span>Subtotal:</span>
       <span>Rs. ${formatReceiptPrice(computedSubtotal)}</span>
@@ -312,6 +365,7 @@ export const generate80mmThermalReceiptHtml = (order: ThermalOrder | null | unde
           </div>`
         : ''
     }
+    `}
   </div>
 
   <div class="dashed"></div>

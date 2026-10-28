@@ -98,6 +98,8 @@ const formatPaymentMethod = (method?: string) => {
       return 'Card';
     case 'CHEQUE':
       return 'Cheque';
+    case 'RETURN_CREDIT':
+      return 'Paid via Return Credit';
     case 'CASH':
       return 'Cash';
     default:
@@ -127,6 +129,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
 
   const [loading, setLoading] = useState(false);
   const [bills, setBills] = useState<DueBill[]>([]);
+  const [returnBills, setReturnBills] = useState<any[]>([]);
   const [totalOutstanding, setTotalOutstanding] = useState(0);
   const [customerPhoneState, setCustomerPhoneState] = useState<string | null>(null);
   const [expandedBillId, setExpandedBillId] = useState<number | null>(null);
@@ -330,11 +333,13 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
         customer: { id?: number; name?: string; phone?: string; outstandingBalance: number; computedTotalDue: number };
         bills: DueBill[];
         pendingCheques?: any[];
+        returnBills?: any[];
       }>(`/credit/customers/${customerId}/due-bills`);
 
       if (res && res.bills) {
         setBills(res.bills);
         setPendingCheques(res.pendingCheques || []);
+        setReturnBills(res.returnBills || []);
         setTotalOutstanding(res.customer.computedTotalDue || 0);
         if (res.customer.phone) {
           setCustomerPhoneState(res.customer.phone);
@@ -361,6 +366,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
       setDeletingPayment(null);
     } else {
       setBills([]);
+      setReturnBills([]);
       setTotalOutstanding(0);
       setMasterReceipts([]);
       setActiveTab('DUES');
@@ -610,6 +616,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
           name: customerName || 'Customer',
           outstandingBalance: totalOutstanding,
           phone: manual.trim(),
+          returnBills,
         },
         bills.map((b) => ({
           invoiceNo: b.invoiceNumber,
@@ -621,7 +628,8 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
           payments: b.paymentHistory || (b as any).payments,
         })),
         pendingCheques,
-        receiptsToUse
+        receiptsToUse,
+        returnBills
       );
       openWhatsAppChat(manual.trim(), waMsg);
       return;
@@ -631,6 +639,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
         name: customerName || 'Customer',
         outstandingBalance: totalOutstanding,
         phone: activePhone,
+        returnBills,
       },
       bills.map((b) => ({
         invoiceNo: b.invoiceNumber,
@@ -642,7 +651,8 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
         payments: b.paymentHistory || (b as any).payments,
       })),
       pendingCheques,
-      receiptsToUse
+      receiptsToUse,
+      returnBills
     );
     openWhatsAppChat(activePhone, waMsg);
   };
@@ -1263,17 +1273,125 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
               <p className="text-xs text-slate-500">හිඟ බිල්පත් ගණනය වෙමින් පවතී...</p>
             </div>
           ) : bills.length === 0 && totalOutstanding <= 0 ? (
-            <div className="py-16 text-center">
-              <CheckCircle2 className="size-10 text-emerald-500 mx-auto mb-2" />
-              <h4 className="text-sm font-bold text-slate-800 dark:text-zinc-200">
-                හිඟ මුදල් කිසිවක් නොමැත!
-              </h4>
-              <p className="text-xs text-slate-400 mt-0.5">
-                මෙම ගනුදෙනුකරුගේ සියලුම බිල්පත් සම්පූර්ණයෙන්ම ගෙවා අවසන් කර ඇත.
-              </p>
+            <div className="space-y-3">
+              {returnBills.length > 0 && (
+                <div className="rounded-2xl border border-purple-200 dark:border-purple-900/60 bg-purple-50/50 dark:bg-purple-950/20 p-3.5 sm:p-4 space-y-2.5 shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-purple-900 dark:text-purple-200 flex items-center gap-1.5">
+                      RECENT RETURN BILLS &amp; CREDIT NOTES ({returnBills.length})
+                    </span>
+                    <span className="text-[10px] text-purple-600 dark:text-purple-400 font-medium">
+                      Auto-allocated to older invoices
+                    </span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {returnBills.map((rb, idx) => {
+                      const rbDate = rb.createdAt ? new Date(rb.createdAt) : new Date();
+                      const dStr = `${rbDate.getFullYear()}-${String(rbDate.getMonth() + 1).padStart(2, '0')}-${String(rbDate.getDate()).padStart(2, '0')}`;
+                      const retVal = Math.abs(Number(rb.totalAmount || 0));
+                      const applied = Number(rb.trueReturnCreditApplied ?? rb.returnCreditApplied ?? retVal);
+                      const cashRefund = Number(rb.refundedCashAmount || 0);
+
+                      return (
+                        <div
+                          key={rb.id || idx}
+                          className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 p-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-purple-100 dark:border-purple-900/40 text-xs"
+                        >
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono font-bold text-purple-700 dark:text-purple-300">
+                              #{String(rb.invoiceNumber || `INV${rb.id}`).replace(/^#/, '')}
+                            </span>
+                            <span className="text-slate-500 dark:text-zinc-400 text-[11px]">
+                              {dStr}
+                            </span>
+                            {applied > 0 && (
+                              <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 font-medium text-[10px]">
+                                Offset Applied: Rs. {applied.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                              </span>
+                            )}
+                            {cashRefund > 0 && (
+                              <span className="px-2 py-0.5 rounded-md bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 font-medium text-[10px]">
+                                Cash Refund: Rs. {cashRefund.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-right ml-auto">
+                            <span className="font-mono font-extrabold text-rose-600 dark:text-rose-400 text-xs sm:text-sm">
+                              Return: Rs. {retVal.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="py-16 text-center">
+                <CheckCircle2 className="size-10 text-emerald-500 mx-auto mb-2" />
+                <h4 className="text-sm font-bold text-slate-800 dark:text-zinc-200">
+                  හිඟ මුදල් කිසිවක් නොමැත!
+                </h4>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  මෙම ගනුදෙනුකරුගේ සියලුම බිල්පත් සම්පූර්ණයෙන්ම ගෙවා අවසන් කර ඇත.
+                </p>
+              </div>
             </div>
           ) : (
-            bills.map((bill) => {
+            <div className="space-y-3">
+              {returnBills.length > 0 && (
+                <div className="rounded-2xl border border-purple-200 dark:border-purple-900/60 bg-purple-50/50 dark:bg-purple-950/20 p-3.5 sm:p-4 space-y-2.5 shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-purple-900 dark:text-purple-200 flex items-center gap-1.5">
+                      RECENT RETURN BILLS &amp; CREDIT NOTES ({returnBills.length})
+                    </span>
+                    <span className="text-[10px] text-purple-600 dark:text-purple-400 font-medium">
+                      Auto-allocated to older invoices
+                    </span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {returnBills.map((rb, idx) => {
+                      const rbDate = rb.createdAt ? new Date(rb.createdAt) : new Date();
+                      const dStr = `${rbDate.getFullYear()}-${String(rbDate.getMonth() + 1).padStart(2, '0')}-${String(rbDate.getDate()).padStart(2, '0')}`;
+                      const retVal = Math.abs(Number(rb.totalAmount || 0));
+                      const applied = Number(rb.trueReturnCreditApplied ?? rb.returnCreditApplied ?? retVal);
+                      const cashRefund = Number(rb.refundedCashAmount || 0);
+
+                      return (
+                        <div
+                          key={rb.id || idx}
+                          className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 p-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-purple-100 dark:border-purple-900/40 text-xs"
+                        >
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono font-bold text-purple-700 dark:text-purple-300">
+                              #{String(rb.invoiceNumber || `INV${rb.id}`).replace(/^#/, '')}
+                            </span>
+                            <span className="text-slate-500 dark:text-zinc-400 text-[11px]">
+                              {dStr}
+                            </span>
+                            {applied > 0 && (
+                              <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 font-medium text-[10px]">
+                                Offset Applied: Rs. {applied.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                              </span>
+                            )}
+                            {cashRefund > 0 && (
+                              <span className="px-2 py-0.5 rounded-md bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 font-medium text-[10px]">
+                                Cash Refund: Rs. {cashRefund.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-right ml-auto">
+                            <span className="font-mono font-extrabold text-rose-600 dark:text-rose-400 text-xs sm:text-sm">
+                              Return: Rs. {retVal.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {bills.map((bill) => {
               const billDate = new Date(bill.createdAt);
               // Standard yyyy-mm-dd date format
               const formattedDate = `${billDate.getFullYear()}-${String(billDate.getMonth() + 1).padStart(2, '0')}-${String(billDate.getDate()).padStart(2, '0')}`;
@@ -1515,11 +1633,17 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                                     <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
                                       රු. {ph.amount.toFixed(2)}
                                     </span>
-                                    <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 text-[9px] font-semibold whitespace-nowrap">
-                                      {formatPaymentMethod(ph.method)}
-                                    </span>
+                                    {ph.method === 'RETURN_CREDIT' ? (
+                                      <span className="px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 text-[9px] font-bold whitespace-nowrap">
+                                        Paid via Return Credit
+                                      </span>
+                                    ) : (
+                                      <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 text-[9px] font-semibold whitespace-nowrap">
+                                        {formatPaymentMethod(ph.method)}
+                                      </span>
+                                    )}
                                     {ph.reference && (
-                                      <span className="text-slate-400 text-[10px] truncate max-w-[120px] sm:max-w-[180px]" title={ph.reference}>
+                                      <span className="text-slate-500 dark:text-zinc-400 text-[10px] font-medium truncate max-w-[140px] sm:max-w-[200px]" title={ph.reference}>
                                         ({ph.reference})
                                       </span>
                                     )}
@@ -1559,7 +1683,8 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                   )}
                 </div>
               );
-            })
+            })}
+            </div>
           )}
 
           {/* Edit Payment Modal */}

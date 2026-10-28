@@ -2269,9 +2269,12 @@ export const QuickInvoicePage: React.FC = () => {
 
       // Synchronize local customer cache with fresh outstanding balance
       if (selectedCust) {
+        const isReturn = Number(resultOrder?.totalAmount) < 0 || Boolean(resultOrder?.isReturnBill);
         const freshOutstanding = resultOrder?.customer?.outstandingBalance !== undefined
           ? Number(resultOrder.customer.outstandingBalance)
-          : Math.max(0, (selectedCust.outstandingBalance || 0) + (isEditing && String(originalInvoice?.customerId) === String(selectedCust.id) ? (creditDue - currentInvoiceUnpaidDebt) : creditDue) - finalSettledDue);
+          : (isReturn
+              ? Number(selectedCust.outstandingBalance || 0)
+              : Math.max(0, (selectedCust.outstandingBalance || 0) + (isEditing && String(originalInvoice?.customerId) === String(selectedCust.id) ? (creditDue - currentInvoiceUnpaidDebt) : creditDue) - finalSettledDue));
 
         setCustomers((prev) =>
           prev.map((c) => (c.id === selectedCust.id ? { ...c, outstandingBalance: freshOutstanding } : c))
@@ -2303,9 +2306,25 @@ export const QuickInvoicePage: React.FC = () => {
       } else if (mode === 'SAVE_AND_PRINT') {
         // Accurately resolve updated customer balance and construct fully hydrated complete order entity
         const targetCustomer = customers.find((c) => String(c.id) === String(selectedCustomerId));
+        const isReturn = Number(resultOrder?.totalAmount) < 0 || Boolean(resultOrder?.isReturnBill);
         const updatedCustomerBal = resultOrder?.customer?.outstandingBalance !== undefined
           ? Number(resultOrder.customer.outstandingBalance)
-          : Math.max(0, (targetCustomer?.outstandingBalance || 0) + (isEditing ? 0 : creditDue) - finalSettledDue);
+          : (isReturn
+              ? Number(targetCustomer?.outstandingBalance || 0)
+              : Math.max(0, (targetCustomer?.outstandingBalance || 0) + (isEditing ? 0 : creditDue) - finalSettledDue));
+
+        const completeCustomer = resultOrder?.customer
+          ? {
+              ...resultOrder.customer,
+              outstandingBalance: updatedCustomerBal,
+            }
+          : (targetCustomer ? {
+              id: targetCustomer.id,
+              name: targetCustomer.name,
+              phone: targetCustomer.phone,
+              address: targetCustomer.address,
+              outstandingBalance: updatedCustomerBal,
+            } : undefined);
 
         const completeOrderObj = {
           ...resultOrder,
@@ -2341,13 +2360,7 @@ export const QuickInvoicePage: React.FC = () => {
               selectedColor: snap?.color || ri.color || ri.variant?.color,
             };
           }),
-          customer: resultOrder.customer || (targetCustomer ? {
-            id: targetCustomer.id,
-            name: targetCustomer.name,
-            phone: targetCustomer.phone,
-            address: targetCustomer.address,
-            outstandingBalance: updatedCustomerBal,
-          } : undefined),
+          customer: completeCustomer,
           notes: payload.notes || resultOrder.notes,
           tenderedAmount: resolvedTendered,
           paidAmount: resolvedPaid,
@@ -2372,7 +2385,7 @@ export const QuickInvoicePage: React.FC = () => {
             } else {
               bootstrapPos();
             }
-          });
+          }, completeCustomer, customers);
         } else {
           printInvoiceDirectly(completeOrderObj, () => {
             if (isEditing) {
@@ -2380,13 +2393,29 @@ export const QuickInvoicePage: React.FC = () => {
             } else {
               bootstrapPos();
             }
-          });
+          }, completeCustomer, customers);
         }
       } else if (mode === 'SAVE_AND_WHATSAPP') {
         const targetCustomer = customers.find((c) => String(c.id) === String(selectedCustomerId));
+        const isReturn = Number(resultOrder?.totalAmount) < 0 || Boolean(resultOrder?.isReturnBill);
         const updatedCustomerBal = resultOrder?.customer?.outstandingBalance !== undefined
           ? Number(resultOrder.customer.outstandingBalance)
-          : Math.max(0, (targetCustomer?.outstandingBalance || 0) + (isEditing ? 0 : creditDue) - finalSettledDue);
+          : (isReturn
+              ? Number(targetCustomer?.outstandingBalance || 0)
+              : Math.max(0, (targetCustomer?.outstandingBalance || 0) + (isEditing ? 0 : creditDue) - finalSettledDue));
+
+        const completeCustomer = resultOrder?.customer
+          ? {
+              ...resultOrder.customer,
+              outstandingBalance: updatedCustomerBal,
+            }
+          : (targetCustomer ? {
+              id: targetCustomer.id,
+              name: targetCustomer.name,
+              phone: targetCustomer.phone,
+              address: targetCustomer.address,
+              outstandingBalance: updatedCustomerBal,
+            } : undefined);
 
         const completeOrderObj = {
           ...resultOrder,
@@ -2401,13 +2430,7 @@ export const QuickInvoicePage: React.FC = () => {
             selectedSize: checkoutCartSnapshot[rIdx]?.size || ri.size || ri.variant?.size,
             selectedColor: checkoutCartSnapshot[rIdx]?.color || ri.color || ri.variant?.color,
           })),
-          customer: resultOrder.customer || (targetCustomer ? {
-            id: targetCustomer.id,
-            name: targetCustomer.name,
-            phone: targetCustomer.phone,
-            address: targetCustomer.address,
-            outstandingBalance: updatedCustomerBal,
-          } : undefined),
+          customer: completeCustomer,
           notes: payload.notes || resultOrder.notes,
           tenderedAmount: resolvedTendered,
           paidAmount: resolvedPaid,
@@ -2420,7 +2443,7 @@ export const QuickInvoicePage: React.FC = () => {
         };
 
         const custPhone = resultOrder?.customerPhone || completeOrderObj.customer?.phone;
-        const waMsg = generateCustomerInvoiceWhatsAppMessage(completeOrderObj);
+        const waMsg = generateCustomerInvoiceWhatsAppMessage(completeOrderObj, completeCustomer, customers);
 
         if (custPhone) {
           openWhatsAppChat(custPhone, waMsg);

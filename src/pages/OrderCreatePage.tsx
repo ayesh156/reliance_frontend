@@ -48,8 +48,10 @@ import {
   MessageSquare,
   RotateCcw,
   Pencil,
+  Printer,
 } from 'lucide-react';
-import { openWhatsAppChat, generateSalesOrderWhatsAppMessage } from '../utils/whatsapp';
+import { openWhatsAppChat, generateSalesOrderWhatsAppMessage, generateCustomerInvoiceWhatsAppMessage } from '../utils/whatsapp';
+import { printInvoiceDirectly } from '../utils/print';
 import { resolveImageUrl, handleImageError } from '../utils/imageUrl';
 import { isValidSriLankanPhone, isValidSriLankanNIC } from '../utils/validators';
 
@@ -1451,6 +1453,15 @@ export const OrderCreatePage: React.FC = () => {
         };
         const updated = await put<any>(`/orders/invoices/${editInvoiceId}`, invoicePayload);
         setCreatedOrder(updated);
+        if (updated.customer) {
+          setCustomers((prev) =>
+            prev.map((c) =>
+              c.id === updated.customer.id
+                ? { ...c, outstandingBalance: Number(updated.customer.outstandingBalance) || 0 }
+                : c
+            )
+          );
+        }
         setIsSuccessModalOpen(true);
         setMobileCartOpen(false);
         toast.success(`Invoice #${updated.invoiceNumber || updated.id} updated successfully!`);
@@ -1542,13 +1553,17 @@ export const OrderCreatePage: React.FC = () => {
     if (!createdOrder) return;
     try {
       setIsDownloadingPdf(true);
-      await downloadBlob(
-        `/sales-orders/${createdOrder.id}/pdf`,
-        `Order-${createdOrder.orderNumber || createdOrder.id}.pdf`
-      );
-      toast.success('Order PDF downloaded successfully!');
+      const isInvoice = Boolean(editInvoiceId || createdOrder.invoiceNumber);
+      const endpoint = isInvoice
+        ? `/orders/invoices/${createdOrder.id}/pdf`
+        : `/sales-orders/${createdOrder.id}/pdf`;
+      const fileName = isInvoice
+        ? `Invoice-${createdOrder.invoiceNumber || createdOrder.id}.pdf`
+        : `Order-${createdOrder.orderNumber || createdOrder.id}.pdf`;
+      await downloadBlob(endpoint, fileName);
+      toast.success(`${isInvoice ? 'Invoice' : 'Order'} PDF downloaded successfully!`);
     } catch (err: any) {
-      toast.error(err.message || 'Failed to download Order PDF');
+      toast.error(err.message || 'Failed to download PDF');
     } finally {
       setIsDownloadingPdf(false);
     }
@@ -1561,8 +1576,16 @@ export const OrderCreatePage: React.FC = () => {
       toast.warn('No contact phone available for WhatsApp');
       return;
     }
-    const message = generateSalesOrderWhatsAppMessage(createdOrder);
+    const isInvoice = Boolean(editInvoiceId || createdOrder.invoiceNumber);
+    const message = isInvoice
+      ? generateCustomerInvoiceWhatsAppMessage(createdOrder, createdOrder.customer, customers)
+      : generateSalesOrderWhatsAppMessage(createdOrder);
     openWhatsAppChat(phone, message);
+  };
+
+  const handlePrintCreatedInvoice = () => {
+    if (!createdOrder) return;
+    printInvoiceDirectly(createdOrder, undefined, createdOrder.customer, customers);
   };
 
   /**
@@ -2797,10 +2820,12 @@ export const OrderCreatePage: React.FC = () => {
               <CheckCircle2 className="size-6" />
             </div>
             <DialogTitle className="text-center text-lg font-bold">
-              {isEditMode ? 'Presales Order Updated!' : 'Presales Order Confirmed!'}
+              {editInvoiceId ? 'Invoice Updated!' : (isEditMode ? 'Presales Order Updated!' : 'Presales Order Confirmed!')}
             </DialogTitle>
             <DialogDescription className="text-center text-xs text-slate-500">
-              Presales order #{createdOrder?.orderNumber || createdOrder?.id} has been saved to the pipeline.
+              {editInvoiceId
+                ? `Invoice #${createdOrder?.invoiceNumber || createdOrder?.id} has been updated successfully.`
+                : `Presales order #${createdOrder?.orderNumber || createdOrder?.id} has been saved to the pipeline.`}
             </DialogDescription>
           </DialogHeader>
 
@@ -2855,16 +2880,27 @@ export const OrderCreatePage: React.FC = () => {
             >
               {isDownloadingPdf ? <Loader2 className="size-3.5 animate-spin" /> : <FileDown className="size-3.5" />} PDF
             </Button>
+            {Boolean(editInvoiceId || createdOrder?.invoiceNumber) && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handlePrintCreatedInvoice}
+                className="w-full sm:w-auto gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+              >
+                <Printer className="size-3.5" /> Print
+              </Button>
+            )}
             <Button
               type="button"
               size="sm"
               onClick={() => {
                 setIsSuccessModalOpen(false);
-                navigate('/orders');
+                navigate(editInvoiceId ? '/system/invoices' : '/orders');
               }}
               className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white text-xs"
             >
-              Orders List
+              {editInvoiceId ? 'Invoices List' : 'Orders List'}
             </Button>
           </DialogFooter>
         </DialogContent>

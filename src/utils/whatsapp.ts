@@ -322,8 +322,48 @@ export const generateCustomerInvoiceWhatsAppMessage = (
       .join('\n');
   }
 
+  const isReturnBill = Boolean(order.isReturnBill === true || Number(order.totalAmount) < 0);
+  const foundCustFromStore = Array.isArray(allCustomers) && (order?.customerId || order?.customer?.id)
+    ? allCustomers.find((c) => Number(c.id) === Number(order.customerId || order.customer?.id))
+    : null;
+  const liveCustRecord = foundCustFromStore || matchedCustomer || resolvedCust;
+
+  const rawOrderCustBal = order.customer?.outstandingBalance !== undefined ? Number(order.customer.outstandingBalance) : null;
+  const rawLiveCustBal = liveCustRecord?.outstandingBalance !== undefined ? Number(liveCustRecord.outstandingBalance) : null;
+
+  let authoritativeCustomerBalance = 0;
+  if (isReturnBill) {
+    if (rawLiveCustBal !== null && rawOrderCustBal !== null && rawLiveCustBal > rawOrderCustBal) {
+      authoritativeCustomerBalance = rawLiveCustBal;
+    } else if (rawOrderCustBal !== null) {
+      authoritativeCustomerBalance = rawOrderCustBal;
+    } else if (rawLiveCustBal !== null) {
+      authoritativeCustomerBalance = rawLiveCustBal;
+    }
+  } else {
+    authoritativeCustomerBalance = Number(
+      order.customer?.outstandingBalance ??
+      matchedCustomer?.outstandingBalance ??
+      resolvedCust?.outstandingBalance ??
+      foundCustFromStore?.outstandingBalance ??
+      0
+    );
+  }
+
+  const creditApplied = Math.abs(Number(order.totalAmount || 0)) - (Number(order.refundedCashAmount) || 0);
+  const updatedBalance = Number(authoritativeCustomerBalance || 0);
+  const prevDue = updatedBalance + creditApplied;
+  const trueReturnCreditApplied = creditApplied;
+  const returnCreditApplied = creditApplied;
+  const refundedCashAmount = Number(order.refundedCashAmount || 0);
+  const customerOutstanding = updatedBalance;
+  const prevDueBeforeReturn = prevDue;
+  const newOutstandingDue = updatedBalance;
+
   // Dynamic header based on retail vs wholesale mode
-  const titleHeader = isWholesale
+  const titleHeader = isReturnBill
+    ? `*RELIANCE CLOTHING - RETURN BILL / CREDIT NOTE*`
+    : isWholesale
     ? `*RELIANCE CLOTHING - WHOLESALE INVOICE*`
     : `*RELIANCE CLOTHING - INVOICE RECEIPT*`;
 
@@ -331,15 +371,23 @@ export const generateCustomerInvoiceWhatsAppMessage = (
   text += `-------------------------------------------\n`;
   text += `*Invoice No:* #${invoiceNo}\n`;
   text += `*Date:* ${formattedDate} (${formattedTime})\n`;
-  text += `*Billing Type:* ${isWholesale ? 'WHOLESALE' : 'RETAIL'}\n`;
+  text += `*Billing Type:* ${isReturnBill ? 'RETURN BILL' : (isWholesale ? 'WHOLESALE' : 'RETAIL')}\n`;
   text += `*Customer:* ${custName}\n`;
   if (custPhone) text += `*Contact:* ${custPhone}\n`;
   if (custAddr && custAddr !== '-') text += `*Address / City:* ${custAddr}\n`;
   text += `*Payment Method:* ${paymentMethod}\n`;
   text += `-------------------------------------------\n\n`;
-  text += `*PURCHASED ITEMS:*\n${itemsList || '- No items recorded -'}\n\n`;
+  text += isReturnBill ? `*RETURNED ITEMS:*\n` : `*PURCHASED ITEMS:*\n`;
+  text += `${itemsList || '- No items recorded -'}\n\n`;
 
-  if (hasReturns) {
+  if (isReturnBill) {
+    text += `-------------------------------------------\n`;
+    text += `*Total Return Value:* Rs. ${Math.abs(Number(order.totalAmount || 0)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`;
+    text += `*Previous Due (Before Return):* Rs. ${prevDue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`;
+    text += `*Deducted from Previous Due:* Rs. ${creditApplied.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`;
+    text += `*Refunded Cash:* Rs. ${(Number(order.refundedCashAmount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`;
+    text += `*New Outstanding Due:* Rs. ${updatedBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n`;
+  } else if (hasReturns) {
     text += `-------------------------------------------\n`;
     text += `*ITEM RETURN ADJUSTMENT HISTORY:*\n`;
     text += `${returnedItemsText || '- No return items recorded -\n'}\n`;
@@ -392,6 +440,11 @@ export const generateCustomerInvoiceWhatsAppMessage = (
 };
 
 /**
+ * Standard alias for Order / Invoice WhatsApp Message generator
+ */
+export const generateOrderWhatsAppMessage = generateCustomerInvoiceWhatsAppMessage;
+
+/**
  * 2. Build Comprehensive Customer Outstanding Account Statement with Detailed Invoice Breakdown
  * 
  * Inspects customer debt ledger, itemized pending invoices, and in-hand unrealized cheques.
@@ -399,10 +452,11 @@ export const generateCustomerInvoiceWhatsAppMessage = (
  * If both balance and pending cheques are cleared, outputs a clean "No Outstanding Dues" statement.
  */
 export const generateCustomerDebtSummaryWhatsAppMessage = (
-  cust: { name: string; outstandingBalance: number; phone?: string; pendingCheques?: any[]; latestReceipt?: any; masterReceipt?: any },
+  cust: { name: string; outstandingBalance: number; phone?: string; pendingCheques?: any[]; latestReceipt?: any; masterReceipt?: any; returnBills?: any[] },
   invoices: any[] = [],
   pendingCheques: any[] = [],
-  masterReceiptParam?: any
+  masterReceiptParam?: any,
+  returnBillsParam?: any[]
 ): string => {
   const currentDate = new Date().toISOString().split('T')[0];
   const currentTime = new Date().toLocaleTimeString('en-US', {
@@ -594,8 +648,13 @@ export const generateCustomerDebtSummaryWhatsAppMessage = (
           const pAmt = Number(p.amount || 0).toLocaleString('en-LK', { minimumFractionDigits: 2 });
           const pMethod = String(p.method || p.paymentMethod || 'CASH').toUpperCase();
           const pTimeDisplay = pTimeStr ? ` (${pTimeStr})` : '';
+          const pRef = p.reference ? ` (${p.reference})` : '';
 
-          text += `   ↳ Paid: ${pDateStr}${pTimeDisplay} | Rs. ${pAmt} [${pMethod}]\n`;
+          if (pMethod === 'RETURN_CREDIT') {
+            text += `   ↳ *Paid via Return Credit:* ${pDateStr}${pTimeDisplay}${pRef} | Rs. ${pAmt}\n`;
+          } else {
+            text += `   ↳ Paid: ${pDateStr}${pTimeDisplay} | Rs. ${pAmt} [${pMethod}]${pRef}\n`;
+          }
         });
       } else {
         const paidVal = Number(inv.paidAmount || inv.paid || 0);
@@ -635,6 +694,40 @@ export const generateCustomerDebtSummaryWhatsAppMessage = (
     if (rawMasterReceipts.length > 0) {
       text += buildFullPaymentHistorySection(rawMasterReceipts);
     }
+  }
+
+  // Recent Return Bills & Credit Notes Section
+  const rawReturnBills: any[] = (returnBillsParam && returnBillsParam.length > 0)
+    ? returnBillsParam
+    : (Array.isArray((cust as any)?.returnBills)
+      ? (cust as any).returnBills
+      : (Array.isArray((invoices as any)?.returnBills) ? (invoices as any).returnBills : []));
+
+  if (rawReturnBills.length > 0) {
+    text += `*RECENT RETURN BILLS & CREDIT NOTES (${rawReturnBills.length}):*\n`;
+    text += `-------------------------------------------\n`;
+    rawReturnBills.forEach((rb: any, idx: number) => {
+      const invNo = rb.invoiceNumber || `INV${rb.id || idx + 1}`;
+      const rawDate = rb.createdAt || rb.date;
+      let rDateStr = currentDate;
+      if (rawDate) {
+        try {
+          const d = new Date(rawDate);
+          rDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        } catch {
+          rDateStr = String(rawDate);
+        }
+      }
+      const retVal = Math.abs(Number(rb.totalAmount || 0)).toLocaleString('en-LK', { minimumFractionDigits: 2 });
+      text += `${idx + 1}. *Invoice No:* #${invNo.replace(/^#/, '')} | *Date:* ${rDateStr} | *Return Value:* Rs. ${retVal}\n`;
+      if (rb.returnCreditApplied > 0) {
+        text += `   ↳ *Credit Applied To Invoices:* Rs. ${Number(rb.returnCreditApplied).toLocaleString('en-LK', { minimumFractionDigits: 2 })}\n`;
+      }
+      if (rb.refundedCashAmount > 0) {
+        text += `   ↳ *Cash Refunded:* Rs. ${Number(rb.refundedCashAmount).toLocaleString('en-LK', { minimumFractionDigits: 2 })}\n`;
+      }
+    });
+    text += `-------------------------------------------\n\n`;
   }
 
   // Pending / Unrealized Cheques Section
