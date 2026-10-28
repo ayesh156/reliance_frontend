@@ -617,7 +617,29 @@ export const OrderCreatePage: React.FC = () => {
       // Toggle back to regular sale item
       setCart((prev) => {
         const next = [...prev];
-        next[index] = { ...next[index], isReturn: false, returnReason: undefined };
+        const target = next[index];
+        if (!target) return prev;
+
+        // Check if there is already an existing non-return (sale) line for the same variant
+        const existingSaleIndex = next.findIndex(
+          (i, idx) => idx !== index && i.variantId === target.variantId && !i.isReturn && i.unitPrice === target.unitPrice
+        );
+
+        if (existingSaleIndex !== -1) {
+          // Merge into existing sale line
+          const existingSale = next[existingSaleIndex];
+          const mergedQty = existingSale.quantity + target.quantity;
+          const mergedDisc = calculateItemDiscount(existingSale.unitPrice, mergedQty, existingSale.discountType, existingSale.discountInput);
+          next[existingSaleIndex] = {
+            ...existingSale,
+            quantity: mergedQty,
+            discount: mergedDisc,
+          };
+          next.splice(index, 1);
+        } else {
+          const disc = calculateItemDiscount(target.unitPrice, target.quantity, target.discountType, target.discountInput);
+          next[index] = { ...target, isReturn: false, returnReason: undefined, discount: disc };
+        }
         return next;
       });
       return;
@@ -631,14 +653,35 @@ export const OrderCreatePage: React.FC = () => {
       // Single quantity: toggle directly to return
       setCart((prev) => {
         const next = [...prev];
-        next[index] = { ...next[index], isReturn: true, returnReason: 'UNSOLD' };
+        const target = next[index];
+        if (!target) return prev;
+
+        // Check if a return line for the same variant already exists
+        const existingReturnIndex = next.findIndex(
+          (i, idx) => idx !== index && i.variantId === target.variantId && i.isReturn && i.unitPrice === target.unitPrice
+        );
+
+        if (existingReturnIndex !== -1) {
+          const existingReturn = next[existingReturnIndex];
+          const mergedQty = existingReturn.quantity + target.quantity;
+          const mergedDisc = calculateItemDiscount(existingReturn.unitPrice, mergedQty, existingReturn.discountType, existingReturn.discountInput);
+          next[existingReturnIndex] = {
+            ...existingReturn,
+            quantity: mergedQty,
+            discount: mergedDisc,
+          };
+          next.splice(index, 1);
+        } else {
+          const disc = calculateItemDiscount(target.unitPrice, target.quantity, target.discountType, target.discountInput);
+          next[index] = { ...target, isReturn: true, returnReason: 'UNSOLD', discount: disc };
+        }
         return next;
       });
     }
   };
 
   /**
-   * Handle partial quantity return split confirmation
+   * Handle partial quantity return split confirmation with seamless merge
    */
   const handleConfirmReturnSplit = (returnQty: number, returnReason: 'UNSOLD' | 'DAMAGED') => {
     if (splittingItemIndex === null) return;
@@ -647,43 +690,70 @@ export const OrderCreatePage: React.FC = () => {
 
     const clampedReturnQty = Math.max(1, Math.min(item.quantity, returnQty));
 
-    if (clampedReturnQty >= item.quantity) {
-      // Full return of this line
-      setCart((prev) => {
-        const next = [...prev];
-        next[splittingItemIndex] = {
-          ...item,
-          isReturn: true,
-          returnReason,
-        };
-        return next;
-      });
-    } else {
-      // Split quantity: reduce kept qty and insert separate return line
-      const keptQty = item.quantity - clampedReturnQty;
-      const keptDisc = calculateItemDiscount(item.unitPrice, keptQty, item.discountType, item.discountInput);
-      const returnDisc = calculateItemDiscount(item.unitPrice, clampedReturnQty, item.discountType, item.discountInput);
+    setCart((prev) => {
+      const next = [...prev];
+      const targetItem = next[splittingItemIndex];
+      if (!targetItem) return prev;
 
-      setCart((prev) => {
-        const next = [...prev];
+      // Check if a return line item for this variant with the same unitPrice already exists
+      const existingReturnIndex = next.findIndex(
+        (i, idx) => idx !== splittingItemIndex && i.variantId === targetItem.variantId && i.isReturn && i.unitPrice === targetItem.unitPrice
+      );
+
+      if (clampedReturnQty >= targetItem.quantity) {
+        if (existingReturnIndex !== -1) {
+          const existing = next[existingReturnIndex];
+          const mergedQty = existing.quantity + targetItem.quantity;
+          const mergedDisc = calculateItemDiscount(existing.unitPrice, mergedQty, existing.discountType, existing.discountInput);
+          next[existingReturnIndex] = {
+            ...existing,
+            quantity: mergedQty,
+            discount: mergedDisc,
+            returnReason,
+          };
+          next.splice(splittingItemIndex, 1);
+        } else {
+          next[splittingItemIndex] = {
+            ...targetItem,
+            isReturn: true,
+            returnReason,
+          };
+        }
+      } else {
+        const keptQty = targetItem.quantity - clampedReturnQty;
+        const keptDisc = calculateItemDiscount(targetItem.unitPrice, keptQty, targetItem.discountType, targetItem.discountInput);
+
         next[splittingItemIndex] = {
-          ...item,
+          ...targetItem,
           quantity: keptQty,
           discount: keptDisc,
           isReturn: false,
         };
-        const returnLineItem: OrderCartItem = {
-          ...item,
-          quantity: clampedReturnQty,
-          discount: returnDisc,
-          isReturn: true,
-          returnReason,
-          showDiscount: returnDisc > 0,
-        };
-        next.splice(splittingItemIndex + 1, 0, returnLineItem);
-        return next;
-      });
-    }
+
+        if (existingReturnIndex !== -1) {
+          const existing = next[existingReturnIndex];
+          const mergedQty = existing.quantity + clampedReturnQty;
+          const mergedDisc = calculateItemDiscount(existing.unitPrice, mergedQty, existing.discountType, existing.discountInput);
+          next[existingReturnIndex] = {
+            ...existing,
+            quantity: mergedQty,
+            discount: mergedDisc,
+          };
+        } else {
+          const returnDisc = calculateItemDiscount(targetItem.unitPrice, clampedReturnQty, targetItem.discountType, targetItem.discountInput);
+          const returnLineItem: OrderCartItem = {
+            ...targetItem,
+            quantity: clampedReturnQty,
+            discount: returnDisc,
+            isReturn: true,
+            returnReason,
+            showDiscount: returnDisc > 0,
+          };
+          next.splice(splittingItemIndex + 1, 0, returnLineItem);
+        }
+      }
+      return next;
+    });
 
     setSplitModalOpen(false);
     setSplittingItemIndex(null);
@@ -895,32 +965,22 @@ export const OrderCreatePage: React.FC = () => {
 
     const grossReturn = returnItems.reduce((acc, i) => acc + (Number(i.quantity) || 0) * (Number(i.unitPrice) || 0), 0);
     const returnDisc = returnItems.reduce((acc, i) => acc + (Number(i.discount) || 0), 0);
+    // ⭐ Return Discount Deduction: Shop retains the discount originally granted on the item.
+    // The customer only receives return credit for the net amount actually paid (Gross minus Item Discount).
     const netReturn = Math.max(0, grossReturn - returnDisc);
 
     let saleBill = 0;
-    let returnBill = 0;
-
     const rawBillDisc = Number(discountInput) || 0;
     if (rawBillDisc > 0) {
       if (discountType === 'PERCENT') {
         const p = Math.min(100, Math.max(0, rawBillDisc));
         saleBill = Math.round((netSale * p) / 100);
-        returnBill = Math.round((netReturn * p) / 100);
       } else {
-        const totalBase = netSale + netReturn;
-        if (totalBase > 0) {
-          const returnShare = netReturn / totalBase;
-          returnBill = Math.round(rawBillDisc * returnShare);
-          saleBill = Math.max(0, rawBillDisc - returnBill);
-          saleBill = Math.min(netSale, saleBill);
-        } else {
-          saleBill = 0;
-          returnBill = 0;
-        }
+        saleBill = Math.min(netSale, rawBillDisc);
       }
     }
 
-    const effReturn = Math.max(0, netReturn - returnBill);
+    const effReturn = netReturn;
     const effSale = Math.max(0, netSale - saleBill);
     const total = effSale - effReturn;
 
@@ -932,7 +992,7 @@ export const OrderCreatePage: React.FC = () => {
       returnItemDiscounts: returnDisc,
       netReturnBeforeBill: netReturn,
       saleBillDiscount: saleBill,
-      returnBillDiscountDeduction: returnBill,
+      returnBillDiscountDeduction: 0,
       effectiveReturnCredit: effReturn,
       effectiveNetSale: effSale,
       numericOrderDiscount: saleBill,

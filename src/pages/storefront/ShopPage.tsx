@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { get } from '../../lib/api';
 import type { ProductItem } from '../../types/product';
 import { formatCurrency, getProductImageUrl, FALLBACK_IMAGE, handleImageError } from '../../lib/utils';
 import { ProductQuickViewModal } from '../../components/storefront/ProductQuickViewModal';
 import { StorefrontProductCard } from '../../components/storefront/StorefrontProductCard';
+import { ShareCatalogModal } from '../../components/storefront/ShareCatalogModal';
 import { openWhatsAppChat } from '../../utils/whatsapp';
 import {
   Search,
@@ -17,6 +19,8 @@ import {
   ShoppingBag,
   MessageSquare,
   ChevronRight,
+  Share2,
+  Building2,
 } from 'lucide-react';
 
 /**
@@ -35,6 +39,12 @@ export const ShopPage: React.FC = () => {
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedProduct, setSelectedProduct] = useState<ProductItem | null>(null);
+  const [shareCatalogOpen, setShareCatalogOpen] = useState(false);
+
+  // Pricing Tier Query Param Parsing (?tier=w for Wholesale, ?tier=r for Retail)
+  const [searchParams, setSearchParams] = useSearchParams();
+  const currentTierParam = searchParams.get('tier') || searchParams.get('price');
+  const isWholesaleTier = currentTierParam === 'w' || currentTierParam === 'wholesale';
 
   // Filters State
   const [searchQuery, setSearchQuery] = useState('');
@@ -229,8 +239,18 @@ export const ShopPage: React.FC = () => {
               )}
             </div>
 
-            {/* Right Actions: Sort + Mobile Filter Toggle */}
-            <div className="flex items-center justify-between w-full md:w-auto gap-3">
+            {/* Right Actions: Share Catalog + Sort + Mobile Filter Toggle */}
+            <div className="flex items-center justify-between w-full md:w-auto gap-2.5 sm:gap-3 flex-wrap sm:flex-nowrap">
+              {/* Share Catalog Button */}
+              <button
+                type="button"
+                onClick={() => setShareCatalogOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-400 dark:hover:border-zinc-700 text-xs uppercase tracking-wider text-zinc-900 dark:text-zinc-100 rounded-sm shadow-sm transition-all duration-200 group"
+              >
+                <Share2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 group-hover:scale-110 transition-transform" />
+                <span className="font-semibold">Share Catalog</span>
+              </button>
+
               {/* Sort Dropdown */}
               <div className="relative flex-1 md:flex-none">
                 <select
@@ -358,6 +378,37 @@ export const ShopPage: React.FC = () => {
           </div>
         )}
 
+        {/* Wholesale Mode Active Banner */}
+        {isWholesaleTier && (
+          <div className="mb-6 p-3 sm:p-3.5 rounded-sm border border-amber-300 dark:border-amber-800/80 bg-amber-50/80 dark:bg-amber-950/30 backdrop-blur-md flex items-center justify-between gap-3 shadow-sm">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded bg-amber-500/20 text-amber-700 dark:text-amber-400 flex items-center justify-center shrink-0">
+                <Building2 className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-bold uppercase tracking-wider text-amber-900 dark:text-amber-200 truncate">
+                  Wholesale Trade Pricing Active
+                </p>
+                <p className="text-[11px] text-amber-800/80 dark:text-amber-400/80 leading-tight hidden sm:block">
+                  Viewing trade rates across all garments for verified stockists & retail partners.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const nextParams = new URLSearchParams(searchParams);
+                nextParams.delete('tier');
+                nextParams.delete('price');
+                setSearchParams(nextParams);
+              }}
+              className="text-[10px] font-mono uppercase tracking-wider px-2.5 py-1 rounded bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-400 shrink-0 font-medium"
+            >
+              Switch to Retail
+            </button>
+          </div>
+        )}
+
         {/* ── Product Grid ── */}
         {loading ? (
           <div className="flex flex-col items-center justify-center py-28 text-zinc-500">
@@ -385,6 +436,7 @@ export const ShopPage: React.FC = () => {
               <StorefrontProductCard
                 key={product.id}
                 product={product}
+                priceTier={isWholesaleTier ? 'wholesale' : 'retail'}
                 onQuickView={(p) => setSelectedProduct(p)}
               />
             ))}
@@ -396,6 +448,14 @@ export const ShopPage: React.FC = () => {
       <ProductQuickViewModal
         product={selectedProduct}
         onClose={() => setSelectedProduct(null)}
+      />
+
+      {/* ── Global Catalog Pricing Share Modal ── */}
+      <ShareCatalogModal
+        open={shareCatalogOpen}
+        onClose={() => setShareCatalogOpen(false)}
+        totalProducts={products.length}
+        activeCategory={selectedCategory}
       />
     </div>
   );
