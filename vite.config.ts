@@ -85,15 +85,35 @@ export default defineConfig({
         chunkFileNames: 'assets/[name]-[hash].js',
         assetFileNames: 'assets/[name]-[hash].[ext]',
         manualChunks(id) {
-          if (id.includes('node_modules/react-router')) return 'vendor-router';
-          if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/') || id.includes('node_modules/scheduler/')) return 'vendor-react';
-          if (id.includes('node_modules/recharts') || id.includes('node_modules/d3-') || id.includes('node_modules/victory') || id.includes('node_modules/internmap') || id.includes('node_modules/decimal.js')) return 'vendor-charts';
-          if (id.includes('node_modules/lucide-react')) return 'vendor-icons';
-          if (id.includes('node_modules/@radix-ui/')) return 'vendor-ui';
-          if (id.includes('node_modules/')) return 'vendor-other';
+          const normalized = id.replace(/\\/g, '/');
+          if (!normalized.includes('/node_modules/')) return;
+          if (
+            normalized.includes('/node_modules/react/') ||
+            normalized.includes('/node_modules/react-dom/') ||
+            normalized.includes('/node_modules/react-router/') ||
+            normalized.includes('/node_modules/react-router-dom/') ||
+            normalized.includes('/node_modules/scheduler/')
+          ) {
+            return 'vendor-react';
+          }
+          if (
+            normalized.includes('/node_modules/jspdf/') ||
+            normalized.includes('/node_modules/jspdf-autotable/') ||
+            normalized.includes('/node_modules/html2canvas/') ||
+            normalized.includes('/node_modules/html2pdf.js/')
+          ) {
+            return 'vendor-pdf';
+          }
+          if (normalized.includes('/node_modules/@radix-ui/')) {
+            return 'vendor-ui';
+          }
+          if (normalized.includes('/node_modules/lucide-react/')) {
+            return 'vendor-icons';
+          }
+          return 'vendor-core';
         },
       },
     },
-    chunkSizeWarningLimit: 1500,
+    chunkSizeWarningLimit: 1600,
   },
 })
