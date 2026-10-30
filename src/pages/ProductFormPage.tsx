@@ -236,10 +236,18 @@ export const ProductFormPage: React.FC = () => {
 
     setSaving(true);
     try {
+      const data = {
+        name: name.trim(),
+        description: description.trim(),
+        searchKey: searchKey.trim(),
+        categoryId: Number(categoryId),
+      };
+
       const formData = new FormData();
-      formData.append('name', name.trim());
-      formData.append('description', description.trim());
-      formData.append('searchKey', searchKey.trim());
+      formData.append('name', data.name);
+      formData.append('description', data.description);
+      formData.append('searchKey', data.searchKey);
+      formData.append('categoryId', String(Number(data.categoryId)));
       const sanitizedVariants = variants.map(v => ({
         ...v,
         stock: v.stock !== undefined && v.stock !== null && String(v.stock).trim() !== ''
