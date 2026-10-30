@@ -176,8 +176,8 @@ export const FinalizeBatchModal: React.FC<FinalizeBatchModalProps> = ({
     const items = productLines
       .filter((l) => typeof l.completedQty === 'number' && l.completedQty > 0)
       .map((l) => ({
-        productId: l.productId,
-        variantId: l.variantId || null,
+        productId: Number(l.productId),
+        variantId: l.variantId ? Number(l.variantId) : null,
         quantity: Number(l.completedQty),
       }));
 

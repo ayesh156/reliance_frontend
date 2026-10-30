@@ -121,8 +121,8 @@ export const ReturnScrapModal: React.FC<ReturnScrapModalProps> = ({
     const activeReturns = returnLines
       .filter((l) => typeof l.scrapQty === 'number' && l.scrapQty > 0)
       .map((l) => ({
-        usageId: l.usageId,
-        rawMaterialId: l.rawMaterialId,
+        usageId: Number(l.usageId),
+        rawMaterialId: Number(l.rawMaterialId),
         scrapQty: Number(l.scrapQty),
         returnedScrap: Number(l.scrapQty),
         returnReason: l.returnReason.trim() || 'Leftover scrap returned to warehouse',

@@ -231,10 +231,10 @@ export const SendToLineModal: React.FC<SendToLineModalProps> = ({
       .map((tp: TargetProductItem, idx: number) => {
         const qty = Number(productQuantities[idx] || 0);
         return {
-          productId: tp.productId,
-          variantId: tp.variantId || null,
-          qty,
-          sentQty: qty,
+          productId: Number(tp.productId),
+          variantId: tp.variantId ? Number(tp.variantId) : null,
+          qty: Number(qty),
+          sentQty: Number(qty),
         };
       })
       .filter((it) => it.qty > 0);
@@ -252,7 +252,7 @@ export const SendToLineModal: React.FC<SendToLineModalProps> = ({
 
       const payload = {
         items,
-        lineQuantity: totalDispatchQty,
+        lineQuantity: Number(totalDispatchQty),
         date: formattedDate,
         notes: lineNotes.trim() || undefined,
       };

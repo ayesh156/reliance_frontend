@@ -242,9 +242,9 @@ export const SendToWashModal: React.FC<SendToWashModalProps> = ({
       .map((tp, idx) => {
         const qty = Number(productQuantities[idx] || 0);
         return {
-          productId: tp.productId,
-          variantId: tp.variantId || null,
-          sentQty: qty,
+          productId: Number(tp.productId),
+          variantId: tp.variantId ? Number(tp.variantId) : null,
+          sentQty: Number(qty),
         };
       })
       .filter((it) => it.sentQty > 0);
@@ -258,7 +258,7 @@ export const SendToWashModal: React.FC<SendToWashModalProps> = ({
     try {
       const res: any = await post(`/production/${activeBatch.id}/send-to-wash`, {
         items,
-        sewnQuantity: totalToSendToday,
+        sewnQuantity: Number(totalToSendToday),
         date: washDateTime ? new Date(washDateTime).toISOString() : new Date().toISOString(),
         notes: washNotes.trim() || undefined,
       });

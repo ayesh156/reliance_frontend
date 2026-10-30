@@ -232,7 +232,7 @@ export const SupplierDueSettlementModal: React.FC<SupplierDueSettlementModalProp
         reference: editReference.trim() || undefined,
         paymentDate: resolvedDateTime.toISOString(),
         notes: editNote.trim() || undefined,
-        purchaseId: editingBillId,
+        purchaseId: Number(editingBillId),
         type: 'supplier',
       });
 
@@ -285,8 +285,8 @@ export const SupplierDueSettlementModal: React.FC<SupplierDueSettlementModalProp
       const resolvedPaymentDateTime = payDate ? new Date(payDate) : new Date();
 
       await post('/buy-raw-materials/settle-payment', {
-        purchaseId: bill.id,
-        amount: numericAmount,
+        purchaseId: Number(bill.id),
+        amount: Number(numericAmount),
         paymentMethod: payMethod,
         paymentDate: resolvedPaymentDateTime.toISOString(),
         reference: payReference.trim() || undefined,

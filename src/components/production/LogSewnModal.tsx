@@ -253,9 +253,9 @@ export const LogSewnModal: React.FC<LogSewnModalProps> = ({
       .map((tp: TargetProductItem, idx: number) => {
         const qty = Number(productQuantities[idx] || 0);
         return {
-          productId: tp.productId,
-          variantId: tp.variantId || null,
-          sewnQty: qty,
+          productId: Number(tp.productId),
+          variantId: tp.variantId ? Number(tp.variantId) : null,
+          sewnQty: Number(qty),
         };
       })
       .filter((it) => it.sewnQty > 0);

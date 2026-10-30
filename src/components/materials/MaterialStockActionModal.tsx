@@ -93,7 +93,7 @@ export const MaterialStockActionModal: React.FC<MaterialStockActionModalProps> =
 
       if (editingMovement) {
         await put(`/raw-material-items/movements/${editingMovement.id}`, {
-          quantity: numQty,
+          quantity: Number(numQty),
           reference: reference.trim() || undefined,
           customDate: customDateTime ? new Date(customDateTime).toISOString() : new Date().toISOString(),
         });
@@ -102,7 +102,7 @@ export const MaterialStockActionModal: React.FC<MaterialStockActionModalProps> =
         const endpoint = isDeduct ? '/raw-material-items/deduct' : '/raw-material-items/scrap-return';
         
         await post(endpoint, {
-          rawMaterialItemId: material.id,
+          rawMaterialItemId: Number(material.id),
           quantity: numQty,
           movementType: isDeduct ? 'PRODUCTION_USE' : undefined,
           reference: reference.trim() || undefined,

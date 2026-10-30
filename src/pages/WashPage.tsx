@@ -414,8 +414,8 @@ export const WashPage: React.FC = () => {
     const currentProds = getBatchProducts(selectedBatch);
     const items = currentProds
       .map((p, idx) => ({
-        productId: p.productId,
-        variantId: p.variantId || null,
+        productId: Number(p.productId),
+        variantId: p.variantId ? Number(p.variantId) : null,
         washedQty: Number(washProductQuantities[idx] || 0),
       }))
       .filter((it) => it.washedQty > 0);
@@ -442,7 +442,7 @@ export const WashPage: React.FC = () => {
     try {
       const res: any = await post(`/production/${selectedBatch.id}/wash`, {
         items,
-        washedQuantity: totalWashedToday,
+        washedQuantity: Number(totalWashedToday),
         washDate: washDateTime ? new Date(washDateTime).toISOString() : new Date().toISOString(),
         notes: washNotes.trim() || undefined,
       });
