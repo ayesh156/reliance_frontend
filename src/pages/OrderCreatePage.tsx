@@ -1727,13 +1727,24 @@ export const OrderCreatePage: React.FC = () => {
         </div>
       </div>
 
-      {/* Zone 2: Scrollable Cart Workspace - Item list, '+ Add Products' ribbon, and Financial Breakdown scroll cohesively */}
+      {/* Zone 2: Scrollable Cart Workspace - Item list and Financial Breakdown scroll cohesively */}
       <div className="flex-1 overflow-y-auto min-h-0 p-2.5 sm:p-3 space-y-2.5 scrollbar-thin">
         {cart.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center gap-1.5 text-slate-400 dark:text-zinc-500 text-xs py-8">
+          <div className="flex flex-col items-center justify-center gap-1.5 text-slate-400 dark:text-zinc-500 text-xs py-8">
             <ShoppingCart className="size-10 opacity-25" />
             <span className="font-medium">Order cart is empty</span>
             <span className="text-[10.5px] opacity-75">Click catalog products to add them to this order</span>
+            {isMobileDrawer && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setMobileCartOpen(false)}
+                className="mt-2 h-9 px-4 rounded-xl border-dashed border-indigo-300 dark:border-indigo-700/60 bg-indigo-50/50 hover:bg-indigo-100/70 dark:bg-indigo-950/30 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 font-semibold text-xs flex lg:hidden items-center justify-center gap-2 cursor-pointer transition-colors shadow-2xs"
+              >
+                <Plus className="size-4 shrink-0" />
+                <span>Add Products</span>
+              </Button>
+            )}
           </div>
         ) : (() => {
           const purchasedItems = cart.map((item, idx) => ({ item, idx })).filter(({ item }) => !item.isReturn);
@@ -2039,24 +2050,20 @@ export const OrderCreatePage: React.FC = () => {
           );
         })()}
 
-        {/* "+ Add Products" Ribbon Action - Prominently positioned between items and financial breakdown */}
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => {
-            if (isMobileDrawer) setMobileCartOpen(false);
-            else {
-              const searchInput = document.querySelector('input[placeholder*="Search product"]') as HTMLInputElement;
-              if (searchInput) searchInput.focus();
-            }
-          }}
-          className="w-full h-9 rounded-xl border-dashed border-indigo-300 dark:border-indigo-700/60 bg-indigo-50/50 hover:bg-indigo-100/70 dark:bg-indigo-950/30 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 font-semibold text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-2xs my-1"
-        >
-          <Plus className="size-4 shrink-0" />
-          <span>+ Add Products</span>
-        </Button>
+        {/* "+ Add Products" Ribbon Action - Mobile/tablet drawer exclusive (dismisses drawer to return reps smoothly to catalog) */}
+        {isMobileDrawer && cart.length > 0 && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setMobileCartOpen(false)}
+            className="w-full h-9 rounded-xl border-dashed border-indigo-300 dark:border-indigo-700/60 bg-indigo-50/50 hover:bg-indigo-100/70 dark:bg-indigo-950/30 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 font-semibold text-xs flex lg:hidden items-center justify-center gap-2 cursor-pointer transition-colors shadow-2xs my-1"
+          >
+            <Plus className="size-4 shrink-0" />
+            <span>Add Products</span>
+          </Button>
+        )}
 
-        {/* Financial Breakdown (Scrolls cohesively with cart items and '+ Add Products' ribbon) */}
+        {/* Financial Breakdown (Scrolls cohesively with cart items) */}
         <div className="flex flex-col gap-1 text-xs bg-slate-50/60 dark:bg-zinc-900/40 p-2 rounded-lg border border-slate-100 dark:border-zinc-800">
           <div className="flex items-center justify-between text-slate-600 dark:text-zinc-400">
             <span className="font-semibold text-slate-700 dark:text-zinc-300">
