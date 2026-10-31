@@ -409,21 +409,21 @@ export const generate80mmThermalReceiptHtml = (
   const itemsRowsHtml = items
     .map(
       (it) => `
-      <div style="padding: 3.5px 0 3px 0; border-bottom: 1px dotted #888;">
+      <div style="width: 100%; padding: 4px 0 3px 0; border-bottom: 1px dotted #000;">
         <!-- Line 1: Item Name (Bold) with Distinct [RETURN] Tag if returned -->
-        <div style="font-weight: 700; font-size: 11.5px; line-height: 1.25; word-break: break-word;">
-          ${it.isReturn ? '<span style="display: inline-block; font-weight: 900; background: #000; color: #fff; padding: 0 4px; font-size: 9.5px; margin-right: 4px; border-radius: 2px;">[RETURN]</span>' : ''}
+        <div style="font-weight: 800; font-size: 13.5px; line-height: 1.3; word-break: break-word; text-align: left; width: 100%; color: #000 !important;">
+          ${it.isReturn ? '<span style="display: inline-block; font-weight: 900; background: #000; color: #fff; padding: 0 4px; font-size: 10.5px; margin-right: 4px; border-radius: 2px;">[RETURN]</span>' : ''}
           ${it.name}
         </div>
         <!-- Line 2: Size & Color | Qty @ Unit Price | Line Total -->
-        <div style="display: flex; justify-content: space-between; align-items: baseline; font-size: 11px; margin-top: 1.5px;">
-          <span style="width: 38%; text-align: left; opacity: 0.9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+        <div style="width: 100%; display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; font-weight: 700; margin-top: 2px; color: #000 !important;">
+          <span style="width: 40%; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
             ${it.variantDesc || '-'}
           </span>
-          <span style="width: 34%; text-align: center;">
-            ${it.qty} @ ${formatReceiptPrice(it.rate)}${it.discount > 0 ? ` <span style="font-size: 9.5px; opacity: 0.85;">(-${formatReceiptDiscount(it.discount, it.discountType, it.discountInput)})</span>` : ''}
+          <span style="width: 32%; text-align: center;">
+            ${it.qty} @ ${formatReceiptPrice(it.rate)}${it.discount > 0 ? ` <span style="font-size: 10.5px; font-weight: 700;">(-${formatReceiptDiscount(it.discount, it.discountType, it.discountInput)})</span>` : ''}
           </span>
-          <span style="width: 28%; text-align: right; font-weight: 700;">
+          <span style="width: 28%; text-align: right; font-weight: 900;">
             ${it.isReturn ? '-' : ''}Rs. ${formatReceiptPrice(Math.abs(it.amount))}
           </span>
         </div>
@@ -438,7 +438,7 @@ export const generate80mmThermalReceiptHtml = (
       return `
       <div class="flex-between">
         <span>Paid (${label}):</span>
-        <span>Rs. ${formatReceiptPrice(p.amount)}</span>
+        <span style="font-weight: 700;">Rs. ${formatReceiptPrice(p.amount)}</span>
       </div>`;
     })
     .join('');
@@ -459,52 +459,65 @@ export const generate80mmThermalReceiptHtml = (
         margin: 0;
       }
       html, body {
-        width: 80mm;
-        margin: 0;
-        padding: 4mm 2mm 2mm 2mm;
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 0 3mm !important;
         height: auto !important;
         min-height: 0 !important;
-        font-family: 'Courier New', monospace, sans-serif;
-        font-size: 12px;
-        color: #000;
+        font-family: 'Courier New', Courier, monospace, 'Liberation Mono' !important;
+        font-size: 13px !important;
+        font-weight: 600 !important;
+        color: #000 !important;
+        background: #fff !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
       }
       #invoice-root {
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 2mm 0 4mm 0 !important;
         height: auto !important;
         min-height: 0 !important;
       }
     }
     * {
       box-sizing: border-box;
+      color: #000 !important;
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
     }
     html {
+      width: 100%;
       height: auto;
       min-height: 0;
+      background: #fff;
     }
     body {
       margin: 0 auto;
-      padding: 4mm 2mm 4mm 2mm;
-      width: 80mm;
+      padding: 0 3mm;
+      width: 100%;
       max-width: 80mm;
       height: auto;
       min-height: 0;
-      font-family: 'Courier New', monospace, sans-serif;
-      font-size: 12px;
-      line-height: 1.3;
-      color: #000;
+      font-family: 'Courier New', Courier, monospace, 'Liberation Mono';
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.35;
+      color: #000 !important;
       background-color: #fff;
     }
     .text-center { text-align: center; }
     .text-right { text-align: right; }
-    .dashed-sep { border-top: 1px dashed #000; margin: 5px 0; }
-    .dotted-sep { border-top: 1px dotted #000; margin: 4px 0; }
-    .solid-sep { border-top: 1px solid #000; margin: 4px 0; }
-    .double-sep { border-top: 2px solid #000; margin: 4px 0; }
-    .flex-between { display: flex; justify-content: space-between; align-items: baseline; }
+    .dashed-sep { border-top: 1.5px dashed #000; margin: 6px 0; width: 100%; }
+    .dotted-sep { border-top: 1px dotted #000; margin: 5px 0; width: 100%; }
+    .solid-sep { border-top: 1.5px solid #000; margin: 5px 0; width: 100%; }
+    .double-sep { border-top: 2.5px double #000; margin: 5px 0; width: 100%; }
+    .flex-between { width: 100%; display: flex; justify-content: space-between; align-items: baseline; }
     .receipt-logo {
-      width: 48px;
-      height: 48px;
+      width: 50px;
+      height: 50px;
       object-fit: contain;
       display: block;
       filter: grayscale(100%) contrast(300%) brightness(90%);
@@ -512,32 +525,32 @@ export const generate80mmThermalReceiptHtml = (
   </style>
 </head>
 <body>
-  <div id="invoice-root" style="width: 100%; height: auto; min-height: 0; margin: 0; padding: 0;">
+  <div id="invoice-root" style="width: 100%; max-width: 100%; height: auto; min-height: 0; margin: 0; padding: 2mm 0 4mm 0;">
     <!-- Header: Centered Flexbox with Logo left & Brand text right -->
-    <div style="margin-bottom: 4px;">
+    <div style="width: 100%; text-align: center; margin-bottom: 5px;">
       <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 4px;">
         <img
           src="/images/logo.jpg"
           alt="RELIANCE"
           class="receipt-logo"
-          style="width: 48px; height: 48px; object-fit: contain; filter: grayscale(100%) contrast(300%) brightness(90%); flex-shrink: 0; display: block; margin: 0;"
+          style="width: 50px; height: 50px; object-fit: contain; filter: grayscale(100%) contrast(300%) brightness(90%); flex-shrink: 0; display: block; margin: 0;"
         />
         <div style="display: flex; flex-direction: column; justify-content: center; text-align: left;">
-          <div style="font-size: 24px; font-weight: 900; letter-spacing: 2px; line-height: 1; text-transform: uppercase;">
+          <div style="font-size: 26px; font-weight: 900; letter-spacing: 2px; line-height: 1; text-transform: uppercase;">
             RELIANCE
           </div>
-          <div style="font-size: 9.5px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase; line-height: 1.2; margin-top: 2px;">
+          <div style="font-size: 10.5px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase; line-height: 1.2; margin-top: 2px;">
             BRANDED MENS CLOTHING
           </div>
         </div>
       </div>
-      <div style="font-size: 10.5px; font-weight: 600; line-height: 1.25; text-align: center;">
+      <div style="font-size: 11.5px; font-weight: 700; line-height: 1.3; text-align: center;">
         Mawarala Road, Makandura, Matara
       </div>
-      <div style="font-size: 10.5px; font-weight: 600; line-height: 1.25; text-align: center;">
+      <div style="font-size: 11.5px; font-weight: 700; line-height: 1.3; text-align: center;">
         Hotline: 041-2268739 / 071-1350123
       </div>
-      <div style="font-size: 10.5px; font-weight: 600; line-height: 1.25; text-align: center;">
+      <div style="font-size: 11.5px; font-weight: 700; line-height: 1.3; text-align: center;">
         Web: relianceapparel.lk
       </div>
     </div>
@@ -545,149 +558,149 @@ export const generate80mmThermalReceiptHtml = (
     <div class="dashed-sep"></div>
 
     <!-- Invoice & Rep Meta -->
-    <div style="font-size: 11px; line-height: 1.35;">
-      <div class="flex-between" style="font-size: 13px; font-weight: 900;">
+    <div style="width: 100%; font-size: 12px; line-height: 1.4; font-weight: 600;">
+      <div class="flex-between" style="font-size: 14px; font-weight: 900;">
         <span>INVOICE:</span>
         <span>${invoiceNo}</span>
       </div>
-    <div class="flex-between">
-      <span>Date &amp; Time:</span>
-      <span>${dateStr}</span>
-    </div>
-    ${salesRepName ? `
-    <div class="flex-between">
-      <span>Sales Rep:</span>
-      <span style="font-weight: 700;">${salesRepName}</span>
-    </div>` : ''}
-    <div class="flex-between">
-      <span>Billing Type:</span>
-      <span style="font-weight: 800; text-transform: uppercase;">${billingType}</span>
-    </div>
+      <div class="flex-between">
+        <span>Date &amp; Time:</span>
+        <span style="font-weight: 700;">${dateStr}</span>
+      </div>
+      ${salesRepName ? `
+      <div class="flex-between">
+        <span>Sales Rep:</span>
+        <span style="font-weight: 800;">${salesRepName}</span>
+      </div>` : ''}
+      <div class="flex-between">
+        <span>Billing Type:</span>
+        <span style="font-weight: 800; text-transform: uppercase;">${billingType}</span>
+      </div>
 
-    <div class="dotted-sep"></div>
+      <div class="dotted-sep"></div>
 
-    <div class="flex-between">
-      <span>Customer:</span>
-      <span style="font-weight: 800; max-width: 65%; text-align: right;">${customerName}</span>
-    </div>
-    ${customerPhone ? `
-    <div class="flex-between">
-      <span>Phone:</span>
-      <span>${customerPhone}</span>
-    </div>` : ''}
-    ${customerCityOrRoute ? `
-    <div class="flex-between">
-      <span>City / Route:</span>
-      <span style="text-align: right; max-width: 65%;">${customerCityOrRoute}</span>
-    </div>` : ''}
-  </div>
-
-  <div class="dashed-sep"></div>
-
-  <!-- Itemized Items Matrix Header -->
-  <div style="display: flex; justify-content: space-between; font-size: 10.5px; font-weight: 700; border-bottom: 1px dashed #000; padding-bottom: 3px;">
-    <span style="width: 38%; text-align: left;">Size &amp; Color</span>
-    <span style="width: 34%; text-align: center;">Qty @ Rate</span>
-    <span style="width: 28%; text-align: right;">Total (Rs.)</span>
-  </div>
-
-  <!-- 2-Line Layout Item Rows -->
-  <div style="margin: 2px 0;">
-    ${itemsRowsHtml}
-  </div>
-
-  <div class="dashed-sep"></div>
-
-  <!-- Strict Financial Ledger Breakdown -->
-  <div style="font-size: 11.5px; line-height: 1.4;">
-    <div class="flex-between">
-      <span>Sub Total (Gross):</span>
-      <span>Rs. ${formatReceiptPrice(grossSubtotal)}</span>
-    </div>
-    ${totalDiscounts > 0 ? `
-    <div class="flex-between" style="font-weight: 600;">
-      <span>Total Discounts:</span>
-      <span>- Rs. ${formatReceiptPrice(totalDiscounts)}</span>
-    </div>` : ''}
-    <div class="flex-between" style="font-size: 13px; font-weight: 900; border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 3px 0; margin: 3px 0;">
-      <span>NET BILL AMOUNT:</span>
-      <span>Rs. ${formatReceiptPrice(netBillAmount)}</span>
+      <div class="flex-between">
+        <span>Customer:</span>
+        <span style="font-weight: 800; max-width: 65%; text-align: right;">${customerName}</span>
+      </div>
+      ${customerPhone ? `
+      <div class="flex-between">
+        <span>Phone:</span>
+        <span style="font-weight: 700;">${customerPhone}</span>
+      </div>` : ''}
+      ${customerCityOrRoute ? `
+      <div class="flex-between">
+        <span>City / Route:</span>
+        <span style="text-align: right; max-width: 65%; font-weight: 700;">${customerCityOrRoute}</span>
+      </div>` : ''}
     </div>
 
-    ${isReturnBill ? `
-    <!-- Return Bill Financial Ledger -->
-    <div class="flex-between">
-      <span>Previous Due (Before Return):</span>
-      <span>Rs. ${formatReceiptPrice(previousDueBeforeReturn)}</span>
-    </div>
-    <div class="flex-between" style="font-weight: 700;">
-      <span>Deducted (Return Credit):</span>
-      <span>- Rs. ${formatReceiptPrice(creditApplied)}</span>
-    </div>
-    ${refundedCashAmount > 0 ? `
-    <div class="flex-between">
-      <span>Cash Refunded:</span>
-      <span>Rs. ${formatReceiptPrice(refundedCashAmount)}</span>
-    </div>` : ''}
-    <div class="flex-between" style="font-size: 13px; font-weight: 900; border-top: 2px solid #000; padding-top: 4px; margin-top: 3px;">
-      <span>UPDATED OUTSTANDING:</span>
-      <span>Rs. ${formatReceiptPrice(updatedBalance)}</span>
-    </div>
-    ` : `
-    <!-- Standard Invoice Financial Ledger -->
-    ${hasCustomerAccount ? `
-    <div class="flex-between">
-      <span>Previous Due (Before Bill):</span>
-      <span>Rs. ${formatReceiptPrice(previousDueBeforeBill)}</span>
-    </div>` : ''}
+    <div class="dashed-sep"></div>
 
-    ${paymentsHtml}
-
-    ${balanceDue > 0 && hasCustomerAccount ? `
-    <div class="flex-between" style="font-weight: 600;">
-      <span>Bill Credit (Unpaid):</span>
-      <span>+ Rs. ${formatReceiptPrice(balanceDue)}</span>
-    </div>` : ''}
-
-    ${settledDue > 0 ? `
-    <div class="flex-between" style="font-weight: 600;">
-      <span>Settled from Previous Due:</span>
-      <span>- Rs. ${formatReceiptPrice(settledDue)}</span>
-    </div>` : ''}
-
-    ${hasCustomerAccount ? `
-    <div class="flex-between" style="font-size: 13px; font-weight: 900; border-top: 2px solid #000; padding-top: 4px; margin-top: 3px;">
-      <span>UPDATED OUTSTANDING:</span>
-      <span>Rs. ${formatReceiptPrice(updatedBalance)}</span>
-    </div>` : `
-    ${balanceDue > 0 ? `
-    <div class="flex-between" style="font-weight: 700;">
-      <span>Balance Due:</span>
-      <span>Rs. ${formatReceiptPrice(balanceDue)}</span>
-    </div>` : ''}
-    ${changeAmount > 0 ? `
-    <div class="flex-between">
-      <span>Change:</span>
-      <span>Rs. ${formatReceiptPrice(changeAmount)}</span>
-    </div>` : ''}
-    `}
-    `}
-  </div>
-
-  <div class="dashed-sep"></div>
-
-  <!-- Footer: Exchange Policy & Partnership Message (Barcode and duplicate invoice no removed) -->
-  <div class="text-center" style="margin-top: 6px;">
-    <div style="font-size: 11px; font-weight: 700; margin-bottom: 2px;">
-      Exchangeable within 7 days with this receipt
+    <!-- Itemized Items Matrix Header -->
+    <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 800; border-bottom: 1.5px dashed #000; padding-bottom: 3px; text-transform: uppercase;">
+      <span style="width: 40%; text-align: left;">Size &amp; Color</span>
+      <span style="width: 32%; text-align: center;">Qty @ Rate</span>
+      <span style="width: 28%; text-align: right;">Total (Rs.)</span>
     </div>
-    <div style="font-size: 11.5px; font-weight: 800; margin-bottom: 3px;">
-      Thank you for your valued partnership!
+
+    <!-- 2-Line Layout Item Rows -->
+    <div style="width: 100%; margin: 2px 0;">
+      ${itemsRowsHtml}
     </div>
-    <div style="font-size: 9.5px; font-weight: 600; opacity: 0.85; margin-top: 4px;">
-      Software by nebula infinite 078 323 3760
+
+    <div class="dashed-sep"></div>
+
+    <!-- Strict Financial Ledger Breakdown -->
+    <div style="width: 100%; font-size: 12.5px; line-height: 1.45; font-weight: 600;">
+      <div class="flex-between">
+        <span>Sub Total (Gross):</span>
+        <span style="font-weight: 700;">Rs. ${formatReceiptPrice(grossSubtotal)}</span>
+      </div>
+      ${totalDiscounts > 0 ? `
+      <div class="flex-between" style="font-weight: 700;">
+        <span>Total Discounts:</span>
+        <span>- Rs. ${formatReceiptPrice(totalDiscounts)}</span>
+      </div>` : ''}
+      <div class="flex-between" style="font-size: 14px; font-weight: 900; border-top: 1.5px solid #000; border-bottom: 1.5px solid #000; padding: 4px 0; margin: 4px 0;">
+        <span>NET BILL AMOUNT:</span>
+        <span>Rs. ${formatReceiptPrice(netBillAmount)}</span>
+      </div>
+
+      ${isReturnBill ? `
+      <!-- Return Bill Financial Ledger -->
+      <div class="flex-between">
+        <span>Previous Due (Before Return):</span>
+        <span style="font-weight: 700;">Rs. ${formatReceiptPrice(previousDueBeforeReturn)}</span>
+      </div>
+      <div class="flex-between" style="font-weight: 800;">
+        <span>Deducted (Return Credit):</span>
+        <span>- Rs. ${formatReceiptPrice(creditApplied)}</span>
+      </div>
+      ${refundedCashAmount > 0 ? `
+      <div class="flex-between" style="font-weight: 700;">
+        <span>Cash Refunded:</span>
+        <span>Rs. ${formatReceiptPrice(refundedCashAmount)}</span>
+      </div>` : ''}
+      <div class="flex-between" style="font-size: 14px; font-weight: 900; border-top: 2px solid #000; padding-top: 4px; margin-top: 4px;">
+        <span>UPDATED OUTSTANDING:</span>
+        <span>Rs. ${formatReceiptPrice(updatedBalance)}</span>
+      </div>
+      ` : `
+      <!-- Standard Invoice Financial Ledger -->
+      ${hasCustomerAccount ? `
+      <div class="flex-between">
+        <span>Previous Due (Before Bill):</span>
+        <span style="font-weight: 700;">Rs. ${formatReceiptPrice(previousDueBeforeBill)}</span>
+      </div>` : ''}
+
+      ${paymentsHtml}
+
+      ${balanceDue > 0 && hasCustomerAccount ? `
+      <div class="flex-between" style="font-weight: 700;">
+        <span>Bill Credit (Unpaid):</span>
+        <span>+ Rs. ${formatReceiptPrice(balanceDue)}</span>
+      </div>` : ''}
+
+      ${settledDue > 0 ? `
+      <div class="flex-between" style="font-weight: 700;">
+        <span>Settled from Previous Due:</span>
+        <span>- Rs. ${formatReceiptPrice(settledDue)}</span>
+      </div>` : ''}
+
+      ${hasCustomerAccount ? `
+      <div class="flex-between" style="font-size: 14px; font-weight: 900; border-top: 2px solid #000; padding-top: 4px; margin-top: 4px;">
+        <span>UPDATED OUTSTANDING:</span>
+        <span>Rs. ${formatReceiptPrice(updatedBalance)}</span>
+      </div>` : `
+      ${balanceDue > 0 ? `
+      <div class="flex-between" style="font-weight: 800;">
+        <span>Balance Due:</span>
+        <span>Rs. ${formatReceiptPrice(balanceDue)}</span>
+      </div>` : ''}
+      ${changeAmount > 0 ? `
+      <div class="flex-between" style="font-weight: 800;">
+        <span>Change:</span>
+        <span>Rs. ${formatReceiptPrice(changeAmount)}</span>
+      </div>` : ''}
+      `}
+      `}
     </div>
-  </div>
+
+    <div class="dashed-sep"></div>
+
+    <!-- Footer: Exchange Policy & Partnership Message (Barcode and duplicate invoice no removed) -->
+    <div class="text-center" style="width: 100%; text-align: center; margin-top: 8px;">
+      <div style="font-size: 11.5px; font-weight: 800; margin-bottom: 2px;">
+        Exchangeable within 7 days with this receipt
+      </div>
+      <div style="font-size: 12px; font-weight: 900; margin-bottom: 3px;">
+        Thank you for your valued partnership!
+      </div>
+      <div style="font-size: 10.5px; font-weight: 700; margin-top: 4px;">
+        Software by nebula infinite 078 323 3760
+      </div>
+    </div>
   </div>
 </body>
 </html>`;

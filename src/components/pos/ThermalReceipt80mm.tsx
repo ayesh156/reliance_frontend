@@ -224,27 +224,29 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
       id="printable-receipt"
       className="hidden print:block font-mono text-black bg-white"
       style={{
-        width: '80mm',
+        width: '100%',
         maxWidth: '80mm',
         height: 'auto',
         minHeight: '0',
         margin: '0 auto',
-        padding: '4mm 2mm 4mm 2mm',
-        fontSize: '12px',
-        lineHeight: '1.3',
+        padding: '0 3mm',
+        fontFamily: "'Courier New', Courier, monospace, 'Liberation Mono'",
+        fontSize: '13px',
+        fontWeight: 600,
+        lineHeight: '1.35',
         color: '#000',
         backgroundColor: '#fff',
       }}
     >
       {/* Header: Centered Flexbox with Logo left & Brand text right */}
-      <div style={{ marginBottom: '4px' }}>
+      <div style={{ width: '100%', textAlign: 'center', marginBottom: '5px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', marginBottom: '4px' }}>
           <img
             src="/images/logo.jpg"
             alt="RELIANCE"
             style={{
-              width: '48px',
-              height: '48px',
+              width: '50px',
+              height: '50px',
               objectFit: 'contain',
               display: 'block',
               filter: 'grayscale(100%) contrast(300%) brightness(90%)',
@@ -253,41 +255,41 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
             }}
           />
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: 'left' }}>
-            <div style={{ fontSize: '24px', fontWeight: 900, letterSpacing: '2px', lineHeight: 1, textTransform: 'uppercase' }}>
+            <div style={{ fontSize: '26px', fontWeight: 900, letterSpacing: '2px', lineHeight: 1, textTransform: 'uppercase' }}>
               RELIANCE
             </div>
-            <div style={{ fontSize: '9.5px', fontWeight: 800, letterSpacing: '0.8px', textTransform: 'uppercase', lineHeight: 1.2, marginTop: '2px' }}>
+            <div style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.8px', textTransform: 'uppercase', lineHeight: 1.2, marginTop: '2px' }}>
               BRANDED MENS CLOTHING
             </div>
           </div>
         </div>
-        <div style={{ fontSize: '10.5px', fontWeight: 600, lineHeight: '1.25', textAlign: 'center' }}>
+        <div style={{ fontSize: '11.5px', fontWeight: 700, lineHeight: '1.3', textAlign: 'center' }}>
           Mawarala Road, Makandura, Matara
         </div>
-        <div style={{ fontSize: '10.5px', fontWeight: 600, lineHeight: '1.25', textAlign: 'center' }}>
+        <div style={{ fontSize: '11.5px', fontWeight: 700, lineHeight: '1.3', textAlign: 'center' }}>
           Hotline: 041-2268739 / 071-1350123
         </div>
-        <div style={{ fontSize: '10.5px', fontWeight: 600, lineHeight: '1.25', textAlign: 'center' }}>
+        <div style={{ fontSize: '11.5px', fontWeight: 700, lineHeight: '1.3', textAlign: 'center' }}>
           Web: relianceapparel.lk
         </div>
       </div>
 
-      <div style={{ borderTop: '1px dashed #000', margin: '5px 0' }} />
+      <div style={{ borderTop: '1.5px dashed #000', margin: '6px 0', width: '100%' }} />
 
       {/* Invoice & Rep Meta */}
-      <div style={{ fontSize: '11px', lineHeight: '1.35' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 900 }}>
+      <div style={{ width: '100%', fontSize: '12px', lineHeight: '1.4', fontWeight: 600 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: 900 }}>
           <span>INVOICE:</span>
           <span>{invoiceNo}</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           <span>Date &amp; Time:</span>
-          <span>{dateStr}</span>
+          <span style={{ fontWeight: 700 }}>{dateStr}</span>
         </div>
         {salesRepName ? (
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span>Sales Rep:</span>
-            <span style={{ fontWeight: 700 }}>{salesRepName}</span>
+            <span style={{ fontWeight: 800 }}>{salesRepName}</span>
           </div>
         ) : null}
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -295,7 +297,7 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
           <span style={{ fontWeight: 800, textTransform: 'uppercase' }}>{billingType}</span>
         </div>
 
-        <div style={{ borderTop: '1px dotted #000', margin: '4px 0' }} />
+        <div style={{ borderTop: '1px dotted #000', margin: '5px 0', width: '100%' }} />
 
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           <span>Customer:</span>
@@ -304,41 +306,44 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
         {customerPhone ? (
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span>Phone:</span>
-            <span>{customerPhone}</span>
+            <span style={{ fontWeight: 700 }}>{customerPhone}</span>
           </div>
         ) : null}
         {customerCityOrRoute ? (
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span>City / Route:</span>
-            <span style={{ textAlign: 'right', maxWidth: '65%' }}>{customerCityOrRoute}</span>
+            <span style={{ textAlign: 'right', maxWidth: '65%', fontWeight: 700 }}>{customerCityOrRoute}</span>
           </div>
         ) : null}
       </div>
 
-      <div style={{ borderTop: '1px dashed #000', margin: '5px 0' }} />
+      <div style={{ borderTop: '1.5px dashed #000', margin: '6px 0', width: '100%' }} />
 
       {/* Itemized Items Matrix Header */}
       <div
         style={{
+          width: '100%',
           display: 'flex',
           justifyContent: 'space-between',
-          fontSize: '10.5px',
-          fontWeight: 700,
-          borderBottom: '1px dashed #000',
+          alignItems: 'center',
+          fontSize: '12px',
+          fontWeight: 800,
+          borderBottom: '1.5px dashed #000',
           paddingBottom: '3px',
+          textTransform: 'uppercase',
         }}
       >
-        <span style={{ width: '38%', textAlign: 'left' }}>Size &amp; Color</span>
-        <span style={{ width: '34%', textAlign: 'center' }}>Qty @ Rate</span>
+        <span style={{ width: '40%', textAlign: 'left' }}>Size &amp; Color</span>
+        <span style={{ width: '32%', textAlign: 'center' }}>Qty @ Rate</span>
         <span style={{ width: '28%', textAlign: 'right' }}>Total (Rs.)</span>
       </div>
 
       {/* 2-Line Layout Item Rows */}
-      <div style={{ margin: '2px 0' }}>
+      <div style={{ width: '100%', margin: '2px 0' }}>
         {items.map((it, idx) => (
-          <div key={idx} style={{ padding: '3.5px 0 3px 0', borderBottom: '1px dotted #888' }}>
+          <div key={idx} style={{ width: '100%', padding: '4px 0 3px 0', borderBottom: '1px dotted #000' }}>
             {/* Line 1: Item Name (Bold) with Distinct [RETURN] Tag */}
-            <div style={{ fontWeight: 700, fontSize: '11.5px', lineHeight: '1.25', wordBreak: 'break-word' }}>
+            <div style={{ fontWeight: 800, fontSize: '13.5px', lineHeight: '1.3', wordBreak: 'break-word', textAlign: 'left', width: '100%', color: '#000' }}>
               {it.isReturn ? (
                 <span
                   style={{
@@ -347,7 +352,7 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
                     background: '#000',
                     color: '#fff',
                     padding: '0 4px',
-                    fontSize: '9.5px',
+                    fontSize: '10.5px',
                     marginRight: '4px',
                     borderRadius: '2px',
                   }}
@@ -360,25 +365,28 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
             {/* Line 2: Size & Color | Qty @ Unit Price | Line Total */}
             <div
               style={{
+                width: '100%',
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'baseline',
-                fontSize: '11px',
-                marginTop: '1.5px',
+                fontSize: '12px',
+                fontWeight: 700,
+                marginTop: '2px',
+                color: '#000',
               }}
             >
-              <span style={{ width: '38%', textAlign: 'left', opacity: 0.9, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span style={{ width: '40%', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {it.variantDesc || '-'}
               </span>
-              <span style={{ width: '34%', textAlign: 'center' }}>
+              <span style={{ width: '32%', textAlign: 'center' }}>
                 {it.qty} @ {formatReceiptPrice(it.rate)}
                 {it.discount > 0 ? (
-                  <span style={{ fontSize: '9.5px', opacity: 0.85 }}>
+                  <span style={{ fontSize: '10.5px', fontWeight: 700 }}>
                     {` (-${formatReceiptDiscount(it.discount, it.discountType, it.discountInput)})`}
                   </span>
                 ) : null}
               </span>
-              <span style={{ width: '28%', textAlign: 'right', fontWeight: 700 }}>
+              <span style={{ width: '28%', textAlign: 'right', fontWeight: 900 }}>
                 {it.isReturn ? '-' : ''}Rs. {formatReceiptPrice(Math.abs(it.amount))}
               </span>
             </div>
@@ -386,16 +394,16 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
         ))}
       </div>
 
-      <div style={{ borderTop: '1px dashed #000', margin: '5px 0' }} />
+      <div style={{ borderTop: '1.5px dashed #000', margin: '6px 0', width: '100%' }} />
 
       {/* Strict Financial Ledger Breakdown */}
-      <div style={{ fontSize: '11.5px', lineHeight: '1.4' }}>
+      <div style={{ width: '100%', fontSize: '12.5px', lineHeight: '1.45', fontWeight: 600 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           <span>Sub Total (Gross):</span>
-          <span>Rs. {formatReceiptPrice(grossSubtotal)}</span>
+          <span style={{ fontWeight: 700 }}>Rs. {formatReceiptPrice(grossSubtotal)}</span>
         </div>
         {totalDiscounts > 0 ? (
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
             <span>Total Discounts:</span>
             <span>- Rs. {formatReceiptPrice(totalDiscounts)}</span>
           </div>
@@ -404,12 +412,12 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
           style={{
             display: 'flex',
             justifyContent: 'space-between',
-            fontSize: '13px',
+            fontSize: '14px',
             fontWeight: 900,
-            borderTop: '1px solid #000',
-            borderBottom: '1px solid #000',
-            padding: '3px 0',
-            margin: '3px 0',
+            borderTop: '1.5px solid #000',
+            borderBottom: '1.5px solid #000',
+            padding: '4px 0',
+            margin: '4px 0',
           }}
         >
           <span>NET BILL AMOUNT:</span>
@@ -420,14 +428,14 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span>Previous Due (Before Return):</span>
-              <span>Rs. {formatReceiptPrice(previousDueBeforeReturn)}</span>
+              <span style={{ fontWeight: 700 }}>Rs. {formatReceiptPrice(previousDueBeforeReturn)}</span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800 }}>
               <span>Deducted (Return Credit):</span>
-              <span>- Rs. {formatReceiptPrice(creditApplied)}</span>
+              <span>- Rs. ${formatReceiptPrice(creditApplied)}</span>
             </div>
             {refundedCashAmount > 0 ? (
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
                 <span>Cash Refunded:</span>
                 <span>Rs. {formatReceiptPrice(refundedCashAmount)}</span>
               </div>
@@ -436,11 +444,11 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
               style={{
                 display: 'flex',
                 justifyContent: 'space-between',
-                fontSize: '13px',
+                fontSize: '14px',
                 fontWeight: 900,
                 borderTop: '2px solid #000',
                 paddingTop: '4px',
-                marginTop: '3px',
+                marginTop: '4px',
               }}
             >
               <span>UPDATED OUTSTANDING:</span>
@@ -452,7 +460,7 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
             {hasCustomerAccount ? (
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span>Previous Due (Before Bill):</span>
-                <span>Rs. {formatReceiptPrice(previousDueBeforeBill)}</span>
+                <span style={{ fontWeight: 700 }}>Rs. {formatReceiptPrice(previousDueBeforeBill)}</span>
               </div>
             ) : null}
 
@@ -461,20 +469,20 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
               return (
                 <div key={pIdx} style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Paid ({label}):</span>
-                  <span>Rs. {formatReceiptPrice(p.amount)}</span>
+                  <span style={{ fontWeight: 700 }}>Rs. {formatReceiptPrice(p.amount)}</span>
                 </div>
               );
             })}
 
             {balanceDue > 0 && hasCustomerAccount ? (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
                 <span>Bill Credit (Unpaid):</span>
                 <span>+ Rs. {formatReceiptPrice(balanceDue)}</span>
               </div>
             ) : null}
 
             {settledDue > 0 ? (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
                 <span>Settled from Previous Due:</span>
                 <span>- Rs. {formatReceiptPrice(settledDue)}</span>
               </div>
@@ -485,11 +493,11 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
                 style={{
                   display: 'flex',
                   justifyContent: 'space-between',
-                  fontSize: '13px',
+                  fontSize: '14px',
                   fontWeight: 900,
                   borderTop: '2px solid #000',
                   paddingTop: '4px',
-                  marginTop: '3px',
+                  marginTop: '4px',
                 }}
               >
                 <span>UPDATED OUTSTANDING:</span>
@@ -498,13 +506,13 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
             ) : (
               <>
                 {balanceDue > 0 ? (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800 }}>
                     <span>Balance Due:</span>
                     <span>Rs. {formatReceiptPrice(balanceDue)}</span>
                   </div>
                 ) : null}
                 {changeAmount > 0 ? (
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800 }}>
                     <span>Change:</span>
                     <span>Rs. {formatReceiptPrice(changeAmount)}</span>
                   </div>
@@ -515,17 +523,17 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
         )}
       </div>
 
-      <div style={{ borderTop: '1px dashed #000', margin: '5px 0' }} />
+      <div style={{ borderTop: '1.5px dashed #000', margin: '6px 0', width: '100%' }} />
 
       {/* Footer: Exchange Policy & Partnership Message (Barcode and duplicate invoice no removed) */}
-      <div style={{ textAlign: 'center', marginTop: '6px' }}>
-        <div style={{ fontSize: '11px', fontWeight: 700, marginBottom: '2px' }}>
+      <div style={{ width: '100%', textAlign: 'center', marginTop: '8px' }}>
+        <div style={{ fontSize: '11.5px', fontWeight: 800, marginBottom: '2px' }}>
           Exchangeable within 7 days with this receipt
         </div>
-        <div style={{ fontSize: '11.5px', fontWeight: 800, marginBottom: '3px' }}>
+        <div style={{ fontSize: '12px', fontWeight: 900, marginBottom: '3px' }}>
           Thank you for your valued partnership!
         </div>
-        <div style={{ fontSize: '9.5px', fontWeight: 600, opacity: 0.85, marginTop: '4px' }}>
+        <div style={{ fontSize: '10.5px', fontWeight: 700, marginTop: '4px' }}>
           Software by nebula infinite 078 323 3760
         </div>
       </div>
