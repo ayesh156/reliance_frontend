@@ -3,6 +3,7 @@ import {
   type ThermalOrder,
   formatReceiptPrice,
   formatReceiptDiscount,
+  formatThermalReceiptDateTime,
 } from '../../utils/thermalReceipt';
 
 export interface ThermalReceipt80mmProps {
@@ -31,23 +32,7 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
   const barcodeValue = String(order.invoiceNumber || (order.id ? `INV${order.id}` : 'INV-DRAFT')).replace('#', '');
 
   // Date & Time
-  const dateStr = order.createdAt
-    ? new Date(order.createdAt).toLocaleString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true,
-      })
-    : new Date().toLocaleString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true,
-      });
+  const dateStr = formatThermalReceiptDateTime(order.createdAt);
 
   // Billing Type: WHOLESALE or RETAIL
   const isWholesale =
@@ -233,7 +218,7 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
       className="hidden print:block font-mono text-black bg-white"
       style={{
         width: '100%',
-        maxWidth: '80mm',
+        maxWidth: '100%',
         height: 'auto',
         minHeight: '0',
         margin: '0 auto',
@@ -398,7 +383,7 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
                   </span>
                 ) : null}
               </span>
-              <span style={{ fontWeight: 900, textAlign: 'right' }}>
+              <span style={{ fontWeight: 900, textAlign: 'right', whiteSpace: 'nowrap' }}>
                 {it.isReturn ? '-' : ''}{formatReceiptPrice(Math.abs(it.amount))}
               </span>
             </div>
@@ -412,12 +397,12 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
       <div style={{ width: '100%', fontSize: '12.5px', lineHeight: '1.45', fontWeight: 700 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           <span>Sub Total (Gross):</span>
-          <span style={{ fontWeight: 700 }}>{formatReceiptPrice(grossSubtotal)}</span>
+          <span style={{ fontWeight: 700, textAlign: 'right', whiteSpace: 'nowrap' }}>{formatReceiptPrice(grossSubtotal)}</span>
         </div>
         {totalDiscounts > 0 ? (
           <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
             <span>Total Discounts:</span>
-            <span>-{formatReceiptPrice(totalDiscounts)}</span>
+            <span style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>-{formatReceiptPrice(totalDiscounts)}</span>
           </div>
         ) : null}
         <div
@@ -433,7 +418,7 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
           }}
         >
           <span>NET BILL AMOUNT:</span>
-          <span>{formatReceiptPrice(netBillAmount)}</span>
+          <span style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{formatReceiptPrice(netBillAmount)}</span>
         </div>
 
         {isReturnBill ? (

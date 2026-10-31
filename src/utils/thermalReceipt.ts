@@ -134,6 +134,25 @@ export const formatReceiptDiscount = (
 };
 
 /**
+ * Formats a timestamp into strict 'YYYY-MM-DD hh:mm A' representation (e.g., '2026-10-23 07:53 PM')
+ * using local system time with leading zero padding for standard alignment across thermal POS receipts.
+ */
+export const formatThermalReceiptDateTime = (dateInput: string | Date | undefined | null): string => {
+  const d = dateInput ? new Date(dateInput) : new Date();
+  const valid = isNaN(d.getTime()) ? new Date() : d;
+  const yyyy = valid.getFullYear();
+  const mm = String(valid.getMonth() + 1).padStart(2, '0');
+  const dd = String(valid.getDate()).padStart(2, '0');
+  let hours = valid.getHours();
+  const minutes = String(valid.getMinutes()).padStart(2, '0');
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  hours = hours ? hours : 12;
+  const hh = String(hours).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd} ${hh}:${minutes} ${ampm}`;
+};
+
+/**
  * Generates an SVG CODE128 barcode string representing the invoice number.
  * Tailored for high-contrast, razor-sharp 203 DPI rendering on 80mm thermal printers.
  */
@@ -216,24 +235,8 @@ export const generate80mmThermalReceiptHtml = (
     : (rawId ? `#INV${rawId}` : '#INV-DRAFT');
   const barcodeValue = String(order.invoiceNumber || (order.id ? `INV${order.id}` : 'INV-DRAFT')).replace('#', '');
 
-  // Date and Time Formatting
-  const dateStr = order.createdAt
-    ? new Date(order.createdAt).toLocaleString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true,
-      })
-    : new Date().toLocaleString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true,
-      });
+  // Date and Time Formatting strictly YYYY-MM-DD hh:mm A
+  const dateStr = formatThermalReceiptDateTime(order.createdAt);
 
   // Billing Type: WHOLESALE or RETAIL
   const isWholesale =
@@ -428,12 +431,12 @@ export const generate80mmThermalReceiptHtml = (
         <div style="font-size: 11px; font-weight: 700; text-align: left; width: 100%; margin-top: 1px; color: #000000 !important; word-break: break-word;">
           ${it.variantDesc}
         </div>` : ''}
-        <!-- Line 3: Qty @ Rate on left, Total strictly right-aligned (No redundant Rs. prefix) -->
-        <div class="flex-between" style="font-size: 12px; font-weight: 700; margin-top: 2px; color: #000000 !important; width: 100%; padding-right: 2mm; box-sizing: border-box;">
-          <span>
+        <!-- Line 3: Strict Flex Space-Between (Qty @ Rate on left, Total flush right aligned under TOTAL (RS.)) -->
+        <div style="display: flex; justify-content: space-between; align-items: baseline; width: 100%; font-size: 12px; font-weight: 700; margin-top: 2px; color: #000000 !important; box-sizing: border-box;">
+          <span style="text-align: left;">
             ${it.qty} @ ${formatReceiptPrice(it.rate)}${it.discount > 0 ? ` <span style="font-size: 10px; font-weight: 700;">(-${formatReceiptDiscount(it.discount, it.discountType, it.discountInput)})</span>` : ''}
           </span>
-          <span style="font-weight: 900; text-align: right;">
+          <span style="font-weight: 900; text-align: right; white-space: nowrap;">
             ${it.isReturn ? '-' : ''}${formatReceiptPrice(Math.abs(it.amount))}
           </span>
         </div>
@@ -441,14 +444,14 @@ export const generate80mmThermalReceiptHtml = (
     )
     .join('');
 
-  // Itemized Payment Lines HTML (No redundant Rs. prefix)
+  // Itemized Payment Lines HTML (No redundant Rs. prefix, flush right aligned)
   const paymentsHtml = itemizedPayments
     .map((p) => {
       const label = p.method === 'CHEQUE' ? (p.reference || 'Cheque') : p.method;
       return `
       <div class="flex-between">
         <span>Paid (${label}):</span>
-        <span style="font-weight: 700; padding-right: 2mm;">${formatReceiptPrice(p.amount)}</span>
+        <span style="font-weight: 700; text-align: right; white-space: nowrap;">${formatReceiptPrice(p.amount)}</span>
       </div>`;
     })
     .join('');
@@ -511,8 +514,8 @@ export const generate80mmThermalReceiptHtml = (
     body {
       margin: 0 auto;
       padding: 0;
-      width: 100%;
-      max-width: 80mm;
+      width: 100% !important;
+      max-width: 100% !important;
       height: auto;
       min-height: 0;
       font-family: 'Courier New', Courier, monospace;
@@ -530,12 +533,11 @@ export const generate80mmThermalReceiptHtml = (
     .solid-sep { border-top: 1.5px solid #000000; margin: 4px 0; width: 100%; }
     .double-sep { border-top: 2.5px double #000000; margin: 4px 0; width: 100%; }
     .flex-between {
-      width: 100%;
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      padding-right: 2mm;
-      box-sizing: border-box;
+      width: 100% !important;
+      display: flex !important;
+      justify-content: space-between !important;
+      align-items: baseline !important;
+      box-sizing: border-box !important;
     }
     .receipt-logo {
       width: 48px;
@@ -547,7 +549,7 @@ export const generate80mmThermalReceiptHtml = (
   </style>
 </head>
 <body>
-  <div id="invoice-root" style="width: 100%; max-width: 80mm; box-sizing: border-box; padding: 2mm 1mm 2mm 1mm; margin: 0 auto; overflow: hidden; height: auto; min-height: 0; background: #ffffff;">
+  <div id="invoice-root" style="width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; padding: 2mm 1mm 2mm 1mm !important; margin: 0 auto; overflow: hidden; height: auto; min-height: 0; background: #ffffff;">
     <!-- Header: Centered Flexbox with Logo left & Brand text right -->
     <div style="width: 100%; text-align: center; margin-bottom: 4px;">
       <div style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 4px;">
@@ -579,50 +581,50 @@ export const generate80mmThermalReceiptHtml = (
 
     <div class="dashed-sep"></div>
 
-    <!-- Invoice & Rep Meta: Tight Single-Line Layout with 2mm Right Clearance -->
+    <!-- Invoice & Rep Meta: Tight Single-Line Layout -->
     <div style="width: 100%; font-size: 11.5px; line-height: 1.35; font-weight: 700;">
       <div class="flex-between" style="white-space: nowrap;">
         <span>INVOICE:</span>
-        <span style="font-weight: 900; font-size: 12.5px; padding-right: 2mm;">${invoiceNo}</span>
+        <span style="font-weight: 900; font-size: 12.5px; text-align: right;">${invoiceNo}</span>
       </div>
       <div class="flex-between" style="white-space: nowrap;">
         <span>Date &amp; Time:</span>
-        <span style="font-weight: 700; padding-right: 2mm;">${dateStr}</span>
+        <span style="font-weight: 700; text-align: right;">${dateStr}</span>
       </div>
       ${salesRepName ? `
       <div class="flex-between" style="white-space: nowrap;">
         <span>Sales Rep:</span>
-        <span style="font-weight: 800; padding-right: 2mm;">${salesRepName}</span>
+        <span style="font-weight: 800; text-align: right;">${salesRepName}</span>
       </div>` : ''}
       <div class="flex-between" style="white-space: nowrap;">
         <span>Billing Type:</span>
-        <span style="font-weight: 800; text-transform: uppercase; padding-right: 2mm;">${billingType}</span>
+        <span style="font-weight: 800; text-transform: uppercase; text-align: right;">${billingType}</span>
       </div>
 
       <div class="dotted-sep"></div>
 
       <div class="flex-between" style="white-space: nowrap;">
         <span>Customer:</span>
-        <span style="font-weight: 800; text-align: right; max-width: 65%; overflow: hidden; text-overflow: ellipsis; padding-right: 2mm;">${customerName}</span>
+        <span style="font-weight: 800; text-align: right; max-width: 65%; overflow: hidden; text-overflow: ellipsis;">${customerName}</span>
       </div>
       ${customerPhone ? `
       <div class="flex-between" style="white-space: nowrap;">
         <span>Phone:</span>
-        <span style="font-weight: 700; padding-right: 2mm;">${customerPhone}</span>
+        <span style="font-weight: 700; text-align: right;">${customerPhone}</span>
       </div>` : ''}
       ${customerCityOrRoute ? `
       <div class="flex-between" style="white-space: nowrap;">
         <span>City / Route:</span>
-        <span style="text-align: right; max-width: 65%; font-weight: 700; overflow: hidden; text-overflow: ellipsis; padding-right: 2mm;">${customerCityOrRoute}</span>
+        <span style="text-align: right; max-width: 65%; font-weight: 700; overflow: hidden; text-overflow: ellipsis;">${customerCityOrRoute}</span>
       </div>` : ''}
     </div>
 
     <div class="dashed-sep"></div>
 
     <!-- Itemized Items Matrix Header -->
-    <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; font-weight: 800; border-bottom: 1.5px dashed #000000; padding-bottom: 3px; padding-right: 2mm; text-transform: uppercase; box-sizing: border-box;">
+    <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; font-weight: 800; border-bottom: 1.5px dashed #000000; padding-bottom: 3px; text-transform: uppercase; box-sizing: border-box;">
       <span style="text-align: left;">ITEMS &amp; DETAILS</span>
-      <span style="text-align: right;">TOTAL (RS.)</span>
+      <span style="text-align: right; white-space: nowrap;">TOTAL (RS.)</span>
     </div>
 
     <!-- 3-Line Layout Item Rows -->
@@ -636,43 +638,43 @@ export const generate80mmThermalReceiptHtml = (
     <div style="width: 100%; font-size: 12.5px; line-height: 1.45; font-weight: 700;">
       <div class="flex-between">
         <span>Sub Total (Gross):</span>
-        <span style="font-weight: 700; padding-right: 2mm;">${formatReceiptPrice(grossSubtotal)}</span>
+        <span style="font-weight: 700; text-align: right; white-space: nowrap;">${formatReceiptPrice(grossSubtotal)}</span>
       </div>
       ${totalDiscounts > 0 ? `
       <div class="flex-between" style="font-weight: 700;">
         <span>Total Discounts:</span>
-        <span style="padding-right: 2mm;">-${formatReceiptPrice(totalDiscounts)}</span>
+        <span style="text-align: right; white-space: nowrap;">-${formatReceiptPrice(totalDiscounts)}</span>
       </div>` : ''}
       <div class="flex-between" style="font-size: 13.5px; font-weight: 900; border-top: 1.5px solid #000000; border-bottom: 1.5px solid #000000; padding: 4px 0; margin: 4px 0;">
         <span>NET BILL AMOUNT:</span>
-        <span style="padding-right: 2mm;">${formatReceiptPrice(netBillAmount)}</span>
+        <span style="text-align: right; white-space: nowrap;">${formatReceiptPrice(netBillAmount)}</span>
       </div>
 
       ${isReturnBill ? `
       <!-- Return Bill Financial Ledger -->
       <div class="flex-between">
         <span>Previous Due (Before Return):</span>
-        <span style="font-weight: 700; padding-right: 2mm;">${formatReceiptPrice(previousDueBeforeReturn)}</span>
+        <span style="font-weight: 700; text-align: right; white-space: nowrap;">${formatReceiptPrice(previousDueBeforeReturn)}</span>
       </div>
       <div class="flex-between" style="font-weight: 800;">
         <span>Deducted (Return Credit):</span>
-        <span style="padding-right: 2mm;">-${formatReceiptPrice(creditApplied)}</span>
+        <span style="text-align: right; white-space: nowrap;">-${formatReceiptPrice(creditApplied)}</span>
       </div>
       ${refundedCashAmount > 0 ? `
       <div class="flex-between" style="font-weight: 700;">
         <span>Cash Refunded:</span>
-        <span style="padding-right: 2mm;">${formatReceiptPrice(refundedCashAmount)}</span>
+        <span style="text-align: right; white-space: nowrap;">${formatReceiptPrice(refundedCashAmount)}</span>
       </div>` : ''}
       <div class="flex-between" style="font-size: 13.5px; font-weight: 900; border-top: 2px solid #000000; padding-top: 4px; margin-top: 4px;">
         <span>UPDATED OUTSTANDING:</span>
-        <span style="padding-right: 2mm;">${formatReceiptPrice(updatedBalance)}</span>
+        <span style="text-align: right; white-space: nowrap;">${formatReceiptPrice(updatedBalance)}</span>
       </div>
       ` : `
       <!-- Standard Invoice Financial Ledger -->
       ${hasCustomerAccount ? `
       <div class="flex-between">
         <span>Previous Due (Before Bill):</span>
-        <span style="font-weight: 700; padding-right: 2mm;">${formatReceiptPrice(previousDueBeforeBill)}</span>
+        <span style="font-weight: 700; text-align: right; white-space: nowrap;">${formatReceiptPrice(previousDueBeforeBill)}</span>
       </div>` : ''}
 
       ${paymentsHtml}
@@ -680,29 +682,29 @@ export const generate80mmThermalReceiptHtml = (
       ${balanceDue > 0 && hasCustomerAccount ? `
       <div class="flex-between" style="font-weight: 700;">
         <span>Bill Credit (Unpaid):</span>
-        <span style="padding-right: 2mm;">+${formatReceiptPrice(balanceDue)}</span>
+        <span style="text-align: right; white-space: nowrap;">+${formatReceiptPrice(balanceDue)}</span>
       </div>` : ''}
 
       ${settledDue > 0 ? `
       <div class="flex-between" style="font-weight: 700;">
         <span>Settled from Previous Due:</span>
-        <span style="padding-right: 2mm;">-${formatReceiptPrice(settledDue)}</span>
+        <span style="text-align: right; white-space: nowrap;">-${formatReceiptPrice(settledDue)}</span>
       </div>` : ''}
 
       ${hasCustomerAccount ? `
       <div class="flex-between" style="font-size: 13.5px; font-weight: 900; border-top: 2px solid #000000; padding-top: 4px; margin-top: 4px;">
         <span>UPDATED OUTSTANDING:</span>
-        <span style="padding-right: 2mm;">${formatReceiptPrice(updatedBalance)}</span>
+        <span style="text-align: right; white-space: nowrap;">${formatReceiptPrice(updatedBalance)}</span>
       </div>` : `
       ${balanceDue > 0 ? `
       <div class="flex-between" style="font-weight: 800;">
         <span>Balance Due:</span>
-        <span style="padding-right: 2mm;">${formatReceiptPrice(balanceDue)}</span>
+        <span style="text-align: right; white-space: nowrap;">${formatReceiptPrice(balanceDue)}</span>
       </div>` : ''}
       ${changeAmount > 0 ? `
       <div class="flex-between" style="font-weight: 800;">
         <span>Change:</span>
-        <span style="padding-right: 2mm;">${formatReceiptPrice(changeAmount)}</span>
+        <span style="text-align: right; white-space: nowrap;">${formatReceiptPrice(changeAmount)}</span>
       </div>` : ''}
       `}
       `}
