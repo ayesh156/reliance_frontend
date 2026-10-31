@@ -360,7 +360,7 @@ export const generate80mmThermalReceiptHtml = (
     });
   }
 
-  // 2-Line Items Resolution: Prevents truncation of sizes and long styles
+  // 3-Line Items Resolution: Prevents truncation of sizes and long styles
   const items = (order.items || []).map((it: any) => {
     const name =
       it.product?.name ||
@@ -372,7 +372,15 @@ export const generate80mmThermalReceiptHtml = (
 
     const size = it.size || it.selectedSize || it.variant?.size || '';
     const color = it.color || it.selectedColor || it.variant?.color || '';
-    const variantDesc = [size, color].filter(Boolean).join(' / ');
+    let variantDesc = '';
+    if (size && color) {
+      variantDesc = `(Size: ${size} / Color: ${color})`;
+    } else if (size) {
+      variantDesc = `(Size: ${size})`;
+    } else if (color) {
+      variantDesc = `(Color: ${color})`;
+    }
+
     const qty = Number(it.quantity || it.qty || 1);
     const discount = Number(it.discountAmount ?? it.discount ?? 0);
     const discountType = it.discountType || (String(it.discountInput || '').endsWith('%') ? 'PERCENT' : 'FIXED');
@@ -405,25 +413,27 @@ export const generate80mmThermalReceiptHtml = (
   const totalDiscounts = totalItemDiscounts + billDiscountAmount;
   const netBillAmount = isReturnBill ? total : (grossSubtotal - totalDiscounts);
 
-  // Render 2-Line Item Rows
+  // Render Strict 3-Line Item Rows
   const itemsRowsHtml = items
     .map(
       (it) => `
       <div style="width: 100%; padding: 4px 0 3px 0; border-bottom: 1px dotted #000;">
         <!-- Line 1: Item Name (Bold) with Distinct [RETURN] Tag if returned -->
-        <div style="font-weight: 800; font-size: 13.5px; line-height: 1.3; word-break: break-word; text-align: left; width: 100%; color: #000 !important;">
-          ${it.isReturn ? '<span style="display: inline-block; font-weight: 900; background: #000; color: #fff; padding: 0 4px; font-size: 10.5px; margin-right: 4px; border-radius: 2px;">[RETURN]</span>' : ''}
+        <div style="font-weight: 800; font-size: 13px; line-height: 1.25; word-break: break-word; text-align: left; width: 100%; color: #000 !important;">
+          ${it.isReturn ? '<span style="display: inline-block; font-weight: 900; background: #000; color: #fff; padding: 0 4px; font-size: 10px; margin-right: 4px; border-radius: 2px;">[RETURN]</span>' : ''}
           ${it.name}
         </div>
-        <!-- Line 2: Size & Color | Qty @ Unit Price | Line Total -->
-        <div style="width: 100%; display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; font-weight: 700; margin-top: 2px; color: #000 !important;">
-          <span style="width: 40%; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-            ${it.variantDesc || '-'}
+        <!-- Line 2: Size & Color enclosed in brackets (small font, left-aligned) -->
+        ${it.variantDesc ? `
+        <div style="font-size: 11px; font-weight: 600; text-align: left; width: 100%; margin-top: 1px; color: #000 !important; word-break: break-word;">
+          ${it.variantDesc}
+        </div>` : ''}
+        <!-- Line 3: Qty @ Rate on left, Total strictly right-aligned -->
+        <div class="flex-between" style="font-size: 12px; font-weight: 700; margin-top: 2px; color: #000 !important;">
+          <span>
+            ${it.qty} @ Rs. ${formatReceiptPrice(it.rate)}${it.discount > 0 ? ` <span style="font-size: 10px; font-weight: 700;">(-${formatReceiptDiscount(it.discount, it.discountType, it.discountInput)})</span>` : ''}
           </span>
-          <span style="width: 32%; text-align: center;">
-            ${it.qty} @ ${formatReceiptPrice(it.rate)}${it.discount > 0 ? ` <span style="font-size: 10.5px; font-weight: 700;">(-${formatReceiptDiscount(it.discount, it.discountType, it.discountInput)})</span>` : ''}
-          </span>
-          <span style="width: 28%; text-align: right; font-weight: 900;">
+          <span style="font-weight: 900; text-align: right;">
             ${it.isReturn ? '-' : ''}Rs. ${formatReceiptPrice(Math.abs(it.amount))}
           </span>
         </div>
@@ -477,7 +487,7 @@ export const generate80mmThermalReceiptHtml = (
         width: 100% !important;
         max-width: 100% !important;
         margin: 0 !important;
-        padding: 2mm 0 4mm 0 !important;
+        padding: 2mm 0 12mm 0 !important;
         height: auto !important;
         min-height: 0 !important;
       }
@@ -510,10 +520,10 @@ export const generate80mmThermalReceiptHtml = (
     }
     .text-center { text-align: center; }
     .text-right { text-align: right; }
-    .dashed-sep { border-top: 1.5px dashed #000; margin: 6px 0; width: 100%; }
-    .dotted-sep { border-top: 1px dotted #000; margin: 5px 0; width: 100%; }
-    .solid-sep { border-top: 1.5px solid #000; margin: 5px 0; width: 100%; }
-    .double-sep { border-top: 2.5px double #000; margin: 5px 0; width: 100%; }
+    .dashed-sep { border-top: 1.5px dashed #000; margin: 5px 0; width: 100%; }
+    .dotted-sep { border-top: 1px dotted #000; margin: 4px 0; width: 100%; }
+    .solid-sep { border-top: 1.5px solid #000; margin: 4px 0; width: 100%; }
+    .double-sep { border-top: 2.5px double #000; margin: 4px 0; width: 100%; }
     .flex-between { width: 100%; display: flex; justify-content: space-between; align-items: baseline; }
     .receipt-logo {
       width: 50px;
@@ -525,9 +535,9 @@ export const generate80mmThermalReceiptHtml = (
   </style>
 </head>
 <body>
-  <div id="invoice-root" style="width: 100%; max-width: 100%; height: auto; min-height: 0; margin: 0; padding: 2mm 0 4mm 0;">
+  <div id="invoice-root" style="width: 100%; max-width: 100%; height: auto; min-height: 0; margin: 0; padding: 2mm 0 12mm 0;">
     <!-- Header: Centered Flexbox with Logo left & Brand text right -->
-    <div style="width: 100%; text-align: center; margin-bottom: 5px;">
+    <div style="width: 100%; text-align: center; margin-bottom: 4px;">
       <div style="display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 4px;">
         <img
           src="/images/logo.jpg"
@@ -557,54 +567,53 @@ export const generate80mmThermalReceiptHtml = (
 
     <div class="dashed-sep"></div>
 
-    <!-- Invoice & Rep Meta -->
-    <div style="width: 100%; font-size: 12px; line-height: 1.4; font-weight: 600;">
-      <div class="flex-between" style="font-size: 14px; font-weight: 900;">
+    <!-- Invoice & Rep Meta: Tight Single-Line Layout -->
+    <div style="width: 100%; font-size: 11.5px; line-height: 1.35; font-weight: 600;">
+      <div class="flex-between" style="white-space: nowrap;">
         <span>INVOICE:</span>
-        <span>${invoiceNo}</span>
+        <span style="font-weight: 900; font-size: 12.5px;">${invoiceNo}</span>
       </div>
-      <div class="flex-between">
+      <div class="flex-between" style="white-space: nowrap;">
         <span>Date &amp; Time:</span>
         <span style="font-weight: 700;">${dateStr}</span>
       </div>
       ${salesRepName ? `
-      <div class="flex-between">
+      <div class="flex-between" style="white-space: nowrap;">
         <span>Sales Rep:</span>
         <span style="font-weight: 800;">${salesRepName}</span>
       </div>` : ''}
-      <div class="flex-between">
+      <div class="flex-between" style="white-space: nowrap;">
         <span>Billing Type:</span>
         <span style="font-weight: 800; text-transform: uppercase;">${billingType}</span>
       </div>
 
       <div class="dotted-sep"></div>
 
-      <div class="flex-between">
+      <div class="flex-between" style="white-space: nowrap;">
         <span>Customer:</span>
-        <span style="font-weight: 800; max-width: 65%; text-align: right;">${customerName}</span>
+        <span style="font-weight: 800; text-align: right; max-width: 68%; overflow: hidden; text-overflow: ellipsis;">${customerName}</span>
       </div>
       ${customerPhone ? `
-      <div class="flex-between">
+      <div class="flex-between" style="white-space: nowrap;">
         <span>Phone:</span>
         <span style="font-weight: 700;">${customerPhone}</span>
       </div>` : ''}
       ${customerCityOrRoute ? `
-      <div class="flex-between">
+      <div class="flex-between" style="white-space: nowrap;">
         <span>City / Route:</span>
-        <span style="text-align: right; max-width: 65%; font-weight: 700;">${customerCityOrRoute}</span>
+        <span style="text-align: right; max-width: 68%; font-weight: 700; overflow: hidden; text-overflow: ellipsis;">${customerCityOrRoute}</span>
       </div>` : ''}
     </div>
 
     <div class="dashed-sep"></div>
 
     <!-- Itemized Items Matrix Header -->
-    <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 800; border-bottom: 1.5px dashed #000; padding-bottom: 3px; text-transform: uppercase;">
-      <span style="width: 40%; text-align: left;">Size &amp; Color</span>
-      <span style="width: 32%; text-align: center;">Qty @ Rate</span>
-      <span style="width: 28%; text-align: right;">Total (Rs.)</span>
+    <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; font-weight: 800; border-bottom: 1.5px dashed #000; padding-bottom: 3px; text-transform: uppercase;">
+      <span style="text-align: left;">ITEMS &amp; DETAILS</span>
+      <span style="text-align: right;">TOTAL (RS.)</span>
     </div>
 
-    <!-- 2-Line Layout Item Rows -->
+    <!-- 3-Line Layout Item Rows -->
     <div style="width: 100%; margin: 2px 0;">
       ${itemsRowsHtml}
     </div>
@@ -697,8 +706,8 @@ export const generate80mmThermalReceiptHtml = (
       <div style="font-size: 12px; font-weight: 900; margin-bottom: 3px;">
         Thank you for your valued partnership!
       </div>
-      <div style="font-size: 10.5px; font-weight: 700; margin-top: 4px;">
-        Software by nebula infinite 078 323 3760
+      <div style="font-size: 9.5px; font-weight: 700; margin-top: 4px;">
+        System by nebulainfinite.com | 0783233760
       </div>
     </div>
   </div>

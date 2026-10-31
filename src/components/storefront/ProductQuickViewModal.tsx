@@ -80,9 +80,46 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
       ? getProductImageUrl(allImages[activeImageIdx])
       : FALLBACK_IMAGE;
 
+  // Touch-safe quantity state
+  const [qtyValue, setQtyValue] = useState<string>('1');
+  const effectiveQty = Math.max(1, parseInt(qtyValue, 10) || 1);
+
+  const handleQtyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    if (val === '') {
+      setQtyValue('');
+      return;
+    }
+    const parsed = parseInt(val, 10);
+    if (!isNaN(parsed) && parsed >= 0) {
+      setQtyValue(String(parsed));
+    }
+  };
+
+  const handleQtyBlur = () => {
+    const parsed = parseInt(qtyValue, 10);
+    if (isNaN(parsed) || parsed < 1) {
+      setQtyValue('1');
+    } else {
+      setQtyValue(String(parsed));
+    }
+  };
+
+  const handleDecrement = () => {
+    const cur = parseInt(qtyValue, 10) || 1;
+    setQtyValue(String(Math.max(1, cur - 1)));
+  };
+
+  const handleIncrement = () => {
+    const cur = parseInt(qtyValue, 10) || 1;
+    setQtyValue(String(cur + 1));
+  };
+
   const handleWhatsAppInquiry = () => {
     const tierLabel = isWholesaleMode ? 'Wholesale Price' : 'Retail Price';
-    const rawMessage = `Hello Reliance Atelier,\n\nI am interested in acquiring:\n- Garment: ${product.name}\n- SKU/Ref: ${sku}\n- Size: ${selectedVariant?.size || 'Unspecified'}\n- Color: ${selectedVariant?.color || 'Standard'}\n- ${tierLabel}: ${formatCurrency(displayedPrice)}\n\nPlease advise on current availability and bespoke fittings.`;
+    const styleNo = product.searchKey || sku || `REL-${product.id}`;
+    const totalAmount = displayedPrice * effectiveQty;
+    const rawMessage = `Hello Reliance Atelier,\n\nI would like to order ${effectiveQty} ${effectiveQty === 1 ? 'piece' : 'pieces'} of [${styleNo}] - ${product.name}:\n- Size: ${selectedVariant?.size || 'Unspecified'}\n- Color: ${selectedVariant?.color || 'Standard'}\n- Unit ${tierLabel}: ${formatCurrency(displayedPrice)}\n${effectiveQty > 1 ? `- Estimated Total: ${formatCurrency(totalAmount)}\n` : ''}\nPlease confirm availability and order details.`;
     openWhatsAppChat('94711350123', rawMessage);
   };
 
@@ -255,8 +292,54 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
               </div>
             </div>
 
-            {/* Direct WhatsApp Concierge Button */}
+            {/* Direct WhatsApp Concierge Button & Quantity */}
             <div className="pt-4 border-t border-zinc-200 dark:border-zinc-900 space-y-3">
+              {/* Quantity Selector */}
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] uppercase tracking-wider text-zinc-600 dark:text-zinc-400 font-mono font-medium">
+                  Quantity (Pcs):
+                </span>
+                <div className="flex items-center gap-2">
+                  <div className="inline-flex items-center rounded border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden shadow-2xs">
+                    <button
+                      type="button"
+                      onClick={handleDecrement}
+                      disabled={effectiveQty <= 1}
+                      className="w-8 h-8 flex items-center justify-center text-sm font-bold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-40 cursor-pointer active:scale-95 transition-all"
+                      aria-label="Decrease Quantity"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      min={1}
+                      max={activeStock > 0 ? activeStock : 999}
+                      value={qtyValue}
+                      onChange={handleQtyChange}
+                      onBlur={handleQtyBlur}
+                      onFocus={(e) => e.target.select()}
+                      className="w-12 h-8 text-center text-xs font-mono font-bold bg-transparent border-x border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      aria-label="Enter Quantity"
+                      placeholder="1"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleIncrement}
+                      disabled={activeStock > 0 && effectiveQty >= activeStock}
+                      className="w-8 h-8 flex items-center justify-center text-sm font-bold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-40 cursor-pointer active:scale-95 transition-all"
+                      aria-label="Increase Quantity"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <span className="text-[11px] text-zinc-500 font-mono min-w-[70px] text-right">
+                    {formatCurrency(displayedPrice * effectiveQty)}
+                  </span>
+                </div>
+              </div>
+
               <button
                 type="button"
                 onClick={handleWhatsAppInquiry}

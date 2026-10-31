@@ -1064,12 +1064,14 @@ export const buildProductWhatsAppUrl = (
   selectedVariant?: any,
   priceTier: 'wholesale' | 'retail' | 'w' | 'r' = 'retail',
   productUrl?: string,
-  companyPhone: string = '94711350123'
+  companyPhone: string = '94711350123',
+  quantity: number = 1
 ): string => {
   if (!product) return '';
 
   const isWholesale = priceTier === 'wholesale' || priceTier === 'w';
   const variant = selectedVariant || product.variants?.[0] || {};
+  const safeQty = Math.max(1, Number(quantity) || 1);
 
   const price = isWholesale
     ? (variant.wholesalePrice || product.wholesalePrice || variant.retailPrice || 0)
@@ -1077,8 +1079,10 @@ export const buildProductWhatsAppUrl = (
 
   const priceLabel = isWholesale ? 'Wholesale Price' : 'Retail Price';
   const formattedPrice = `Rs. ${Number(price).toLocaleString('en-LK', { minimumFractionDigits: 2 })}`;
+  const totalAmount = price * safeQty;
+  const formattedTotal = `Rs. ${Number(totalAmount).toLocaleString('en-LK', { minimumFractionDigits: 2 })}`;
 
-  const sku = variant.sku || product.searchKey || `REL-${product.id}`;
+  const styleNo = product.searchKey || variant.sku || product.sku || product.itemCode || `REL-${product.id}`;
   const size = variant.size || 'Standard';
   const color = variant.color || 'Original';
 
@@ -1087,17 +1091,20 @@ export const buildProductWhatsAppUrl = (
     resolvedUrl = `${window.location.origin}/product/${product.id}${isWholesale ? '?tier=w' : '?tier=r'}`;
   }
 
+  const greetingLine = `Hello Reliance Atelier! I would like to order ${safeQty} ${safeQty === 1 ? 'piece' : 'pieces'} of [${styleNo}] - ${product.name}. Please confirm availability, size fitting, and order details. Thank you!`;
+
   const messageLines = [
-    `*RELIANCE BRANDED MENS CLOTHING — PRODUCT INQUIRY*`,
+    `*RELIANCE BRANDED MENS CLOTHING — ORDER INQUIRY*`,
     `-------------------------------------------`,
-    `*Product:* ${product.name}`,
-    `*Style / SKU:* ${sku}`,
-    `*Category:* ${product.category?.name || "Men's Apparel"}`,
+    `*Style / Model No:* ${styleNo}`,
+    `*Garment:* ${product.name}`,
+    `*Quantity:* ${safeQty} ${safeQty === 1 ? 'pc' : 'pcs'}`,
     `*Selected Variant:* Size: ${size} | Color: ${color}`,
-    `*${priceLabel}:* ${formattedPrice}`,
+    `*Unit ${priceLabel}:* ${formattedPrice}`,
+    ...(safeQty > 1 ? [`*Estimated Total:* ${formattedTotal}`] : []),
     `*Product Link:* ${resolvedUrl || '-'}`,
     `-------------------------------------------`,
-    `Hello Reliance Atelier! I would like to inquire about ordering this garment. Please confirm availability, size fitting, and order details. Thank you!`,
+    greetingLine,
   ];
 
   const fullMessage = messageLines.join('\n');
@@ -1112,9 +1119,10 @@ export const openProductWhatsAppInquiry = (
   selectedVariant?: any,
   priceTier: 'wholesale' | 'retail' | 'w' | 'r' = 'retail',
   productUrl?: string,
-  companyPhone: string = '94711350123'
+  companyPhone: string = '94711350123',
+  quantity: number = 1
 ) => {
-  const url = buildProductWhatsAppUrl(product, selectedVariant, priceTier, productUrl, companyPhone);
+  const url = buildProductWhatsAppUrl(product, selectedVariant, priceTier, productUrl, companyPhone, quantity);
   if (!url) return;
 
   const isMobile = /Android|iPhone|iPad|iPod/i.test(

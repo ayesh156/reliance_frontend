@@ -58,7 +58,40 @@ export const ProductDetailPage: React.FC = () => {
   // Variant selection
   const [selectedSize, setSelectedSize] = useState<string>('');
   const [selectedColor, setSelectedColor] = useState<string>('');
-  const [quantity, setQuantity] = useState<number>(1);
+  const [qtyValue, setQtyValue] = useState<string>('1');
+  const effectiveQty = useMemo(() => Math.max(1, parseInt(qtyValue, 10) || 1), [qtyValue]);
+
+  // Robust Mobile-safe Quantity Handlers
+  const handleQtyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    if (val === '') {
+      setQtyValue('');
+      return;
+    }
+    const parsed = parseInt(val, 10);
+    if (!isNaN(parsed) && parsed >= 0) {
+      setQtyValue(String(parsed));
+    }
+  };
+
+  const handleQtyBlur = () => {
+    const parsed = parseInt(qtyValue, 10);
+    if (isNaN(parsed) || parsed < 1) {
+      setQtyValue('1');
+    } else {
+      setQtyValue(String(parsed));
+    }
+  };
+
+  const handleDecrement = () => {
+    const cur = parseInt(qtyValue, 10) || 1;
+    setQtyValue(String(Math.max(1, cur - 1)));
+  };
+
+  const handleIncrement = () => {
+    const cur = parseInt(qtyValue, 10) || 1;
+    setQtyValue(String(cur + 1));
+  };
 
   // Sharing & feedback
   const [shareModalOpen, setShareModalOpen] = useState(false);
@@ -368,7 +401,8 @@ export const ProductDetailPage: React.FC = () => {
     const tier = isWholesaleMode ? 'wholesale' : 'retail';
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
     const productUrl = `${origin}/product/${product.id}${isWholesaleMode ? '?tier=w' : '?tier=r'}`;
-    openProductWhatsAppInquiry(product, activeVariant, tier, productUrl);
+    const qty = Math.max(1, parseInt(qtyValue, 10) || 1);
+    openProductWhatsAppInquiry(product, activeVariant, tier, productUrl, '94711350123', qty);
   };
 
   // Share Link Action
@@ -731,29 +765,43 @@ export const ProductDetailPage: React.FC = () => {
                 <label className="text-xs font-semibold uppercase tracking-wider text-zinc-900 dark:text-zinc-100 font-mono block mb-2">
                   Quantity (Pcs):
                 </label>
-                <div className="flex items-center gap-2">
-                  <div className="inline-flex items-center rounded border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
+                <div className="flex items-center gap-3">
+                  <div className="inline-flex items-center rounded border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden shadow-2xs">
                     <button
                       type="button"
-                      onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                      disabled={quantity <= 1}
-                      className="w-9 h-9 flex items-center justify-center text-sm font-bold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-40"
+                      onClick={handleDecrement}
+                      disabled={effectiveQty <= 1}
+                      className="w-9 h-9 flex items-center justify-center text-sm font-bold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-40 cursor-pointer active:scale-95 transition-all"
+                      aria-label="Decrease Quantity"
                     >
                       -
                     </button>
-                    <span className="w-12 text-center text-xs font-mono font-bold text-zinc-900 dark:text-white">
-                      {quantity}
-                    </span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      min={1}
+                      max={activeStock > 0 ? activeStock : 999}
+                      value={qtyValue}
+                      onChange={handleQtyChange}
+                      onBlur={handleQtyBlur}
+                      onFocus={(e) => e.target.select()}
+                      className="w-14 h-9 text-center text-xs font-mono font-bold bg-transparent border-x border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      aria-label="Enter Quantity"
+                      placeholder="1"
+                    />
                     <button
                       type="button"
-                      onClick={() => setQuantity((q) => Math.min(activeStock > 0 ? activeStock : 999, q + 1))}
-                      className="w-9 h-9 flex items-center justify-center text-sm font-bold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                      onClick={handleIncrement}
+                      disabled={activeStock > 0 && effectiveQty >= activeStock}
+                      className="w-9 h-9 flex items-center justify-center text-sm font-bold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-40 cursor-pointer active:scale-95 transition-all"
+                      aria-label="Increase Quantity"
                     >
                       +
                     </button>
                   </div>
                   <span className="text-[11px] text-zinc-500 font-mono">
-                    Total: <strong className="text-zinc-900 dark:text-white font-mono">{formatCurrency((isWholesaleMode ? wholesalePrice : retailPrice) * quantity)}</strong>
+                    Total: <strong className="text-zinc-900 dark:text-white font-mono">{formatCurrency((isWholesaleMode ? wholesalePrice : retailPrice) * effectiveQty)}</strong>
                   </span>
                 </div>
               </div>

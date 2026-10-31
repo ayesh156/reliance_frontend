@@ -8,6 +8,7 @@ import { StorefrontProductCard } from '../../components/storefront/StorefrontPro
 import { ShareCatalogModal } from '../../components/storefront/ShareCatalogModal';
 import { openWhatsAppChat } from '../../utils/whatsapp';
 import { usePriceTier } from '../../utils/priceTier';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   Search,
   SlidersHorizontal,
@@ -41,6 +42,7 @@ export const ShopPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [selectedProduct, setSelectedProduct] = useState<ProductItem | null>(null);
   const [shareCatalogOpen, setShareCatalogOpen] = useState(false);
+  const { user } = useAuth();
 
   // Pricing Tier Synchronization with persistence (?tier=w for Wholesale, ?tier=r for Retail)
   const { isWholesale: isWholesaleTier, switchTier } = usePriceTier();
@@ -250,6 +252,19 @@ export const ShopPage: React.FC = () => {
                 <span className="font-semibold">Share Catalog</span>
               </button>
 
+              {/* Authenticated Wholesale Mode Toggle (Only visible to authenticated system users) */}
+              {user && !isWholesaleTier && (
+                <button
+                  type="button"
+                  onClick={() => switchTier('w')}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-400/50 dark:border-amber-700/50 text-xs uppercase tracking-wider rounded-sm shadow-sm transition-all duration-200 cursor-pointer font-medium"
+                  title="Switch to Wholesale Trade Pricing (Authorized system users only)"
+                >
+                  <Building2 className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                  <span>Switch to Wholesale</span>
+                </button>
+              )}
+
               {/* Sort Dropdown */}
               <div className="relative flex-1 md:flex-none">
                 <select
@@ -393,13 +408,16 @@ export const ShopPage: React.FC = () => {
                 </p>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => switchTier('r')}
-              className="text-[10px] font-mono uppercase tracking-wider px-2.5 py-1 rounded bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-400 shrink-0 font-medium cursor-pointer"
-            >
-              Switch to Retail
-            </button>
+            {/* The pricing toggle is strictly visible only to authenticated system users */}
+            {user ? (
+              <button
+                type="button"
+                onClick={() => switchTier('r')}
+                className="text-[10px] font-mono uppercase tracking-wider px-2.5 py-1 rounded bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-400 shrink-0 font-medium cursor-pointer"
+              >
+                Switch to Retail
+              </button>
+            ) : null}
           </div>
         )}
 

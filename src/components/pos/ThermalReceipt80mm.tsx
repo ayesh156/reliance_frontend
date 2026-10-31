@@ -174,7 +174,7 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
     });
   }
 
-  // 2-Line Items Resolution: Prevents truncation of sizes and long styles
+  // 3-Line Items Resolution: Prevents truncation of sizes and long styles
   const items = (order.items || []).map((it: any) => {
     const name =
       it.product?.name ||
@@ -186,7 +186,15 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
 
     const size = it.size || it.selectedSize || it.variant?.size || '';
     const color = it.color || it.selectedColor || it.variant?.color || '';
-    const variantDesc = [size, color].filter(Boolean).join(' / ');
+    let variantDesc = '';
+    if (size && color) {
+      variantDesc = `(Size: ${size} / Color: ${color})`;
+    } else if (size) {
+      variantDesc = `(Size: ${size})`;
+    } else if (color) {
+      variantDesc = `(Color: ${color})`;
+    }
+
     const qty = Number(it.quantity || it.qty || 1);
     const discount = Number(it.discountAmount ?? it.discount ?? 0);
     const discountType = it.discountType || (String(it.discountInput || '').endsWith('%') ? 'PERCENT' : 'FIXED');
@@ -229,7 +237,7 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
         height: 'auto',
         minHeight: '0',
         margin: '0 auto',
-        padding: '0 3mm',
+        padding: '0 3mm 12mm 3mm',
         fontFamily: "'Courier New', Courier, monospace, 'Liberation Mono'",
         fontSize: '13px',
         fontWeight: 600,
@@ -274,50 +282,50 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
         </div>
       </div>
 
-      <div style={{ borderTop: '1.5px dashed #000', margin: '6px 0', width: '100%' }} />
+      <div style={{ borderTop: '1.5px dashed #000', margin: '5px 0', width: '100%' }} />
 
-      {/* Invoice & Rep Meta */}
-      <div style={{ width: '100%', fontSize: '12px', lineHeight: '1.4', fontWeight: 600 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: 900 }}>
+      {/* Invoice & Rep Meta: Tight Single-Line Layout */}
+      <div style={{ width: '100%', fontSize: '11.5px', lineHeight: '1.35', fontWeight: 600 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', whiteSpace: 'nowrap' }}>
           <span>INVOICE:</span>
-          <span>{invoiceNo}</span>
+          <span style={{ fontWeight: 900, fontSize: '12.5px' }}>{invoiceNo}</span>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', whiteSpace: 'nowrap' }}>
           <span>Date &amp; Time:</span>
           <span style={{ fontWeight: 700 }}>{dateStr}</span>
         </div>
         {salesRepName ? (
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', whiteSpace: 'nowrap' }}>
             <span>Sales Rep:</span>
             <span style={{ fontWeight: 800 }}>{salesRepName}</span>
           </div>
         ) : null}
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', whiteSpace: 'nowrap' }}>
           <span>Billing Type:</span>
           <span style={{ fontWeight: 800, textTransform: 'uppercase' }}>{billingType}</span>
         </div>
 
-        <div style={{ borderTop: '1px dotted #000', margin: '5px 0', width: '100%' }} />
+        <div style={{ borderTop: '1px dotted #000', margin: '4px 0', width: '100%' }} />
 
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', whiteSpace: 'nowrap' }}>
           <span>Customer:</span>
-          <span style={{ fontWeight: 800, maxWidth: '65%', textAlign: 'right' }}>{customerName}</span>
+          <span style={{ fontWeight: 800, maxWidth: '68%', textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis' }}>{customerName}</span>
         </div>
         {customerPhone ? (
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', whiteSpace: 'nowrap' }}>
             <span>Phone:</span>
             <span style={{ fontWeight: 700 }}>{customerPhone}</span>
           </div>
         ) : null}
         {customerCityOrRoute ? (
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', whiteSpace: 'nowrap' }}>
             <span>City / Route:</span>
-            <span style={{ textAlign: 'right', maxWidth: '65%', fontWeight: 700 }}>{customerCityOrRoute}</span>
+            <span style={{ textAlign: 'right', maxWidth: '68%', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis' }}>{customerCityOrRoute}</span>
           </div>
         ) : null}
       </div>
 
-      <div style={{ borderTop: '1.5px dashed #000', margin: '6px 0', width: '100%' }} />
+      <div style={{ borderTop: '1.5px dashed #000', margin: '5px 0', width: '100%' }} />
 
       {/* Itemized Items Matrix Header */}
       <div
@@ -326,24 +334,23 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          fontSize: '12px',
+          fontSize: '11.5px',
           fontWeight: 800,
           borderBottom: '1.5px dashed #000',
           paddingBottom: '3px',
           textTransform: 'uppercase',
         }}
       >
-        <span style={{ width: '40%', textAlign: 'left' }}>Size &amp; Color</span>
-        <span style={{ width: '32%', textAlign: 'center' }}>Qty @ Rate</span>
-        <span style={{ width: '28%', textAlign: 'right' }}>Total (Rs.)</span>
+        <span style={{ textAlign: 'left' }}>ITEMS &amp; DETAILS</span>
+        <span style={{ textAlign: 'right' }}>TOTAL (RS.)</span>
       </div>
 
-      {/* 2-Line Layout Item Rows */}
+      {/* 3-Line Layout Item Rows */}
       <div style={{ width: '100%', margin: '2px 0' }}>
         {items.map((it, idx) => (
           <div key={idx} style={{ width: '100%', padding: '4px 0 3px 0', borderBottom: '1px dotted #000' }}>
             {/* Line 1: Item Name (Bold) with Distinct [RETURN] Tag */}
-            <div style={{ fontWeight: 800, fontSize: '13.5px', lineHeight: '1.3', wordBreak: 'break-word', textAlign: 'left', width: '100%', color: '#000' }}>
+            <div style={{ fontWeight: 800, fontSize: '13px', lineHeight: '1.25', wordBreak: 'break-word', textAlign: 'left', width: '100%', color: '#000' }}>
               {it.isReturn ? (
                 <span
                   style={{
@@ -352,7 +359,7 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
                     background: '#000',
                     color: '#fff',
                     padding: '0 4px',
-                    fontSize: '10.5px',
+                    fontSize: '10px',
                     marginRight: '4px',
                     borderRadius: '2px',
                   }}
@@ -362,7 +369,13 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
               ) : null}
               {it.name}
             </div>
-            {/* Line 2: Size & Color | Qty @ Unit Price | Line Total */}
+            {/* Line 2: Size & Color enclosed in brackets (small font, left-aligned) */}
+            {it.variantDesc ? (
+              <div style={{ fontSize: '11px', fontWeight: 600, textAlign: 'left', width: '100%', marginTop: '1px', color: '#000', wordBreak: 'break-word' }}>
+                {it.variantDesc}
+              </div>
+            ) : null}
+            {/* Line 3: Qty @ Rate on left, Total strictly right-aligned */}
             <div
               style={{
                 width: '100%',
@@ -375,18 +388,15 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
                 color: '#000',
               }}
             >
-              <span style={{ width: '40%', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {it.variantDesc || '-'}
-              </span>
-              <span style={{ width: '32%', textAlign: 'center' }}>
-                {it.qty} @ {formatReceiptPrice(it.rate)}
+              <span>
+                {it.qty} @ Rs. {formatReceiptPrice(it.rate)}
                 {it.discount > 0 ? (
-                  <span style={{ fontSize: '10.5px', fontWeight: 700 }}>
+                  <span style={{ fontSize: '10px', fontWeight: 700 }}>
                     {` (-${formatReceiptDiscount(it.discount, it.discountType, it.discountInput)})`}
                   </span>
                 ) : null}
               </span>
-              <span style={{ width: '28%', textAlign: 'right', fontWeight: 900 }}>
+              <span style={{ fontWeight: 900, textAlign: 'right' }}>
                 {it.isReturn ? '-' : ''}Rs. {formatReceiptPrice(Math.abs(it.amount))}
               </span>
             </div>
