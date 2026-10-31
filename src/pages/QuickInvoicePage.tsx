@@ -17,7 +17,15 @@ import {
 } from '../components/ui/drawer';
 import { get, post, put } from '../lib/api';
 import { toast } from 'react-toastify';
-import { printInvoiceDirectly, print80mmThermalReceiptDirectly } from '../utils/print';
+import {
+  printInvoiceDirectly,
+  print80mmThermalReceiptDirectly,
+  print80mmThermalReceipt,
+  getEffectivePrintFormat,
+  setStoredPrintFormat,
+  type PrintFormat,
+} from '../utils/print';
+import { A4InvoiceModal } from '../components/pos/A4InvoiceModal';
 import { ThermalReceipt80mm } from '../components/pos/ThermalReceipt80mm';
 import { ProductPreviewModal } from '../components/pos/ProductPreviewModal';
 import { AnimatedInlineQtyInput } from '../components/pos/AnimatedInlineQtyInput';
@@ -240,6 +248,15 @@ export const QuickInvoicePage: React.FC = () => {
   const [previewVariant, setPreviewVariant] = useState<CatalogVariant | null>(null);
   const [previewModalOpen, setPreviewModalOpen] = useState<boolean>(false);
   const [savedOrderForPrint, setSavedOrderForPrint] = useState<any | null>(null);
+  const [a4ModalOpen, setA4ModalOpen] = useState(false);
+  const [a4ModalOrder, setA4ModalOrder] = useState<any>(null);
+  const [currentPrintFormat, setCurrentPrintFormat] = useState<PrintFormat>(() => getEffectivePrintFormat(user?.role));
+
+  const handleTogglePrintFormat = (format: PrintFormat) => {
+    setCurrentPrintFormat(format);
+    setStoredPrintFormat(format);
+    toast.info(`Default print format set to: ${format === 'thermal-80mm' ? '80mm Thermal (Receipt)' : 'A4 Sheet (Standard)'}`);
+  };
 
   const barcodeInputRef = useRef<HTMLInputElement>(null);
 
@@ -2375,11 +2392,12 @@ export const QuickInvoicePage: React.FC = () => {
         setMobileCartOpen(false);
         setSavedOrderForPrint(completeOrderObj);
 
-        // Technical Print Trigger: Immediately open native browser print dialogue via headless hidden iframe.
-        // For Sales Reps (REP role), targets dedicated 80mm thermal receipt layout (X-Printer format).
-        // For Cashier/Desktop users, targets standard A4 invoice document.
-        if (isRepUser) {
-          print80mmThermalReceiptDirectly(completeOrderObj, () => {
+        // Determine effective print format (localStorage override > role default)
+        const effectiveFormat = getEffectivePrintFormat(user?.role);
+
+        if (effectiveFormat === 'thermal-80mm') {
+          // Dedicated 80mm thermal receipt printing tailored for Xprinter XP-P801A (direct headless print)
+          print80mmThermalReceipt(completeOrderObj, () => {
             if (isEditing) {
               navigate('/system/invoices');
             } else {
@@ -2387,13 +2405,9 @@ export const QuickInvoicePage: React.FC = () => {
             }
           }, completeCustomer, customers);
         } else {
-          printInvoiceDirectly(completeOrderObj, () => {
-            if (isEditing) {
-              navigate('/system/invoices');
-            } else {
-              bootstrapPos();
-            }
-          }, completeCustomer, customers);
+          // Standard A4 Invoice Modal with autoPrint preview
+          setA4ModalOrder(completeOrderObj);
+          setA4ModalOpen(true);
         }
       } else if (mode === 'SAVE_AND_WHATSAPP') {
         const targetCustomer = customers.find((c) => String(c.id) === String(selectedCustomerId));
@@ -3740,27 +3754,57 @@ export const QuickInvoicePage: React.FC = () => {
             </Button>
           </div>
           {/* Direct WhatsApp Share & PDF Download Triggers for Desktop */}
-          <div className="flex items-center justify-center gap-2.5 pt-0.5">
-            <button
-              type="button"
-              disabled={cart.length === 0 || submitting}
-              onClick={() => handleCheckout('SAVE_AND_WHATSAPP')}
-              className="text-[10.5px] font-semibold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[22px]"
-              title="Save Invoice & Share Receipt on WhatsApp"
-            >
-              <MessageSquare className="size-2.5" />
-              <span>Save &amp; WhatsApp</span>
-            </button>
-            <span className="text-slate-300 dark:text-zinc-700 text-xs">|</span>
-            <button
-              type="button"
-              disabled={cart.length === 0 || submitting}
-              onClick={() => handleCheckout('SAVE_AND_PDF')}
-              className="text-[10.5px] font-semibold text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[22px]"
-            >
-              <FileDown className="size-2.5" />
-              <span>Save &amp; PDF</span>
-            </button>
+          <div className="flex items-center justify-between pt-0.5">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={cart.length === 0 || submitting}
+                onClick={() => handleCheckout('SAVE_AND_WHATSAPP')}
+                className="text-[10.5px] font-semibold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[22px]"
+                title="Save Invoice & Share Receipt on WhatsApp"
+              >
+                <MessageSquare className="size-2.5" />
+                <span>Save &amp; WhatsApp</span>
+              </button>
+              <span className="text-slate-300 dark:text-zinc-700 text-xs">|</span>
+              <button
+                type="button"
+                disabled={cart.length === 0 || submitting}
+                onClick={() => handleCheckout('SAVE_AND_PDF')}
+                className="text-[10.5px] font-semibold text-slate-500 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200 inline-flex items-center gap-1 cursor-pointer hover:underline disabled:opacity-50 min-h-[22px]"
+              >
+                <FileDown className="size-2.5" />
+                <span>Save &amp; PDF</span>
+              </button>
+            </div>
+
+            {/* Print Format Selector Toggle */}
+            <div className="inline-flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 p-0.5 rounded-lg text-[10px]">
+              <button
+                type="button"
+                onClick={() => handleTogglePrintFormat('a4')}
+                className={`px-1.5 py-0.5 rounded font-bold cursor-pointer transition-all ${
+                  currentPrintFormat === 'a4'
+                    ? 'bg-indigo-600 text-white shadow-2xs'
+                    : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900'
+                }`}
+                title="Default to A4 Standard Invoice"
+              >
+                A4
+              </button>
+              <button
+                type="button"
+                onClick={() => handleTogglePrintFormat('thermal-80mm')}
+                className={`px-1.5 py-0.5 rounded font-bold cursor-pointer transition-all ${
+                  currentPrintFormat === 'thermal-80mm'
+                    ? 'bg-emerald-600 text-white shadow-2xs'
+                    : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900'
+                }`}
+                title="Default to 80mm Thermal Receipt (Xprinter XP-P801A)"
+              >
+                80mm
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -4676,7 +4720,36 @@ export const QuickInvoicePage: React.FC = () => {
           </div>
 
           {/* Zone 3: Bottom Sticky Action Bar (shrink-0 sticky bottom-0 bg-white dark:bg-zinc-950 border-t pt-2.5 pb-3 px-3 z-10 shadow-sm) */}
-            <div className="shrink-0 sticky bottom-0 bg-white dark:bg-zinc-950 border-t border-slate-100 dark:border-zinc-800 pt-2.5 pb-3 px-3 z-10 shadow-sm space-y-1.5">
+            <div className="shrink-0 sticky bottom-0 bg-white dark:bg-zinc-950 border-t border-slate-100 dark:border-zinc-800 pt-2 pb-3 px-3 z-10 shadow-sm space-y-2">
+              {/* Mobile Print Format Selector */}
+              <div className="flex items-center justify-between text-[11px] px-2.5 py-1 rounded-xl bg-slate-50 dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800/80">
+                <span className="font-semibold text-slate-600 dark:text-zinc-400">Print Format:</span>
+                <div className="inline-flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => handleTogglePrintFormat('a4')}
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all ${
+                      currentPrintFormat === 'a4'
+                        ? 'bg-indigo-600 text-white shadow-2xs'
+                        : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
+                    }`}
+                  >
+                    A4 Sheet (Standard)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTogglePrintFormat('thermal-80mm')}
+                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all ${
+                      currentPrintFormat === 'thermal-80mm'
+                        ? 'bg-emerald-600 text-white shadow-2xs'
+                        : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
+                    }`}
+                  >
+                    80mm Thermal (Receipt)
+                  </button>
+                </div>
+              </div>
+
               {/* =========================================================================
                * 6. "Pay Now & Print" Workflow:
                * In the checkout drawer for REPs, replace standard "Save Invoice" with primary
@@ -4946,6 +5019,26 @@ export const QuickInvoicePage: React.FC = () => {
 
       {/* Dedicated Hidden 80mm Thermal Receipt Layout (X-Printer format) */}
       <ThermalReceipt80mm order={savedOrderForPrint} />
+
+      {/* Standard A4 Invoice Modal (Cross-Print & PDF Inspection) */}
+      {a4ModalOpen && a4ModalOrder && (
+        <A4InvoiceModal
+          open={a4ModalOpen}
+          autoPrint={true}
+          onClose={() => {
+            setA4ModalOpen(false);
+            setA4ModalOrder(null);
+            if (isEditing) {
+              navigate('/system/invoices');
+            } else {
+              bootstrapPos();
+            }
+          }}
+          order={a4ModalOrder}
+          customers={customers}
+          matchedCustomer={customers.find((c) => String(c.id) === String(a4ModalOrder.customerId || a4ModalOrder.customer?.id))}
+        />
+      )}
     </div>
   );
 };

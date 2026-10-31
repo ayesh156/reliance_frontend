@@ -10,13 +10,18 @@ import {
   DialogDescription,
   DialogFooter,
 } from '../components/ui/dialog';
-import { Building2, Receipt, Palette, Lock, Save } from 'lucide-react';
+import { Building2, Receipt, Palette, Lock, Save, Printer } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { get, post, patch, put } from '../lib/api';
 import { toast } from 'react-toastify';
 import { Badge } from '../components/ui/badge';
 import { AccessDenied } from '../components/AccessDenied';
+import {
+  getEffectivePrintFormat,
+  setStoredPrintFormat,
+  type PrintFormat,
+} from '../utils/print';
 import {
   Users, UserPlus, Shield, ShieldCheck, CheckCircle2,
   XCircle, Loader2, RefreshCw, Briefcase, ShoppingBag, ShieldAlert, X,
@@ -162,6 +167,16 @@ export const Settings: React.FC = () => {
     STORE_TAGLINE: 'Quality Garments & Fabrics Wholesale',
     WHATSAPP_SUPPORT: '+94771234567',
   });
+
+  const [selectedPrintFormat, setSelectedPrintFormat] = useState<PrintFormat>(() =>
+    getEffectivePrintFormat(currentUser?.role)
+  );
+
+  const handleUpdatePrintPreference = (fmt: PrintFormat) => {
+    setSelectedPrintFormat(fmt);
+    setStoredPrintFormat(fmt);
+    toast.success(`Default invoice print format set to ${fmt === 'thermal-80mm' ? '80mm Thermal (Receipt)' : 'A4 Sheet (Standard)'}`);
+  };
 
   const [users, setUsers] = useState<StaffUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -963,6 +978,72 @@ export const Settings: React.FC = () => {
 
         {/* ── TAB 3: POS & Thermal ── */}
         <TabsContent value="pos" className="space-y-4">
+          {/* User Device Print Format Preference (Local Terminal Override) */}
+          <div className={cardClass}>
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-zinc-800/80">
+              <div className="flex items-center gap-2">
+                <Printer className={`w-4 h-4 ${dark ? 'text-zinc-400' : 'text-slate-600'}`} />
+                <h2 className={`text-sm font-bold tracking-tight ${dark ? 'text-white' : 'text-slate-900'}`}>
+                  Default Invoice Print Format
+                </h2>
+              </div>
+              <Badge variant="outline" className="text-[10px] font-mono">
+                {currentUser?.role === 'REP' ? 'Role Default: 80mm Thermal' : 'Role Default: A4 Sheet'}
+              </Badge>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <p className="text-[11px] text-slate-500 dark:text-zinc-400">
+                Configure your device's preferred print format for "Save &amp; Print" actions across Quick POS and Order Management. Persisted locally to this device terminal.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleUpdatePrintPreference('a4')}
+                  className={`flex items-start gap-3 p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+                    selectedPrintFormat === 'a4'
+                      ? 'border-indigo-600 bg-indigo-50/70 dark:bg-indigo-950/40 dark:border-indigo-500 ring-2 ring-indigo-500/20'
+                      : 'border-slate-200 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 bg-white dark:bg-zinc-950'
+                  }`}
+                >
+                  <div className={`p-2 rounded-lg shrink-0 ${selectedPrintFormat === 'a4' ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300'}`}>
+                    <FileText className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-xs text-slate-900 dark:text-zinc-100">
+                      A4 Sheet (Standard)
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5">
+                      Full A4 standard invoice preview modal for office desktop printers, counter invoicing, and PDF export.
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleUpdatePrintPreference('thermal-80mm')}
+                  className={`flex items-start gap-3 p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+                    selectedPrintFormat === 'thermal-80mm'
+                      ? 'border-emerald-600 bg-emerald-50/70 dark:bg-emerald-950/40 dark:border-emerald-500 ring-2 ring-emerald-500/20'
+                      : 'border-slate-200 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 bg-white dark:bg-zinc-950'
+                  }`}
+                >
+                  <div className={`p-2 rounded-lg shrink-0 ${selectedPrintFormat === 'thermal-80mm' ? 'bg-emerald-600 text-white' : 'bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300'}`}>
+                    <Receipt className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-xs text-slate-900 dark:text-zinc-100">
+                      80mm Thermal (Receipt)
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5">
+                      Portable Bluetooth/USB receipt printing (tailored for Xprinter XP-P801A, 72mm printable width / 576 dots).
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div className={cardClass}>
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 dark:border-zinc-800/80">
               <div className="flex items-center gap-2">

@@ -171,7 +171,7 @@ export async function generateChequeLedgerPdf(
     doc.setFontSize(7);
     doc.setTextColor(51, 51, 51);
     doc.text(
-      'Mawarala Road, Makandura, Matara | Tel: 041-2268739, 071-1350123  •  Web: relianceclothing.lk',
+      'Mawarala Road, Makandura, Matara | Tel: 041-2268739, 071-1350123  •  Web: relianceapparel.lk',
       brandTextX,
       headerTop + 32
     );

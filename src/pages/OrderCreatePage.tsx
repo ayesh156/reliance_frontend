@@ -51,7 +51,8 @@ import {
   Printer,
 } from 'lucide-react';
 import { openWhatsAppChat, generateSalesOrderWhatsAppMessage, generateCustomerInvoiceWhatsAppMessage } from '../utils/whatsapp';
-import { printInvoiceDirectly } from '../utils/print';
+import { printInvoiceDirectly, print80mmThermalReceipt, getEffectivePrintFormat } from '../utils/print';
+import { A4InvoiceModal } from '../components/pos/A4InvoiceModal';
 import { resolveImageUrl, handleImageError } from '../utils/imageUrl';
 import { isValidSriLankanPhone, isValidSriLankanNIC } from '../utils/validators';
 
@@ -209,6 +210,8 @@ export const OrderCreatePage: React.FC = () => {
   const [createdOrder, setCreatedOrder] = useState<any | null>(null);
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState<boolean>(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState<boolean>(false);
+  const [a4ModalOpen, setA4ModalOpen] = useState<boolean>(false);
+  const [a4ModalOrder, setA4ModalOrder] = useState<any | null>(null);
 
   /**
    * Helper to accurately compute line item discount based on active mode (% vs Rs)
@@ -1300,7 +1303,7 @@ export const OrderCreatePage: React.FC = () => {
   /**
    * Submit Order Handler (Create or Update)
    */
-  const handleSubmit = async (e?: React.FormEvent) => {
+  const handleSubmit = async (e?: React.FormEvent, printAfterSave = false) => {
     if (e) e.preventDefault();
 
     let finalCustomerName = '';
@@ -1465,18 +1468,45 @@ export const OrderCreatePage: React.FC = () => {
         setIsSuccessModalOpen(true);
         setMobileCartOpen(false);
         toast.success(`Invoice #${updated.invoiceNumber || updated.id} updated successfully!`);
+        if (printAfterSave) {
+          const effectiveFormat = getEffectivePrintFormat(user?.role);
+          if (effectiveFormat === 'thermal-80mm') {
+            print80mmThermalReceipt(updated, undefined, updated.customer, customers);
+          } else {
+            setA4ModalOrder(updated);
+            setA4ModalOpen(true);
+          }
+        }
       } else if (isEditMode && editOrderId) {
         const updated = await put<any>(`/sales-orders/${editOrderId}`, payload);
         setCreatedOrder(updated);
         setIsSuccessModalOpen(true);
         setMobileCartOpen(false);
         toast.success(`Presales Order ${updated.orderNumber || ''} updated successfully!`);
+        if (printAfterSave) {
+          const effectiveFormat = getEffectivePrintFormat(user?.role);
+          if (effectiveFormat === 'thermal-80mm') {
+            print80mmThermalReceipt(updated, undefined, updated.customer, customers);
+          } else {
+            setA4ModalOrder(updated);
+            setA4ModalOpen(true);
+          }
+        }
       } else {
         const created = await post<any>('/sales-orders', payload);
         setCreatedOrder(created);
         setIsSuccessModalOpen(true);
         setMobileCartOpen(false);
         toast.success(`Presales Order ${created.orderNumber || ''} created successfully!`);
+        if (printAfterSave) {
+          const effectiveFormat = getEffectivePrintFormat(user?.role);
+          if (effectiveFormat === 'thermal-80mm') {
+            print80mmThermalReceipt(created, undefined, created.customer, customers);
+          } else {
+            setA4ModalOrder(created);
+            setA4ModalOpen(true);
+          }
+        }
       }
     } catch (err: any) {
       console.error('Order submission error:', err);
@@ -1585,7 +1615,13 @@ export const OrderCreatePage: React.FC = () => {
 
   const handlePrintCreatedInvoice = () => {
     if (!createdOrder) return;
-    printInvoiceDirectly(createdOrder, undefined, createdOrder.customer, customers);
+    const effectiveFormat = getEffectivePrintFormat(user?.role);
+    if (effectiveFormat === 'thermal-80mm') {
+      print80mmThermalReceipt(createdOrder, undefined, createdOrder.customer, customers);
+    } else {
+      setA4ModalOrder(createdOrder);
+      setA4ModalOpen(true);
+    }
   };
 
   /**
@@ -2266,20 +2302,32 @@ export const OrderCreatePage: React.FC = () => {
             className="h-10 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer transition-all active:scale-[0.98]"
           >
             {isSubmitting ? <Loader2 className="size-4 animate-spin mr-1" /> : <Save className="size-4 mr-1" />}
-            <span>{isEditMode ? 'Update Order' : 'Confirm Order'}</span>
+            <span>{isEditMode ? (editInvoiceId ? 'Update Invoice' : 'Update Order') : 'Confirm Order'}</span>
           </Button>
 
-          <Button
-            type="button"
-            variant="outline"
-            disabled={cart.length === 0}
-            onClick={handleConvertToInvoice}
-            className="h-10 border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 font-semibold text-xs rounded-xl gap-1.5 cursor-pointer shadow-2xs"
-            title="Convert active order to Wholesale Invoice in POS"
-          >
-            <ArrowRightCircle className="size-4 text-indigo-600 dark:text-indigo-400" />
-            <span>To Invoice</span>
-          </Button>
+          {Boolean(editInvoiceId) ? (
+            <Button
+              type="button"
+              disabled={cart.length === 0 || isSubmitting}
+              onClick={() => handleSubmit(undefined, true)}
+              className="h-10 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer transition-all active:scale-[0.98] gap-1.5"
+            >
+              {isSubmitting ? <Loader2 className="size-4 animate-spin mr-1" /> : <Printer className="size-4 mr-1" />}
+              <span>Update &amp; Print</span>
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={cart.length === 0}
+              onClick={handleConvertToInvoice}
+              className="h-10 border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 font-semibold text-xs rounded-xl gap-1.5 cursor-pointer shadow-2xs"
+              title="Convert active order to Wholesale Invoice in POS"
+            >
+              <ArrowRightCircle className="size-4 text-indigo-600 dark:text-indigo-400" />
+              <span>To Invoice</span>
+            </Button>
+          )}
         </div>
       </div>
     </div>
@@ -2927,6 +2975,21 @@ export const OrderCreatePage: React.FC = () => {
           totalQuantity={cart[splittingItemIndex].quantity}
           initialReason={cart[splittingItemIndex].returnReason || 'UNSOLD'}
           onConfirmSplit={handleConfirmReturnSplit}
+        />
+      )}
+
+      {/* Standard A4 Invoice Modal (Cross-Print & PDF Inspection) */}
+      {a4ModalOpen && a4ModalOrder && (
+        <A4InvoiceModal
+          open={a4ModalOpen}
+          autoPrint={true}
+          onClose={() => {
+            setA4ModalOpen(false);
+            setA4ModalOrder(null);
+          }}
+          order={a4ModalOrder}
+          customers={customers}
+          matchedCustomer={customers.find((c) => String(c.id) === String(a4ModalOrder.customerId || a4ModalOrder.customer?.id))}
         />
       )}
     </div>

@@ -7,10 +7,13 @@ import {
   DialogDescription,
 } from '../ui/dialog';
 import { Button } from '../ui/button';
-import { Printer, FileDown, X, FileText, Loader2, MessageSquare } from 'lucide-react';
+import { Printer, FileDown, X, FileText, Loader2, MessageSquare, Receipt } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../../utils/whatsapp';
 import { formatCustomerAddressCity, resolveMatchedCustomer } from '../../utils/customerAddress';
+import { print80mmThermalReceiptDirectly, getEffectivePrintFormat, type PrintFormat } from '../../utils/print';
+import { generate80mmThermalReceiptHtml } from '../../utils/thermalReceipt';
+import { useAuth } from '../../contexts/AuthContext';
 
 export interface InvoiceModalProps {
   open: boolean;
@@ -19,6 +22,7 @@ export interface InvoiceModalProps {
   autoPrint?: boolean;
   customers?: any[];
   matchedCustomer?: any;
+  defaultFormat?: PrintFormat;
 }
 
 /**
@@ -689,7 +693,7 @@ export const generatePrintableInvoiceHtml = (
                 <div class="contact-info">
                   Mawarala Road, Makandura, Matara.<br/>
                   <strong>Tel:</strong> 041-2268739, 071-1350123<br/>
-                  <strong>Web:</strong> relianceclothing.lk
+                  <strong>Web:</strong> relianceapparel.lk
                 </div>
               </div>
             </div>
@@ -1011,17 +1015,37 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({
   autoPrint = false,
   customers,
   matchedCustomer,
+  defaultFormat,
 }) => {
+  const { user } = useAuth();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const isPrintingRef = useRef<boolean>(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState<boolean>(false);
 
+  // Resolved effective print format (defaultFormat prop > user preferences / role default)
+  const effectiveDefaultFormat = defaultFormat || getEffectivePrintFormat(user?.role);
+  const [previewFormat, setPreviewFormat] = useState<PrintFormat>(effectiveDefaultFormat);
+
+  // Synchronize preview format when modal opens or preference changes
+  useEffect(() => {
+    if (open) {
+      setPreviewFormat(defaultFormat || getEffectivePrintFormat(user?.role));
+    }
+  }, [open, defaultFormat, user?.role, order?.id]);
+
   const printableDoc = useMemo(() => {
     if (!order) return '';
+    if (previewFormat === 'thermal-80mm') {
+      return generate80mmThermalReceiptHtml(order, matchedCustomer, customers);
+    }
     return generatePrintableInvoiceHtml(order, matchedCustomer, customers);
-  }, [order, matchedCustomer, customers]);
+  }, [order, matchedCustomer, customers, previewFormat]);
 
   const handlePrint = () => {
+    if (previewFormat === 'thermal-80mm') {
+      print80mmThermalReceiptDirectly(order, undefined, matchedCustomer, customers);
+      return;
+    }
     if (!iframeRef.current?.contentWindow) return;
     const iframeWin = iframeRef.current.contentWindow;
     const invoiceNo = `INV${order?.id || String(Date.now()).slice(-4)}`;
@@ -1110,16 +1134,55 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({
     try {
       const doc = iframeRef.current?.contentDocument || iframeRef.current?.contentWindow?.document;
       if (doc) {
-        // Remove default document margins and heights causing vertical stretching
+        // Prevent internal iframe scrollbars so top and bottom are never clipped
+        doc.documentElement.style.overflow = 'hidden';
+        doc.body.style.overflow = 'hidden';
         doc.documentElement.style.height = 'auto';
+        doc.documentElement.style.minHeight = '0px';
         doc.body.style.height = 'auto';
-        doc.body.style.minHeight = 'auto';
-        doc.body.style.paddingBottom = '10px';
+        doc.body.style.minHeight = '0px';
 
-        const contentEl = doc.getElementById('invoice-root') || doc.body;
-        const measuredHeight = contentEl.scrollHeight || doc.body.offsetHeight;
+        const measure = () => {
+          // Reset internal scroll offsets to guarantee top is completely visible
+          doc.documentElement.scrollTop = 0;
+          doc.body.scrollTop = 0;
+          if (iframeRef.current?.contentWindow) {
+            try {
+              iframeRef.current.contentWindow.scrollTo(0, 0);
+            } catch {}
+          }
 
-        setIframeHeight(measuredHeight + 16);
+          const contentEl = doc.getElementById('invoice-root') || doc.body;
+          const bodyHeight = doc.body.scrollHeight || doc.body.offsetHeight || 0;
+          const docHeight = doc.documentElement.scrollHeight || doc.documentElement.offsetHeight || 0;
+          const contentHeight = contentEl.scrollHeight || contentEl.offsetHeight || 0;
+          const rectHeight = Math.ceil(contentEl.getBoundingClientRect?.()?.height || 0);
+
+          const measuredHeight = Math.max(bodyHeight, docHeight, contentHeight, rectHeight);
+
+          if (measuredHeight > 0) {
+            setIframeHeight(measuredHeight + 16);
+          }
+        };
+
+        measure();
+
+        // Listen for internal layout changes using ResizeObserver if available
+        if (typeof ResizeObserver !== 'undefined' && doc.body) {
+          const ro = new ResizeObserver(() => {
+            measure();
+          });
+          ro.observe(doc.body);
+        }
+
+        // If images exist inside the iframe, re-measure when they complete loading
+        if (doc.images && doc.images.length > 0) {
+          for (let i = 0; i < doc.images.length; i++) {
+            if (!doc.images[i].complete) {
+              doc.images[i].onload = measure;
+            }
+          }
+        }
       }
     } catch {
       // Fallback
@@ -1134,50 +1197,104 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Re-measure height when preview format or printable doc changes
+  useEffect(() => {
+    setIframeHeight(null);
+    handleIframeLoad();
+    const timer = setTimeout(() => {
+      handleIframeLoad();
+    }, 120);
+    return () => clearTimeout(timer);
+  }, [printableDoc, previewFormat]);
+
   if (!open || !order) return null;
 
   return (
     <Dialog open={open} onOpenChange={(val) => !val && onClose()}>
-      <DialogContent className="w-full max-w-full sm:max-w-4xl max-h-[92vh] flex flex-col p-2 sm:p-6 rounded-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 shadow-2xl overflow-x-hidden">
-        {/* Compact Modal Header: Clean Title Only (DialogContent provides the close button) */}
-        <DialogHeader className="pb-2 sm:pb-3 border-b border-slate-100 dark:border-zinc-800 shrink-0 pr-8">
-          <div className="flex items-center gap-2 min-w-0">
-            <FileText className="size-4 sm:size-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-            <DialogTitle className="text-sm sm:text-base font-bold text-slate-900 dark:text-white truncate">
-              Invoice Preview — #{order?.id ? `INV${order.id}` : 'NEW'}
-            </DialogTitle>
+      <DialogContent className="w-full max-w-full sm:max-w-4xl max-h-[92vh] h-auto flex flex-col p-0 gap-0 rounded-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 shadow-2xl overflow-hidden">
+        {/* Compact Modal Header: Clean Title & Format Switcher */}
+        <DialogHeader className="flex-shrink-0 px-4 py-3 sm:px-6 sm:py-3.5 border-b border-slate-100 dark:border-zinc-800 bg-white dark:bg-zinc-950 pr-12">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
+              {previewFormat === 'thermal-80mm' ? (
+                <Receipt className="size-4 sm:size-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              ) : (
+                <FileText className="size-4 sm:size-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+              )}
+              <DialogTitle className="text-sm sm:text-base font-bold text-slate-900 dark:text-white truncate">
+                Invoice Preview — #{order?.id ? `INV${order.id}` : 'NEW'}
+              </DialogTitle>
+            </div>
+
+            {/* Dynamic View Format Selector Pill */}
+            <div className="inline-flex items-center gap-1 bg-slate-100 dark:bg-zinc-900 p-0.5 rounded-xl self-start sm:self-auto border border-slate-200/80 dark:border-zinc-800/80 text-xs">
+              <button
+                type="button"
+                onClick={() => setPreviewFormat('thermal-80mm')}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  previewFormat === 'thermal-80mm'
+                    ? 'bg-emerald-600 text-white shadow-2xs'
+                    : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
+                }`}
+                title="Preview 80mm portable thermal receipt"
+              >
+                <Receipt className="size-3" />
+                <span>80mm Thermal</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewFormat('a4')}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  previewFormat === 'a4'
+                    ? 'bg-indigo-600 text-white shadow-2xs'
+                    : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
+                }`}
+                title="Preview standard A4 sheet invoice"
+              >
+                <FileText className="size-3" />
+                <span>A4 Sheet</span>
+              </button>
+            </div>
           </div>
           <DialogDescription className="text-xs text-slate-500 dark:text-zinc-400 hidden sm:block">
-            A4 format preview. Print directly to thermal/laser printer or download as PDF.
+            {previewFormat === 'thermal-80mm'
+              ? '80mm Thermal receipt preview tailored for Xprinter XP-P801A. "Download PDF" generates official standard A4 format.'
+              : 'A4 format preview. Print directly to thermal/laser printer or download as PDF.'}
           </DialogDescription>
         </DialogHeader>
 
         {/* Modal Body: Scrollable Document Canvas with Full Touch Passthrough */}
         <div 
-          className="w-full flex-1 min-h-0 overflow-y-auto overflow-x-hidden touch-pan-y overscroll-contain p-2 sm:p-4 bg-slate-900/60 rounded-xl"
-          style={{ WebkitOverflowScrolling: 'touch' }}
+          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-2 sm:p-4 md:p-6 bg-slate-500/10 dark:bg-zinc-950/40 flex justify-center items-start scrollbar-thin scrollbar-thumb-slate-400 dark:scrollbar-thumb-zinc-600 touch-pan-y"
+          style={{ touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' }}
         >
           <div 
             id="invoice-capture-area" 
-            className="w-full max-w-[794px] bg-white text-black shadow-2xl rounded-sm mx-auto overflow-hidden pb-4"
+            className={`w-full bg-white text-black shadow-2xl rounded-sm mx-auto overflow-hidden transition-all duration-200 ${
+              previewFormat === 'thermal-80mm' ? 'border border-slate-300' : ''
+            }`}
+            style={{
+              maxWidth: previewFormat === 'thermal-80mm' ? 'min(100%, 340px)' : 'min(100%, 794px)',
+            }}
           >
             <iframe
               ref={iframeRef}
               srcDoc={printableDoc}
               onLoad={handleIframeLoad}
               style={{ 
-                height: iframeHeight ? `${iframeHeight}px` : 'auto',
-                minHeight: 'auto'
+                height: iframeHeight ? `${iframeHeight}px` : (previewFormat === 'thermal-80mm' ? '450px' : '750px'),
+                minHeight: '0px',
+                width: '100%',
               }}
               scrolling="no"
               title={`Invoice-${order?.id || ''}`}
-              className="w-full border-0 bg-white block pointer-events-auto"
+              className="w-full border-0 bg-white block pointer-events-none select-none"
             />
           </div>
         </div>
 
         {/* Sticky Action Bar (Unified for Mobile & Desktop - No Duplicates) */}
-        <div className="pt-2.5 sm:pt-3 border-t border-slate-100 dark:border-zinc-800 flex items-center justify-end gap-1.5 sm:gap-2 shrink-0 z-20">
+        <div className="flex-shrink-0 border-t border-slate-100 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-2.5 sm:px-6 sm:py-3.5 flex flex-wrap sm:flex-nowrap items-center justify-end gap-1.5 sm:gap-2 z-20">
           <Button
             type="button"
             variant="outline"
@@ -1205,23 +1322,33 @@ export const A4InvoiceModal: React.FC<InvoiceModalProps> = ({
             disabled={isDownloadingPdf}
             onClick={handleDownloadPdf}
             className="h-9 px-3 sm:px-4 border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800 font-bold rounded-xl text-xs sm:text-sm gap-1.5 shadow-sm active:scale-[0.98] transition-all cursor-pointer flex-1 sm:flex-initial justify-center inline-flex items-center"
+            title="Download official standard A4 Invoice PDF"
           >
             {isDownloadingPdf ? (
               <Loader2 className="size-3.5 sm:size-4 animate-spin text-emerald-600" />
             ) : (
               <FileDown className="size-3.5 sm:size-4 text-emerald-600" />
             )}
-            <span className="hidden sm:inline">Download PDF</span>
+            <span className="hidden sm:inline">Download A4 PDF</span>
             <span className="sm:hidden">PDF</span>
           </Button>
 
           <Button
             type="button"
             onClick={handlePrint}
-            className="h-9 px-3.5 sm:px-5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs sm:text-sm gap-1.5 shadow-sm active:scale-[0.98] transition-all cursor-pointer flex-1 sm:flex-initial justify-center inline-flex items-center"
+            className={`h-9 px-3.5 sm:px-5 font-bold rounded-xl text-xs sm:text-sm gap-1.5 shadow-sm active:scale-[0.98] transition-all cursor-pointer flex-1 sm:flex-initial justify-center inline-flex items-center text-white ${
+              previewFormat === 'thermal-80mm'
+                ? 'bg-emerald-600 hover:bg-emerald-500'
+                : 'bg-indigo-600 hover:bg-indigo-500'
+            }`}
+            title={previewFormat === 'thermal-80mm' ? 'Print 80mm portable thermal receipt (Bluetooth/USB)' : 'Print standard A4 format invoice'}
           >
-            <Printer className="size-3.5 sm:size-4" />
-            <span>Print</span>
+            {previewFormat === 'thermal-80mm' ? (
+              <Receipt className="size-3.5 sm:size-4" />
+            ) : (
+              <Printer className="size-3.5 sm:size-4" />
+            )}
+            <span>{previewFormat === 'thermal-80mm' ? 'Print Receipt' : 'Print A4'}</span>
           </Button>
         </div>
       </DialogContent>
