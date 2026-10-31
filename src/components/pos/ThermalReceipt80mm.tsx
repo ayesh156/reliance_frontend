@@ -237,13 +237,15 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
         height: 'auto',
         minHeight: '0',
         margin: '0 auto',
-        padding: '0 3mm 12mm 3mm',
-        fontFamily: "'Courier New', Courier, monospace, 'Liberation Mono'",
-        fontSize: '13px',
-        fontWeight: 600,
+        padding: '2mm 1mm 2mm 1mm',
+        boxSizing: 'border-box',
+        overflow: 'hidden',
+        fontFamily: "'Courier New', Courier, monospace",
+        fontSize: '12.5px',
+        fontWeight: 700,
         lineHeight: '1.35',
-        color: '#000',
-        backgroundColor: '#fff',
+        color: '#000000',
+        backgroundColor: '#ffffff',
       }}
     >
       {/* Header: Centered Flexbox with Logo left & Brand text right */}
@@ -375,7 +377,7 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
                 {it.variantDesc}
               </div>
             ) : null}
-            {/* Line 3: Qty @ Rate on left, Total strictly right-aligned */}
+            {/* Line 3: Qty @ Rate on left, Total strictly right-aligned (No redundant Rs. prefix) */}
             <div
               style={{
                 width: '100%',
@@ -389,7 +391,7 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
               }}
             >
               <span>
-                {it.qty} @ Rs. {formatReceiptPrice(it.rate)}
+                {it.qty} @ {formatReceiptPrice(it.rate)}
                 {it.discount > 0 ? (
                   <span style={{ fontSize: '10px', fontWeight: 700 }}>
                     {` (-${formatReceiptDiscount(it.discount, it.discountType, it.discountInput)})`}
@@ -397,7 +399,7 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
                 ) : null}
               </span>
               <span style={{ fontWeight: 900, textAlign: 'right' }}>
-                {it.isReturn ? '-' : ''}Rs. {formatReceiptPrice(Math.abs(it.amount))}
+                {it.isReturn ? '-' : ''}{formatReceiptPrice(Math.abs(it.amount))}
               </span>
             </div>
           </div>
@@ -406,16 +408,16 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
 
       <div style={{ borderTop: '1.5px dashed #000', margin: '6px 0', width: '100%' }} />
 
-      {/* Strict Financial Ledger Breakdown */}
-      <div style={{ width: '100%', fontSize: '12.5px', lineHeight: '1.45', fontWeight: 600 }}>
+      {/* Strict Financial Ledger Breakdown (No redundant Rs. prefix) */}
+      <div style={{ width: '100%', fontSize: '12.5px', lineHeight: '1.45', fontWeight: 700 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           <span>Sub Total (Gross):</span>
-          <span style={{ fontWeight: 700 }}>Rs. {formatReceiptPrice(grossSubtotal)}</span>
+          <span style={{ fontWeight: 700 }}>{formatReceiptPrice(grossSubtotal)}</span>
         </div>
         {totalDiscounts > 0 ? (
           <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
             <span>Total Discounts:</span>
-            <span>- Rs. {formatReceiptPrice(totalDiscounts)}</span>
+            <span>-{formatReceiptPrice(totalDiscounts)}</span>
           </div>
         ) : null}
         <div
@@ -431,23 +433,23 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
           }}
         >
           <span>NET BILL AMOUNT:</span>
-          <span>Rs. {formatReceiptPrice(netBillAmount)}</span>
+          <span>{formatReceiptPrice(netBillAmount)}</span>
         </div>
 
         {isReturnBill ? (
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span>Previous Due (Before Return):</span>
-              <span style={{ fontWeight: 700 }}>Rs. {formatReceiptPrice(previousDueBeforeReturn)}</span>
+              <span style={{ fontWeight: 700 }}>{formatReceiptPrice(previousDueBeforeReturn)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800 }}>
               <span>Deducted (Return Credit):</span>
-              <span>- Rs. ${formatReceiptPrice(creditApplied)}</span>
+              <span>-{formatReceiptPrice(creditApplied)}</span>
             </div>
             {refundedCashAmount > 0 ? (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
                 <span>Cash Refunded:</span>
-                <span>Rs. {formatReceiptPrice(refundedCashAmount)}</span>
+                <span>{formatReceiptPrice(refundedCashAmount)}</span>
               </div>
             ) : null}
             <div
@@ -462,7 +464,7 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
               }}
             >
               <span>UPDATED OUTSTANDING:</span>
-              <span>Rs. {formatReceiptPrice(updatedBalance)}</span>
+              <span>{formatReceiptPrice(updatedBalance)}</span>
             </div>
           </>
         ) : (
@@ -470,7 +472,7 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
             {hasCustomerAccount ? (
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span>Previous Due (Before Bill):</span>
-                <span style={{ fontWeight: 700 }}>Rs. {formatReceiptPrice(previousDueBeforeBill)}</span>
+                <span style={{ fontWeight: 700 }}>{formatReceiptPrice(previousDueBeforeBill)}</span>
               </div>
             ) : null}
 
@@ -479,7 +481,7 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
               return (
                 <div key={pIdx} style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>Paid ({label}):</span>
-                  <span style={{ fontWeight: 700 }}>Rs. {formatReceiptPrice(p.amount)}</span>
+                  <span style={{ fontWeight: 700 }}>{formatReceiptPrice(p.amount)}</span>
                 </div>
               );
             })}
@@ -487,14 +489,14 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
             {balanceDue > 0 && hasCustomerAccount ? (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
                 <span>Bill Credit (Unpaid):</span>
-                <span>+ Rs. {formatReceiptPrice(balanceDue)}</span>
+                <span>+{formatReceiptPrice(balanceDue)}</span>
               </div>
             ) : null}
 
             {settledDue > 0 ? (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
                 <span>Settled from Previous Due:</span>
-                <span>- Rs. {formatReceiptPrice(settledDue)}</span>
+                <span>-{formatReceiptPrice(settledDue)}</span>
               </div>
             ) : null}
 
@@ -511,20 +513,20 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
                 }}
               >
                 <span>UPDATED OUTSTANDING:</span>
-                <span>Rs. {formatReceiptPrice(updatedBalance)}</span>
+                <span>{formatReceiptPrice(updatedBalance)}</span>
               </div>
             ) : (
               <>
                 {balanceDue > 0 ? (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800 }}>
                     <span>Balance Due:</span>
-                    <span>Rs. {formatReceiptPrice(balanceDue)}</span>
+                    <span>{formatReceiptPrice(balanceDue)}</span>
                   </div>
                 ) : null}
                 {changeAmount > 0 ? (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 800 }}>
                     <span>Change:</span>
-                    <span>Rs. {formatReceiptPrice(changeAmount)}</span>
+                    <span>{formatReceiptPrice(changeAmount)}</span>
                   </div>
                 ) : null}
               </>
@@ -546,11 +548,6 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
         <div style={{ fontSize: '9.5px', fontWeight: 700, marginTop: '4px' }}>
           System by nebulainfinite.com | 0783233760
         </div>
-      </div>
-
-      {/* Guard Line Marker: Forces printer to feed 14mm travel distance even with paper-saving enabled */}
-      <div style={{ marginTop: '14mm', textAlign: 'center', fontSize: '8px', lineHeight: '8px', color: '#000000', width: '100%' }}>
-        - - - - - - - -
       </div>
     </div>
   );

@@ -428,27 +428,27 @@ export const generate80mmThermalReceiptHtml = (
         <div style="font-size: 11px; font-weight: 700; text-align: left; width: 100%; margin-top: 1px; color: #000000 !important; word-break: break-word;">
           ${it.variantDesc}
         </div>` : ''}
-        <!-- Line 3: Qty @ Rate on left, Total strictly right-aligned with clearance -->
+        <!-- Line 3: Qty @ Rate on left, Total strictly right-aligned (No redundant Rs. prefix) -->
         <div class="flex-between" style="font-size: 12px; font-weight: 700; margin-top: 2px; color: #000000 !important; width: 100%; padding-right: 2mm; box-sizing: border-box;">
           <span>
-            ${it.qty} @ Rs. ${formatReceiptPrice(it.rate)}${it.discount > 0 ? ` <span style="font-size: 10px; font-weight: 700;">(-${formatReceiptDiscount(it.discount, it.discountType, it.discountInput)})</span>` : ''}
+            ${it.qty} @ ${formatReceiptPrice(it.rate)}${it.discount > 0 ? ` <span style="font-size: 10px; font-weight: 700;">(-${formatReceiptDiscount(it.discount, it.discountType, it.discountInput)})</span>` : ''}
           </span>
           <span style="font-weight: 900; text-align: right;">
-            ${it.isReturn ? '-' : ''}Rs. ${formatReceiptPrice(Math.abs(it.amount))}
+            ${it.isReturn ? '-' : ''}${formatReceiptPrice(Math.abs(it.amount))}
           </span>
         </div>
       </div>`
     )
     .join('');
 
-  // Itemized Payment Lines HTML
+  // Itemized Payment Lines HTML (No redundant Rs. prefix)
   const paymentsHtml = itemizedPayments
     .map((p) => {
       const label = p.method === 'CHEQUE' ? (p.reference || 'Cheque') : p.method;
       return `
       <div class="flex-between">
         <span>Paid (${label}):</span>
-        <span style="font-weight: 700; padding-right: 2mm;">Rs. ${formatReceiptPrice(p.amount)}</span>
+        <span style="font-weight: 700; padding-right: 2mm;">${formatReceiptPrice(p.amount)}</span>
       </div>`;
     })
     .join('');
@@ -487,7 +487,7 @@ export const generate80mmThermalReceiptHtml = (
         width: 100% !important;
         max-width: 100% !important;
         margin: 0 !important;
-        padding: 0 1mm !important;
+        padding: 2mm 1mm 2mm 1mm !important;
         box-sizing: border-box !important;
         overflow: hidden !important;
         height: auto !important;
@@ -547,7 +547,7 @@ export const generate80mmThermalReceiptHtml = (
   </style>
 </head>
 <body>
-  <div id="invoice-root" style="width: 100%; max-width: 80mm; box-sizing: border-box; padding: 0 1mm; margin: 0 auto; overflow: hidden; height: auto; min-height: 0; background: #ffffff;">
+  <div id="invoice-root" style="width: 100%; max-width: 80mm; box-sizing: border-box; padding: 2mm 1mm 2mm 1mm; margin: 0 auto; overflow: hidden; height: auto; min-height: 0; background: #ffffff;">
     <!-- Header: Centered Flexbox with Logo left & Brand text right -->
     <div style="width: 100%; text-align: center; margin-bottom: 4px;">
       <div style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 4px;">
@@ -632,47 +632,47 @@ export const generate80mmThermalReceiptHtml = (
 
     <div class="dashed-sep"></div>
 
-    <!-- Strict Financial Ledger Breakdown -->
+    <!-- Strict Financial Ledger Breakdown (No redundant Rs. prefix) -->
     <div style="width: 100%; font-size: 12.5px; line-height: 1.45; font-weight: 700;">
       <div class="flex-between">
         <span>Sub Total (Gross):</span>
-        <span style="font-weight: 700; padding-right: 2mm;">Rs. ${formatReceiptPrice(grossSubtotal)}</span>
+        <span style="font-weight: 700; padding-right: 2mm;">${formatReceiptPrice(grossSubtotal)}</span>
       </div>
       ${totalDiscounts > 0 ? `
       <div class="flex-between" style="font-weight: 700;">
         <span>Total Discounts:</span>
-        <span style="padding-right: 2mm;">- Rs. ${formatReceiptPrice(totalDiscounts)}</span>
+        <span style="padding-right: 2mm;">-${formatReceiptPrice(totalDiscounts)}</span>
       </div>` : ''}
       <div class="flex-between" style="font-size: 13.5px; font-weight: 900; border-top: 1.5px solid #000000; border-bottom: 1.5px solid #000000; padding: 4px 0; margin: 4px 0;">
         <span>NET BILL AMOUNT:</span>
-        <span style="padding-right: 2mm;">Rs. ${formatReceiptPrice(netBillAmount)}</span>
+        <span style="padding-right: 2mm;">${formatReceiptPrice(netBillAmount)}</span>
       </div>
 
       ${isReturnBill ? `
       <!-- Return Bill Financial Ledger -->
       <div class="flex-between">
         <span>Previous Due (Before Return):</span>
-        <span style="font-weight: 700; padding-right: 2mm;">Rs. ${formatReceiptPrice(previousDueBeforeReturn)}</span>
+        <span style="font-weight: 700; padding-right: 2mm;">${formatReceiptPrice(previousDueBeforeReturn)}</span>
       </div>
       <div class="flex-between" style="font-weight: 800;">
         <span>Deducted (Return Credit):</span>
-        <span style="padding-right: 2mm;">- Rs. ${formatReceiptPrice(creditApplied)}</span>
+        <span style="padding-right: 2mm;">-${formatReceiptPrice(creditApplied)}</span>
       </div>
       ${refundedCashAmount > 0 ? `
       <div class="flex-between" style="font-weight: 700;">
         <span>Cash Refunded:</span>
-        <span style="padding-right: 2mm;">Rs. ${formatReceiptPrice(refundedCashAmount)}</span>
+        <span style="padding-right: 2mm;">${formatReceiptPrice(refundedCashAmount)}</span>
       </div>` : ''}
       <div class="flex-between" style="font-size: 13.5px; font-weight: 900; border-top: 2px solid #000000; padding-top: 4px; margin-top: 4px;">
         <span>UPDATED OUTSTANDING:</span>
-        <span style="padding-right: 2mm;">Rs. ${formatReceiptPrice(updatedBalance)}</span>
+        <span style="padding-right: 2mm;">${formatReceiptPrice(updatedBalance)}</span>
       </div>
       ` : `
       <!-- Standard Invoice Financial Ledger -->
       ${hasCustomerAccount ? `
       <div class="flex-between">
         <span>Previous Due (Before Bill):</span>
-        <span style="font-weight: 700; padding-right: 2mm;">Rs. ${formatReceiptPrice(previousDueBeforeBill)}</span>
+        <span style="font-weight: 700; padding-right: 2mm;">${formatReceiptPrice(previousDueBeforeBill)}</span>
       </div>` : ''}
 
       ${paymentsHtml}
@@ -680,29 +680,29 @@ export const generate80mmThermalReceiptHtml = (
       ${balanceDue > 0 && hasCustomerAccount ? `
       <div class="flex-between" style="font-weight: 700;">
         <span>Bill Credit (Unpaid):</span>
-        <span style="padding-right: 2mm;">+ Rs. ${formatReceiptPrice(balanceDue)}</span>
+        <span style="padding-right: 2mm;">+${formatReceiptPrice(balanceDue)}</span>
       </div>` : ''}
 
       ${settledDue > 0 ? `
       <div class="flex-between" style="font-weight: 700;">
         <span>Settled from Previous Due:</span>
-        <span style="padding-right: 2mm;">- Rs. ${formatReceiptPrice(settledDue)}</span>
+        <span style="padding-right: 2mm;">-${formatReceiptPrice(settledDue)}</span>
       </div>` : ''}
 
       ${hasCustomerAccount ? `
       <div class="flex-between" style="font-size: 13.5px; font-weight: 900; border-top: 2px solid #000000; padding-top: 4px; margin-top: 4px;">
         <span>UPDATED OUTSTANDING:</span>
-        <span style="padding-right: 2mm;">Rs. ${formatReceiptPrice(updatedBalance)}</span>
+        <span style="padding-right: 2mm;">${formatReceiptPrice(updatedBalance)}</span>
       </div>` : `
       ${balanceDue > 0 ? `
       <div class="flex-between" style="font-weight: 800;">
         <span>Balance Due:</span>
-        <span style="padding-right: 2mm;">Rs. ${formatReceiptPrice(balanceDue)}</span>
+        <span style="padding-right: 2mm;">${formatReceiptPrice(balanceDue)}</span>
       </div>` : ''}
       ${changeAmount > 0 ? `
       <div class="flex-between" style="font-weight: 800;">
         <span>Change:</span>
-        <span style="padding-right: 2mm;">Rs. ${formatReceiptPrice(changeAmount)}</span>
+        <span style="padding-right: 2mm;">${formatReceiptPrice(changeAmount)}</span>
       </div>` : ''}
       `}
       `}
@@ -722,9 +722,6 @@ export const generate80mmThermalReceiptHtml = (
         System by nebulainfinite.com | 0783233760
       </div>
     </div>
-
-    <!-- Guard Line Marker: Forces printer to feed 14mm travel distance even with paper-saving enabled -->
-    <div style="margin-top: 14mm; text-align: center; font-size: 8px; line-height: 8px; color: #000000; width: 100%;">- - - - - - - -</div>
   </div>
 </body>
 </html>`;
