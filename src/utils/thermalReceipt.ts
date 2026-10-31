@@ -460,12 +460,12 @@ export const generate80mmThermalReceiptHtml = (
   <title>Receipt-${invoiceNo.replace('#', '')}</title>
   <style>
     @page {
-      size: 80mm auto;
+      size: auto;
       margin: 0;
     }
     @media print {
       @page {
-        size: 80mm auto;
+        size: auto;
         margin: 0;
       }
       html, body {
@@ -484,11 +484,11 @@ export const generate80mmThermalReceiptHtml = (
         print-color-adjust: exact !important;
       }
       #invoice-root {
-        width: 72mm !important;
-        max-width: 72mm !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 0 1mm !important;
         box-sizing: border-box !important;
-        padding: 0 2mm !important;
-        margin: 0 auto !important;
         overflow: hidden !important;
         height: auto !important;
         min-height: 0 !important;
@@ -511,8 +511,8 @@ export const generate80mmThermalReceiptHtml = (
     body {
       margin: 0 auto;
       padding: 0;
-      width: 72mm;
-      max-width: 72mm;
+      width: 100%;
+      max-width: 80mm;
       height: auto;
       min-height: 0;
       font-family: 'Courier New', Courier, monospace;
@@ -538,8 +538,8 @@ export const generate80mmThermalReceiptHtml = (
       box-sizing: border-box;
     }
     .receipt-logo {
-      width: 50px;
-      height: 50px;
+      width: 48px;
+      height: 48px;
       object-fit: contain;
       display: block;
       filter: grayscale(100%) contrast(300%) brightness(90%);
@@ -547,7 +547,7 @@ export const generate80mmThermalReceiptHtml = (
   </style>
 </head>
 <body>
-  <div id="invoice-root" style="width: 72mm; max-width: 72mm; box-sizing: border-box; padding: 4mm 2mm 0 2mm; margin: 0 auto; overflow: hidden; height: auto; min-height: 0; background: #ffffff;">
+  <div id="invoice-root" style="width: 100%; max-width: 80mm; box-sizing: border-box; padding: 0 1mm; margin: 0 auto; overflow: hidden; height: auto; min-height: 0; background: #ffffff;">
     <!-- Header: Centered Flexbox with Logo left & Brand text right -->
     <div style="width: 100%; text-align: center; margin-bottom: 4px;">
       <div style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 4px;">
@@ -723,8 +723,8 @@ export const generate80mmThermalReceiptHtml = (
       </div>
     </div>
 
-    <!-- Physical Safety Paper Feed: Guarantees footer clears the paper cutter / tear bar -->
-    <div style="height: 25mm; width: 100%; display: block;"></div>
+    <!-- Guard Line Marker: Forces printer to feed 14mm travel distance even with paper-saving enabled -->
+    <div style="margin-top: 14mm; text-align: center; font-size: 8px; line-height: 8px; color: #000000; width: 100%;">- - - - - - - -</div>
   </div>
 </body>
 </html>`;

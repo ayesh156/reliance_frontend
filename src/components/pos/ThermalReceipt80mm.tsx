@@ -543,9 +543,14 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
         <div style={{ fontSize: '12px', fontWeight: 900, marginBottom: '3px' }}>
           Thank you for your valued partnership!
         </div>
-        <div style={{ fontSize: '10.5px', fontWeight: 700, marginTop: '4px' }}>
-          Software by nebula infinite 078 323 3760
+        <div style={{ fontSize: '9.5px', fontWeight: 700, marginTop: '4px' }}>
+          System by nebulainfinite.com | 0783233760
         </div>
+      </div>
+
+      {/* Guard Line Marker: Forces printer to feed 14mm travel distance even with paper-saving enabled */}
+      <div style={{ marginTop: '14mm', textAlign: 'center', fontSize: '8px', lineHeight: '8px', color: '#000000', width: '100%' }}>
+        - - - - - - - -
       </div>
     </div>
   );
