@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ImageIcon, Check, RefreshCw } from 'lucide-react';
+import { X, ImageIcon, Check, RefreshCw, UploadCloud } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { SizeCombobox } from './SizeCombobox';

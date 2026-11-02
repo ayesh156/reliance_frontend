@@ -34,6 +34,8 @@ export interface ProductImageItem {
   order: number;
   // Linked variant reference from database relation
   variantId?: number | null;
+  isWebImage?: boolean;
+  tag?: string | null;
 }
 
 export interface ProductItem {

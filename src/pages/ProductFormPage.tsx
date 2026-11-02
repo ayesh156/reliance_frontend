@@ -40,22 +40,41 @@ import {
   DialogTitle,
   DialogDescription,
 } from '../components/ui/dialog';
+
 /**
  * Test & Preload External Image Address (Google, Facebook, CDN)
  * Verifies the image loads successfully before pushing to catalog preview.
  * Google Drive CDN links bypass strict Image() preloading since script-based contexts block it,
- * while <img referrerPolicy="no-referrer"> displays them correctly.
+ * falling back to permissive rendering.
  */
 const verifyAndPreloadImage = (url: string): Promise<boolean> => {
   const normalized = normalizeImageUrl(url);
-  if (isGoogleDriveUrl(normalized) || normalized.includes('drive.google.com')) {
+  if (isGoogleDriveUrl(normalized)) {
     return Promise.resolve(true);
   }
   return new Promise((resolve) => {
     const img = new Image();
-    img.referrerPolicy = 'no-referrer';
-    img.onload = () => resolve(true);
-    img.onerror = () => resolve(false);
+    let isHandled = false;
+    const timeout = setTimeout(() => {
+      if (!isHandled) {
+        isHandled = true;
+        resolve(true);
+      }
+    }, 4000);
+    img.onload = () => {
+      if (!isHandled) {
+        isHandled = true;
+        clearTimeout(timeout);
+        resolve(true);
+      }
+    };
+    img.onerror = () => {
+      if (!isHandled) {
+        isHandled = true;
+        clearTimeout(timeout);
+        resolve(false);
+      }
+    };
     img.src = normalized;
   });
 };
@@ -64,63 +83,64 @@ export const ProductFormPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const isEdit = Boolean(id);
   const navigate = useNavigate();
-  const { resolvedTheme } = useTheme();
-  const dark = resolvedTheme === 'dark';
+  const { theme } = useTheme();
+  const dark = theme === 'dark';
 
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
   const [sizes, setSizes] = useState<{ id: number; name: string }[]>([]);
   const [colors, setColors] = useState<{ id: number; name: string; hexCode?: string | null }[]>([]);
-  const [loading, setLoading] = useState(isEdit);
-  const [saving, setSaving] = useState(false);
 
-  // Form states
+  // Form Fields
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [searchKey, setSearchKey] = useState('');
-  const [categoryId, setCategoryId] = useState<number>(1);
+  const [categoryId, setCategoryId] = useState<number>(0);
   const [images, setImages] = useState<string[]>([]);
   const [variants, setVariants] = useState<VariantItem[]>([]);
   // Controls the full-catalog gallery modal when images overflow
   const [isGalleryModalOpen, setIsGalleryModalOpen] = useState(false);
 
-  // Pure CSS-driven Responsive Catalog Layout (Device Simulation සහ Widescreen සඳහා 100% ක්‍රියාත්මකයි)
-
   useEffect(() => {
     let isMounted = true;
-
-    const bootstrap = async () => {
+    const fetchInitialData = async () => {
+      setLoading(true);
       try {
-        // Load taxonomy presets via unified attributes endpoint
         const [catRes, sizeRes, colorRes] = await Promise.all([
-          get<any[]>('/attributes/categories'),
-          get<any[]>('/attributes/sizes'),
-          get<any[]>('/attributes/colors'),
+          get<{ id: number; name: string }[]>('/attributes/categories'),
+          get<{ id: number; name: string }[]>('/attributes/sizes'),
+          get<{ id: number; name: string; hexCode?: string | null }[]>('/attributes/colors'),
         ]);
-        if (!isMounted) return;
-
-        const loadedCategories = Array.isArray(catRes) ? catRes : [];
-        setCategories(loadedCategories);
-        setSizes(Array.isArray(sizeRes) ? sizeRes : []);
-        setColors(Array.isArray(colorRes) ? colorRes : []);
+        const loadedCategories = catRes || [];
+        if (isMounted) {
+          setCategories(loadedCategories);
+          setSizes(sizeRes || []);
+          setColors(colorRes || []);
+        }
 
         if (isEdit && id) {
           const prodRes = await get<ProductItem>(`/products/${id}`);
-          if (prodRes && isMounted) {
-            setName(prodRes.name);
+          if (isMounted && prodRes) {
+            setName(prodRes.name || '');
             setDescription(prodRes.description || '');
             setSearchKey(prodRes.searchKey || '');
             setCategoryId(prodRes.categoryId || prodRes.category?.id || loadedCategories[0]?.id || 0);
-            // Deduplicate catalog images pool to ensure each physical photo appears only once in gallery
-            const loadedImages = Array.from(
-              new Set((prodRes.images || []).map(img => img.imageUrl?.trim()).filter(Boolean))
-            );
+
+            // Load strictly WEB catalog images (not exclusive variant images) into main images state
+            const webCatalogImages = (prodRes.images || [])
+              .filter(img => img.isWebImage || img.tag === 'WEB' || !img.variantId)
+              .map(img => img.imageUrl?.trim())
+              .filter(Boolean);
+            const loadedImages = Array.from(new Set(webCatalogImages));
             setImages(loadedImages);
 
             setVariants(
               (prodRes.variants || []).map(v => {
                 const variantImgs = (prodRes.images || [])
                   .filter(img => img.variantId === v.id)
-                  .map(img => img.imageUrl);
+                  .map(img => img.imageUrl?.trim())
+                  .filter(Boolean);
 
                 const variantIndexes = variantImgs
                   .map(url => loadedImages.indexOf(url))
@@ -151,15 +171,18 @@ export const ProductFormPage: React.FC = () => {
           }
           setVariants([
             {
-              key: `var-${Date.now()}-1`,
+              key: 'var-default',
               size: 'FREE',
               color: 'Default',
-              sku: 'PROD-0001',
+              sku: `SKU-${Date.now().toString().slice(-6)}`,
               barcode: '',
               costPrice: 0,
               retailPrice: 0,
               wholesalePrice: 0,
               stock: 0,
+              imageUrl: undefined,
+              imageUrls: [],
+              imageIndexes: [],
             },
           ]);
         }
@@ -172,17 +195,17 @@ export const ProductFormPage: React.FC = () => {
       }
     };
 
-    bootstrap();
-
-    return () => {
-      isMounted = false;
-    };
+    fetchInitialData();
+    return () => { isMounted = false; };
   }, [id, isEdit]);
 
-  /**
-   * Remove image from catalog gallery and automatically detach it
-   * from any assigned variant in the matrix above
-   */
+  const fetchAttributes = async () => {
+    try {
+      const catRes = await get<{ id: number; name: string }[]>('/attributes/categories');
+      if (catRes) setCategories(catRes);
+    } catch { /* silent */ }
+  };
+
   /**
    * Remove image from catalog gallery and cleanly detach from any variant's image list
    */
@@ -210,10 +233,121 @@ export const ProductFormPage: React.FC = () => {
     }
   };
 
+  /**
+   * Dedicated Scoped Image Upload Handler
+   * Sends the exact intended scope ('WEB' or 'VARIANT' with specific variantId).
+   * Properly handles the API response to remove error toast notification.
+   * Updates local state without duplicating the image visually.
+   */
+  const handleScopedImageUpload = async (
+    filesOrUrls: (File | string)[],
+    scope: 'WEB' | 'VARIANT',
+    targetVariantId?: number,
+    targetVariantKey?: string
+  ) => {
+    if (!filesOrUrls || filesOrUrls.length === 0) return;
+
+    const toastId = toast.loading(
+      scope === 'VARIANT' ? 'Uploading variant image...' : 'Uploading catalog image...'
+    );
+
+    try {
+      if (isEdit && id) {
+        const formData = new FormData();
+        formData.append('scope', scope);
+        formData.append('isWebImage', scope === 'WEB' ? 'true' : 'false');
+        formData.append('tag', scope === 'WEB' ? 'WEB' : 'VARIANT');
+        if (scope === 'VARIANT' && targetVariantId) {
+          formData.append('variantId', String(targetVariantId));
+        }
+
+        const rawUrls: string[] = [];
+        for (let i = 0; i < filesOrUrls.length; i++) {
+          const item = filesOrUrls[i];
+          if (typeof item === 'string') {
+            if (item.startsWith('data:')) {
+              const mimeType = item.substring(item.indexOf(':') + 1, item.indexOf(';')) || 'image/webp';
+              const byteString = atob(item.split(',')[1]);
+              const ab = new ArrayBuffer(byteString.length);
+              const ia = new Uint8Array(ab);
+              for (let j = 0; j < byteString.length; j++) ia[j] = byteString.charCodeAt(j);
+              const ext = mimeType.includes('webp') ? 'webp' : 'jpg';
+              formData.append('imageFiles', new Blob([ab], { type: mimeType }), `upload-${Date.now()}-${i}.${ext}`);
+            } else {
+              rawUrls.push(item);
+            }
+          } else if (typeof item === 'object' && item !== null) {
+            formData.append('imageFiles', item as Blob);
+          }
+        }
+        if (rawUrls.length > 0) {
+          formData.append('imageUrls', JSON.stringify(rawUrls));
+        }
+
+        const res: any = await post(`/products/${id}/images`, formData);
+
+        toast.update(toastId, {
+          render: scope === 'VARIANT' ? 'Variant image saved!' : 'Catalog image saved!',
+          type: 'success',
+          isLoading: false,
+          autoClose: 2000,
+        });
+
+        const uploadedList: string[] = res?.images?.map((img: any) => img.imageUrl) || (res?.imageUrl ? [res.imageUrl] : []);
+
+        if (scope === 'WEB') {
+          // Update WEB catalog images state without duplicating into variants
+          setImages(prev => Array.from(new Set([...prev, ...uploadedList])));
+        } else if (scope === 'VARIANT') {
+          // Update ONLY the intended variant without duplicating as a WEB image visually
+          setVariants(prev =>
+            prev.map(v => {
+              if ((targetVariantId && v.id === targetVariantId) || (targetVariantKey && v.key === targetVariantKey)) {
+                const nextUrls = Array.from(new Set([...(v.imageUrls || []), ...uploadedList]));
+                return {
+                  ...v,
+                  imageUrl: nextUrls[0] || v.imageUrl,
+                  imageUrls: nextUrls,
+                };
+              }
+              return v;
+            })
+          );
+        }
+      } else {
+        toast.dismiss(toastId);
+        const resolvedStrings = filesOrUrls.filter((f): f is string => typeof f === 'string');
+        if (scope === 'WEB') {
+          setImages(prev => [...prev, ...resolvedStrings]);
+        } else if (scope === 'VARIANT') {
+          setVariants(prev =>
+            prev.map(v => {
+              if (v.key === targetVariantKey) {
+                const nextUrls = [...(v.imageUrls || []), ...resolvedStrings];
+                return {
+                  ...v,
+                  imageUrl: nextUrls[0] || v.imageUrl,
+                  imageUrls: nextUrls,
+                };
+              }
+              return v;
+            })
+          );
+        }
+      }
+    } catch (err: any) {
+      toast.update(toastId, {
+        render: err.message || 'Failed to upload image',
+        type: 'error',
+        isLoading: false,
+        autoClose: 3500,
+      });
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Enterprise-grade Client-side Form Validation
     const formValidation = validateProductForm(name, categoryId, variants.length);
     if (!formValidation.isValid) {
       toast.error(formValidation.error);
@@ -248,6 +382,7 @@ export const ProductFormPage: React.FC = () => {
       formData.append('description', data.description);
       formData.append('searchKey', data.searchKey);
       formData.append('categoryId', String(Number(data.categoryId)));
+
       const sanitizedVariants = variants.map(v => ({
         ...v,
         stock: v.stock !== undefined && v.stock !== null && String(v.stock).trim() !== ''
@@ -256,13 +391,11 @@ export const ProductFormPage: React.FC = () => {
       }));
       formData.append('variants', JSON.stringify(sanitizedVariants));
 
-      // Process existing/direct web URLs, local paths, and newly captured WebP DataURLs
       const existingUrls: string[] = [];
       const deduplicatedImages = Array.from(new Set(images.map(img => img.trim())));
 
       deduplicatedImages.forEach((img, i) => {
         if (img.startsWith('data:')) {
-          // Convert only locally captured screenshots/binary data to WebP blobs
           const mimeType = img.substring(img.indexOf(':') + 1, img.indexOf(';')) || 'image/webp';
           const byteString = atob(img.split(',')[1]);
           const ab = new ArrayBuffer(byteString.length);
@@ -272,11 +405,9 @@ export const ProductFormPage: React.FC = () => {
           const extension = mimeType.includes('webp') ? 'webp' : 'jpg';
           formData.append('imageFiles', new Blob([ab], { type: mimeType }), `prod-pasted-${Date.now()}-${i}.${extension}`);
         } else if (img.startsWith('http://') || img.startsWith('https://') || (!img.startsWith('blob:') && img.trim())) {
-          // Direct web image links (Google, Facebook, CDNs) are preserved as raw URLs (Zero server disk cost)
           existingUrls.push(img.trim());
         }
       });
-      // Guarantees only unique URLs are sent to backend
       formData.append('imageUrls', JSON.stringify(Array.from(new Set(existingUrls))));
 
       let createdRes: any = null;
@@ -288,13 +419,11 @@ export const ProductFormPage: React.FC = () => {
         toast.success('Product created successfully!');
       }
 
-      // Extract newly created product ID and save for seamless downstream rehydration
       const createdId = createdRes?.data?.id || createdRes?.id || createdRes?.product?.id;
       if (createdId) {
         sessionStorage.setItem('NEWLY_CREATED_PRODUCT_ID', String(createdId));
       }
 
-      // Return-to-origin support (e.g. returning to Cutting/Production draft without data loss)
       const searchParams = new URLSearchParams(window.location.search);
       const returnTo = searchParams.get('returnTo') || searchParams.get('returnUrl');
       if (returnTo) {
@@ -315,16 +444,13 @@ export const ProductFormPage: React.FC = () => {
   };
 
   /**
- * Handle Smart Clipboard Paste Event (Senari Pattern)
- * Intelligently accepts BOTH direct web image URLs (Google/Facebook addresses) AND binary pasted images
- */
+   * Handle Smart Clipboard Paste Event for Catalog Gallery (Web images)
+   */
   const handleClipboardPaste = async (e: React.ClipboardEvent) => {
-    // 1. Direct Web Image URL Pasted (Google Drive, Facebook, CDN link copied via "Copy Image Address")
     const pastedText = e.clipboardData?.getData('text')?.trim();
     if (pastedText && /^https?:\/\/.+/i.test(pastedText)) {
       const normalizedUrl = normalizeImageUrl(pastedText);
 
-      // Check if already in image list to avoid duplicate entries
       if (images.includes(normalizedUrl)) {
         toast.warn('This image link is already added to the catalog');
         return;
@@ -335,7 +461,6 @@ export const ProductFormPage: React.FC = () => {
 
       const isValid = await verifyAndPreloadImage(normalizedUrl);
       if (isValid) {
-        // If pasting a Google Drive URL and local binary data URLs exist, prioritize Google Drive and replace local state
         setImages(prev => {
           const filtered = isGoogleDriveUrl(normalizedUrl) ? prev.filter(img => !img.startsWith('data:')) : prev;
           return [...filtered, normalizedUrl];
@@ -359,7 +484,6 @@ export const ProductFormPage: React.FC = () => {
       return;
     }
 
-    // 2. Binary Image / Screenshot / "Copy Image" in Clipboard
     const items = e.clipboardData?.items;
     if (!items) return;
 
@@ -400,11 +524,10 @@ export const ProductFormPage: React.FC = () => {
   };
 
   /**
-   * Handle Smart Variant-Specific Direct Clipboard Paste (Senari Pattern)
-   * Supports both copied web image links (zero storage overhead) and direct copied image graphics
+   * Handle Smart Variant-Specific Direct Clipboard Paste
+   * Assigns photo strictly to the targeted variant without adding to WEB catalog images
    */
   const handleVariantDirectPaste = async (variantKey: string, e: React.ClipboardEvent) => {
-    // 1. Direct Web Image URL Pasted to specific variant
     const pastedText = e.clipboardData?.getData('text')?.trim();
     if (pastedText && /^https?:\/\/.+/i.test(pastedText)) {
       e.preventDefault();
@@ -415,11 +538,6 @@ export const ProductFormPage: React.FC = () => {
       const isValid = await verifyAndPreloadImage(normalizedUrl);
 
       if (isValid) {
-        setImages(prev => {
-          const filtered = isGoogleDriveUrl(normalizedUrl) ? prev.filter(img => !img.startsWith('data:')) : prev;
-          return filtered.includes(normalizedUrl) ? filtered : [...filtered, normalizedUrl];
-        });
-
         setVariants(prev =>
           prev.map(v => {
             if (v.key === variantKey) {
@@ -459,7 +577,6 @@ export const ProductFormPage: React.FC = () => {
       return;
     }
 
-    // 2. Binary Image / Graphic in Clipboard
     const items = e.clipboardData?.items;
     if (!items) return;
 
@@ -478,7 +595,6 @@ export const ProductFormPage: React.FC = () => {
           reader.onloadend = () => {
             const resultUrl = reader.result as string;
             if (resultUrl) {
-              setImages(prev => [...prev, resultUrl]);
               setVariants(prev =>
                 prev.map(v => {
                   if (v.key === variantKey) {
@@ -727,10 +843,7 @@ export const ProductFormPage: React.FC = () => {
                                                   <DropdownMenuItem
                                                     key={v.key}
                                                     onClick={() => {
-                                                      // If tagging to the primary variant (#1), bring this image to index 0 so it saves as primary catalog order
-                                                      if (i === 0 && !hasThisImg) {
-                                                        setImages(prev => [img, ...prev.filter(u => u !== img)]);
-                                                      }
+                                                      // Tagging image strictly links to this variant without duplicating or forcing to WEB index 0
 
                                                       setVariants(prev =>
                                                         prev.map((item, itemIdx) => {
@@ -825,11 +938,11 @@ export const ProductFormPage: React.FC = () => {
                                   <ImageUpload
                                       value={undefined}
                                       onChange={(val?: string) => { 
-                                        if (val) setImages(prev => [...prev, val]); 
+                                        if (val) handleScopedImageUpload([val], 'WEB'); 
                                       }}
                                       onMultipleChange={(newImgs: string[]) => {
                                         if (newImgs && newImgs.length > 0) {
-                                          setImages(prev => [...prev, ...newImgs]);
+                                          handleScopedImageUpload(newImgs, 'WEB');
                                         }
                                       }}
                                       dark={dark}
