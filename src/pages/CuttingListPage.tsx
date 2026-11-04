@@ -169,6 +169,9 @@ interface ProductionOrder {
   productId: number;
   variantId?: number | null;
   targetQuantity: number;
+  cutQty?: number;
+  yaraAllocated?: number;
+  yaraPerPiece?: number;
   completedQty: number;
   status: string;
   isStockSynced?: boolean;
@@ -347,6 +350,74 @@ const getOrderProducts = (order: ProductionOrder, productsList: ProductItem[] = 
       imageUrl: rawImg ? getProductImageUrl(rawImg) : null,
     },
   ];
+};
+
+export interface CuttingMetrics {
+  keligana: number;
+  totalAllocatedYara: number;
+  yaraPerKeligana: number;
+  unit: string;
+}
+
+export const computeCuttingMetrics = (order: ProductionOrder): CuttingMetrics => {
+  // 1. Keligana (Quantity cut / pieces)
+  let keligana = 0;
+  if (order.cutQty && order.cutQty > 0) {
+    keligana = order.cutQty;
+  } else {
+    let raw: any = order.targetProducts;
+    if (typeof raw === 'string') {
+      try {
+        raw = JSON.parse(raw);
+      } catch {
+        raw = null;
+      }
+    }
+    if (Array.isArray(raw) && raw.length > 0) {
+      keligana = raw.reduce(
+        (sum: number, tp: any) =>
+          sum + (Number(tp.cutQty ?? tp.plannedQty ?? tp.targetQuantity ?? tp.quantity) || 0),
+        0
+      );
+    }
+    if (!keligana) {
+      keligana = order.targetQuantity || order.completedQty || 0;
+    }
+  }
+
+  // 2. Total Yara Allocated for Pieces (from fabric allocation & cut logs)
+  let totalAllocatedYara = 0;
+  let primaryUnit = 'Yds';
+
+  if (order.cutLogs && order.cutLogs.length > 0) {
+    totalAllocatedYara = order.cutLogs.reduce(
+      (sum, cl) => sum + (Number(cl.quantityCut) || 0),
+      0
+    );
+    if (order.cutLogs[0]?.rawMaterial?.unit) {
+      primaryUnit = order.cutLogs[0].rawMaterial.unit;
+    }
+  }
+
+  if (totalAllocatedYara === 0 && order.materialUsages && order.materialUsages.length > 0) {
+    totalAllocatedYara = order.materialUsages.reduce(
+      (sum, u) => sum + (Number(u.netConsumedQty ?? u.issuedQty) || 0),
+      0
+    );
+    if (order.materialUsages[0]?.rawMaterial?.unit) {
+      primaryUnit = order.materialUsages[0].rawMaterial.unit;
+    }
+  }
+
+  // 3. Yara per Keligana (Yara consumed per piece)
+  const yaraPerKeligana = keligana > 0 ? totalAllocatedYara / keligana : 0;
+
+  return {
+    keligana,
+    totalAllocatedYara: Math.round(totalAllocatedYara * 100) / 100,
+    yaraPerKeligana: Math.round(yaraPerKeligana * 100) / 100,
+    unit: primaryUnit,
+  };
 };
 
 /** Production Batch Status Filter Options */
@@ -1773,7 +1844,7 @@ export const CuttingListPage: React.FC = () => {
           <>
             {/* ── Production Ledger Table (Desktop Viewport >= 1024px) ── */}
             <div className="hidden lg:block overflow-x-auto rounded-2xl border border-slate-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-xs">
-              <Table className="w-full min-w-[940px]">
+              <Table className="w-full min-w-[1100px]">
                 <TableHeader>
                   <TableRow className="bg-slate-50 dark:bg-zinc-900/80 border-b border-slate-200/80 dark:border-zinc-800">
                     <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-28 min-w-[100px]">
@@ -1788,6 +1859,15 @@ export const CuttingListPage: React.FC = () => {
                     <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 w-36">
                       Raw Material Cut
                     </TableHead>
+                    <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-center w-28">
+                     Pieces
+                    </TableHead>
+                    <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-center w-32">
+                      Yield (Pcs/Yd)
+                    </TableHead>
+                    <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-center w-36">
+                      Total Allocated Yara
+                    </TableHead>
                     <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-center w-24">
                       Status
                     </TableHead>
@@ -1799,6 +1879,7 @@ export const CuttingListPage: React.FC = () => {
                 <TableBody>
                   {paginatedRecords.map((order) => {
                     const prods = getOrderProducts(order, productsList);
+                    const metrics = computeCuttingMetrics(order);
 
                     return (
                       <TableRow
@@ -1911,7 +1992,35 @@ export const CuttingListPage: React.FC = () => {
                           )}
                         </TableCell>
 
-                        {/* 5. Status Badge */}
+                        {/* 5. Keligana (Quantity cut / pieces) */}
+                        <TableCell className="align-middle text-center w-28 font-mono">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md font-bold text-xs bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800/60">
+                            {metrics.keligana.toLocaleString()} Pcs
+                          </span>
+                        </TableCell>
+
+                        {/* 6. Yara per Keligana (Yara consumed per piece) */}
+                        <TableCell className="align-middle text-center w-32 font-mono">
+                          {metrics.yaraPerKeligana > 0 ? (
+                            <span
+                              className="inline-flex items-center px-2 py-0.5 rounded-md font-bold text-xs bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border border-emerald-200/70 dark:border-emerald-800/60"
+                              title={`${metrics.totalAllocatedYara} ${metrics.unit} consumed / ${metrics.keligana} pieces cut`}
+                            >
+                              {metrics.yaraPerKeligana.toFixed(2)} {metrics.unit}/Pc
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 text-xs">—</span>
+                          )}
+                        </TableCell>
+
+                        {/* 7. Total Yara Allocated for Pieces */}
+                        <TableCell className="align-middle text-center w-36 font-mono">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md font-bold text-xs bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400 border border-amber-200/70 dark:border-amber-800/60">
+                            {metrics.totalAllocatedYara.toLocaleString()} {metrics.unit}
+                          </span>
+                        </TableCell>
+
+                        {/* 8. Status Badge */}
                         <TableCell className="align-middle text-center w-24">
                           <BatchStatusBadge status={order.status} isStockSynced={order.isStockSynced} />
                         </TableCell>
@@ -2072,6 +2181,27 @@ export const CuttingListPage: React.FC = () => {
                         <span className="text-slate-400 font-mono text-xs">—</span>
                       )}
                     </div>
+
+                    {/* Cutting Table Analytics: Keligana & Yara Metrics */}
+                    {(() => {
+                      const m = computeCuttingMetrics(order);
+                      return (
+                        <div className="grid grid-cols-3 gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-200/60 dark:border-zinc-800 text-center font-mono">
+                          <div>
+                            <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-sans font-bold">Keligana</span>
+                            <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300">{m.keligana} Pcs</span>
+                          </div>
+                          <div>
+                            <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-sans font-bold">Yara / Pc</span>
+                            <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">{m.yaraPerKeligana > 0 ? `${m.yaraPerKeligana.toFixed(2)} ${m.unit}` : '—'}</span>
+                          </div>
+                          <div>
+                            <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-sans font-bold">Allocated</span>
+                            <span className="text-xs font-bold text-amber-700 dark:text-amber-400">{m.totalAllocatedYara} {m.unit}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Action Footer: 3-Dots Menu Only */}
                     <div className="pt-2 border-t border-slate-200/70 dark:border-zinc-800 flex items-center justify-end">

@@ -1,6 +1,16 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatCustomerAddressCity } from './customerAddress';
+import {
+  loadLogoAsDataUrl,
+  drawStandardReportHeader,
+  drawStandardReportFooter,
+  formatReportTimestamp,
+  formatCurrency,
+  formatAmountNum,
+} from './pdfGenerator';
+
+export { loadLogoAsDataUrl };
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 1. DATA CONTRACTS & TYPE DEFINITIONS
@@ -60,92 +70,8 @@ export interface GenerateCustomerDuesPdfOptions {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 2. HELPER FUNCTIONS & ASSET PRELOADER
+// 2. HELPER FUNCTIONS & ASSET PRELOADER (STANDARDIZED)
 // ══════════════════════════════════════════════════════════════════════════════
-
-let cachedLogoDataUrl: string | null = null;
-
-/**
- * Preloads the Reliance corporate logo and converts to Base64 Data URL.
- * Automatically caches the rasterized result for instant multi-page and repeat prints.
- */
-export async function loadLogoAsDataUrl(): Promise<string | null> {
-  if (cachedLogoDataUrl) return cachedLogoDataUrl;
-  if (typeof window === 'undefined') return null;
-
-  // Method 1: Fetch static asset and encode via FileReader
-  try {
-    const res = await fetch('/images/logo.jpg');
-    if (res.ok) {
-      const blob = await res.blob();
-      const base64 = await new Promise<string | null>((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.onerror = () => resolve(null);
-        reader.readAsDataURL(blob);
-      });
-      if (base64) {
-        cachedLogoDataUrl = base64;
-        return cachedLogoDataUrl;
-      }
-    }
-  } catch {
-    // Proceed to canvas fallback
-  }
-
-  // Method 2: HTML Image element rasterization on HTML5 Canvas
-  try {
-    const img = new Image();
-    img.crossOrigin = 'Anonymous';
-    const loaded = await new Promise<boolean>((resolve) => {
-      img.onload = () => resolve(true);
-      img.onerror = () => resolve(false);
-      img.src = '/images/logo.jpg';
-    });
-
-    if (loaded && img.naturalWidth > 0) {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(img, 0, 0);
-        cachedLogoDataUrl = canvas.toDataURL('image/jpeg', 0.95);
-        return cachedLogoDataUrl;
-      }
-    }
-  } catch {
-    // Graceful fallback if asset unavailable
-  }
-
-  return null;
-}
-
-function formatReportTimestamp(date: Date = new Date()): string {
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, '0');
-  const dd = String(date.getDate()).padStart(2, '0');
-  let hours = date.getHours();
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  hours = hours % 12 || 12;
-  const hh = String(hours).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd} ${hh}:${minutes} ${ampm}`;
-}
-
-function formatCurrency(val: number): string {
-  return `Rs. ${Number(val || 0).toLocaleString('en-LK', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
-
-function formatAmountNum(val: number): string {
-  return Number(val || 0).toLocaleString('en-LK', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
 
 /**
  * Filter invoices where dueBalance > 0 and group strictly by Customer.
@@ -298,83 +224,21 @@ export async function generateCustomerDuesPdf(
   const generatedTimestamp = formatReportTimestamp();
   const generatedBy = options.generatedBy || 'System Administrator';
 
-  // ── Master Header Function (100% Visual Parity with Backend Master Sales Report) ──
-  const drawMasterHeader = (headerTop = 35): number => {
-    let brandTextX = startX;
-
-    // 1. Official Corporate Logo (36x36 pt at startX, headerTop - 2)
-    if (logoData) {
-      try {
-        doc.addImage(logoData, 'JPEG', startX, headerTop - 2, 36, 36);
-        brandTextX = startX + 44;
-      } catch {
-        brandTextX = startX;
-      }
-    }
-
-    // 2. Brand Details (Crisp black typography aligned beside logo)
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(15);
-    doc.setTextColor(0, 0, 0);
-    doc.text('RELIANCE', brandTextX, headerTop + 10);
-
-    doc.setFontSize(6.5);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(0, 0, 0);
-    doc.text('BRANDED MENS CLOTHING & APPAREL MFG', brandTextX, headerTop + 22);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
-    doc.setTextColor(51, 51, 51);
-    doc.text(
-      'Mawarala Road, Makandura, Matara | Tel: 041-2268739, 071-1350123  •  Web: relianceapparel.lk',
-      brandTextX,
-      headerTop + 32
-    );
-
-    // 3. Dynamic Header Block Below Brand
-    const headerContentY = headerTop + 46;
-
-    // Report Section Title
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.setTextColor(0, 0, 0);
-    doc.text(reportTitle, startX, headerContentY);
-
-    // 4. Dedicated Right-Aligned Metadata Block (PERIOD, GENERATED, PRINTED BY)
-    const metaX = pageWidth - 200;
-    let metaY = headerContentY - 6;
-
-    const metaRows = [
-      { label: 'PERIOD:', value: dateLabel, isBold: true },
-      { label: 'GENERATED:', value: generatedTimestamp, isBold: false },
-      { label: 'PRINTED BY:', value: generatedBy, isBold: false },
-    ];
-
-    metaRows.forEach((row) => {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7);
-      doc.setTextColor(85, 85, 85);
-      doc.text(row.label, metaX, metaY);
-
-      doc.setFont('helvetica', row.isBold ? 'bold' : 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(0, 0, 0);
-      doc.text(row.value, rightMargin, metaY, { align: 'right' });
-
-      metaY += 11;
+  // ── Master Header Function (100% Visual Parity with Official Reliance Invoice Header) ──
+  const drawMasterHeader = (headerTop = 32): number => {
+    return drawStandardReportHeader(doc, {
+      logoData,
+      reportTitle,
+      dateRangeLabel: dateLabel,
+      generatedTimestamp,
+      generatedBy,
+      headerTop,
+      startX,
+      rightMargin,
     });
-
-    // 5. Solid Divider Rule Line
-    const dividerY = Math.max(headerContentY + 12, metaY) + 4;
-    doc.setDrawColor(0, 0, 0);
-    doc.setLineWidth(1);
-    doc.line(startX, dividerY, rightMargin, dividerY);
-
-    return dividerY + 12;
   };
 
-  let curY = drawMasterHeader(35);
+  let curY = drawMasterHeader(32);
 
   // ── Summary KPI Metric Boxes (Clean monochrome ink-saver cards) ──
   const kpiCards = [
@@ -587,7 +451,7 @@ export async function generateCustomerDuesPdf(
         }
       },
       didDrawPage: () => {
-        drawMasterHeader(35);
+        drawMasterHeader(32);
       },
     });
 
@@ -601,7 +465,7 @@ export async function generateCustomerDuesPdf(
   const footerNeededHeight = 65;
   if (signY + footerNeededHeight > 750) {
     doc.addPage();
-    drawMasterHeader(35);
+    drawMasterHeader(32);
     signY = 120;
   }
 
@@ -645,29 +509,7 @@ export async function generateCustomerDuesPdf(
   doc.text('Managing Director / Partner', authX + signColWidth / 2, signY + 44, { align: 'center' });
 
   // ── Master Page Numbers and Legal Disclaimer ──
-  const totalPages = doc.getNumberOfPages();
-  for (let i = 1; i <= totalPages; i++) {
-    doc.setPage(i);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.5);
-    doc.setTextColor(102, 102, 102);
-    doc.text(
-      'Confidential & Proprietary — Reliance Clothing ERP Management Suite. All financial figures are strictly verified against the system ledger.',
-      startX + contentWidth / 2,
-      805,
-      { align: 'center' }
-    );
-
-    doc.setFontSize(6.5);
-    doc.setTextColor(68, 68, 68);
-    doc.text(
-      `Reliance Outstanding Customer Dues Report  •  Page ${i} of ${totalPages}`,
-      rightMargin,
-      816,
-      { align: 'right' }
-    );
-  }
+  drawStandardReportFooter(doc, 'Outstanding Customer Dues Report', startX, rightMargin);
 
   const dateTag = new Date().toISOString().split('T')[0];
   const filename = options.filename || `reliance-customer-dues-${dateTag}.pdf`;

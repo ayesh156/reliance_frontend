@@ -8,6 +8,7 @@ import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
 import { DateRangePicker, type DateRange } from '../components/ui/date-range-picker';
 import { SearchableSelect, type SearchableSelectOption } from '../components/ui/searchable-select';
+import { TooltipSimple } from '../components/ui/tooltip';
 import { toast } from 'react-toastify';
 import { generateCustomerDuesPdf } from '../utils/customerDuesPdf';
 import { generateMaterialProductionPdf } from '../utils/reportPdf';
@@ -32,6 +33,7 @@ import { BatchActivityTimeline } from './CuttingListPage';
 import {
   Download,
   Loader2,
+  Calculator,
   Search,
   RotateCcw,
   Boxes,
@@ -119,6 +121,7 @@ export const ReportsPage: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [downloadingActivePdf, setDownloadingActivePdf] = useState<boolean>(false);
   const [downloadingConsolidatedPdf, setDownloadingConsolidatedPdf] = useState<boolean>(false);
+  const [downloadingFinancialAuditPdf, setDownloadingFinancialAuditPdf] = useState<boolean>(false);
   const [downloadingCustomerDuesPdf, setDownloadingCustomerDuesPdf] = useState<boolean>(false);
   const [downloadingMaterialPdf, setDownloadingMaterialPdf] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -306,6 +309,25 @@ export const ReportsPage: React.FC = () => {
       toast.error(err.message || 'Failed to download consolidated master report');
     } finally {
       setDownloadingConsolidatedPdf(false);
+    }
+  };
+
+  // 2b. Dedicated Master Financial Audit & Waterfall PDF Export (Sales Module Specific)
+  const handleDownloadFinancialAuditPdf = async () => {
+    try {
+      setDownloadingFinancialAuditPdf(true);
+      const params = buildDateFilterParams();
+      const dateTag = reportData?.dateFilter?.startDate
+        ? new Date(reportData.dateFilter.startDate).toISOString().split('T')[0]
+        : new Date().toISOString().split('T')[0];
+
+      const defaultFilename = `reliance-master-financial-audit-${dateTag}.pdf`;
+      await downloadBlob(`/reports/financial-audit/pdf?${params.toString()}`, defaultFilename);
+      toast.success('Master Financial Audit PDF exported successfully!');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to download Master Financial Audit PDF');
+    } finally {
+      setDownloadingFinancialAuditPdf(false);
     }
   };
 
@@ -776,35 +798,45 @@ export const ReportsPage: React.FC = () => {
 
         {/* Top Master PDF & Refresh */}
         <div className="flex items-center gap-2 shrink-0">
-          <Button
-            onClick={fetchReport}
-            variant="outline"
-            size="sm"
-            disabled={loading}
-            className="h-9 px-3 rounded-xl border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800 text-xs"
-          >
-            <RefreshCw className={`size-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
+          <TooltipSimple content="Refresh report ledger" side="bottom">
+            <Button
+              onClick={fetchReport}
+              variant="outline"
+              size="sm"
+              disabled={loading}
+              className="h-9 px-2.5 sm:px-3 rounded-xl border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+              title="Refresh report ledger"
+              aria-label="Refresh report ledger"
+            >
+              <RefreshCw className={`size-3.5 shrink-0 ${loading ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
+            </Button>
+          </TooltipSimple>
 
           {!isRep && (
-            <Button
-              onClick={handleDownloadConsolidatedPdf}
-              disabled={downloadingConsolidatedPdf || loading}
-              className="h-9 px-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-xs font-semibold text-xs"
-            >
-              {downloadingConsolidatedPdf ? (
-                <>
-                  <Loader2 className="size-3.5 mr-1.5 animate-spin" />
-                  Compiling...
-                </>
-              ) : (
-                <>
-                  <Download className="size-3.5 mr-1.5" />
-                  <span>Master Audit PDF</span>
-                </>
-              )}
-            </Button>
+            <TooltipSimple content="Download Official Consolidated Master Audit PDF" side="bottom">
+              <Button
+                onClick={handleDownloadConsolidatedPdf}
+                disabled={downloadingConsolidatedPdf || loading}
+                className="h-9 px-2.5 sm:px-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-xs font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                title="Download Official Consolidated Master Audit PDF"
+                aria-label="Download Official Consolidated Master Audit PDF"
+              >
+                {downloadingConsolidatedPdf ? (
+                  <>
+                    <Loader2 className="size-3.5 shrink-0 animate-spin" />
+                    <span className="hidden sm:inline">Compiling...</span>
+                    <span className="sm:hidden">Compiling...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="size-3.5 shrink-0" />
+                    <span className="hidden sm:inline">Master Audit PDF</span>
+                    <span className="sm:hidden">Audit PDF</span>
+                  </>
+                )}
+              </Button>
+            </TooltipSimple>
           )}
         </div>
       </div>
@@ -830,114 +862,159 @@ export const ReportsPage: React.FC = () => {
             />
           </div>
 
-          {/* Right: Section Actions & Exports (Matching exact height h-10) */}
-          <div className="flex flex-wrap items-center gap-2 md:justify-end shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-zinc-800/60">
+          {/* Right: Section Actions & Exports (Matching exact height h-10; compact icon buttons on mobile) */}
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap md:justify-end shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-zinc-800/60 overflow-x-auto scrollbar-hide py-0.5">
             {/* Active Module PDF */}
-            <Button
-              onClick={handleDownloadActivePdf}
-              disabled={downloadingActivePdf || loading || !reportData}
-              variant="outline"
-              className="h-10 px-3.5 rounded-xl text-xs font-semibold border-blue-200 dark:border-blue-900/60 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/40 shadow-xs shrink-0"
-              title={`Download ${activeTabItem.label} PDF`}
-            >
-              {downloadingActivePdf ? (
-                <>
-                  <Loader2 className="size-3.5 mr-1.5 animate-spin text-blue-600" />
-                  <span>Exporting...</span>
-                </>
-              ) : (
-                <>
-                  <Printer className="size-3.5 mr-1.5 text-blue-600" />
-                  <span>Download {activeTabItem.label.split('&')[0].trim()} PDF</span>
-                </>
-              )}
-            </Button>
-
-            {/* Sales: Customer Dues PDF */}
-            {activeModule === 'sales' && (
+            <TooltipSimple content={`Download ${activeTabItem.label} PDF`} side="top">
               <Button
-                onClick={handleDownloadCustomerDuesPdf}
-                disabled={downloadingCustomerDuesPdf || loading || !reportData}
+                onClick={handleDownloadActivePdf}
+                disabled={downloadingActivePdf || loading || !reportData}
                 variant="outline"
-                className="h-10 px-3.5 rounded-xl text-xs font-semibold border-emerald-300 dark:border-emerald-800/80 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 shadow-xs shrink-0"
-                title="Download Outstanding Customer Dues PDF"
+                className="h-9 sm:h-10 px-2.5 sm:px-3.5 rounded-xl text-xs font-semibold border-blue-200 dark:border-blue-900/60 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/40 shadow-xs shrink-0 flex items-center justify-center gap-1.5 cursor-pointer"
+                title={`Download ${activeTabItem.label} PDF`}
+                aria-label={`Download ${activeTabItem.label} PDF`}
               >
-                {downloadingCustomerDuesPdf ? (
+                {downloadingActivePdf ? (
                   <>
-                    <Loader2 className="size-3.5 mr-1.5 animate-spin text-emerald-600" />
-                    <span>Generating...</span>
+                    <Loader2 className="size-3.5 sm:size-4 animate-spin text-blue-600 shrink-0" />
+                    <span className="hidden sm:inline">Exporting...</span>
+                    <span className="sm:hidden">Exporting...</span>
                   </>
                 ) : (
                   <>
-                    <FileText className="size-3.5 mr-1.5 text-emerald-600" />
-                    <span>Customer Dues PDF</span>
+                    <Printer className="size-3.5 sm:size-4 text-blue-600 shrink-0" />
+                    <span className="hidden sm:inline">Download {activeTabItem.label.split('&')[0].trim()} PDF</span>
+                    <span className="sm:hidden">{activeModule === 'sales' ? 'Sales' : activeModule === 'returns' ? 'Returns' : activeModule === 'inventory' ? 'Stock' : activeModule === 'products' ? 'Products' : activeModule === 'materials' ? 'Materials' : activeModule === 'production' ? 'Production' : activeModule === 'suppliers' ? 'Suppliers' : activeModule === 'audit' ? 'Audit' : activeModule === 'cheques' ? 'Cheques' : 'PDF'}</span>
                   </>
                 )}
               </Button>
+            </TooltipSimple>
+
+            {/* Sales: Dedicated Financial Audit Action (Duplicate Master Audit PDF removed to eliminate redundancy with top header) */}
+            {activeModule === 'sales' && (
+              <TooltipSimple content="Financial Audit & Net Revenue Analytics" side="top">
+                <Button
+                  onClick={() => handleOpenAudit('netOperationalRevenue')}
+                  disabled={loading || !reportData}
+                  variant="outline"
+                  className="h-9 sm:h-10 px-2.5 sm:px-3.5 rounded-xl text-xs font-bold border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/70 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 shadow-xs shrink-0 cursor-pointer flex items-center justify-center gap-1.5"
+                  title="Financial Audit & Net Revenue Analytics"
+                  aria-label="Financial Audit & Net Revenue Analytics"
+                >
+                  <Calculator className="size-3.5 sm:size-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                  <span className="hidden sm:inline">Financial Audit</span>
+                  <span className="sm:hidden">Audit</span>
+                </Button>
+              </TooltipSimple>
+            )}
+
+            {/* Sales: Customer Dues PDF */}
+            {activeModule === 'sales' && (
+              <TooltipSimple content="Download Outstanding Customer Dues PDF" side="top">
+                <Button
+                  onClick={handleDownloadCustomerDuesPdf}
+                  disabled={downloadingCustomerDuesPdf || loading || !reportData}
+                  variant="outline"
+                  className="h-9 sm:h-10 px-2.5 sm:px-3.5 rounded-xl text-xs font-semibold border-emerald-300 dark:border-emerald-800/80 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 shadow-xs shrink-0 flex items-center justify-center gap-1.5 cursor-pointer"
+                  title="Download Outstanding Customer Dues PDF"
+                  aria-label="Download Outstanding Customer Dues PDF"
+                >
+                  {downloadingCustomerDuesPdf ? (
+                    <>
+                      <Loader2 className="size-3.5 sm:size-4 animate-spin text-emerald-600 shrink-0" />
+                      <span className="hidden sm:inline">Generating...</span>
+                      <span className="sm:hidden">Dues...</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileText className="size-3.5 sm:size-4 text-emerald-600 shrink-0" />
+                      <span className="hidden sm:inline">Customer Dues PDF</span>
+                      <span className="sm:hidden">Dues</span>
+                    </>
+                  )}
+                </Button>
+              </TooltipSimple>
             )}
 
             {/* Sales: Export Invoices Excel */}
             {activeModule === 'sales' && (
-              <Button
-                onClick={handleExportInvoicesExcel}
-                disabled={loading || !reportData || (reportData?.tableItems?.length || 0) === 0}
-                variant="outline"
-                className="h-10 px-3.5 rounded-xl text-xs font-semibold border-emerald-500/80 dark:border-emerald-600/80 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 shadow-xs shrink-0 cursor-pointer"
-                title="Export all invoices for the selected period / date range to Excel"
-              >
-                <FileSpreadsheet className="size-3.5 mr-1.5 text-emerald-600 dark:text-emerald-400" />
-                <span>Export Invoices Excel</span>
-              </Button>
+              <TooltipSimple content="Export Invoices to Excel" side="top">
+                <Button
+                  onClick={handleExportInvoicesExcel}
+                  disabled={loading || !reportData || (reportData?.tableItems?.length || 0) === 0}
+                  variant="outline"
+                  className="h-9 sm:h-10 px-2.5 sm:px-3.5 rounded-xl text-xs font-semibold border-emerald-500/80 dark:border-emerald-600/80 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 shadow-xs shrink-0 cursor-pointer flex items-center justify-center gap-1.5"
+                  title="Export Invoices to Excel"
+                  aria-label="Export Invoices to Excel"
+                >
+                  <FileSpreadsheet className="size-3.5 sm:size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <span className="hidden sm:inline">Export Invoices Excel</span>
+                  <span className="sm:hidden">Excel</span>
+                </Button>
+              </TooltipSimple>
             )}
 
             {/* Raw Materials & Production: PDF and Excel Buttons */}
             {(activeModule === 'materials' || activeModule === 'production') && (
               <>
-                <Button
-                  onClick={handleDownloadMaterialPdf}
-                  disabled={downloadingMaterialPdf || loading || !reportData}
-                  variant="outline"
-                  className="h-10 px-3.5 rounded-xl text-xs font-semibold border-amber-300 dark:border-amber-800/80 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 shadow-xs shrink-0 cursor-pointer"
-                  title="Download Material & Production Audit PDF"
-                >
-                  {downloadingMaterialPdf ? (
-                    <>
-                      <Loader2 className="size-3.5 mr-1.5 animate-spin text-amber-600" />
-                      <span>Generating...</span>
-                    </>
-                  ) : (
-                    <>
-                      <FileText className="size-3.5 mr-1.5 text-amber-600" />
-                      <span>Material &amp; Production PDF</span>
-                    </>
-                  )}
-                </Button>
+                <TooltipSimple content="Download Material & Production Audit PDF" side="top">
+                  <Button
+                    onClick={handleDownloadMaterialPdf}
+                    disabled={downloadingMaterialPdf || loading || !reportData}
+                    variant="outline"
+                    className="h-9 sm:h-10 px-2.5 sm:px-3.5 rounded-xl text-xs font-semibold border-amber-300 dark:border-amber-800/80 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 shadow-xs shrink-0 cursor-pointer flex items-center justify-center gap-1.5"
+                    title="Download Material & Production Audit PDF"
+                    aria-label="Download Material & Production Audit PDF"
+                  >
+                    {downloadingMaterialPdf ? (
+                      <>
+                        <Loader2 className="size-3.5 sm:size-4 animate-spin text-amber-600 shrink-0" />
+                        <span className="hidden sm:inline">Generating...</span>
+                        <span className="sm:hidden">Gen...</span>
+                      </>
+                    ) : (
+                      <>
+                        <FileText className="size-3.5 sm:size-4 text-amber-600 shrink-0" />
+                        <span className="hidden sm:inline">Material &amp; Production PDF</span>
+                        <span className="sm:hidden">Mat PDF</span>
+                      </>
+                    )}
+                  </Button>
+                </TooltipSimple>
 
-                <Button
-                  onClick={handleExportMaterialsExcel}
-                  disabled={loading || !reportData || (reportData?.tableItems?.length || 0) === 0}
-                  variant="outline"
-                  className="h-10 px-3.5 rounded-xl text-xs font-semibold border-emerald-500/80 dark:border-emerald-600/80 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 shadow-xs shrink-0 cursor-pointer"
-                  title="Export Raw Material and Cutting yield to Excel"
-                >
-                  <FileSpreadsheet className="size-3.5 mr-1.5 text-emerald-600 dark:text-emerald-400" />
-                  <span>Export Material Excel</span>
-                </Button>
+                <TooltipSimple content="Export Raw Material and Cutting yield to Excel" side="top">
+                  <Button
+                    onClick={handleExportMaterialsExcel}
+                    disabled={loading || !reportData || (reportData?.tableItems?.length || 0) === 0}
+                    variant="outline"
+                    className="h-9 sm:h-10 px-2.5 sm:px-3.5 rounded-xl text-xs font-semibold border-emerald-500/80 dark:border-emerald-600/80 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 shadow-xs shrink-0 cursor-pointer flex items-center justify-center gap-1.5"
+                    title="Export Material Excel"
+                    aria-label="Export Material Excel"
+                  >
+                    <FileSpreadsheet className="size-3.5 sm:size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <span className="hidden sm:inline">Export Material Excel</span>
+                    <span className="sm:hidden">Mat Excel</span>
+                  </Button>
+                </TooltipSimple>
               </>
             )}
 
-            {/* Cheques: CSV Export Button (Moved up here next to PDF buttons) */}
+            {/* Cheques: CSV Export Button */}
             {activeModule === 'cheques' && (
-              <Button
-                onClick={handleExportChequesCsv}
-                disabled={loading || !reportData}
-                variant="outline"
-                className="h-10 px-3.5 rounded-xl text-xs font-semibold border-amber-300 dark:border-amber-800/80 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 shadow-xs shrink-0 cursor-pointer"
-                title="Export Cheque Ledger to CSV"
-              >
-                <FileSpreadsheet className="size-3.5 mr-1.5 text-amber-600" />
-                <span>Export Cheques CSV</span>
-              </Button>
+              <TooltipSimple content="Export Cheque Ledger to CSV" side="top">
+                <Button
+                  onClick={handleExportChequesCsv}
+                  disabled={loading || !reportData}
+                  variant="outline"
+                  className="h-9 sm:h-10 px-2.5 sm:px-3.5 rounded-xl text-xs font-semibold border-amber-300 dark:border-amber-800/80 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 shadow-xs shrink-0 cursor-pointer flex items-center justify-center gap-1.5"
+                  title="Export Cheque Ledger to CSV"
+                  aria-label="Export Cheque Ledger to CSV"
+                >
+                  <FileSpreadsheet className="size-3.5 sm:size-4 text-amber-600 shrink-0" />
+                  <span className="hidden sm:inline">Export Cheques CSV</span>
+                  <span className="sm:hidden">CSV</span>
+                </Button>
+              </TooltipSimple>
             )}
           </div>
         </div>
@@ -948,72 +1025,104 @@ export const ReportsPage: React.FC = () => {
         dark ? 'bg-zinc-900/60 border-zinc-800/80' : 'bg-white border-slate-200 shadow-xs'
       }`}>
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          {/* Left: Presets & Date Selector */}
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 mr-1 flex items-center gap-1.5">
-              <Calendar className="size-3.5" />
-              Period:
-            </span>
+          {/* Left: Presets Segmented Control & Date Selector */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-2.5">
+            {/* Segmented Preset Control Bar */}
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide py-0.5 shrink-0 max-w-full">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 mr-0.5 flex items-center gap-1 shrink-0">
+                <Calendar className="size-3.5" />
+                <span className="hidden sm:inline">Period:</span>
+              </span>
 
-            <Button
-              size="sm"
-              variant={activePreset === 'daily' ? 'default' : 'outline'}
-              onClick={() => handlePresetSelect('daily')}
-              className={`text-xs h-8 rounded-lg ${activePreset === 'daily' ? 'bg-blue-600 text-white' : 'dark:border-zinc-800'}`}
-            >
-              Today
-            </Button>
+              <div className="inline-flex items-center p-0.5 bg-slate-100 dark:bg-zinc-950/80 rounded-xl border border-slate-200/80 dark:border-zinc-800/80 shrink-0 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => handlePresetSelect('daily')}
+                  className={`h-8 px-2.5 sm:px-3 text-xs font-semibold rounded-lg transition-all shrink-0 cursor-pointer ${
+                    activePreset === 'daily'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 hover:bg-white/60 dark:hover:bg-zinc-900/60'
+                  }`}
+                  title="Period: Today"
+                  aria-label="Period: Today"
+                >
+                  Today
+                </button>
 
-            <Button
-              size="sm"
-              variant={activePreset === 'weekly' ? 'default' : 'outline'}
-              onClick={() => handlePresetSelect('weekly')}
-              className={`text-xs h-8 rounded-lg ${activePreset === 'weekly' ? 'bg-blue-600 text-white' : 'dark:border-zinc-800'}`}
-            >
-              This Week
-            </Button>
+                <button
+                  type="button"
+                  onClick={() => handlePresetSelect('weekly')}
+                  className={`h-8 px-2.5 sm:px-3 text-xs font-semibold rounded-lg transition-all shrink-0 cursor-pointer ${
+                    activePreset === 'weekly'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 hover:bg-white/60 dark:hover:bg-zinc-900/60'
+                  }`}
+                  title="Period: This Week"
+                  aria-label="Period: This Week"
+                >
+                  <span className="sm:hidden">Week</span>
+                  <span className="hidden sm:inline">This Week</span>
+                </button>
 
-            <Button
-              size="sm"
-              variant={activePreset === 'monthly' ? 'default' : 'outline'}
-              onClick={() => handlePresetSelect('monthly')}
-              className={`text-xs h-8 rounded-lg ${activePreset === 'monthly' ? 'bg-blue-600 text-white' : 'dark:border-zinc-800'}`}
-            >
-              This Month
-            </Button>
+                <button
+                  type="button"
+                  onClick={() => handlePresetSelect('monthly')}
+                  className={`h-8 px-2.5 sm:px-3 text-xs font-semibold rounded-lg transition-all shrink-0 cursor-pointer ${
+                    activePreset === 'monthly'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 hover:bg-white/60 dark:hover:bg-zinc-900/60'
+                  }`}
+                  title="Period: This Month"
+                  aria-label="Period: This Month"
+                >
+                  <span className="sm:hidden">Month</span>
+                  <span className="hidden sm:inline">This Month</span>
+                </button>
 
-            <Button
-              size="sm"
-              variant={activePreset === 'yearly' ? 'default' : 'outline'}
-              onClick={() => handlePresetSelect('yearly')}
-              className={`text-xs h-8 rounded-lg ${activePreset === 'yearly' ? 'bg-blue-600 text-white' : 'dark:border-zinc-800'}`}
-            >
-              This Year
-            </Button>
+                <button
+                  type="button"
+                  onClick={() => handlePresetSelect('yearly')}
+                  className={`h-8 px-2.5 sm:px-3 text-xs font-semibold rounded-lg transition-all shrink-0 cursor-pointer ${
+                    activePreset === 'yearly'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 hover:bg-white/60 dark:hover:bg-zinc-900/60'
+                  }`}
+                  title="Period: This Year"
+                  aria-label="Period: This Year"
+                >
+                  <span className="sm:hidden">Year</span>
+                  <span className="hidden sm:inline">This Year</span>
+                </button>
 
-            {/* Next Year Button for Cheques & future maturities */}
-            {activeModule === 'cheques' && (
-              <Button
-                size="sm"
-                variant={activePreset === 'next_year' ? 'default' : 'outline'}
-                onClick={() => handlePresetSelect('next_year')}
-                className={`text-xs h-8 rounded-lg border-amber-300 dark:border-amber-800 ${
-                  activePreset === 'next_year' ? 'bg-amber-600 text-white' : 'text-amber-700 dark:text-amber-400 dark:border-zinc-800'
-                }`}
-              >
-                Next Year
-              </Button>
-            )}
+                {/* Next Year Button for Cheques */}
+                {activeModule === 'cheques' && (
+                  <button
+                    type="button"
+                    onClick={() => handlePresetSelect('next_year')}
+                    className={`h-8 px-2.5 sm:px-3 text-xs font-semibold rounded-lg transition-all shrink-0 cursor-pointer ${
+                      activePreset === 'next_year'
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'text-amber-700 dark:text-amber-400 hover:bg-white/60 dark:hover:bg-zinc-900/60'
+                    }`}
+                    title="Period: Next Year"
+                    aria-label="Period: Next Year"
+                  >
+                    <span className="sm:hidden">Next Yr</span>
+                    <span className="hidden sm:inline">Next Year</span>
+                  </button>
+                )}
+              </div>
+            </div>
 
-            <div className="h-4 w-px bg-slate-300 dark:bg-zinc-800 mx-1 hidden sm:block" />
+            <div className="h-5 w-px bg-slate-300 dark:bg-zinc-800 mx-0.5 hidden sm:block shrink-0" />
 
             {/* Custom Date Range Picker */}
-            <div className="w-52 sm:w-60">
+            <div className="w-full sm:w-52 lg:w-60">
               <DateRangePicker
                 date={customRange}
                 onDateChange={handleRangeChange}
                 placeholder="Date Selector..."
-                className="h-8 text-xs rounded-lg"
+                className="h-8 text-xs rounded-lg w-full"
               />
             </div>
           </div>
@@ -1039,6 +1148,7 @@ export const ReportsPage: React.FC = () => {
                     : 'text-slate-600 dark:text-zinc-400 border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800'
                 }`}
                 title={showCharts ? 'Hide Visual Charts' : 'Show Visual Charts'}
+                aria-label={showCharts ? 'Hide Visual Charts' : 'Show Visual Charts'}
               >
                 <BarChart3 className="size-3.5" />
                 <span>{showCharts ? 'Hide Charts' : 'Show Charts'}</span>
@@ -1146,6 +1256,74 @@ export const ReportsPage: React.FC = () => {
                   </div>
                   <p className="text-lg md:text-xl font-bold mt-1 text-rose-600 dark:text-rose-400">{formatRs(summary.totalDue)}</p>
                   <p className="text-[11px] text-rose-500/80 mt-1">Pending Customer Debt</p>
+                </div>
+
+                {/* 5. NET OPERATIONAL REVENUE KPI CARD */}
+                <div
+                  onClick={() => handleOpenAudit('netOperationalRevenue')}
+                  className={`p-3 sm:p-4 rounded-2xl border cursor-pointer hover:border-emerald-500/50 hover:shadow-md transition-all group/kpi select-none ${
+                    dark
+                      ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
+                      : 'bg-white border-slate-200 shadow-sm hover:bg-emerald-50/20'
+                  }`}
+                  title="Click to view Net Operational Revenue formula & deductions audit"
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Net Operational Rev.</p>
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
+                      Audit ↗
+                    </span>
+                  </div>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-emerald-700 dark:text-emerald-400">
+                    {formatRs(summary.netOperationalRevenue ?? ((summary.totalPaid || 0) - (summary.totalProductionCost || 0) - (summary.totalGrnExpenses || 0)))}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-1">Paid - Production - GRN</p>
+                </div>
+
+                {/* 6. OPERATIONAL PROFIT KPI CARD */}
+                <div
+                  onClick={() => handleOpenAudit('netOperationalProfit')}
+                  className={`p-3 sm:p-4 rounded-2xl border cursor-pointer hover:border-indigo-500/50 hover:shadow-md transition-all group/kpi select-none ${
+                    dark
+                      ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
+                      : 'bg-white border-slate-200 shadow-sm hover:bg-indigo-50/20'
+                  }`}
+                  title="Click to view Operational Profit formula & trading surplus"
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Operational Profit</p>
+                    <span className="text-[10px] text-indigo-600 dark:text-indigo-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
+                      Audit ↗
+                    </span>
+                  </div>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-indigo-600 dark:text-indigo-400">
+                    {formatRs(summary.netOperationalProfit ?? ((summary.netSales || 0) - (summary.totalProductionCost || 0) - (summary.totalGrnExpenses || 0)))}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-1">Net Sales - Costs &amp; GRN</p>
+                </div>
+
+                {/* 7. PRODUCTION COSTS KPI CARD */}
+                <div
+                  className={`p-3 sm:p-4 rounded-2xl border ${
+                    dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'
+                  }`}
+                  title="Total direct fabric and manufacturing costs in period"
+                >
+                  <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Production Costs</p>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-amber-700 dark:text-amber-400">{formatRs(summary.totalProductionCost || 0)}</p>
+                  <p className="text-[11px] text-slate-400 mt-1">Fabric &amp; Cut Usages</p>
+                </div>
+
+                {/* 8. GRN PURCHASES KPI CARD */}
+                <div
+                  className={`p-3 sm:p-4 rounded-2xl border ${
+                    dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'
+                  }`}
+                  title="Goods Received Notes raw materials procurement expenses"
+                >
+                  <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">GRN Purchases</p>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-slate-900 dark:text-zinc-100">{formatRs(summary.totalGrnExpenses || 0)}</p>
+                  <p className="text-[11px] text-slate-400 mt-1">Payables Due: {formatRs(summary.totalGrnLiabilities || 0)}</p>
                 </div>
               </>
             )}
@@ -1467,20 +1645,21 @@ export const ReportsPage: React.FC = () => {
             {/* Cheque Portfolio Categorized Tabs & Quick CSV Export Bar */}
             {activeModule === 'cheques' && (
               <div className="p-3 border-b border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-950/40 flex flex-wrap items-center justify-between gap-2.5">
-                <div className="flex flex-wrap items-center gap-1.5">
+                <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide max-w-full pb-0.5 sm:pb-0">
                   <button
                     type="button"
                     onClick={() => {
                       setActiveChequeTab('PENDING');
                       setCurrentPage(1);
                     }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
                       activeChequeTab === 'PENDING'
                         ? 'bg-amber-500 text-white shadow-xs'
                         : 'bg-white dark:bg-zinc-900 text-slate-600 dark:text-zinc-400 border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800'
                     }`}
                   >
-                    <span>Upcoming / Pending</span>
+                    <span className="hidden sm:inline">Upcoming / Pending</span>
+                    <span className="sm:hidden">Pending</span>
                     <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
                       activeChequeTab === 'PENDING' ? 'bg-amber-600 text-white' : 'bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300'
                     }`}>
@@ -1494,13 +1673,14 @@ export const ReportsPage: React.FC = () => {
                       setActiveChequeTab('REALIZED');
                       setCurrentPage(1);
                     }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
                       activeChequeTab === 'REALIZED'
                         ? 'bg-emerald-600 text-white shadow-xs'
                         : 'bg-white dark:bg-zinc-900 text-slate-600 dark:text-zinc-400 border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800'
                     }`}
                   >
-                    <span>Cleared / Realized</span>
+                    <span className="hidden sm:inline">Cleared / Realized</span>
+                    <span className="sm:hidden">Cleared</span>
                     <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
                       activeChequeTab === 'REALIZED' ? 'bg-emerald-700 text-white' : 'bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300'
                     }`}>
@@ -1514,13 +1694,14 @@ export const ReportsPage: React.FC = () => {
                       setActiveChequeTab('BOUNCED');
                       setCurrentPage(1);
                     }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
                       activeChequeTab === 'BOUNCED'
                         ? 'bg-rose-600 text-white shadow-xs'
                         : 'bg-white dark:bg-zinc-900 text-slate-600 dark:text-zinc-400 border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800'
                     }`}
                   >
-                    <span>Bounced / Returned</span>
+                    <span className="hidden sm:inline">Bounced / Returned</span>
+                    <span className="sm:hidden">Bounced</span>
                     <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
                       activeChequeTab === 'BOUNCED' ? 'bg-rose-700 text-white' : 'bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300'
                     }`}>
@@ -1534,13 +1715,14 @@ export const ReportsPage: React.FC = () => {
                       setActiveChequeTab('ALL');
                       setCurrentPage(1);
                     }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
                       activeChequeTab === 'ALL'
                         ? 'bg-slate-800 dark:bg-zinc-200 text-white dark:text-zinc-900 shadow-xs'
                         : 'bg-white dark:bg-zinc-900 text-slate-600 dark:text-zinc-400 border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800'
                     }`}
                   >
-                    <span>All Cheques</span>
+                    <span className="hidden sm:inline">All Cheques</span>
+                    <span className="sm:hidden">All</span>
                     <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
                       activeChequeTab === 'ALL' ? 'bg-slate-900 dark:bg-zinc-300 text-white dark:text-zinc-900' : 'bg-slate-200 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300'
                     }`}>
@@ -2264,8 +2446,15 @@ export const ReportsPage: React.FC = () => {
           averageOrderValue: summary.averageOrderValue || 0,
           paymentSplit: summary.paymentSplit || {},
           dateLabel: formattedSelectedBadge,
+          totalProductionCost: summary.totalProductionCost || 0,
+          totalGrnExpenses: summary.totalGrnExpenses || 0,
+          totalGrnLiabilities: summary.totalGrnLiabilities || 0,
+          netOperationalRevenue: summary.netOperationalRevenue,
+          netOperationalProfit: summary.netOperationalProfit,
         }}
         onSelectMetric={(m) => setAuditFocusMetric(m)}
+        onDownloadMasterPdf={handleDownloadFinancialAuditPdf}
+        downloadingMasterPdf={downloadingFinancialAuditPdf}
       />
 
       {/* ⭐ INTERACTIVE PRODUCTION BATCH SUMMARY MODAL */}

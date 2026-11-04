@@ -57,6 +57,8 @@ import {
   Pencil,
   ArrowUpDown,
   ReceiptText,
+  Calculator,
+  TrendingUp,
 } from 'lucide-react';
 import { DateRangePicker } from '../components/ui/date-range-picker';
 import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../utils/whatsapp';
@@ -1888,3 +1890,6 @@ export const InvoicesPage: React.FC = () => {
     </div>
   );
 };
+
+export const SalesInvoicesPage = InvoicesPage;
+export default InvoicesPage;

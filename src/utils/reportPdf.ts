@@ -1,35 +1,28 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import {
+  loadLogoAsDataUrl,
+  drawStandardReportHeader,
+  drawStandardReportFooter,
+  formatReportTimestamp,
+  formatCurrency,
+  formatAmountNum,
+  generateFinancialAuditPdf,
+  type FinancialAuditExportData,
+  type GenerateFinancialAuditPdfOptions,
+} from './pdfGenerator';
 
-// ══════════════════════════════════════════════════════════════════════════════
-// 1. COMMON REPORT HELPERS
-// ══════════════════════════════════════════════════════════════════════════════
-
-function formatReportTimestamp(date: Date = new Date()): string {
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, '0');
-  const dd = String(date.getDate()).padStart(2, '0');
-  let hours = date.getHours();
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  hours = hours % 12 || 12;
-  const hh = String(hours).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd} ${hh}:${minutes} ${ampm}`;
-}
-
-function formatCurrency(val: number): string {
-  return `Rs. ${Number(val || 0).toLocaleString('en-LK', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
-
-function formatAmountNum(val: number): string {
-  return Number(val || 0).toLocaleString('en-LK', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
+export {
+  loadLogoAsDataUrl,
+  drawStandardReportHeader,
+  drawStandardReportFooter,
+  generateFinancialAuditPdf,
+  formatReportTimestamp,
+  formatCurrency,
+  formatAmountNum,
+  type FinancialAuditExportData,
+  type GenerateFinancialAuditPdfOptions,
+};
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 2. CUSTOMER DUES PDF GENERATION (MASTER SALES REPORT STYLING)
@@ -38,7 +31,6 @@ function formatAmountNum(val: number): string {
 export {
   generateCustomerDuesPdf,
   filterAndNormalizeDueInvoices,
-  loadLogoAsDataUrl,
   type CustomerDueInvoice,
   type CustomerDueGroup,
   type CustomerDueItem,
@@ -48,7 +40,6 @@ export {
 import {
   generateCustomerDuesPdf,
   filterAndNormalizeDueInvoices,
-  loadLogoAsDataUrl,
 } from './customerDuesPdf';
 
 
@@ -145,75 +136,20 @@ export async function generateChequeLedgerPdf(
   const generatedTimestamp = formatReportTimestamp();
   const generatedBy = options.generatedBy || 'System Administrator';
 
-  const drawMasterHeader = (headerTop = 35): number => {
-    let brandTextX = startX;
-
-    if (logoData) {
-      try {
-        doc.addImage(logoData, 'JPEG', startX, headerTop - 2, 36, 36);
-        brandTextX = startX + 44;
-      } catch {
-        brandTextX = startX;
-      }
-    }
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(15);
-    doc.setTextColor(0, 0, 0);
-    doc.text('RELIANCE', brandTextX, headerTop + 10);
-
-    doc.setFontSize(6.5);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(0, 0, 0);
-    doc.text('BRANDED MENS CLOTHING & APPAREL MFG', brandTextX, headerTop + 22);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
-    doc.setTextColor(51, 51, 51);
-    doc.text(
-      'Mawarala Road, Makandura, Matara | Tel: 041-2268739, 071-1350123  •  Web: relianceapparel.lk',
-      brandTextX,
-      headerTop + 32
-    );
-
-    const headerContentY = headerTop + 46;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.setTextColor(0, 0, 0);
-    doc.text(reportTitle, startX, headerContentY);
-
-    const metaX = pageWidth - 200;
-    let metaY = headerContentY - 6;
-
-    const metaRows = [
-      { label: 'PERIOD:', value: dateLabel, isBold: true },
-      { label: 'GENERATED:', value: generatedTimestamp, isBold: false },
-      { label: 'PRINTED BY:', value: generatedBy, isBold: false },
-    ];
-
-    metaRows.forEach((row) => {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7);
-      doc.setTextColor(85, 85, 85);
-      doc.text(row.label, metaX, metaY);
-
-      doc.setFont('helvetica', row.isBold ? 'bold' : 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(0, 0, 0);
-      doc.text(row.value, rightMargin, metaY, { align: 'right' });
-
-      metaY += 11;
+  const drawMasterHeader = (headerTop = 32): number => {
+    return drawStandardReportHeader(doc, {
+      logoData,
+      reportTitle,
+      dateRangeLabel: dateLabel,
+      generatedTimestamp,
+      generatedBy,
+      headerTop,
+      startX,
+      rightMargin,
     });
-
-    const dividerY = Math.max(headerContentY + 12, metaY) + 4;
-    doc.setDrawColor(0, 0, 0);
-    doc.setLineWidth(1);
-    doc.line(startX, dividerY, rightMargin, dividerY);
-
-    return dividerY + 12;
   };
 
-  let curY = drawMasterHeader(35);
+  let curY = drawMasterHeader(32);
 
   const summary = reportData.summary || {};
   const kpiCards = [
@@ -261,7 +197,7 @@ export async function generateChequeLedgerPdf(
 
   autoTable(doc, {
     startY: curY,
-    margin: { left: startX, right: pageWidth - rightMargin },
+    margin: { left: startX, right: pageWidth - rightMargin, top: 115, bottom: 45 },
     theme: 'plain',
     head: [['CHQ #', 'BANK', 'CHQ DATE', 'INV #', 'CUSTOMER', 'AMOUNT (RS.)', 'STATUS', 'ALERT']],
     body: tableData,
@@ -310,7 +246,7 @@ export async function generateChequeLedgerPdf(
     },
     pageBreak: 'auto',
     didDrawPage: () => {
-      drawMasterHeader(35);
+      drawMasterHeader(32);
     },
   });
 
@@ -319,7 +255,7 @@ export async function generateChequeLedgerPdf(
 
   if (signY + 65 > 750) {
     doc.addPage();
-    drawMasterHeader(35);
+    drawMasterHeader(32);
     signY = 120;
   }
 
@@ -359,28 +295,7 @@ export async function generateChequeLedgerPdf(
   doc.setTextColor(68, 68, 68);
   doc.text('Managing Director / Partner', authX + signColWidth / 2, signY + 44, { align: 'center' });
 
-  const totalPages = doc.getNumberOfPages();
-  for (let i = 1; i <= totalPages; i++) {
-    doc.setPage(i);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.5);
-    doc.setTextColor(102, 102, 102);
-    doc.text(
-      'Confidential & Proprietary — Reliance Clothing ERP Management Suite. All financial figures are strictly verified against the system ledger.',
-      startX + contentWidth / 2,
-      805,
-      { align: 'center' }
-    );
-
-    doc.setFontSize(6.5);
-    doc.setTextColor(68, 68, 68);
-    doc.text(
-      `Reliance Cheque Ledger Report  •  Page ${i} of ${totalPages}`,
-      rightMargin,
-      816,
-      { align: 'right' }
-    );
-  }
+  drawStandardReportFooter(doc, 'Cheque Ledger Report', startX, rightMargin);
 
   const dateTag = new Date().toISOString().split('T')[0];
   const filename = options.filename || `reliance-cheque-ledger-${dateTag}.pdf`;
@@ -430,70 +345,20 @@ export async function generateMaterialProductionPdf(
   const generatedTimestamp = formatReportTimestamp();
   const generatedBy = options.generatedBy || 'System Administrator';
 
-  const drawMasterHeader = (headerTop = 35): number => {
-    let brandTextX = startX;
-
-    if (logoData) {
-      try {
-        doc.addImage(logoData, 'JPEG', startX, headerTop - 2, 36, 36);
-        brandTextX = startX + 44;
-      } catch {
-        brandTextX = startX;
-      }
-    }
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(14);
-    doc.setTextColor(0, 0, 0);
-    doc.text('RELIANCE CLOTHING', brandTextX, headerTop + 10);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(68, 68, 68);
-    doc.text('Apparel Manufacturing & Inventory Control Suite', brandTextX, headerTop + 20);
-
-    const headerContentY = headerTop + 38;
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10.5);
-    doc.setTextColor(0, 0, 0);
-    doc.text(reportTitle, startX, headerContentY);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(68, 68, 68);
-    doc.text('Audited Fabric Consumption, Cutting vs Remaining Yield & Warehouse Balances', startX, headerContentY + 11);
-
-    const metaRows = [
-      { label: 'REPORT PERIOD:', value: dateLabel, isBold: true },
-      { label: 'GENERATED ON:', value: generatedTimestamp, isBold: false },
-      { label: 'GENERATED BY:', value: generatedBy, isBold: false },
-    ];
-
-    let metaY = headerTop + 2;
-    metaRows.forEach((row) => {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7);
-      doc.setTextColor(68, 68, 68);
-      doc.text(row.label, rightMargin - 155, metaY);
-
-      doc.setFont('helvetica', row.isBold ? 'bold' : 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(0, 0, 0);
-      doc.text(row.value, rightMargin, metaY, { align: 'right' });
-
-      metaY += 11;
+  const drawMasterHeader = (headerTop = 32): number => {
+    return drawStandardReportHeader(doc, {
+      logoData,
+      reportTitle,
+      dateRangeLabel: dateLabel,
+      generatedTimestamp,
+      generatedBy,
+      headerTop,
+      startX,
+      rightMargin,
     });
-
-    const dividerY = Math.max(headerContentY + 14, metaY) + 4;
-    doc.setDrawColor(0, 0, 0);
-    doc.setLineWidth(1);
-    doc.line(startX, dividerY, rightMargin, dividerY);
-
-    return dividerY + 12;
   };
 
-  let curY = drawMasterHeader(35);
+  let curY = drawMasterHeader(32);
 
   const summary = reportData.summary || {};
   const kpiCards = [
@@ -544,7 +409,7 @@ export async function generateMaterialProductionPdf(
 
   autoTable(doc, {
     startY: curY,
-    margin: { left: startX, right: pageWidth - rightMargin },
+    margin: { left: startX, right: pageWidth - rightMargin, top: 115, bottom: 45 },
     theme: 'plain',
     head: [['CODE', 'MATERIAL NAME', 'UNIT', 'CUT QTY', 'REMAINING', 'WASTE/SCRAP', 'AVG COST', 'VALUATION (RS.)', 'STATUS']],
     body: tableData,
@@ -583,6 +448,10 @@ export async function generateMaterialProductionPdf(
       lineColor: [0, 0, 0],
       lineWidth: { top: 0.8, bottom: 0.8, left: 0, right: 0 },
       cellPadding: { top: 5, bottom: 5, left: 4, right: 4 },
+    },
+    pageBreak: 'auto',
+    didDrawPage: () => {
+      drawMasterHeader(32);
     },
   });
 
@@ -625,28 +494,7 @@ export async function generateMaterialProductionPdf(
   doc.setTextColor(68, 68, 68);
   doc.text('Factory Manager / Partner', authX + signColWidth / 2, signY + 44, { align: 'center' });
 
-  const totalPages = doc.getNumberOfPages();
-  for (let i = 1; i <= totalPages; i++) {
-    doc.setPage(i);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.5);
-    doc.setTextColor(102, 102, 102);
-    doc.text(
-      'Confidential & Proprietary — Reliance Clothing ERP Management Suite. All material tracking figures are verified against warehouse logs.',
-      startX + contentWidth / 2,
-      805,
-      { align: 'center' }
-    );
-
-    doc.setFontSize(6.5);
-    doc.setTextColor(68, 68, 68);
-    doc.text(
-      `Reliance Material & Production Report  •  Page ${i} of ${totalPages}`,
-      rightMargin,
-      816,
-      { align: 'right' }
-    );
-  }
+  drawStandardReportFooter(doc, 'Material & Production Report', startX, rightMargin);
 
   const dateTag = new Date().toISOString().split('T')[0];
   const filename = options.filename || `reliance-material-production-${dateTag}.pdf`;
@@ -661,6 +509,9 @@ export const ReportPdf = {
   generateChequeLedgerPdf,
   formatChequeLedgerPdfRows,
   generateMaterialProductionPdf,
+  generateFinancialAuditPdf,
+  drawStandardReportHeader,
+  drawStandardReportFooter,
 };
 
 export default ReportPdf;

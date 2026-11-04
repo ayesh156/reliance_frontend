@@ -59,16 +59,19 @@ export const SalesInvoiceReport: React.FC<SalesInvoiceReportProps> = ({
         variant="outline"
         size="sm"
         className="h-8 text-xs font-medium shrink-0 border-slate-300 dark:border-zinc-700 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-zinc-800"
+        title="Download Sales & Invoices PDF"
+        aria-label="Download Sales & Invoices PDF"
       >
         {downloadingFullReport ? (
           <>
             <Loader2 className="size-3.5 mr-1.5 animate-spin" />
-            Exporting Sales...
+            <span className="hidden sm:inline">Exporting Sales...</span>
+            <span className="sm:hidden">Exporting...</span>
           </>
         ) : (
           <>
-            <Printer className="size-3.5 mr-1.5" />
-            Download Sales &amp; Invoices PDF
+            <Printer className="size-3.5 sm:mr-1.5" />
+            <span className="hidden sm:inline">Download Sales &amp; Invoices PDF</span>
           </>
         )}
       </Button>
@@ -81,16 +84,18 @@ export const SalesInvoiceReport: React.FC<SalesInvoiceReportProps> = ({
         size="sm"
         className="h-8 text-xs border-emerald-300 dark:border-emerald-800/80 bg-emerald-50/60 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 hover:text-emerald-800 dark:hover:bg-emerald-900/50 font-medium shadow-xs shrink-0"
         title="Download filtered PDF of customers with outstanding dues (dueBalance > 0)"
+        aria-label="Download Customer Dues PDF"
       >
         {downloadingDues ? (
           <>
             <Loader2 className="size-3.5 mr-1.5 animate-spin" />
-            Generating Dues PDF...
+            <span className="hidden sm:inline">Generating Dues PDF...</span>
+            <span className="sm:hidden">Generating...</span>
           </>
         ) : (
           <>
-            <FileText className="size-3.5 mr-1.5 text-emerald-600 dark:text-emerald-400" />
-            Download Customer Dues PDF
+            <FileText className="size-3.5 sm:mr-1.5 text-emerald-600 dark:text-emerald-400" />
+            <span className="hidden sm:inline">Download Customer Dues PDF</span>
           </>
         )}
       </Button>

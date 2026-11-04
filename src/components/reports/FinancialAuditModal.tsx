@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { generateFinancialAuditPdf } from '../../utils/pdfGenerator';
 import {
   Dialog,
   DialogContent,
@@ -13,6 +14,7 @@ import { toast } from 'react-toastify';
 import {
   Calculator,
   Download,
+  Loader2,
   Copy,
   Printer,
   FileText,
@@ -35,7 +37,9 @@ export type FinancialMetricFocus =
   | 'grossRevenue'
   | 'netSales'
   | 'totalPaid'
-  | 'totalDue';
+  | 'totalDue'
+  | 'netOperationalRevenue'
+  | 'netOperationalProfit';
 
 export interface FinancialAuditData {
   grossRevenue: number;
@@ -48,6 +52,14 @@ export interface FinancialAuditData {
   averageOrderValue?: number;
   paymentSplit?: Record<string, { count: number; amount: number }>;
   dateLabel?: string;
+  totalProductionCost?: number;
+  totalGrnExpenses?: number;
+  totalGrnLiabilities?: number;
+  costOfGoodsSold?: number;
+  grossProfit?: number;
+  grossProfitMargin?: number;
+  netOperationalRevenue?: number;
+  netOperationalProfit?: number;
 }
 
 interface FinancialAuditModalProps {
@@ -56,6 +68,8 @@ interface FinancialAuditModalProps {
   activeMetric: FinancialMetricFocus;
   data: FinancialAuditData;
   onSelectMetric?: (metric: FinancialMetricFocus) => void;
+  onDownloadMasterPdf?: () => void;
+  downloadingMasterPdf?: boolean;
 }
 
 export const FinancialAuditModal: React.FC<FinancialAuditModalProps> = ({
@@ -64,8 +78,11 @@ export const FinancialAuditModal: React.FC<FinancialAuditModalProps> = ({
   activeMetric,
   data,
   onSelectMetric,
+  onDownloadMasterPdf,
+  downloadingMasterPdf,
 }) => {
   const [currentFocus, setCurrentFocus] = useState<FinancialMetricFocus>(activeMetric);
+  const [exportingSummaryPdf, setExportingSummaryPdf] = useState(false);
 
   // Synchronize incoming activeMetric
   React.useEffect(() => {
@@ -79,6 +96,17 @@ export const FinancialAuditModal: React.FC<FinancialAuditModalProps> = ({
   const totalPaid = Number(data.totalPaid) || 0;
   const totalDue = Number(data.totalDue) || 0;
   const orderCount = Number(data.orderCount) || 0;
+  const totalProductionCost = Number(data.totalProductionCost) || 0;
+  const totalGrnExpenses = Number(data.totalGrnExpenses) || 0;
+  const totalGrnLiabilities = Number(data.totalGrnLiabilities) || 0;
+  const netOperationalRevenue =
+    data.netOperationalRevenue !== undefined
+      ? Number(data.netOperationalRevenue)
+      : Math.round((totalPaid - totalProductionCost - totalGrnExpenses) * 100) / 100;
+  const netOperationalProfit =
+    data.netOperationalProfit !== undefined
+      ? Number(data.netOperationalProfit)
+      : Math.round((netSales - totalProductionCost - totalGrnExpenses) * 100) / 100;
 
   const paymentSplit = data.paymentSplit || {};
   const cashAmount = paymentSplit['CASH']?.amount || 0;
@@ -131,6 +159,24 @@ export const FinancialAuditModal: React.FC<FinancialAuditModalProps> = ({
       formula: 'Outstanding Due = Net Sales Total - Realized Payments Received',
       description: 'Unpaid customer receivables and pending credit balances awaiting collection.',
     },
+    {
+      key: 'netOperationalRevenue' as FinancialMetricFocus,
+      label: 'Net Operational Revenue',
+      badgeLabel: 'Operational Cash Surplus',
+      color: 'text-emerald-700 dark:text-emerald-400',
+      amount: netOperationalRevenue,
+      formula: 'Net Operational Revenue = Realized Collections (Total Paid) - Production Costs - GRN Expenses',
+      description: 'The net operational liquid cash surplus after accounting for direct manufacturing and fabric procurement outflows.',
+    },
+    {
+      key: 'netOperationalProfit' as FinancialMetricFocus,
+      label: 'Operational Profit',
+      badgeLabel: 'Operating Margin',
+      color: 'text-indigo-600 dark:text-indigo-400',
+      amount: netOperationalProfit,
+      formula: 'Operational Profit = Net Billed Sales - Total Production Material Costs - GRN Purchases',
+      description: 'Accrual-based operating surplus reflecting trading income minus production and supplier procurement liabilities.',
+    },
   ];
 
   const currentTab = METRIC_TABS.find((t) => t.key === currentFocus) || METRIC_TABS[0];
@@ -162,6 +208,13 @@ Definition: ${currentTab.description}
 -----------------------------------------------------
 (=) Total Liquid Collected / Paid:          ${formatRs(totalPaid)}
 (-) Outstanding Customer Credit Debt:       ${formatRs(totalDue)} (${creditCount} Orders)
+
+4. DIRECT PRODUCTION & GRN PROCUREMENT LIABILITIES:
+(-) Direct Production Batch Costs:          - ${formatRs(totalProductionCost)}
+(-) GRN Supplier Procurement Expenses:     - ${formatRs(totalGrnExpenses)}
+-----------------------------------------------------
+(=) EQUALS: Net Operational Revenue:        ${formatRs(netOperationalRevenue)}
+(=) EQUALS: Net Operational Profit:         ${formatRs(netOperationalProfit)}
 =====================================================
 Verified & Certified by Reliance Accounting System
 =====================================================`;
@@ -177,17 +230,20 @@ Verified & Certified by Reliance Accounting System
     }
   };
 
-  // Download audit report file
-  const handleDownloadAuditFile = () => {
-    const text = generateAuditSummaryText();
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `reliance-financial-audit-${currentFocus}-${new Date().toISOString().split('T')[0]}.txt`;
-    link.click();
-    URL.revokeObjectURL(url);
-    toast.success('Exportable Audit Summary text downloaded!');
+  // Download branded Financial Audit PDF report file
+  const handleDownloadAuditFile = async () => {
+    try {
+      setExportingSummaryPdf(true);
+      await generateFinancialAuditPdf(data, {
+        currentFocus,
+        dateRangeLabel: data.dateLabel,
+      });
+      toast.success('Branded Financial Audit PDF exported successfully!');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to export Financial Audit PDF');
+    } finally {
+      setExportingSummaryPdf(false);
+    }
   };
 
   return (
@@ -212,7 +268,7 @@ Verified & Certified by Reliance Accounting System
           </DialogHeader>
 
           {/* Interactive Metric Switcher Tabs */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mt-3 pt-3 border-t border-slate-200/60 dark:border-zinc-800">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1.5 mt-3 pt-3 border-t border-slate-200/60 dark:border-zinc-800">
             {METRIC_TABS.map((tab) => {
               const isSelected = tab.key === currentFocus;
               return (
@@ -474,12 +530,12 @@ Verified & Certified by Reliance Accounting System
         </div>
 
         {/* Sticky Action Footer: Stacked on Mobile, Flex Row on Desktop */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 p-3 bg-zinc-900 border-t border-zinc-800 shrink-0">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 p-3 sm:px-4 bg-slate-50 dark:bg-zinc-900 border-t border-slate-200 dark:border-zinc-800 shrink-0">
           <Button
             variant="outline"
             size="sm"
             onClick={onClose}
-            className="flex-1 sm:flex-initial h-10 min-h-[40px] sm:h-9 text-xs font-semibold"
+            className="flex-1 sm:flex-initial h-10 min-h-[40px] sm:h-9 text-xs font-semibold border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 hover:text-slate-900 dark:hover:text-white shadow-2xs cursor-pointer"
           >
             Close Audit
           </Button>
@@ -488,18 +544,39 @@ Verified & Certified by Reliance Accounting System
             variant="outline"
             size="sm"
             onClick={handleCopySummary}
-            className="flex-1 sm:flex-initial h-10 min-h-[40px] sm:h-9 text-xs font-semibold gap-1.5"
+            className="flex-1 sm:flex-initial h-10 min-h-[40px] sm:h-9 text-xs font-semibold gap-1.5 border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 hover:text-slate-900 dark:hover:text-white shadow-2xs cursor-pointer"
           >
-            <Copy className="size-3.5" />
+            <Copy className="size-3.5 text-slate-500 dark:text-zinc-400" />
             <span>Copy Audit Breakdown</span>
           </Button>
+
+          {onDownloadMasterPdf && (
+            <Button
+              size="sm"
+              onClick={onDownloadMasterPdf}
+              disabled={downloadingMasterPdf}
+              className="flex-1 sm:flex-initial h-10 min-h-[40px] sm:h-9 text-xs font-semibold gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs cursor-pointer disabled:opacity-50"
+            >
+              {downloadingMasterPdf ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Download className="size-3.5" />
+              )}
+              <span>Master Audit PDF</span>
+            </Button>
+          )}
 
           <Button
             size="sm"
             onClick={handleDownloadAuditFile}
-            className="flex-1 sm:flex-initial h-10 min-h-[40px] sm:h-9 text-xs font-semibold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+            disabled={exportingSummaryPdf}
+            className="flex-1 sm:flex-initial h-10 min-h-[40px] sm:h-9 text-xs font-semibold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs cursor-pointer disabled:opacity-50"
           >
-            <Download className="size-3.5" />
+            {exportingSummaryPdf ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Download className="size-3.5" />
+            )}
             <span>Export Summary</span>
           </Button>
         </div>

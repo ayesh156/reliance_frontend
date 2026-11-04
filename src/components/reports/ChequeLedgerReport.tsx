@@ -75,13 +75,16 @@ export const ChequeLedgerReport: React.FC<ChequeLedgerReportProps> = ({
             onClick={handleDownloadPdf}
             disabled={downloadingPdf || loading || !reportData}
             className="h-8 text-xs font-medium"
+            title="Download Cheque Ledger PDF"
+            aria-label="Download Cheque Ledger PDF"
           >
             {downloadingPdf ? (
               <Loader2 className="size-3.5 mr-1.5 animate-spin" />
             ) : (
               <Printer className="size-3.5 mr-1.5" />
             )}
-            Download Cheque Ledger PDF
+            <span className="hidden sm:inline">Download Cheque Ledger PDF</span>
+            <span className="sm:hidden">Ledger PDF</span>
           </Button>
         </div>
       </div>

@@ -280,6 +280,16 @@ export function App() {
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="/system/sales-invoices"
+                element={
+                  <ProtectedRoute requiredPermission="invoices">
+                    <AdminPage>
+                      <InvoicesPage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
 
               {/* Presales Orders Management Route */}
               <Route
@@ -312,6 +322,16 @@ export function App() {
               {/* Garment Cutting & Production Routes */}
               <Route
                 path="/system/cutting"
+                element={
+                  <ProtectedRoute requiredPermission="cutting" requiredRole={['ADMIN', 'STAFF']}>
+                    <AdminPage>
+                      <CuttingListPage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/system/cutting-table"
                 element={
                   <ProtectedRoute requiredPermission="cutting" requiredRole={['ADMIN', 'STAFF']}>
                     <AdminPage>
