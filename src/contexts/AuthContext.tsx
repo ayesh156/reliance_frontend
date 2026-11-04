@@ -11,7 +11,7 @@ export interface AuthUser {
 }
 
 /** Default permissions strictly injected for Staff accounts */
-export const DEFAULT_STAFF_PERMISSIONS = ['production', 'line', 'wash', 'materials'];
+export const DEFAULT_STAFF_PERMISSIONS = ['production', 'line', 'wash', 'finishing', 'materials'];
 
 /**
  * Safely parse JWT payload to extract user info if auth_user is not yet cached.
@@ -258,6 +258,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Seamless alias between 'cutting' and 'production'
     if (permission === 'cutting' && permissions.includes('production')) return true;
     if (permission === 'production' && permissions.includes('cutting')) return true;
+    if (permission === 'finishing' && (permissions.includes('finishing') || permissions.includes('production'))) return true;
     return false;
   }, [user]);
 

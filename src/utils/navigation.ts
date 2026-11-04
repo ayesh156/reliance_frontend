@@ -22,6 +22,7 @@ export const ORDERED_SIDEBAR_ROUTES: RoutePermissionMapping[] = [
   { route: '/system/production', actualPath: '/system/cutting', permission: 'production' },
   { route: '/system/line', actualPath: '/system/line', permission: 'line' },
   { route: '/system/wash', actualPath: '/system/wash', permission: 'wash' },
+  { route: '/system/finishing', actualPath: '/system/finishing', permission: 'finishing' },
   { route: '/system/materials', actualPath: '/system/buy-raw-materials', permission: 'materials' },
   { route: '/system/reports', actualPath: '/system/reports', permission: 'reports' },
   { route: '/system/settings', actualPath: '/system/settings', permission: 'settings' },
@@ -54,7 +55,7 @@ export function getFirstAllowedRoute(user: AuthUser | null | undefined): string 
   // Staff users: check ordered list of sidebar routes against assigned permissions
   const permissions: string[] = Array.isArray(user.permissions) && user.permissions.length > 0
     ? user.permissions
-    : ['cutting', 'production', 'line', 'wash', 'materials'];
+    : ['cutting', 'production', 'line', 'wash', 'finishing', 'materials'];
 
   for (const item of ORDERED_SIDEBAR_ROUTES) {
     if (permissions.includes(item.permission)) {

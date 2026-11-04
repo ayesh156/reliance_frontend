@@ -32,6 +32,7 @@ import BuyRawMaterialFormPage from './pages/BuyRawMaterialFormPage';
 import { CuttingListPage } from './pages/CuttingListPage';
 import { LinePage } from './pages/LinePage';
 import { WashPage } from './pages/WashPage';
+import { FinishingPage } from './pages/FinishingPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { Dashboard } from './pages/Dashboard';
 
@@ -392,6 +393,21 @@ export function App() {
                   <ProtectedRoute requiredPermission="wash" requiredRole={['ADMIN', 'STAFF']}>
                     <AdminPage>
                       <WashPage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
+
+              {/* Direct Root Shortcuts for Finishing */}
+              <Route path="/finishing" element={<Navigate to="/system/finishing" replace />} />
+
+              {/* Finishing Stage (Iron & Pack) */}
+              <Route
+                path="/system/finishing"
+                element={
+                  <ProtectedRoute requiredPermission="finishing" requiredRole={['ADMIN', 'STAFF']}>
+                    <AdminPage>
+                      <FinishingPage />
                     </AdminPage>
                   </ProtectedRoute>
                 }

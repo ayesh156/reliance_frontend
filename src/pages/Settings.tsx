@@ -108,6 +108,12 @@ const AVAILABLE_MODULES: ModulePermissionDef[] = [
     icon: Waves,
   },
   {
+    id: 'finishing',
+    label: 'Finishing Stage (Iron & Pack)',
+    description: 'Post-wash ironing, folding, packing, and finishing batches tracking',
+    icon: Sparkles,
+  },
+  {
     id: 'materials',
     label: 'Raw Materials & Stock',
     description: 'Fabric rolls, button inventory, suppliers, purchase orders',
@@ -295,7 +301,7 @@ export const Settings: React.FC = () => {
     } else if (targetUser.role === 'STAFF') {
       const perms = targetUser.permissions && targetUser.permissions.length > 0
         ? targetUser.permissions
-        : ['production', 'line', 'wash', 'materials'];
+        : ['production', 'line', 'wash', 'finishing', 'materials'];
       setSelectedPermissions([...perms]);
     } else {
       setSelectedPermissions(targetUser.permissions ? [...targetUser.permissions] : []);
@@ -318,7 +324,7 @@ export const Settings: React.FC = () => {
   };
 
   const handleResetToDefaultStaff = () => {
-    setSelectedPermissions(['production', 'line', 'wash', 'materials']);
+    setSelectedPermissions(['production', 'line', 'wash', 'finishing', 'materials']);
   };
 
   const handleSavePermissions = async () => {

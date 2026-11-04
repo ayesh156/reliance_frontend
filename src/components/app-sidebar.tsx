@@ -16,6 +16,7 @@ import {
   Waves,
   Shirt,
   Scissors,
+  Sparkles,
   ChevronDown,
 } from "lucide-react"
 import { useAuth } from "../contexts/AuthContext"
@@ -60,6 +61,7 @@ const productionSubItems: ProductionSubItem[] = [
   { label: "Cutting", path: "/system/cutting", icon: Scissors, permission: "cutting" },
   { label: "Line", path: "/system/line", icon: Shirt, permission: "line" },
   { label: "Wash", path: "/system/wash", icon: Waves, permission: "wash" },
+  { label: "Finishing", path: "/system/finishing", icon: Sparkles, permission: "finishing" },
 ];
 
 const bottomNavItems: NavItem[] = [
@@ -78,7 +80,8 @@ export function AppSidebar() {
     location.pathname.startsWith("/system/cutting") ||
     location.pathname.startsWith("/system/production") ||
     location.pathname.startsWith("/system/line") ||
-    location.pathname.startsWith("/system/wash")
+    location.pathname.startsWith("/system/wash") ||
+    location.pathname.startsWith("/system/finishing")
 
   const [productionOpen, setProductionOpen] = useState(true)
 
@@ -98,6 +101,9 @@ export function AppSidebar() {
 
     if (userRole === "STAFF" && item.permission) {
       if (item.permission === "cutting" && (permissions.includes("cutting") || permissions.includes("production"))) {
+        return true
+      }
+      if (item.permission === "finishing" && (permissions.includes("finishing") || permissions.includes("production"))) {
         return true
       }
       return permissions.includes(item.permission)

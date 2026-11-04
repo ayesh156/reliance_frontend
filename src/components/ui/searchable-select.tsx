@@ -1,4 +1,5 @@
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { Check, ChevronsUpDown, Search, X, Plus } from "lucide-react";
 import { useSafeTheme } from "../../contexts/ThemeContext";
 
@@ -60,6 +61,7 @@ interface SearchableSelectProps {
     icon?: React.ReactNode;
     onSelect: () => void;
   };
+  usePortal?: boolean;
 }
 
 /**
@@ -84,6 +86,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   className = "",
   inline: _inline = false,
   actionOption,
+  usePortal = false,
 }) => {
   const safeTheme = useSafeTheme();
   const [domIsDark, setDomIsDark] = React.useState<boolean>(() => {
@@ -117,6 +120,12 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   const [open, setOpen] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [dropUpwards, setDropUpwards] = React.useState(false);
+  const popoverRef = React.useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = React.useState<{ top: number; left: number; width: number }>({
+    top: 0,
+    left: 0,
+    width: 0,
+  });
 
   const containerRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -174,20 +183,49 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
     return [...staticOptions, ...matched];
   }, [options, searchQuery, actionOption]);
 
-  // Position detection: Flip upwards if restricted space below and ample clearance above
-  React.useLayoutEffect(() => {
-    if (open && containerRef.current) {
+  // Position detection & screen coordinate calculation
+  const updatePosition = React.useCallback(() => {
+    if (containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
       const spaceBelow = window.innerHeight - rect.bottom;
       const spaceAbove = rect.top;
       const estimatedHeight = 260;
-      if (spaceBelow < estimatedHeight && spaceAbove > estimatedHeight) {
-        setDropUpwards(true);
-      } else {
-        setDropUpwards(false);
+      const shouldDropUp = spaceBelow < estimatedHeight && spaceAbove > estimatedHeight;
+      setDropUpwards(shouldDropUp);
+
+      let top = shouldDropUp ? rect.top - estimatedHeight - 4 : rect.bottom + 4;
+      if (top < 8) top = 8;
+      let left = rect.left;
+      let width = rect.width;
+
+      if (left + width > window.innerWidth - 8) {
+        width = Math.min(width, window.innerWidth - 16);
+        left = Math.max(8, window.innerWidth - width - 8);
       }
+
+      setCoords({ top, left, width });
     }
-  }, [open]);
+  }, []);
+
+  React.useLayoutEffect(() => {
+    if (open) {
+      updatePosition();
+    }
+  }, [open, updatePosition]);
+
+  // Keep portal dropdown perfectly anchored during scroll and window resize
+  React.useEffect(() => {
+    if (open && usePortal) {
+      updatePosition();
+      const handleScrollResize = () => updatePosition();
+      window.addEventListener("scroll", handleScrollResize, true);
+      window.addEventListener("resize", handleScrollResize);
+      return () => {
+        window.removeEventListener("scroll", handleScrollResize, true);
+        window.removeEventListener("resize", handleScrollResize);
+      };
+    }
+  }, [open, usePortal, updatePosition]);
 
   // Instant single-click auto-focus on open
   React.useEffect(() => {
@@ -246,6 +284,9 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       if (!target) return;
 
       if (containerRef.current && containerRef.current.contains(target)) {
+        return;
+      }
+      if (popoverRef.current && popoverRef.current.contains(target)) {
         return;
       }
 
@@ -397,17 +438,40 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         </div>
       )}
 
-      {/* Options List: Rendered inline directly in the component's relative container */}
-      {open && (
-        <div
-          role="listbox"
-          className={`absolute left-0 right-0 ${
-            dropUpwards ? "bottom-[calc(100%+4px)]" : "top-[calc(100%+4px)]"
-          } z-50 rounded-xl border shadow-2xl overflow-hidden pointer-events-auto animate-in fade-in-0 zoom-in-95 duration-100 ${
-            isDark
-              ? "bg-zinc-900 border-zinc-800 text-zinc-100 shadow-black/60"
-              : "bg-white border-slate-200 text-slate-900 shadow-slate-300/80"
-          }`}
+      {/* Options List: Rendered inline or via Portal directly onto document.body */}
+      {open && (() => {
+        const dropdownList = (
+          <div
+            ref={popoverRef}
+            role="listbox"
+            data-radix-portal=""
+            onPointerDown={(e) => e.stopPropagation()}
+            style={
+              usePortal
+                ? {
+                    position: "fixed",
+                    top: `${coords.top}px`,
+                    left: `${coords.left}px`,
+                    width: `${coords.width}px`,
+                    zIndex: 99999,
+                  }
+                : undefined
+            }
+            className={
+              usePortal
+                ? `fixed z-[99999] rounded-xl border shadow-2xl overflow-hidden pointer-events-auto animate-in fade-in-0 zoom-in-95 duration-100 ${
+                    isDark
+                      ? "bg-zinc-900 border-zinc-800 text-zinc-100 shadow-black/60"
+                      : "bg-white border-slate-200 text-slate-900 shadow-slate-300/80"
+                  }`
+                : `absolute left-0 right-0 ${
+                    dropUpwards ? "bottom-[calc(100%+4px)]" : "top-[calc(100%+4px)]"
+                  } z-50 rounded-xl border shadow-2xl overflow-hidden pointer-events-auto animate-in fade-in-0 zoom-in-95 duration-100 ${
+                    isDark
+                      ? "bg-zinc-900 border-zinc-800 text-zinc-100 shadow-black/60"
+                      : "bg-white border-slate-200 text-slate-900 shadow-slate-300/80"
+                  }`
+            }
         >
           <div
             ref={listContainerRef}
@@ -537,8 +601,13 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
               })
             )}
           </div>
-        </div>
-      )}
+          </div>
+        );
+
+        return usePortal && typeof document !== "undefined"
+          ? createPortal(dropdownList, document.body)
+          : dropdownList;
+      })()}
     </div>
   );
 };
