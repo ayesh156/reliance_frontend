@@ -74,7 +74,13 @@ export function AppSidebar() {
   const location = useLocation()
 
   const userRole = user?.role || "STAFF"
-  const permissions = user?.permissions || (userRole === "STAFF" ? ["production", "cutting", "line", "wash", "materials"] : [])
+  const permissions =
+    user?.permissions ||
+    (userRole === "STAFF"
+      ? ["production", "cutting", "line", "wash", "materials"]
+      : userRole === "REP"
+      ? ["pos", "invoices", "orders", "products", "customers", "materials", "reports"]
+      : [])
 
   const isProductionActive =
     location.pathname.startsWith("/system/cutting") ||
@@ -106,6 +112,10 @@ export function AppSidebar() {
       if (item.permission === "finishing" && (permissions.includes("finishing") || permissions.includes("production"))) {
         return true
       }
+      return permissions.includes(item.permission)
+    }
+
+    if (userRole === "REP" && item.permission) {
       return permissions.includes(item.permission)
     }
 

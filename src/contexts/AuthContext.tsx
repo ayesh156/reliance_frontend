@@ -12,6 +12,13 @@ export interface AuthUser {
 
 /** Default permissions strictly injected for Staff accounts */
 export const DEFAULT_STAFF_PERMISSIONS = ['production', 'line', 'wash', 'finishing', 'materials'];
+export const DEFAULT_REP_PERMISSIONS = ['pos', 'invoices', 'orders', 'products', 'customers', 'materials', 'reports'];
+
+export const getDefaultPermissionsForRole = (role?: string): string[] => {
+  if (role === 'STAFF') return DEFAULT_STAFF_PERMISSIONS;
+  if (role === 'REP') return DEFAULT_REP_PERMISSIONS;
+  return [];
+};
 
 /**
  * Safely parse JWT payload to extract user info if auth_user is not yet cached.
@@ -36,7 +43,7 @@ function parseJwtPayload(token: string): Partial<AuthUser> | null {
       name: parsed.name || 'User',
       email: parsed.email || '',
       role,
-      permissions: parsed.permissions || (role === 'STAFF' ? DEFAULT_STAFF_PERMISSIONS : []),
+      permissions: parsed.permissions || getDefaultPermissionsForRole(role),
     };
   } catch {
     return null;
@@ -53,8 +60,8 @@ function getInitialUser(storedToken: string | null): AuthUser | null {
     if (cached) {
       const parsed = JSON.parse(cached);
       if (parsed && parsed.id) {
-        if (!parsed.permissions && parsed.role === 'STAFF') {
-          parsed.permissions = DEFAULT_STAFF_PERMISSIONS;
+        if (!parsed.permissions) {
+          parsed.permissions = getDefaultPermissionsForRole(parsed.role);
         }
         return parsed;
       }
@@ -67,7 +74,7 @@ function getInitialUser(storedToken: string | null): AuthUser | null {
           name: decoded.name || 'User',
           email: decoded.email || '',
           role: decoded.role || 'STAFF',
-          permissions: decoded.permissions || (decoded.role === 'STAFF' ? DEFAULT_STAFF_PERMISSIONS : []),
+          permissions: decoded.permissions || getDefaultPermissionsForRole(decoded.role || 'STAFF'),
         };
       }
     }
@@ -162,7 +169,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const role = data.role || 'STAFF';
         const permissions: string[] = Array.isArray(data.permissions) && data.permissions.length > 0
           ? data.permissions
-          : (role === 'STAFF' ? DEFAULT_STAFF_PERMISSIONS : []);
+          : getDefaultPermissionsForRole(role);
 
         const verifiedUser: AuthUser = {
           id: data.id,
@@ -221,7 +228,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const role = data.user.role || 'STAFF';
     const permissions: string[] = Array.isArray(data.user.permissions) && data.user.permissions.length > 0
       ? data.user.permissions
-      : (role === 'STAFF' ? DEFAULT_STAFF_PERMISSIONS : []);
+      : getDefaultPermissionsForRole(role);
 
     const loggedUser: AuthUser = {
       id: data.user.id,
@@ -253,7 +260,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!user) return false;
     if (user.role === 'ADMIN') return true;
     if (!permission) return true;
-    const permissions = user.permissions || (user.role === 'STAFF' ? DEFAULT_STAFF_PERMISSIONS : []);
+    const permissions = user.permissions || getDefaultPermissionsForRole(user.role);
     if (permissions.includes(permission)) return true;
     // Seamless alias between 'cutting' and 'production'
     if (permission === 'cutting' && permissions.includes('production')) return true;
