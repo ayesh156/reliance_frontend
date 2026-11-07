@@ -797,6 +797,9 @@ export const CuttingModal: React.FC<CuttingModalProps> = ({
                             placeholder="Select material..."
                             searchPlaceholder="Type material name or code..."
                             dark={isDark}
+                            usePortal={true}
+                            side="bottom"
+                            collisionPadding={8}
                             className="h-9 text-xs"
                           />
                         </div>
@@ -954,6 +957,9 @@ export const CuttingModal: React.FC<CuttingModalProps> = ({
                             placeholder="Select target garment style (thumbnail, SKU, barcode)..."
                             searchPlaceholder="Type product name, SKU, or barcode..."
                             dark={isDark}
+                            usePortal={true}
+                            side="bottom"
+                            collisionPadding={8}
                             className="h-9 text-xs w-full"
                           />
                         </div>

@@ -173,7 +173,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
         disabled={disabled}
         onClick={toggleOpen}
         className={cn(
-          "w-full h-8 sm:h-9 flex items-center justify-between text-left font-normal text-xs px-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs hover:border-slate-300 dark:hover:border-zinc-700 transition-all cursor-pointer focus:outline-none focus:ring-1 focus:ring-emerald-500",
+          "w-full h-10 flex items-center justify-between text-left font-normal text-xs px-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs hover:border-slate-300 dark:hover:border-zinc-700 transition-all cursor-pointer focus:outline-none focus:ring-1 focus:ring-emerald-500",
           !date && "text-slate-400",
           className
         )}

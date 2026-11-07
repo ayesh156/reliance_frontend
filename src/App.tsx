@@ -176,6 +176,9 @@ export function App() {
               <Route path="/dashboard" element={<Navigate to="/system/invoices" replace />} />
               <Route path="/invoices" element={<Navigate to="/system/invoices" replace />} />
               <Route path="/products" element={<Navigate to="/system/products" replace />} />
+              <Route path="/products/new" element={<Navigate to="/system/products/new" replace />} />
+              <Route path="/cutting" element={<Navigate to="/system/cutting" replace />} />
+              <Route path="/cutting-table" element={<Navigate to="/system/cutting" replace />} />
 
               {/* ── Admin Back-Office (/system/*) ── */}
               {/* Default Dynamic Landing Page: Smart redirection based on user permissions */}

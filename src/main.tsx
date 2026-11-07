@@ -41,33 +41,70 @@ window.addEventListener('error', (event) => {
 });
 
 /**
- * Enterprise PWA Service Worker Auto-Update & App Shell Lifecycle
- * - Service Worker registration is strictly restricted to PRODUCTION environments
- *   (import.meta.env.PROD && 'serviceWorker' in navigator).
- * - During local development (`npm run dev`), Service Worker registration is completely disabled
- *   to prevent `Failed to execute 'importScripts' on 'WorkerGlobalScope'` and dev-sw.js errors.
- * - In development mode, existing active workers are cleanly unregistered.
+ * Deferred Hard-Refresh on Natural User Reload
+ * When a new build lands on the server, we never interrupt an active cashier/sales rep session.
+ * Instead, the new worker is downloaded in the background and flagged in localStorage.
+ * On the user's NEXT natural browser refresh (F5 / pull-to-refresh / app launch), we:
+ * 1. Detect pending update or waiting worker.
+ * 2. Purge all browser caches (caches.keys()).
+ * 3. Instruct the waiting Service Worker to SKIP_WAITING.
+ * 4. Perform a single clean hard reload so the newest assets mount with zero stale cache.
+ */
+const PENDING_UPDATE_KEY = 'reliance_pending_build_update';
+const RELOAD_GUARD_KEY = 'reliance_deferred_reload_executed';
+
+if (typeof window !== 'undefined' && import.meta.env.PROD) {
+  const pendingUpdate = localStorage.getItem(PENDING_UPDATE_KEY);
+  const alreadyReloaded = sessionStorage.getItem(RELOAD_GUARD_KEY);
+
+  if (pendingUpdate && !alreadyReloaded) {
+    sessionStorage.setItem(RELOAD_GUARD_KEY, 'true');
+    localStorage.removeItem(PENDING_UPDATE_KEY);
+
+    if ('caches' in window) {
+      caches.keys().then((cacheNames) => {
+        Promise.all(cacheNames.map((name) => caches.delete(name))).finally(() => {
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then((registrations) => {
+              for (const reg of registrations) {
+                if (reg.waiting) {
+                  reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                }
+              }
+              window.location.reload();
+            }).catch(() => {
+              window.location.reload();
+            });
+          } else {
+            window.location.reload();
+          }
+        });
+      }).catch(() => {
+        window.location.reload();
+      });
+    }
+  } else if (alreadyReloaded) {
+    sessionStorage.removeItem(RELOAD_GUARD_KEY);
+  }
+}
+
+/**
+ * Enterprise PWA Service Worker Background Update & App Shell Lifecycle
+ * - Service Worker registration is strictly restricted to PRODUCTION environments.
+ * - During active user sessions, updates are deferred to avoid discarding unsaved POS bills.
+ * - New builds are activated seamlessly on the next natural user reload.
  */
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
-  let isRefreshing = false;
-
-  // Reload window once the active Service Worker controller changes to new deployment
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (isRefreshing) return;
-    isRefreshing = true;
-    console.log('[PWA] New version activated. Reloading application...');
-    window.location.reload();
-  });
-
   window.addEventListener('load', () => {
     navigator.serviceWorker
       .register('/sw.js', { updateViaCache: 'none' })
       .then((registration) => {
         console.log('[PWA] Service Worker registered with scope:', registration.scope);
 
-        // Check immediately if an updated worker is already waiting
+        // If an updated worker is waiting in the background, mark pending update WITHOUT reloading
         if (registration.waiting) {
-          registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+          localStorage.setItem(PENDING_UPDATE_KEY, String(Date.now()));
+          console.log('[PWA] New build waiting in background. Update deferred until next reload.');
         }
 
         // Detect new versions downloaded in the background
@@ -76,29 +113,39 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
           if (newWorker) {
             newWorker.addEventListener('statechange', () => {
               if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                console.log('[PWA] New update installed; activating immediately...');
-                newWorker.postMessage({ type: 'SKIP_WAITING' });
+                // New build ready in background: flag for next reload without reloading now
+                localStorage.setItem(PENDING_UPDATE_KEY, String(Date.now()));
+                console.log('[PWA] New build downloaded in background. Update deferred until next natural reload.');
               }
             });
           }
         });
 
-        // Auto-check for updates on App Focus (tab switch / standalone app open)
-        window.addEventListener('focus', () => {
+        // Background update checks on tab focus / document visibility
+        const checkForUpdates = () => {
           registration.update().catch(() => {});
-        });
+          fetch(`/version.json?_t=${Date.now()}`, { cache: 'no-store' })
+            .then((r) => r.json())
+            .then((data) => {
+              const currentVersion = localStorage.getItem('reliance_app_version');
+              if (currentVersion && data?.version && String(data.version) !== currentVersion) {
+                localStorage.setItem(PENDING_UPDATE_KEY, String(data.version));
+              } else if (data?.version) {
+                localStorage.setItem('reliance_app_version', String(data.version));
+              }
+            })
+            .catch(() => {});
+        };
 
-        // Auto-check for updates when document becomes visible
+        window.addEventListener('focus', checkForUpdates);
         document.addEventListener('visibilitychange', () => {
           if (document.visibilityState === 'visible') {
-            registration.update().catch(() => {});
+            checkForUpdates();
           }
         });
 
         // Periodic background update check every 30 minutes
-        setInterval(() => {
-          registration.update().catch(() => {});
-        }, 30 * 60 * 1000);
+        setInterval(checkForUpdates, 30 * 60 * 1000);
       })
       .catch((error) => {
         console.error('[PWA] Service Worker registration failed:', error);

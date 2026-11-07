@@ -29,6 +29,8 @@ import {
   Trash2,
   AlertTriangle,
   MessageSquare,
+  Plus,
+  Sparkles,
 } from 'lucide-react';
 import { openWhatsAppChat, generateCustomerDebtSummaryWhatsAppMessage, generateMasterReceiptWhatsAppMessage } from '../../utils/whatsapp';
 // Enterprise Shadcn SearchableSelect Component
@@ -38,6 +40,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { DatePicker } from '../ui/date-picker';
 import { DateTimePicker } from '../ui/date-time-picker';
 import { SearchableSelect } from '../ui/searchable-select';
+import { TooltipSimple } from '../ui/tooltip';
 
 interface BillItem {
   name: string;
@@ -81,9 +84,9 @@ const getCurrentLocalISOString = () => {
 
 const PAYMENT_METHOD_OPTIONS = [
   { value: 'CASH', label: 'Cash', icon: <Banknote className="size-3.5 text-emerald-500" /> },
-  { value: 'CARD', label: 'Card', icon: <CreditCard className="size-3.5 text-purple-500" /> },
-  { value: 'BANK_TRANSFER', label: 'Bank T', icon: <Landmark className="size-3.5 text-blue-500" /> },
   { value: 'CHEQUE', label: 'Cheque', icon: <FileText className="size-3.5 text-amber-500" /> },
+  { value: 'CARD', label: 'Card', icon: <CreditCard className="size-3.5 text-purple-500" /> },
+  { value: 'BANK_TRANSFER', label: 'Bank Transfer', icon: <Landmark className="size-3.5 text-blue-500" /> },
 ];
 
 const formatPaymentMethod = (method?: string) => {
@@ -135,10 +138,25 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
   const [expandedBillId, setExpandedBillId] = useState<number | null>(null);
 
   // Payment Processing State with DateTime
+  interface StagedSettlementItem {
+    id: string;
+    amount: number;
+    method: string;
+    paymentDate: string;
+    reference?: string;
+    chequeNumber?: string;
+    bankName?: string;
+    chequeDate?: string;
+  }
+
   const [payingOrderId, setPayingOrderId] = useState<number | null>(null);
   const [payAmount, setPayAmount] = useState<string>('');
   const [payMethod, setPayMethod] = useState<string>('CASH');
   const [payReference, setPayReference] = useState<string>('');
+  const [billChequeNumber, setBillChequeNumber] = useState<string>('');
+  const [billBankName, setBillBankName] = useState<string>('');
+  const [billChequeDate, setBillChequeDate] = useState<string>('');
+  const [billStagedPayments, setBillStagedPayments] = useState<StagedSettlementItem[]>([]);
   const [payDate, setPayDate] = useState<string>(getCurrentLocalISOString);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -146,6 +164,10 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
   const [quickPayAmount, setQuickPayAmount] = useState<string>('');
   const [quickPayMethod, setQuickPayMethod] = useState<string>('CASH');
   const [quickPayRef, setQuickPayRef] = useState<string>('');
+  const [quickChequeNumber, setQuickChequeNumber] = useState<string>('');
+  const [quickBankName, setQuickBankName] = useState<string>('');
+  const [quickChequeDate, setQuickChequeDate] = useState<string>('');
+  const [quickStagedPayments, setQuickStagedPayments] = useState<StagedSettlementItem[]>([]);
   const [quickPayDateTime, setQuickPayDateTime] = useState<string>(getCurrentLocalISOString);
   const [isSubmittingQuickPay, setIsSubmittingQuickPay] = useState(false);
   const [showQuickPayForm, setShowQuickPayForm] = useState(false);
@@ -294,9 +316,14 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
     openWhatsAppChat(phone || '', msg);
   };
 
+  const stagedTotalQuick = quickStagedPayments.reduce((s, p) => s + p.amount, 0);
+  const uncommittedQuick = parseFloat(quickPayAmount) || 0;
+  const totalQuickTendered = Math.round((stagedTotalQuick + uncommittedQuick) * 100) / 100;
+  const remainingQuickDue = Math.max(0, Math.round((totalOutstanding - stagedTotalQuick) * 100) / 100);
+
   // Live multi-bill payment allocation preview computed using FIFO strategy
   const liveAllocations = useMemo(() => {
-    let remainingPayment = Math.max(0, parseFloat(quickPayAmount) || 0);
+    let remainingPayment = Math.max(0, totalQuickTendered);
     return bills.map((bill) => {
       const dueBefore = Number(bill.dueAmount || 0);
       const allocated = Math.min(dueBefore, remainingPayment);
@@ -321,7 +348,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
         dueAfter,
       };
     });
-  }, [bills, quickPayAmount]);
+  }, [bills, totalQuickTendered]);
 
   // බිල්පත් දත්ත backend එකෙන් ලබා ගැනීම
   const fetchDueBills = async () => {
@@ -358,8 +385,13 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
       fetchMasterReceipts();
       setPayingOrderId(null);
       setPayAmount('');
+      setBillStagedPayments([]);
+      setQuickStagedPayments([]);
       setQuickPayAmount('');
       setQuickPayRef('');
+      setQuickChequeNumber('');
+      setQuickBankName('');
+      setQuickChequeDate('');
       setQuickPayDateTime(new Date().toISOString());
       setShowQuickPayForm(false);
       setEditingPayment(null);
@@ -379,23 +411,119 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
     }
   }, [receiptStartDate, receiptEndDate, activeTab]);
 
-  // One-click / Custom Whole Balance Settlement Submit
-  const handleQuickSettleSubmit = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!customerId) return;
-    const numericAmount = parseFloat(quickPayAmount);
-    if (isNaN(numericAmount) || numericAmount <= 0) {
-      toast.error('Please enter a valid payment amount');
+  const handleAddQuickStagedPayment = () => {
+    const num = parseFloat(quickPayAmount);
+    if (isNaN(num) || num <= 0) {
+      toast.error('Please enter a valid positive payment amount');
       return;
     }
-    if (numericAmount > totalOutstanding) {
-      toast.error(`Maximum payable amount is Rs. ${totalOutstanding.toFixed(2)}`);
+    if (num > remainingQuickDue) {
+      toast.error(`Amount cannot exceed the remaining due of Rs. ${remainingQuickDue.toFixed(2)}`);
+      return;
+    }
+
+    let finalRef = quickPayRef.trim();
+    if (quickPayMethod === 'CHEQUE') {
+      const chq = quickChequeNumber.trim() || quickPayRef.trim();
+      const bName = quickBankName.trim();
+      if (chq || bName) {
+        finalRef = `Cheque #${chq || 'N/A'}${bName ? ` (${bName})` : ''}`;
+      }
+    }
+
+    const newEntry: StagedSettlementItem = {
+      id: `${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      amount: num,
+      method: quickPayMethod,
+      paymentDate: quickPayDateTime || getCurrentLocalISOString(),
+      reference: finalRef || undefined,
+      chequeNumber: quickPayMethod === 'CHEQUE' ? (quickChequeNumber.trim() || quickPayRef.trim()) : undefined,
+      bankName: quickPayMethod === 'CHEQUE' ? quickBankName.trim() : undefined,
+      chequeDate: quickPayMethod === 'CHEQUE' ? quickChequeDate || undefined : undefined,
+    };
+
+    const nextStaged = [...quickStagedPayments, newEntry];
+    setQuickStagedPayments(nextStaged);
+
+    // Keep amount input empty after adding so subsequent payments require intentional entry
+    setQuickPayAmount('');
+    setQuickPayRef('');
+    setQuickChequeNumber('');
+    setQuickBankName('');
+    setQuickChequeDate('');
+    setQuickPayDateTime(getCurrentLocalISOString());
+  };
+
+  // Real-time functional state update ensuring zero-lag recalculation of remaining due
+  const handleRemoveQuickStagedPayment = (id: string) => {
+    setQuickStagedPayments((prev) => prev.filter((p) => p.id !== id));
+  };
+
+  // One-click / Custom Whole Balance Settlement Submit (Supports single or multi-payment queue)
+  const handleQuickSettleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!customerId || isSubmittingQuickPay) return;
+
+    let finalPayments: Array<{
+      amount: number;
+      method: string;
+      reference?: string;
+      chequeNumber?: string;
+      bankName?: string;
+      chequeDate?: string;
+      paymentDate?: string;
+    }> = [];
+
+    const uncommittedAmt = parseFloat(quickPayAmount);
+
+    if (quickStagedPayments.length > 0) {
+      // ⭐ Enterprise Bug Fix: When payments are queued, submit ONLY the explicitly queued entries.
+      // Do not append uncommitted input values to prevent phantom 3rd payments.
+      finalPayments = quickStagedPayments.map((p) => ({
+        amount: p.amount,
+        method: p.method,
+        reference: p.reference,
+        chequeNumber: p.chequeNumber,
+        bankName: p.bankName,
+        chequeDate: p.chequeDate ? new Date(p.chequeDate).toISOString() : undefined,
+        paymentDate: p.paymentDate ? new Date(p.paymentDate).toISOString() : new Date().toISOString(),
+      }));
+    } else {
+      if (isNaN(uncommittedAmt) || uncommittedAmt <= 0) {
+        toast.error('Please enter a valid payment amount');
+        return;
+      }
+      if (uncommittedAmt > totalOutstanding) {
+        toast.error(`Maximum payable amount is Rs. ${totalOutstanding.toFixed(2)}`);
+        return;
+      }
+      let finalRef = quickPayRef.trim();
+      if (quickPayMethod === 'CHEQUE') {
+        const chq = quickChequeNumber.trim() || quickPayRef.trim();
+        const bName = quickBankName.trim();
+        if (chq || bName) {
+          finalRef = `Cheque #${chq || 'N/A'}${bName ? ` (${bName})` : ''}`;
+        }
+      }
+      finalPayments.push({
+        amount: uncommittedAmt,
+        method: quickPayMethod,
+        reference: finalRef || 'Full Balance Settlement',
+        chequeNumber: quickPayMethod === 'CHEQUE' ? (quickChequeNumber.trim() || quickPayRef.trim()) : undefined,
+        bankName: quickPayMethod === 'CHEQUE' ? quickBankName.trim() : undefined,
+        chequeDate: (quickPayMethod === 'CHEQUE' && quickChequeDate) ? new Date(quickChequeDate).toISOString() : undefined,
+        paymentDate: quickPayDateTime ? new Date(quickPayDateTime).toISOString() : new Date().toISOString(),
+      });
+    }
+
+    const numericAmount = finalPayments.reduce((s, p) => s + p.amount, 0);
+    if (numericAmount <= 0) {
+      toast.error('No payments to settle');
       return;
     }
 
     setIsSubmittingQuickPay(true);
     try {
-      // Snapshot allocations for live post-settlement reconciliation summary
       const snapshotAllocations = liveAllocations.filter((a) => a.allocated > 0);
       const prevBal = totalOutstanding;
       const newBal = Math.max(0, Math.round((prevBal - numericAmount) * 100) / 100);
@@ -403,9 +531,10 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
       await post(`/orders/customers/${customerId}/settle-debt`, {
         amount: numericAmount,
         strategy: 'FIFO',
-        paymentMethod: quickPayMethod,
-        notes: quickPayRef?.trim() || 'Full Balance Settlement',
-        paymentDate: quickPayDateTime ? new Date(quickPayDateTime).toISOString() : new Date().toISOString(),
+        paymentMethod: finalPayments.length === 1 ? finalPayments[0].method : 'SPLIT',
+        notes: finalPayments[0].reference || 'Full Balance Settlement',
+        paymentDate: finalPayments[0].paymentDate,
+        payments: finalPayments,
       });
 
       toast.success(`Payment of Rs. ${numericAmount.toFixed(2)} settled successfully!`);
@@ -415,9 +544,12 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
         newBalance: newBal,
         allocations: snapshotAllocations,
       });
+      setQuickStagedPayments([]);
       setQuickPayAmount('');
       setQuickPayRef('');
-      setQuickPayDateTime(new Date().toISOString());
+      setQuickChequeNumber('');
+      setQuickBankName('');
+      setQuickChequeDate('');
       setShowQuickPayForm(false);
       await fetchDueBills();
       await fetchMasterReceipts();
@@ -434,9 +566,14 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
   // Open Payment Form
   const handleInitiatePay = (bill: DueBill) => {
     setPayingOrderId(bill.orderId);
-    setPayAmount(bill.dueAmount.toFixed(2));
+    setBillStagedPayments([]);
+    // Zero auto-fill: User enters received amount manually or uses Fill Due helper
+    setPayAmount('');
     setPayMethod('CASH');
     setPayReference('');
+    setBillChequeNumber('');
+    setBillBankName('');
+    setBillChequeDate('');
     setPayDate(getCurrentLocalISOString());
   };
 
@@ -520,37 +657,143 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
     }
   };
 
-  // බිලකට මුදල් ගෙවීම Submit කිරීම
-  const handleSettleSubmit = async (bill: DueBill) => {
-    const numericAmount = parseFloat(payAmount);
+  const remainingBillDue = (bill: DueBill) => {
+    const staged = billStagedPayments.reduce((s, p) => s + p.amount, 0);
+    return Math.max(0, Math.round((bill.dueAmount - staged) * 100) / 100);
+  };
 
-    if (isNaN(numericAmount) || numericAmount <= 0) {
+  const handleAddBillStagedPayment = (bill: DueBill) => {
+    const num = parseFloat(payAmount);
+    const curRemaining = remainingBillDue(bill);
+    if (isNaN(num) || num <= 0) {
       toast.error('Please enter a valid payment amount');
       return;
     }
+    if (num > curRemaining) {
+      toast.error(`Maximum payable amount is Rs. ${curRemaining.toFixed(2)}`);
+      return;
+    }
 
-    if (numericAmount > bill.dueAmount) {
-      toast.error(`Maximum payable amount is Rs. ${bill.dueAmount.toFixed(2)}`);
+    let finalRef = payReference.trim();
+    if (payMethod === 'CHEQUE') {
+      const chq = billChequeNumber.trim() || payReference.trim();
+      const bName = billBankName.trim();
+      if (chq || bName) {
+        finalRef = `Cheque #${chq || 'N/A'}${bName ? ` (${bName})` : ''}`;
+      }
+    }
+
+    const newEntry: StagedSettlementItem = {
+      id: `${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      amount: num,
+      method: payMethod,
+      paymentDate: payDate || getCurrentLocalISOString(),
+      reference: finalRef || undefined,
+      chequeNumber: payMethod === 'CHEQUE' ? (billChequeNumber.trim() || payReference.trim()) : undefined,
+      bankName: payMethod === 'CHEQUE' ? billBankName.trim() : undefined,
+      chequeDate: payMethod === 'CHEQUE' ? billChequeDate || undefined : undefined,
+    };
+
+    const nextStaged = [...billStagedPayments, newEntry];
+    setBillStagedPayments(nextStaged);
+
+    // Keep amount input empty after adding so subsequent payments require intentional entry
+    setPayAmount('');
+    setPayReference('');
+    setBillChequeNumber('');
+    setBillBankName('');
+    setBillChequeDate('');
+    setPayDate(getCurrentLocalISOString());
+  };
+
+  // Real-time functional state update ensuring zero-lag recalculation of bill remaining due
+  const handleRemoveBillStagedPayment = (_bill: DueBill, id: string) => {
+    setBillStagedPayments((prev) => prev.filter((p) => p.id !== id));
+  };
+
+  // බිලකට මුදල් ගෙවීම Submit කිරීම (Supports single and multi-payment batch queue)
+  const handleSettleSubmit = async (bill: DueBill) => {
+    if (isSubmitting) return;
+
+    let finalPayments: Array<{
+      amount: number;
+      method: string;
+      reference?: string;
+      chequeNumber?: string;
+      bankName?: string;
+      chequeDate?: string;
+      paymentDate?: string;
+    }> = [];
+
+    const uncommittedAmt = parseFloat(payAmount);
+
+    if (billStagedPayments.length > 0) {
+      // ⭐ Enterprise Bug Fix: When payments are queued, submit ONLY the explicitly queued entries.
+      // Do not append uncommitted input values to prevent phantom 3rd payments.
+      finalPayments = billStagedPayments.map((p) => ({
+        amount: p.amount,
+        method: p.method,
+        reference: p.reference,
+        chequeNumber: p.chequeNumber,
+        bankName: p.bankName,
+        chequeDate: p.chequeDate ? new Date(p.chequeDate).toISOString() : undefined,
+        paymentDate: p.paymentDate ? new Date(p.paymentDate).toISOString() : new Date().toISOString(),
+      }));
+    } else {
+      if (isNaN(uncommittedAmt) || uncommittedAmt <= 0) {
+        toast.error('Please enter a valid payment amount');
+        return;
+      }
+      if (uncommittedAmt > bill.dueAmount) {
+        toast.error(`Maximum payable amount is Rs. ${bill.dueAmount.toFixed(2)}`);
+        return;
+      }
+      let finalRef = payReference.trim();
+      if (payMethod === 'CHEQUE') {
+        const chq = billChequeNumber.trim() || payReference.trim();
+        const bName = billBankName.trim();
+        if (chq || bName) {
+          finalRef = `Cheque #${chq || 'N/A'}${bName ? ` (${bName})` : ''}`;
+        }
+      }
+      finalPayments.push({
+        amount: uncommittedAmt,
+        method: payMethod,
+        reference: finalRef || undefined,
+        chequeNumber: payMethod === 'CHEQUE' ? (billChequeNumber.trim() || payReference.trim()) : undefined,
+        bankName: payMethod === 'CHEQUE' ? billBankName.trim() : undefined,
+        chequeDate: (payMethod === 'CHEQUE' && billChequeDate) ? new Date(billChequeDate).toISOString() : undefined,
+        paymentDate: payDate ? new Date(payDate).toISOString() : new Date().toISOString(),
+      });
+    }
+
+    const grandTotal = finalPayments.reduce((s, p) => s + p.amount, 0);
+    if (grandTotal <= 0) {
+      toast.error('No payments to settle');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      const resolvedPaymentDateTime = payDate ? new Date(payDate) : new Date();
-
       await post('/credit/settle-bill', {
         orderId: bill.orderId,
-        amount: numericAmount,
-        paymentMethod: payMethod,
-        reference: payReference,
-        paymentDate: resolvedPaymentDateTime.toISOString(),
+        amount: grandTotal,
+        paymentMethod: finalPayments.length === 1 ? finalPayments[0].method : 'SPLIT',
+        reference: finalPayments[0].reference,
+        paymentDate: finalPayments[0].paymentDate,
+        payments: finalPayments,
       });
 
-      toast.success(`Payment of Rs. ${numericAmount.toFixed(2)} settled successfully!`);
+      toast.success(`Payment of Rs. ${grandTotal.toFixed(2)} settled successfully!`);
       setPayingOrderId(null);
+      setBillStagedPayments([]);
       setPayAmount('');
+      setPayReference('');
+      setBillChequeNumber('');
+      setBillBankName('');
+      setBillChequeDate('');
       setPayDate(getCurrentLocalISOString());
-      
+
       await fetchDueBills();
       await fetchMasterReceipts();
       if (onPaymentSuccess) {
@@ -771,7 +1014,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
         <div className="w-full flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1 space-y-3 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-zinc-700">
           {/* Quick Full-Balance Settlement Confirmation Modal */}
           <Dialog open={showQuickPayForm} onOpenChange={setShowQuickPayForm}>
-            <DialogContent className="w-full max-w-md max-h-[90vh] overflow-y-auto p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-2xl z-[70]">
+            <DialogContent className="w-full max-w-lg max-h-[90vh] overflow-y-auto overflow-x-hidden p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-2xl z-[70]">
               <DialogHeader className="pb-2 border-b border-slate-100 dark:border-zinc-800">
                 <div className="flex items-center gap-2">
                   <Banknote className="size-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
@@ -784,7 +1027,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                 </DialogDescription>
               </DialogHeader>
 
-              <form onSubmit={handleQuickSettleSubmit} className="space-y-4 pt-1">
+              <form onSubmit={handleQuickSettleSubmit} className="space-y-4 pt-1 pb-4">
                 {/* Header Card: Customer meta */}
                 <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/70 border border-slate-200/80 dark:border-zinc-800/80 space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
@@ -800,24 +1043,81 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                     </span>
                   </div>
                   <div className="flex items-center justify-between border-t border-slate-200/70 dark:border-zinc-800/70 pt-1.5 text-xs">
-                    <span className="text-slate-600 dark:text-zinc-300 font-semibold">Remaining Due Balance:</span>
+                    <span className="text-slate-600 dark:text-zinc-300 font-semibold">Remaining Due:</span>
                     <span className="font-mono font-extrabold text-rose-600 dark:text-rose-400 text-sm px-2.5 py-0.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-200/80 dark:border-rose-900/50">
-                      Rs. {Math.max(0, totalOutstanding - (parseFloat(quickPayAmount) || 0)).toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                      Rs. {Math.max(0, remainingQuickDue - (parseFloat(quickPayAmount) || 0)).toLocaleString('en-LK', { minimumFractionDigits: 2 })}
                     </span>
                   </div>
                 </div>
 
+                {/* Staged Payment Queue */}
+                {quickStagedPayments.length > 0 && (
+                  <div className="space-y-2 p-3 rounded-xl bg-slate-50/70 dark:bg-zinc-900/50 border border-slate-200 dark:border-zinc-800">
+                    <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                      <span>Queued Payments ({quickStagedPayments.length})</span>
+                      <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">
+                        Tendered: Rs. {stagedTotalQuick.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                      {quickStagedPayments.map((p, idx) => (
+                        <div
+                          key={p.id}
+                          className="flex items-center justify-between p-2 rounded-lg bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800 text-xs shadow-2xs"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="font-bold text-slate-500 dark:text-zinc-400">#{idx + 1}</span>
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300">
+                              {p.method}
+                            </span>
+                            <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                              Rs. {p.amount.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                            </span>
+                            {p.reference && (
+                              <span className="text-[11px] text-slate-500 dark:text-zinc-400 truncate max-w-[140px] sm:max-w-[200px]">
+                                {p.reference}
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveQuickStagedPayment(p.id)}
+                            className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded transition-colors shrink-0 ml-1"
+                            title="Remove payment"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Inputs Grid: Fluid 2-column grid on ~534px tablet viewports */}
                 <div className="grid grid-cols-1 xs:grid-cols-2 gap-2.5 sm:gap-3.5">
                   <div className="space-y-1">
-                    <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                      Amount (Rs.) *
-                    </label>
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 truncate">
+                        Amount (Rs.) *
+                      </label>
+                      {remainingQuickDue > 0 && (
+                        <TooltipSimple content={`Fill full amount: Rs. ${remainingQuickDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}`} side="top">
+                          <button
+                            type="button"
+                            onClick={() => setQuickPayAmount(remainingQuickDue > 0 ? remainingQuickDue.toFixed(2) : '')}
+                            title={`Fill full amount: Rs. ${remainingQuickDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}`}
+                            className="text-[11px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 inline-flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-900/60 cursor-pointer whitespace-nowrap shrink-0 transition-colors shadow-2xs"
+                          >
+                            <Sparkles className="size-3 shrink-0 text-indigo-500" />
+                            <span>Fill</span>
+                          </button>
+                        </TooltipSimple>
+                      )}
+                    </div>
                     <Input
                       type="number"
                       step="0.01"
-                      required
-                      max={totalOutstanding}
+                      max={remainingQuickDue}
                       value={quickPayAmount}
                       onChange={(e) => setQuickPayAmount(e.target.value)}
                       placeholder="0.00"
@@ -841,6 +1141,50 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                   </div>
                 </div>
 
+                {/* Cheque Specific Inputs for Quick Pay */}
+                {quickPayMethod === 'CHEQUE' && (
+                  <div className="p-3 rounded-xl bg-amber-500/5 border border-amber-500/20 space-y-2.5">
+                    <div className="text-xs font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                      <span>Cheque Particulars</span>
+                    </div>
+                    <div className="grid grid-cols-1 xs:grid-cols-2 gap-2.5">
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                          Cheque Number *
+                        </label>
+                        <Input
+                          value={quickChequeNumber}
+                          onChange={(e) => setQuickChequeNumber(e.target.value)}
+                          placeholder="e.g. 104523"
+                          className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                          Bank / Branch
+                        </label>
+                        <Input
+                          value={quickBankName}
+                          onChange={(e) => setQuickBankName(e.target.value)}
+                          placeholder="e.g. Commercial Bank"
+                          className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                        Cheque Maturity Date
+                      </label>
+                      <DatePicker
+                        date={parseDateString(quickChequeDate)}
+                        onDateChange={(d) => setQuickChequeDate(formatDateToString(d))}
+                        placeholder="Select maturity date"
+                        className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl w-full"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 {/* Payment Timestamp Row */}
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
@@ -855,18 +1199,34 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                   </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                    Payment Reference / Note (Optional)
-                  </label>
-                  <Input
-                    type="text"
-                    value={quickPayRef}
-                    onChange={(e) => setQuickPayRef(e.target.value)}
-                    placeholder="Cheque No / Slip No / Note"
-                    className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl"
-                  />
-                </div>
+                {quickPayMethod !== 'CHEQUE' && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                      Payment Reference / Note (Optional)
+                    </label>
+                    <Input
+                      type="text"
+                      value={quickPayRef}
+                      onChange={(e) => setQuickPayRef(e.target.value)}
+                      placeholder="e.g. Cash settlement / Transfer ref"
+                      className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl"
+                    />
+                  </div>
+                )}
+
+                {/* Add Payment Entry Queue Button */}
+                {remainingQuickDue > 0 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!quickPayAmount || parseFloat(quickPayAmount) <= 0 || parseFloat(quickPayAmount) > remainingQuickDue}
+                    onClick={handleAddQuickStagedPayment}
+                    className="w-full h-9.5 border-dashed border-emerald-500/50 hover:border-emerald-500 text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 inline-flex items-center justify-center gap-1.5 rounded-xl cursor-pointer transition-colors"
+                  >
+                    <Plus className="size-3.5" />
+                    Add Payment Entry
+                  </Button>
+                )}
 
                 {/* ── Live Multi-Bill Allocation Preview & Total Reconciliation ── */}
                 {bills.length > 0 && (
@@ -882,7 +1242,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                     </div>
 
                     <div className="rounded-xl border border-slate-200/80 dark:border-zinc-800 overflow-hidden bg-slate-50/50 dark:bg-zinc-900/40">
-                      <div className="max-h-48 overflow-y-auto scrollbar-thin">
+                      <div className="max-h-44 overflow-y-auto scrollbar-thin">
                         <table className="w-full text-[11px] text-left border-collapse">
                           <thead className="bg-slate-100/80 dark:bg-zinc-800/70 text-slate-500 dark:text-zinc-400 text-[10px] uppercase font-mono sticky top-0 border-b border-slate-200 dark:border-zinc-800">
                             <tr>
@@ -925,12 +1285,12 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                         </div>
                         <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400 font-bold">
                           <span>Total Amount Paid / Deducted:</span>
-                          <span>- Rs. {(parseFloat(quickPayAmount) || 0).toLocaleString('en-LK', { minimumFractionDigits: 2 })}</span>
+                          <span>- Rs. {totalQuickTendered.toLocaleString('en-LK', { minimumFractionDigits: 2 })}</span>
                         </div>
                         <div className="flex items-center justify-between text-slate-900 dark:text-white font-extrabold border-t border-slate-200 dark:border-zinc-800 pt-1 text-xs sm:text-sm">
                           <span>New Remaining Total Due Balance:</span>
                           <span className="text-rose-600 dark:text-rose-400">
-                            Rs. {Math.max(0, totalOutstanding - (parseFloat(quickPayAmount) || 0)).toLocaleString('en-LK', { minimumFractionDigits: 2 })}
+                            Rs. {Math.max(0, totalOutstanding - totalQuickTendered).toLocaleString('en-LK', { minimumFractionDigits: 2 })}
                           </span>
                         </div>
                       </div>
@@ -938,16 +1298,8 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                   </div>
                 )}
 
-                {/* Action Footer */}
-                <div className="pt-2 space-y-2">
-                  <Button
-                    type="submit"
-                    disabled={isSubmittingQuickPay}
-                    className="h-11 w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-sm active:scale-[0.98] transition-all cursor-pointer inline-flex items-center justify-center gap-2"
-                  >
-                    {isSubmittingQuickPay ? <Loader2 className="size-4 animate-spin" /> : <Banknote className="size-4" />}
-                    {isSubmittingQuickPay ? 'Processing...' : 'Confirm Payment'}
-                  </Button>
+                {/* Sticky Action Footer with solid background and elevated z-index */}
+                <div className="pt-3 pb-1 sticky -bottom-4 sm:-bottom-6 bg-white dark:bg-zinc-950 grid grid-cols-2 gap-2 border-t border-slate-100 dark:border-zinc-800/80 z-30 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_12px_rgba(0,0,0,0.4)]">
                   <Button
                     type="button"
                     variant="outline"
@@ -955,6 +1307,14 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                     className="h-10 w-full border border-slate-300 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors font-medium text-xs sm:text-sm"
                   >
                     Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={isSubmittingQuickPay || (quickStagedPayments.length === 0 && (!quickPayAmount || parseFloat(quickPayAmount) <= 0))}
+                    className="h-10 w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-sm active:scale-[0.98] transition-all cursor-pointer inline-flex items-center justify-center gap-1.5 text-xs sm:text-sm whitespace-nowrap"
+                  >
+                    {isSubmittingQuickPay ? <Loader2 className="size-4 animate-spin shrink-0" /> : <Banknote className="size-4 shrink-0" />}
+                    {isSubmittingQuickPay ? 'Processing...' : 'Apply Payment'}
                   </Button>
                 </div>
               </form>
@@ -1484,22 +1844,80 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                         <span>Settle Payment for Invoice #{bill.invoiceNumber}</span>
                       </div>
 
+                      {/* Staged Payment Queue for this Bill */}
+                      {billStagedPayments.length > 0 && (
+                        <div className="space-y-1.5 p-2.5 rounded-lg bg-white/80 dark:bg-zinc-900/80 border border-slate-200 dark:border-zinc-800">
+                          <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                            <span>Queued Entries ({billStagedPayments.length})</span>
+                            <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">
+                              Tendered: Rs. {billStagedPayments.reduce((s, p) => s + p.amount, 0).toFixed(2)}
+                            </span>
+                          </div>
+                          <div className="space-y-1 max-h-32 overflow-y-auto">
+                            {billStagedPayments.map((p, idx) => (
+                              <div
+                                key={p.id}
+                                className="flex items-center justify-between p-1.5 rounded bg-slate-50 dark:bg-zinc-800/80 border border-slate-200/60 dark:border-zinc-700/60 text-xs"
+                              >
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span className="font-bold text-slate-400">#{idx + 1}</span>
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300">
+                                    {p.method}
+                                  </span>
+                                  <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                                    Rs. {p.amount.toFixed(2)}
+                                  </span>
+                                  {p.reference && (
+                                    <span className="text-[11px] text-slate-500 dark:text-zinc-400 truncate max-w-[130px]">
+                                      {p.reference}
+                                    </span>
+                                  )}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveBillStagedPayment(bill, p.id)}
+                                  className="p-1 text-rose-500 hover:text-rose-700 rounded transition-colors"
+                                  title="Remove"
+                                >
+                                  <Trash2 className="size-3" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       {/* Fluid Inputs: 2 columns on tablets, 4 on desktop */}
                       <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-2.5 w-full overflow-visible relative z-40">
                         <div className="w-full space-y-1">
-                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
-                            Paying Amount *
-                          </label>
+                          <div className="flex items-center justify-between gap-1.5">
+                            <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block truncate">
+                              Paying Amount *
+                            </label>
+                            {remainingBillDue(bill) > 0 && (
+                              <TooltipSimple content={`Fill full amount: Rs. ${remainingBillDue(bill).toLocaleString('en-LK', { minimumFractionDigits: 2 })}`} side="top">
+                                <button
+                                  type="button"
+                                  onClick={() => setPayAmount(remainingBillDue(bill) > 0 ? remainingBillDue(bill).toFixed(2) : '')}
+                                  title={`Fill full amount: Rs. ${remainingBillDue(bill).toLocaleString('en-LK', { minimumFractionDigits: 2 })}`}
+                                  className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 inline-flex items-center gap-0.5 bg-indigo-50 dark:bg-indigo-950/50 px-1.5 py-0.5 rounded border border-indigo-200 dark:border-indigo-900/60 cursor-pointer whitespace-nowrap shrink-0 transition-colors shadow-2xs"
+                                >
+                                  <Sparkles className="size-2.5 shrink-0 text-indigo-500" />
+                                  <span>Fill</span>
+                                </button>
+                              </TooltipSimple>
+                            )}
+                          </div>
                           <Input
                             type="number"
                             step="0.01"
-                            max={bill.dueAmount}
+                            max={remainingBillDue(bill)}
                             value={payAmount}
                             onChange={(e) => setPayAmount(e.target.value)}
                             onFocus={(e) => e.target.select()}
                             onClick={(e) => (e.target as HTMLInputElement).select()}
                             placeholder="0.00"
-                            className="h-9 text-xs font-mono font-bold bg-white dark:bg-zinc-900 rounded-lg w-full"
+                            className="h-10 text-xs font-mono font-bold bg-white dark:bg-zinc-900 rounded-xl w-full"
                           />
                         </div>
 
@@ -1514,7 +1932,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                             placeholder="Select Method"
                             searchPlaceholder="Search method..."
                             dark={dark}
-                            className="h-9 py-0 rounded-lg text-xs w-full"
+                            className="h-10 py-0 rounded-xl text-xs w-full"
                           />
                         </div>
 
@@ -1529,45 +1947,87 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                           />
                         </div>
 
-                        <div className="w-full sm:col-span-2 lg:col-span-4 space-y-1">
-                          <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
-                            Reference / Note (Optional)
-                          </label>
-                          <Input
-                            type="text"
-                            value={payReference}
-                            onChange={(e) => setPayReference(e.target.value)}
-                            placeholder="Cheque No / Slip No"
-                            className="h-9 text-xs bg-white dark:bg-zinc-900 rounded-lg w-full"
-                          />
-                        </div>
+                        {payMethod === 'CHEQUE' ? (
+                          <div className="w-full sm:col-span-2 lg:col-span-4 p-2.5 rounded-xl bg-amber-500/5 border border-amber-500/20 space-y-2">
+                            <div className="text-[11px] font-bold text-amber-700 dark:text-amber-400">
+                              Cheque Particulars
+                            </div>
+                            <div className="grid grid-cols-1 xs:grid-cols-3 gap-2">
+                              <Input
+                                value={billChequeNumber}
+                                onChange={(e) => setBillChequeNumber(e.target.value)}
+                                placeholder="Cheque No *"
+                                className="h-10 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl w-full"
+                              />
+                              <Input
+                                value={billBankName}
+                                onChange={(e) => setBillBankName(e.target.value)}
+                                placeholder="Bank / Branch"
+                                className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl w-full"
+                              />
+                              <DatePicker
+                                date={parseDateString(billChequeDate)}
+                                onDateChange={(d) => setBillChequeDate(formatDateToString(d))}
+                                placeholder="Maturity Date"
+                                className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl w-full"
+                              />
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="w-full sm:col-span-2 lg:col-span-4 space-y-1">
+                            <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">
+                              Reference / Note (Optional)
+                            </label>
+                            <Input
+                              type="text"
+                              value={payReference}
+                              onChange={(e) => setPayReference(e.target.value)}
+                              placeholder="Cash settlement / Transfer ref"
+                              className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl w-full"
+                            />
+                          </div>
+                        )}
                       </div>
 
+                      {/* Add Entry to Queue Button */}
+                      {remainingBillDue(bill) > 0 && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={!payAmount || parseFloat(payAmount) <= 0 || parseFloat(payAmount) > remainingBillDue(bill)}
+                          onClick={() => handleAddBillStagedPayment(bill)}
+                          className="w-full h-8 border-dashed border-emerald-500/50 hover:border-emerald-500 text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-white/80 dark:bg-zinc-900/80 inline-flex items-center justify-center gap-1.5 rounded-lg cursor-pointer"
+                        >
+                          <Plus className="size-3" />
+                          Add Payment Entry
+                        </Button>
+                      )}
+
                       {/* Responsive Payment Settlement Row */}
-                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 p-3 rounded-xl bg-slate-100/90 dark:bg-zinc-900/90 border border-slate-200 dark:border-zinc-800">
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 p-2.5 sm:p-3 rounded-xl bg-slate-100/90 dark:bg-zinc-900/90 border border-slate-200 dark:border-zinc-800">
                         <div className="text-xs text-slate-600 dark:text-zinc-300 font-medium flex items-center justify-between sm:justify-start gap-2">
                           <span>Remaining Due:</span>
                           <strong className="font-mono text-rose-600 dark:text-rose-400 font-bold">
-                            Rs. {Math.max(0, bill.dueAmount - (parseFloat(payAmount) || 0)).toFixed(2)}
+                            Rs. {Math.max(0, remainingBillDue(bill) - (parseFloat(payAmount) || 0)).toFixed(2)}
                           </strong>
                         </div>
-                        <div className="flex items-center gap-2 justify-end">
+                        <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center sm:justify-end">
                           <Button
                             type="button"
                             variant="ghost"
                             onClick={() => setPayingOrderId(null)}
-                            className="h-9 text-xs px-3 text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white"
+                            className="h-9 text-xs px-2.5 sm:px-3 text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white w-full sm:w-auto"
                           >
                             Cancel
                           </Button>
                           <Button
                             type="button"
-                            disabled={isSubmitting}
+                            disabled={isSubmitting || (billStagedPayments.length === 0 && (!payAmount || parseFloat(payAmount) <= 0))}
                             onClick={() => handleSettleSubmit(bill)}
-                            className="h-9 text-xs px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold gap-1.5 flex-1 sm:flex-none justify-center shadow-xs"
+                            className="h-9 text-xs px-2.5 sm:px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold gap-1.5 w-full sm:w-auto justify-center shadow-xs whitespace-nowrap"
                           >
-                            {isSubmitting ? <Loader2 className="size-3.5 animate-spin" /> : <Banknote className="size-3.5" />}
-                            {isSubmitting ? 'Processing...' : 'Confirm Payment'}
+                            {isSubmitting ? <Loader2 className="size-3.5 animate-spin shrink-0" /> : <Banknote className="size-3.5 shrink-0" />}
+                            {isSubmitting ? 'Processing...' : 'Apply Payment'}
                           </Button>
                         </div>
                       </div>
@@ -1580,7 +2040,40 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                         <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">
                           Invoice Items ({bill.items.length})
                         </span>
-                        <div className="w-full overflow-hidden rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
+                        {/* Mobile Adaptive Card View (< md) */}
+                        <div className="md:hidden grid grid-cols-1 gap-2 p-1">
+                          {bill.items.map((it, idx) => (
+                            <div
+                              key={`bill-item-card-${idx}`}
+                              className="p-2.5 rounded-xl border border-slate-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-950 space-y-1.5 text-xs shadow-2xs"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <span className="font-semibold text-slate-900 dark:text-zinc-100 break-words flex-1">
+                                  {it.name}
+                                </span>
+                                <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shrink-0">
+                                  Qty: {it.quantity}
+                                </span>
+                              </div>
+                              {(it.size || it.color) && (
+                                <div className="text-[10px] text-slate-500 dark:text-zinc-400 font-mono">
+                                  {it.size || 'FREE'} {it.color ? `/ ${it.color}` : ''}
+                                </div>
+                              )}
+                              <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-zinc-800 font-mono">
+                                <span className="text-slate-500">
+                                  @ රු. {it.price.toFixed(2)}
+                                </span>
+                                <span className="font-bold text-slate-900 dark:text-white">
+                                  රු. {(it.quantity * it.price).toFixed(2)}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Desktop Table View (>= md) */}
+                        <div className="hidden md:block w-full overflow-hidden rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
                           <table className="w-full text-left text-xs table-fixed">
                             <thead className="bg-slate-50 dark:bg-zinc-900 text-slate-500 text-[10px] uppercase font-semibold">
                               <tr>
@@ -1717,7 +2210,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                     onFocus={(e) => e.target.select()}
                     onClick={(e) => (e.target as HTMLInputElement).select()}
                     placeholder="0.00"
-                    className="h-8 text-xs font-mono font-bold bg-white dark:bg-zinc-900 rounded-xl"
+                    className="h-10 text-xs font-mono font-bold bg-white dark:bg-zinc-900 rounded-xl"
                   />
                 </div>
 
@@ -1728,7 +2221,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                   <DateTimePicker
                     value={editDate}
                     onChange={setEditDate}
-                    className="h-8 text-xs rounded-xl"
+                    className="h-10 text-xs rounded-xl"
                   />
                 </div>
 
@@ -1743,7 +2236,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                     placeholder="Select Method"
                     searchPlaceholder="Search method..."
                     dark={dark}
-                    className="h-8 py-0 rounded-xl"
+                    className="h-10 py-0 rounded-xl text-xs"
                   />
                 </div>
 
@@ -1756,7 +2249,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                     value={editReference}
                     onChange={(e) => setEditReference(e.target.value)}
                     placeholder="e.g. CHQ-99081 / Commercial Bank"
-                    className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl"
+                    className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl"
                   />
                 </div>
 
@@ -1769,7 +2262,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                     value={editNote}
                     onChange={(e) => setEditNote(e.target.value)}
                     placeholder="e.g. Cheque amount corrected per bank deposit slip (optional)"
-                    className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl border-amber-300 dark:border-amber-700"
+                    className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl border-amber-300 dark:border-amber-700"
                   />
                 </div>
 

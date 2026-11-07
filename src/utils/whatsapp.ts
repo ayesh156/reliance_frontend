@@ -167,6 +167,26 @@ export const generateCustomerInvoiceWhatsAppMessage = (
   const paymentMethod = order.paymentMethod ? String(order.paymentMethod).toUpperCase() : 'CASH';
 
   // Extract itemized payments from order.payments, splitPayments, or cheques
+  const formatPaymentDateTime = (dateVal: any): string => {
+    if (!dateVal) return '-';
+    try {
+      const d = new Date(dateVal);
+      if (isNaN(d.getTime())) return '-';
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      let hours = d.getHours();
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12;
+      hours = hours ? hours : 12;
+      const strHours = String(hours).padStart(2, '0');
+      return `${year}-${month}-${day} ${strHours}:${minutes} ${ampm}`;
+    } catch {
+      return '-';
+    }
+  };
+
   interface WaPaymentEntry {
     dateTimeStr: string;
     method: string;
@@ -177,21 +197,34 @@ export const generateCustomerInvoiceWhatsAppMessage = (
   if (Array.isArray(order.payments) && order.payments.length > 0) {
     order.payments.forEach((p: any) => {
       const d = p.paymentDate || p.createdAt || order.createdAt;
-      const dateStr = d ? new Date(d).toISOString().slice(0, 16).replace('T', ' ') : '-';
+      const dateStr = formatPaymentDateTime(d);
+      const pMethod = String(p.method || 'CASH').toUpperCase();
+      let ref = p.reference || p.transactionId || (p.notes ? String(p.notes) : undefined);
+      if (pMethod === 'CHEQUE' && p.chequeDate) {
+        const matDate = new Date(p.chequeDate).toISOString().slice(0, 10);
+        if (ref && !ref.includes('Mat:')) {
+          ref = `${ref} | Mat: ${matDate}`;
+        } else if (!ref) {
+          ref = `Mat: ${matDate}`;
+        }
+      }
       recordedPayments.push({
         dateTimeStr: dateStr,
-        method: String(p.method || 'CASH').toUpperCase(),
+        method: pMethod,
         amount: Number(p.amount) || 0,
-        reference: p.reference || p.transactionId || (p.notes ? String(p.notes) : undefined),
+        reference: ref,
       });
     });
   } else if (Array.isArray(order.splitPayments) && order.splitPayments.length > 0) {
     order.splitPayments.forEach((s: any) => {
       const d = s.date || order.createdAt;
-      const dateStr = d ? new Date(d).toISOString().slice(0, 16).replace('T', ' ') : '-';
+      const dateStr = formatPaymentDateTime(d);
       let ref = s.reference || '';
-      if (s.method === 'CHEQUE' && s.chequeNumber) {
-        ref = `Chq #${s.chequeNumber}${s.bankName ? ` (${s.bankName})` : ''}`;
+      if (String(s.method).toUpperCase() === 'CHEQUE') {
+        const chq = s.chequeNumber || '';
+        const bName = s.bankName || '';
+        const mat = s.chequeDate ? new Date(s.chequeDate).toISOString().slice(0, 10) : '';
+        ref = `Chq #${chq || 'N/A'}${bName ? ` | ${bName}` : ''}${mat ? ` | Mat: ${mat}` : ''}`;
       }
       recordedPayments.push({
         dateTimeStr: dateStr,
@@ -207,7 +240,7 @@ export const generateCustomerInvoiceWhatsAppMessage = (
     : paid;
 
   if (recordedPayments.length === 0 && effectivePaid > 0) {
-    const dStr = order.createdAt ? new Date(order.createdAt).toISOString().slice(0, 16).replace('T', ' ') : '-';
+    const dStr = formatPaymentDateTime(order.createdAt);
     recordedPayments.push({
       dateTimeStr: dStr,
       method: paymentMethod.includes('CREDIT') ? 'CASH' : paymentMethod,
@@ -397,9 +430,9 @@ export const generateCustomerInvoiceWhatsAppMessage = (
     text += `*Net Total Bill:* Rs. ${total.toLocaleString('en-LK')}\n`;
     text += `*Paid Amount:* Rs. ${effectivePaid.toLocaleString('en-LK')}\n`;
     if (recordedPayments.length > 0) {
-      text += `*PAYMENT HISTORY:*\n`;
+      text += `*PAYMENT BREAKDOWN:*\n`;
       recordedPayments.forEach((p) => {
-        text += `• ${p.dateTimeStr} | ${p.method}${p.reference ? ` (${p.reference})` : ''}: Rs. ${p.amount.toLocaleString('en-LK')}\n`;
+        text += `• ${p.dateTimeStr} | ${p.method}${p.reference ? ` | ${p.reference}` : ''} | Rs. ${p.amount.toLocaleString('en-LK')}\n`;
       });
     }
     text += `*This Bill Due:* Rs. ${due.toLocaleString('en-LK')}\n`;
@@ -417,9 +450,9 @@ export const generateCustomerInvoiceWhatsAppMessage = (
     }
     text += `*Paid Amount (${paymentMethod}):* Rs. ${effectivePaid.toLocaleString('en-LK')}\n`;
     if (recordedPayments.length > 0) {
-      text += `*PAYMENT HISTORY:*\n`;
+      text += `*PAYMENT BREAKDOWN:*\n`;
       recordedPayments.forEach((p) => {
-        text += `• ${p.dateTimeStr} | ${p.method}${p.reference ? ` (${p.reference})` : ''}: Rs. ${p.amount.toLocaleString('en-LK')}\n`;
+        text += `• ${p.dateTimeStr} | ${p.method}${p.reference ? ` | ${p.reference}` : ''} | Rs. ${p.amount.toLocaleString('en-LK')}\n`;
       });
     }
 

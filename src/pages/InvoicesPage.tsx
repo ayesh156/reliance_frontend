@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, del, post, patch } from '../lib/api';
 import { DateTimePicker } from '../components/ui/date-time-picker';
+import { DatePicker } from '../components/ui/date-picker';
 import { toast } from 'react-toastify';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -53,16 +54,35 @@ import {
   SlidersHorizontal,
   Calendar,
   X,
+  Plus,
   MessageCircle,
   Pencil,
   ArrowUpDown,
   ReceiptText,
   Calculator,
   TrendingUp,
+  Sparkles,
 } from 'lucide-react';
 import { DateRangePicker } from '../components/ui/date-range-picker';
 import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../utils/whatsapp';
 import { getInvoiceAgeInfo } from '../utils/invoiceAge';
+
+const parseDateString = (str?: string): Date | undefined => {
+  if (!str) return undefined;
+  const parts = str.split('-');
+  if (parts.length !== 3) return undefined;
+  const [y, m, d] = parts.map(Number);
+  if (isNaN(y) || isNaN(m) || isNaN(d)) return undefined;
+  return new Date(y, m - 1, d);
+};
+
+const formatDateToString = (d?: Date): string => {
+  if (!d) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
 
 const PAYMENT_METHOD_OPTIONS = [
   { value: 'ALL', label: 'All Payment Methods' },
@@ -283,12 +303,38 @@ export const InvoicesPage: React.FC = () => {
   };
 
   // ⭐ Material Payment ආකාරයේ DateTimePicker State එක (Date & Timestamp සමඟ)
+  interface StagedPaymentItem {
+    id: string;
+    amount: number;
+    method: 'CASH' | 'CHEQUE' | 'CARD' | 'BANK_TRANSFER';
+    paymentDate: string;
+    reference?: string;
+    chequeNumber?: string;
+    bankName?: string;
+    chequeDate?: string;
+  }
+
   const [settlingInvoice, setSettlingInvoice] = useState<InvoiceRecord | null>(null);
   const [settleAmount, setSettleAmount] = useState<string>('');
   const [settleMethod, setSettleMethod] = useState<string>('CASH');
   const [settleDateTime, setSettleDateTime] = useState<string>(getCurrentLocalISOString());
   const [settleReference, setSettleReference] = useState<string>('');
+  const [settleBankName, setSettleBankName] = useState<string>('');
+  const [settleChequeDate, setSettleChequeDate] = useState<string>('');
+  const [stagedPayments, setStagedPayments] = useState<StagedPaymentItem[]>([]);
   const [isSettling, setIsSettling] = useState<boolean>(false);
+
+  const openSettleInvoiceModal = (inv: InvoiceRecord) => {
+    setSettlingInvoice(inv);
+    setStagedPayments([]);
+    // Zero auto-fill: User enters received amount manually or uses Fill Due helper
+    setSettleAmount('');
+    setSettleMethod('CASH');
+    setSettleReference('');
+    setSettleBankName('');
+    setSettleChequeDate('');
+    setSettleDateTime(getCurrentLocalISOString());
+  };
 
   // ⭐ Invoice Summary & Cheque Lifecycle Management Modal State
   const [summaryModalInvoice, setSummaryModalInvoice] = useState<InvoiceRecord | null>(null);
@@ -360,23 +406,121 @@ export const InvoicesPage: React.FC = () => {
     }
   };
 
-  /**
-   * Submit Customer Invoice Due Settlement
-   */
-  const handleSettleInvoiceSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!settlingInvoice) return;
+  const invoiceDue = settlingInvoice ? Math.max(0, settlingInvoice.totalAmount - settlingInvoice.paidAmount) : 0;
+  const totalStaged = stagedPayments.reduce((acc, p) => acc + p.amount, 0);
+  const remainingDue = Math.max(0, Math.round((invoiceDue - totalStaged) * 100) / 100);
 
-    const payNum = parseFloat(settleAmount);
-    const dueAmount = settlingInvoice.totalAmount - settlingInvoice.paidAmount;
-
-    if (isNaN(payNum) || payNum <= 0) {
+  const handleAddStagedPayment = () => {
+    const num = parseFloat(settleAmount);
+    if (isNaN(num) || num <= 0) {
       toast.error('Please enter a valid positive payment amount');
       return;
     }
+    if (num > remainingDue) {
+      toast.error(`Amount cannot exceed the remaining due of Rs. ${remainingDue.toLocaleString()}`);
+      return;
+    }
 
-    if (payNum > dueAmount) {
-      toast.error(`Amount cannot exceed the remaining due of Rs. ${dueAmount.toLocaleString()}`);
+    let finalRef = settleReference.trim();
+    if (settleMethod === 'CHEQUE') {
+      const chq = settleReference.trim();
+      const bank = settleBankName.trim();
+      if (chq || bank) {
+        finalRef = `Cheque #${chq || 'N/A'}${bank ? ` (${bank})` : ''}`;
+      }
+    }
+
+    const newEntry: StagedPaymentItem = {
+      id: `${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      amount: num,
+      method: settleMethod as any,
+      paymentDate: settleDateTime || getCurrentLocalISOString(),
+      reference: finalRef || undefined,
+      chequeNumber: settleMethod === 'CHEQUE' ? settleReference.trim() : undefined,
+      bankName: settleMethod === 'CHEQUE' ? settleBankName.trim() : undefined,
+      chequeDate: settleMethod === 'CHEQUE' ? settleChequeDate || undefined : undefined,
+    };
+
+    const nextStaged = [...stagedPayments, newEntry];
+    setStagedPayments(nextStaged);
+
+    // Keep amount input empty after adding so subsequent payments require intentional entry
+    setSettleAmount('');
+    setSettleReference('');
+    setSettleBankName('');
+    setSettleChequeDate('');
+    setSettleDateTime(getCurrentLocalISOString());
+  };
+
+  // Real-time functional state update ensuring zero-lag recalculation of invoice remaining due
+  const handleRemoveStagedPayment = (id: string) => {
+    setStagedPayments((prev) => prev.filter((p) => p.id !== id));
+  };
+
+  /**
+   * Submit Customer Invoice Due Settlement (Supports single and multi-payment batch queues)
+   */
+  const handleSettleInvoiceSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!settlingInvoice || isSettling) return;
+
+    let finalPayments: Array<{
+      amount: number;
+      method: string;
+      reference?: string;
+      chequeNumber?: string;
+      bankName?: string;
+      chequeDate?: string;
+      paymentDate?: string;
+    }> = [];
+
+    const uncommittedAmt = parseFloat(settleAmount);
+
+    if (stagedPayments.length > 0) {
+      // ⭐ Enterprise Bug Fix: When payments are queued, submit ONLY the explicitly queued entries.
+      // Do not append uncommitted input values to prevent phantom 3rd payments.
+      finalPayments = stagedPayments.map((p) => ({
+        amount: p.amount,
+        method: p.method,
+        reference: p.reference,
+        chequeNumber: p.chequeNumber,
+        bankName: p.bankName,
+        chequeDate: p.chequeDate ? new Date(p.chequeDate).toISOString() : undefined,
+        paymentDate: p.paymentDate ? new Date(p.paymentDate).toISOString() : new Date().toISOString(),
+      }));
+    } else {
+      if (isNaN(uncommittedAmt) || uncommittedAmt <= 0) {
+        toast.error('Please enter a valid positive payment amount');
+        return;
+      }
+      if (uncommittedAmt > invoiceDue) {
+        toast.error(`Amount cannot exceed the remaining due of Rs. ${invoiceDue.toLocaleString()}`);
+        return;
+      }
+
+      let finalRef = settleReference.trim();
+      if (settleMethod === 'CHEQUE') {
+        const chq = settleReference.trim();
+        const bank = settleBankName.trim();
+        if (chq || bank) {
+          finalRef = `Cheque #${chq || 'N/A'}${bank ? ` (${bank})` : ''}`;
+        }
+      }
+
+      finalPayments.push({
+        amount: uncommittedAmt,
+        method: settleMethod,
+        reference: finalRef || `Invoice #INV${settlingInvoice.id} Settlement`,
+        chequeNumber: settleMethod === 'CHEQUE' ? settleReference.trim() : undefined,
+        bankName: settleMethod === 'CHEQUE' ? settleBankName.trim() : undefined,
+        chequeDate: (settleMethod === 'CHEQUE' && settleChequeDate) ? new Date(settleChequeDate).toISOString() : undefined,
+        paymentDate: settleDateTime ? new Date(settleDateTime).toISOString() : new Date().toISOString(),
+      });
+    }
+
+    const grandTotal = finalPayments.reduce((sum, p) => sum + p.amount, 0);
+    if (grandTotal <= 0) {
+      toast.error('No payments to settle');
       return;
     }
 
@@ -384,16 +528,20 @@ export const InvoicesPage: React.FC = () => {
     try {
       await post('/credit/settle-bill', {
         orderId: settlingInvoice.id,
-        amount: payNum,
-        paymentMethod: settleMethod,
-        reference: settleReference.trim() || `Invoice #INV${settlingInvoice.id} Settlement`,
-        paymentDate: settleDateTime ? new Date(settleDateTime).toISOString() : new Date().toISOString(),
+        amount: grandTotal,
+        paymentMethod: finalPayments.length === 1 ? finalPayments[0].method : 'SPLIT',
+        reference: finalPayments[0].reference,
+        paymentDate: finalPayments[0].paymentDate,
+        payments: finalPayments,
       });
 
-      toast.success(`Payment of Rs. ${payNum.toLocaleString()} settled successfully!`);
+      toast.success(`Payment of Rs. ${grandTotal.toLocaleString()} settled successfully!`);
       setSettlingInvoice(null);
+      setStagedPayments([]);
       setSettleAmount('');
       setSettleReference('');
+      setSettleBankName('');
+      setSettleChequeDate('');
       fetchInvoices(page);
     } catch (err: any) {
       toast.error(err.message || 'Payment settlement failed');
@@ -1223,13 +1371,7 @@ export const InvoicesPage: React.FC = () => {
                       <TooltipSimple content={`Pay Due Balance (Rs. ${creditDue.toLocaleString()})`} side="top">
                         <button
                           type="button"
-                          onClick={() => {
-                            setSettlingInvoice(inv);
-                            setSettleAmount(String(creditDue));
-                            setSettleMethod('CASH');
-                            setSettleDateTime(getCurrentLocalISOString());
-                            setSettleReference('');
-                          }}
+                          onClick={() => openSettleInvoiceModal(inv)}
                           className="size-8 sm:size-8.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 flex items-center justify-center transition-all cursor-pointer select-none active:scale-95 shadow-2xs shrink-0"
                           title={`Pay Due Balance (Rs. ${creditDue.toLocaleString()})`}
                           aria-label={`Pay Due Balance for Invoice INV${inv.id}`}
@@ -1302,13 +1444,7 @@ export const InvoicesPage: React.FC = () => {
                             Deduplicated: Hidden when already rendered as a direct button on the card action bar. */}
                         {!isDirectSettleVisible && creditDue > 0 && (
                           <DropdownMenuItem
-                            onClick={() => {
-                              setSettlingInvoice(inv);
-                              setSettleAmount(String(creditDue));
-                              setSettleMethod('CASH');
-                              setSettleDateTime(getCurrentLocalISOString());
-                              setSettleReference('');
-                            }}
+                            onClick={() => openSettleInvoiceModal(inv)}
                             className="gap-2.5 cursor-pointer py-2 text-amber-600 focus:text-amber-700 font-semibold"
                           >
                             <Wallet className="size-4 text-amber-600" />
@@ -1545,13 +1681,7 @@ export const InvoicesPage: React.FC = () => {
                             {/* ⭐ Pay Due Balance Action (only shown if creditDue > 0) */}
                             {creditDue > 0 && (
                               <DropdownMenuItem
-                                onClick={() => {
-                                  setSettlingInvoice(inv);
-                                  setSettleAmount(String(creditDue));
-                                  setSettleMethod('CASH');
-                                  setSettleDateTime(getCurrentLocalISOString());
-                                  setSettleReference('');
-                                }}
+                                onClick={() => openSettleInvoiceModal(inv)}
                                 className="gap-2 cursor-pointer text-amber-600 focus:text-amber-700 focus:bg-amber-50 dark:focus:bg-amber-950/30 font-semibold"
                               >
                                 <Wallet className="size-3.5 text-amber-600" />
@@ -1742,19 +1872,19 @@ export const InvoicesPage: React.FC = () => {
 
       {/* ⭐ GRN-style Settle Due Modal for Invoices */}
       <Dialog open={Boolean(settlingInvoice)} onOpenChange={(open) => !open && setSettlingInvoice(null)}>
-        <DialogContent className="w-full max-w-md max-h-[90vh] overflow-y-auto p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-2xl">
+        <DialogContent className="w-full max-w-lg max-h-[90vh] overflow-y-auto overflow-x-hidden p-4 sm:p-6 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-2xl">
           <DialogHeader className="pb-1">
             <DialogTitle className="flex items-center gap-2 text-base text-slate-900 dark:text-white font-bold">
               <Wallet className="size-5 text-emerald-600" />
               Settle Due for Invoice #INV{settlingInvoice?.id}
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-500 dark:text-zinc-400">
-              Record customer payment against outstanding invoice balance.
+              Record customer payment against outstanding invoice balance. Multi-payment queue supported.
             </DialogDescription>
           </DialogHeader>
 
           {settlingInvoice && (
-            <form onSubmit={handleSettleInvoiceSubmit} className="space-y-4 pt-1">
+            <form onSubmit={handleSettleInvoiceSubmit} className="space-y-4 pt-1 pb-4">
               {/* Header Card: Wrap customer meta with proper vertical padding and distinct pills */}
               <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/70 border border-slate-200/80 dark:border-zinc-800/80 space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
@@ -1770,24 +1900,81 @@ export const InvoicesPage: React.FC = () => {
                   </span>
                 </div>
                 <div className="flex items-center justify-between border-t border-slate-200/70 dark:border-zinc-800/70 pt-1.5 text-xs">
-                  <span className="text-slate-600 dark:text-zinc-300 font-semibold">Remaining Due Balance:</span>
+                  <span className="text-slate-600 dark:text-zinc-300 font-semibold">Remaining Due:</span>
                   <span className="font-mono font-extrabold text-rose-600 dark:text-rose-400 text-sm px-2.5 py-0.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 border border-rose-200/80 dark:border-rose-900/50">
-                    Rs. {(settlingInvoice.totalAmount - settlingInvoice.paidAmount).toLocaleString()}
+                    Rs. {remainingDue.toLocaleString()}
                   </span>
                 </div>
               </div>
 
-              {/* Inputs Grid: Convert Amount and Payment Method into a responsive 2-column grid on ~534px */}
+              {/* Staged Payment Queue */}
+              {stagedPayments.length > 0 && (
+                <div className="space-y-2 p-3 rounded-xl bg-slate-50/70 dark:bg-zinc-900/50 border border-slate-200 dark:border-zinc-800">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                    <span>Queued Payments ({stagedPayments.length})</span>
+                    <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">
+                      Tendered: Rs. {totalStaged.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {stagedPayments.map((p, idx) => (
+                      <div
+                        key={p.id}
+                        className="flex items-center justify-between p-2 rounded-lg bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800 text-xs shadow-2xs gap-2"
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+                          <span className="font-bold text-slate-500 dark:text-zinc-400 shrink-0">#{idx + 1}</span>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300 shrink-0">
+                            {p.method}
+                          </span>
+                          <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
+                            Rs. {p.amount.toLocaleString()}
+                          </span>
+                          {p.reference && (
+                            <span className="text-[11px] text-slate-500 dark:text-zinc-400 truncate max-w-[140px] sm:max-w-[200px]" title={p.reference}>
+                              {p.reference}
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveStagedPayment(p.id)}
+                          className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded transition-colors shrink-0 ml-auto"
+                          title="Remove payment"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Inputs Grid: Responsive 2-column grid on ~534px */}
               <div className="grid grid-cols-1 xs:grid-cols-2 gap-2.5 sm:gap-3.5">
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                    Pay Amount (Rs.) *
-                  </label>
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 truncate">
+                      Pay Amount (Rs.) *
+                    </label>
+                    {remainingDue > 0 && (
+                      <TooltipSimple content={`Fill full amount: Rs. ${remainingDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}`} side="top">
+                        <button
+                          type="button"
+                          onClick={() => setSettleAmount(remainingDue > 0 ? remainingDue.toFixed(2) : '')}
+                          title={`Fill full amount: Rs. ${remainingDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}`}
+                          className="text-[11px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 inline-flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-900/60 cursor-pointer whitespace-nowrap shrink-0 transition-colors shadow-2xs"
+                        >
+                          <Sparkles className="size-3 shrink-0 text-indigo-500" />
+                          <span>Fill</span>
+                        </button>
+                      </TooltipSimple>
+                    )}
+                  </div>
                   <Input
                     type="number"
                     step="0.01"
-                    required
-                    max={settlingInvoice.totalAmount - settlingInvoice.paidAmount}
+                    max={remainingDue}
                     value={settleAmount}
                     onChange={(e) => setSettleAmount(e.target.value)}
                     placeholder="0.00"
@@ -1803,10 +1990,10 @@ export const InvoicesPage: React.FC = () => {
                     value={settleMethod}
                     onValueChange={setSettleMethod}
                     options={[
-                      { value: 'CASH', label: 'CASH' },
-                      { value: 'CARD', label: 'CARD' },
-                      { value: 'BANK_TRANSFER', label: 'BANK TRANSFER' },
-                      { value: 'CHEQUE', label: 'CHEQUE' },
+                      { value: 'CASH', label: 'Cash' },
+                      { value: 'CHEQUE', label: 'Cheque' },
+                      { value: 'CARD', label: 'Card' },
+                      { value: 'BANK_TRANSFER', label: 'Bank Transfer' },
                     ]}
                     placeholder="Select Method"
                     dark={dark}
@@ -1815,7 +2002,51 @@ export const InvoicesPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Payment Timestamp Row: Ensure date picker and time inputs fit inside container boundaries without horizontal overflow */}
+              {/* Cheque Detail Inputs (smoothly revealed when CHEQUE selected) */}
+              {settleMethod === 'CHEQUE' && (
+                <div className="p-3 rounded-xl bg-amber-500/5 border border-amber-500/20 space-y-2.5">
+                  <div className="text-xs font-bold text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                    <span>Cheque Particulars</span>
+                  </div>
+                  <div className="grid grid-cols-1 xs:grid-cols-2 gap-2.5">
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                        Cheque Number *
+                      </label>
+                      <Input
+                        value={settleReference}
+                        onChange={(e) => setSettleReference(e.target.value)}
+                        placeholder="e.g. 104523"
+                        className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                        Bank / Branch
+                      </label>
+                      <Input
+                        value={settleBankName}
+                        onChange={(e) => setSettleBankName(e.target.value)}
+                        placeholder="e.g. Commercial Bank"
+                        className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                      Cheque Maturity Date
+                    </label>
+                    <DatePicker
+                      date={parseDateString(settleChequeDate)}
+                      onDateChange={(d) => setSettleChequeDate(formatDateToString(d))}
+                      placeholder="Select maturity date"
+                      className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl w-full"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Payment Timestamp Row */}
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
                   Payment Date &amp; Timestamp *
@@ -1829,28 +2060,36 @@ export const InvoicesPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                  Payment Reference / Cheque No
-                </label>
-                <Input
-                  value={settleReference}
-                  onChange={(e) => setSettleReference(e.target.value)}
-                  placeholder="e.g. Part payment cash / Cheque #8812"
-                  className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl"
-                />
-              </div>
+              {settleMethod !== 'CHEQUE' && (
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                    Payment Reference / Note
+                  </label>
+                  <Input
+                    value={settleReference}
+                    onChange={(e) => setSettleReference(e.target.value)}
+                    placeholder="e.g. Cash settlement / Transfer ref"
+                    className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl"
+                  />
+                </div>
+              )}
 
-              {/* Action Footer: Add clear spacing (pt-2 space-y-2) */}
-              <div className="pt-2 space-y-2">
+              {/* Add Payment Entry Queue Button */}
+              {remainingDue > 0 && (
                 <Button
-                  type="submit"
-                  disabled={isSettling}
-                  className="h-11 w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-sm active:scale-[0.98] transition-all cursor-pointer inline-flex items-center justify-center gap-2"
+                  type="button"
+                  variant="outline"
+                  disabled={!settleAmount || parseFloat(settleAmount) <= 0 || parseFloat(settleAmount) > remainingDue}
+                  onClick={handleAddStagedPayment}
+                  className="w-full h-9.5 border-dashed border-emerald-500/50 hover:border-emerald-500 text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 inline-flex items-center justify-center gap-1.5 rounded-xl cursor-pointer transition-colors"
                 >
-                  {isSettling ? <Loader2 className="size-4 animate-spin" /> : <Banknote className="size-4" />}
-                  Confirm Payment
+                  <Plus className="size-3.5" />
+                  Add Payment Entry
                 </Button>
+              )}
+
+              {/* Sticky Action Footer with elevated z-index and solid background */}
+              <div className="pt-3 pb-1 sticky -bottom-4 sm:-bottom-6 bg-white dark:bg-zinc-950 grid grid-cols-2 gap-2 border-t border-slate-100 dark:border-zinc-800/80 z-30 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_12px_rgba(0,0,0,0.4)]">
                 <Button
                   type="button"
                   variant="outline"
@@ -1858,6 +2097,14 @@ export const InvoicesPage: React.FC = () => {
                   className="h-10 w-full border border-slate-300 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors font-medium text-xs sm:text-sm"
                 >
                   Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isSettling || (stagedPayments.length === 0 && (!settleAmount || parseFloat(settleAmount) <= 0))}
+                  className="h-10 w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-sm active:scale-[0.98] transition-all cursor-pointer inline-flex items-center justify-center gap-1.5 text-xs sm:text-sm whitespace-nowrap"
+                >
+                  {isSettling ? <Loader2 className="size-4 animate-spin shrink-0" /> : <Banknote className="size-4 shrink-0" />}
+                  {isSettling ? 'Processing...' : 'Apply Payment'}
                 </Button>
               </div>
             </form>
@@ -1891,5 +2138,4 @@ export const InvoicesPage: React.FC = () => {
   );
 };
 
-export const SalesInvoicesPage = InvoicesPage;
 export default InvoicesPage;

@@ -1933,7 +1933,7 @@ export const QuickInvoicePage: React.FC = () => {
    * - If Cheque is clicked, open Split Payment Modal for detailed cheque/split entry.
    * - Cashier can switch to any payment method at any point.
    */
-  const handleSelectPaymentMethod = (method: 'CASH' | 'CARD' | 'BANK_TRANSFER' | 'CHEQUE' | 'CREDIT') => {
+  const handleSelectPaymentMethod = (method: 'CASH' | 'CHEQUE' | 'CARD' | 'BANK_TRANSFER' | 'CREDIT') => {
     setPaymentMethod(method);
     if (method === 'CASH' || method === 'CARD' || method === 'BANK_TRANSFER') {
       setSplitPayments([]);
@@ -1943,8 +1943,18 @@ export const QuickInvoicePage: React.FC = () => {
         }
       }
     } else if (method === 'CHEQUE') {
-      setShowNoteInput(true);
-      setSplitModalOpen(true);
+      setSplitPayments([]);
+      setCheques((prev) => {
+        if (prev.length === 0) {
+          return [{ id: '1', chequeNumber: '', bankName: '', chequeDate: new Date().toISOString().split('T')[0], amount: String(total || '') }];
+        }
+        return [{ ...prev[0], amount: prev[0].amount || String(total || '') }];
+      });
+      if (!clientGivenCash || Number(clientGivenCash) === 0) {
+        if (total > 0) {
+          setClientGivenCash(String(total));
+        }
+      }
     } else if (method === 'CREDIT') {
       setSplitPayments([]);
       setClientGivenCash('');
@@ -2392,8 +2402,9 @@ export const QuickInvoicePage: React.FC = () => {
         setMobileCartOpen(false);
         setSavedOrderForPrint(completeOrderObj);
 
-        // Determine effective print format (localStorage override > role default)
-        const effectiveFormat = getEffectivePrintFormat(user?.role);
+        // Determine effective print format (Mobile or Checkout Drawer strictly routes directly to 80mm thermal receipt)
+        const isMobileOrDrawer = mobileCartOpen || (typeof window !== 'undefined' && window.innerWidth < 1024);
+        const effectiveFormat = isMobileOrDrawer ? 'thermal-80mm' : getEffectivePrintFormat(user?.role);
 
         if (effectiveFormat === 'thermal-80mm') {
           // Dedicated 80mm thermal receipt printing tailored for Xprinter XP-P801A (direct headless print)
@@ -3663,7 +3674,7 @@ export const QuickInvoicePage: React.FC = () => {
               </div>
             )}
 
-            {/* Payment Method Selector Buttons (5 Methods) */}
+            {/* Payment Method Selector Buttons (Standardized Sequence: CASH, CHEQUE, CARD, BANK_TRANSFER, CREDIT) */}
             <div className="grid grid-cols-5 gap-1">
               <button
                 type="button"
@@ -3676,6 +3687,18 @@ export const QuickInvoicePage: React.FC = () => {
                 title="Cash Payment"
               >
                 <Banknote className="size-3" /> <span className="hidden sm:inline">Cash</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSelectPaymentMethod('CHEQUE')}
+                className={`flex items-center justify-center gap-1 h-7 min-h-[28px] py-1 px-1 rounded-md border text-[10px] font-semibold transition-all cursor-pointer ${
+                  paymentMethod === 'CHEQUE' && splitPayments.length === 0
+                    ? 'border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold shadow-2xs'
+                    : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
+                }`}
+                title="Cheque Payment"
+              >
+                <FileText className="size-3" /> <span className="hidden sm:inline">Cheque</span>
               </button>
               <button
                 type="button"
@@ -3703,18 +3726,6 @@ export const QuickInvoicePage: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={() => handleSelectPaymentMethod('CHEQUE')}
-                className={`flex items-center justify-center gap-1 h-7 min-h-[28px] py-1 px-1 rounded-md border text-[10px] font-semibold transition-all cursor-pointer ${
-                  paymentMethod === 'CHEQUE' && splitPayments.length === 0
-                    ? 'border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold shadow-2xs'
-                    : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
-                }`}
-                title="Cheque Payment"
-              >
-                <FileText className="size-3" /> <span className="hidden sm:inline">Cheque</span>
-              </button>
-              <button
-                type="button"
                 onClick={() => handleSelectPaymentMethod('CREDIT')}
                 className={`flex items-center justify-center gap-1 h-7 min-h-[28px] py-1 px-1 rounded-md border text-[10px] font-semibold transition-all cursor-pointer ${
                   paymentMethod === 'CREDIT'
@@ -3726,6 +3737,49 @@ export const QuickInvoicePage: React.FC = () => {
                 <Building className="size-3" /> <span className="hidden sm:inline">Credit</span>
               </button>
             </div>
+
+            {/* Smoothly revealed Cheque Inputs when CHEQUE method is active */}
+            {paymentMethod === 'CHEQUE' && splitPayments.length === 0 && (
+              <div className="p-2 rounded-lg bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/60 space-y-1.5 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1">
+                    <FileText className="size-3 text-amber-600" /> Cheque Details
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSplitModalOpen(true)}
+                    className="text-[9.5px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                  >
+                    + Multiple Cheques / Split
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <Input
+                    type="text"
+                    value={cheques[0]?.chequeNumber || ''}
+                    onChange={(e) => handleUpdateCheque(cheques[0]?.id || '1', 'chequeNumber', e.target.value)}
+                    placeholder="Cheque No *"
+                    className="h-7 text-[10.5px] font-mono bg-white dark:bg-zinc-900 rounded-md"
+                  />
+                  <Input
+                    type="text"
+                    value={cheques[0]?.bankName || ''}
+                    onChange={(e) => handleUpdateCheque(cheques[0]?.id || '1', 'bankName', e.target.value)}
+                    placeholder="Bank / Branch"
+                    className="h-7 text-[10.5px] bg-white dark:bg-zinc-900 rounded-md"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9.5px] text-slate-500 dark:text-zinc-400 font-medium shrink-0">Pass Date:</span>
+                  <Input
+                    type="date"
+                    value={cheques[0]?.chequeDate || ''}
+                    onChange={(e) => handleUpdateCheque(cheques[0]?.id || '1', 'chequeDate', e.target.value)}
+                    className="h-7 text-[10.5px] bg-white dark:bg-zinc-900 rounded-md flex-1"
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -4646,7 +4700,7 @@ export const QuickInvoicePage: React.FC = () => {
                   </div>
                 )}
 
-                {/* 5 Payment method triggers */}
+                {/* 5 Payment method triggers (Standardized: CASH, CHEQUE, CARD, BANK_TRANSFER, CREDIT) */}
                 <div className="grid grid-cols-5 gap-1">
                   <button
                     type="button"
@@ -4658,6 +4712,17 @@ export const QuickInvoicePage: React.FC = () => {
                     }`}
                   >
                     <Banknote className="size-3" /> <span>Cash</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectPaymentMethod('CHEQUE')}
+                    className={`flex items-center justify-center gap-1 h-7 min-h-[28px] py-1 px-1 text-[10px] rounded-md border font-semibold transition-all cursor-pointer ${
+                      paymentMethod === 'CHEQUE' && splitPayments.length === 0
+                        ? 'border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold shadow-2xs'
+                        : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
+                    }`}
+                  >
+                    <FileText className="size-3" /> <span>Cheque</span>
                   </button>
                   <button
                     type="button"
@@ -4683,17 +4748,6 @@ export const QuickInvoicePage: React.FC = () => {
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleSelectPaymentMethod('CHEQUE')}
-                    className={`flex items-center justify-center gap-1 h-7 min-h-[28px] py-1 px-1 text-[10px] rounded-md border font-semibold transition-all cursor-pointer ${
-                      paymentMethod === 'CHEQUE' && splitPayments.length === 0
-                        ? 'border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold shadow-2xs'
-                        : 'border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800/50'
-                    }`}
-                  >
-                    <FileText className="size-3" /> <span>Cheque</span>
-                  </button>
-                  <button
-                    type="button"
                     onClick={() => handleSelectPaymentMethod('CREDIT')}
                     className={`flex items-center justify-center gap-1 h-7 min-h-[28px] py-1 px-1 text-[10px] rounded-md border font-semibold transition-all cursor-pointer ${
                       paymentMethod === 'CREDIT'
@@ -4704,6 +4758,49 @@ export const QuickInvoicePage: React.FC = () => {
                     <Building className="size-3" /> <span>Credit</span>
                   </button>
                 </div>
+
+                {/* Smoothly revealed Cheque Details on Mobile Drawer */}
+                {paymentMethod === 'CHEQUE' && splitPayments.length === 0 && (
+                  <div className="p-2 rounded-lg bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/60 space-y-1.5 animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1">
+                        <FileText className="size-3 text-amber-600" /> Cheque Details
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setSplitModalOpen(true)}
+                        className="text-[9.5px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                      >
+                        + Multiple Cheques / Split
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <Input
+                        type="text"
+                        value={cheques[0]?.chequeNumber || ''}
+                        onChange={(e) => handleUpdateCheque(cheques[0]?.id || '1', 'chequeNumber', e.target.value)}
+                        placeholder="Cheque No *"
+                        className="h-7 text-[10.5px] font-mono bg-white dark:bg-zinc-900 rounded-md"
+                      />
+                      <Input
+                        type="text"
+                        value={cheques[0]?.bankName || ''}
+                        onChange={(e) => handleUpdateCheque(cheques[0]?.id || '1', 'bankName', e.target.value)}
+                        placeholder="Bank / Branch"
+                        className="h-7 text-[10.5px] bg-white dark:bg-zinc-900 rounded-md"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[9.5px] text-slate-500 dark:text-zinc-400 font-medium shrink-0">Pass Date:</span>
+                      <Input
+                        type="date"
+                        value={cheques[0]?.chequeDate || ''}
+                        onChange={(e) => handleUpdateCheque(cheques[0]?.id || '1', 'chequeDate', e.target.value)}
+                        className="h-7 text-[10.5px] bg-white dark:bg-zinc-900 rounded-md flex-1"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Sales Rep Commission Breakdown Card (Mobile) */}
@@ -4719,41 +4816,12 @@ export const QuickInvoicePage: React.FC = () => {
             </div>
           </div>
 
-          {/* Zone 3: Bottom Sticky Action Bar (shrink-0 sticky bottom-0 bg-white dark:bg-zinc-950 border-t pt-2.5 pb-3 px-3 z-10 shadow-sm) */}
+          {/* Zone 3: Bottom Sticky Action Bar (Direct 80mm Print & Direct A4 PDF Download Routing) */}
             <div className="shrink-0 sticky bottom-0 bg-white dark:bg-zinc-950 border-t border-slate-100 dark:border-zinc-800 pt-2 pb-3 px-3 z-10 shadow-sm space-y-2">
-              {/* Mobile Print Format Selector */}
-              <div className="flex items-center justify-between text-[11px] px-2.5 py-1 rounded-xl bg-slate-50 dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800/80">
-                <span className="font-semibold text-slate-600 dark:text-zinc-400">Print Format:</span>
-                <div className="inline-flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => handleTogglePrintFormat('a4')}
-                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all ${
-                      currentPrintFormat === 'a4'
-                        ? 'bg-indigo-600 text-white shadow-2xs'
-                        : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
-                    }`}
-                  >
-                    A4 Sheet (Standard)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleTogglePrintFormat('thermal-80mm')}
-                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all ${
-                      currentPrintFormat === 'thermal-80mm'
-                        ? 'bg-emerald-600 text-white shadow-2xs'
-                        : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200'
-                    }`}
-                  >
-                    80mm Thermal (Receipt)
-                  </button>
-                </div>
-              </div>
-
               {/* =========================================================================
-               * 6. "Pay Now & Print" Workflow:
-               * In the checkout drawer for REPs, replace standard "Save Invoice" with primary
-               * "Pay Now & Print" action button triggering save API & 80mm thermal receipt print.
+               * "Pay Now & Print" Mobile Workflow:
+               * Primary Print button directly triggers 80mm thermal receipt output.
+               * Save & PDF directly generates/downloads A4 PDF without modal clutter.
                * ========================================================================= */}
               {isRepUser ? (
                 <div className="space-y-1.5 w-full">
@@ -4771,7 +4839,7 @@ export const QuickInvoicePage: React.FC = () => {
                       ) : (
                         <Printer className="size-4 text-white shrink-0" />
                       )}
-                      <span className="truncate">{isEditing ? 'Update & Print' : 'Pay Now & Print'}</span>
+                      <span className="truncate">{isEditing ? 'Update & Print (80mm)' : 'Pay Now & Print (80mm)'}</span>
                     </Button>
 
                     {/* Save & PDF Button */}
@@ -4786,7 +4854,7 @@ export const QuickInvoicePage: React.FC = () => {
                       ) : (
                         <FileDown className="size-4 text-white shrink-0" />
                       )}
-                      <span className="truncate">Save &amp; PDF</span>
+                      <span className="truncate">Save &amp; PDF (A4)</span>
                     </Button>
                   </div>
 
@@ -4823,7 +4891,7 @@ export const QuickInvoicePage: React.FC = () => {
                       className="h-10 min-h-[40px] gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-2xs cursor-pointer transition-all active:scale-[0.98]"
                     >
                       {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <Printer className="size-3.5 text-white" />}
-                      <span className="truncate">{isEditing ? 'Update & Print' : 'Pay Now & Print'}</span>
+                      <span className="truncate">{isEditing ? 'Update & Print (80mm)' : 'Pay Now & Print (80mm)'}</span>
                     </Button>
                     <Button
                       type="button"
@@ -4832,7 +4900,7 @@ export const QuickInvoicePage: React.FC = () => {
                       className="h-10 min-h-[40px] gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-2xs cursor-pointer transition-all active:scale-[0.98]"
                     >
                       {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <FileDown className="size-3.5 text-white" />}
-                      <span className="truncate">Save &amp; PDF</span>
+                      <span className="truncate">Save &amp; PDF (A4)</span>
                     </Button>
                   </div>
                   <div className="flex items-center justify-center gap-2.5 pt-0.5 pb-0">

@@ -1628,6 +1628,4 @@ export const Products: React.FC = () => {
   );
 };
 
-// Backwards compatibility and standard module exports
-export const ProductsPage = Products;
 export default Products;

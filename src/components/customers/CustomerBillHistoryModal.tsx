@@ -41,6 +41,7 @@ import {
 import { get, put, post, del } from '../../lib/api';
 import { toast } from 'react-toastify';
 import { DatePicker } from '../ui/date-picker';
+import { SearchableSelect, type SearchableSelectOption } from '../ui/searchable-select';
 import {
   openWhatsAppChat,
   generateCustomerInvoiceWhatsAppMessage,
@@ -177,6 +178,50 @@ const getMethodBadge = (method?: string) => {
     icon: <Banknote className="size-3 text-emerald-500" />,
     className: 'border-emerald-500/30 text-emerald-600 bg-emerald-500/10 dark:text-emerald-400',
   };
+};
+
+/** Payment method options for SearchableSelect */
+const PAYMENT_METHOD_OPTIONS: SearchableSelectOption[] = [
+  { value: 'CASH', label: 'Cash' },
+  { value: 'CARD', label: 'Card' },
+  { value: 'BANK_TRANSFER', label: 'Bank Transfer' },
+  { value: 'CHEQUE', label: 'Cheque' },
+];
+
+/** Clearing status options for SearchableSelect */
+const CLEARING_STATUS_OPTIONS: SearchableSelectOption[] = [
+  { value: 'PENDING', label: 'PENDING' },
+  { value: 'CLEARED', label: 'REALIZED / CLEARED' },
+  { value: 'BOUNCED', label: 'BOUNCED' },
+];
+
+/**
+ * Format a Date object to YYYY-MM-DD for form state synchronization
+ */
+const formatDateToYMD = (d?: Date): string => {
+  if (!d || isNaN(d.getTime())) return '';
+  const yr = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const dy = String(d.getDate()).padStart(2, '0');
+  return `${yr}-${mo}-${dy}`;
+};
+
+/**
+ * Parse a YYYY-MM-DD date or ISO timestamp string into a local Date instance
+ */
+const parseDateToObj = (dateStr?: string): Date | undefined => {
+  if (!dateStr) return undefined;
+  const clean = dateStr.split('T')[0];
+  const parts = clean.split('-');
+  if (parts.length === 3) {
+    const y = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10) - 1;
+    const d = parseInt(parts[2], 10);
+    const dateObj = new Date(y, m, d);
+    if (!isNaN(dateObj.getTime())) return dateObj;
+  }
+  const fallback = new Date(dateStr);
+  return isNaN(fallback.getTime()) ? undefined : fallback;
 };
 
 /**
@@ -516,9 +561,7 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
         const yr = d.getFullYear();
         const mo = String(d.getMonth() + 1).padStart(2, '0');
         const dy = String(d.getDate()).padStart(2, '0');
-        const hr = String(d.getHours()).padStart(2, '0');
-        const mn = String(d.getMinutes()).padStart(2, '0');
-        setEditDate(`${yr}-${mo}-${dy}T${hr}:${mn}`);
+        setEditDate(`${yr}-${mo}-${dy}`);
       } catch {
         setEditDate('');
       }
@@ -1032,7 +1075,7 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
           </div>
 
           {/* Scrollable Invoices List Container with Dynamic Viewport Bounds */}
-          <div className="flex-1 min-h-0 sm:min-h-[200px] overflow-y-auto overscroll-contain p-2.5 sm:p-4 pr-1 sm:pr-3 space-y-2">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-2.5 sm:p-4 pr-1 sm:pr-3 space-y-2">
             {activeFilter === 'RECEIPTS' ? (
               <div className="space-y-3 pb-4">
                 {/* Master Receipts Date Range Filter Bar */}
@@ -1582,57 +1625,12 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
 
           {/* Collapsible Upcoming & Realizable Cheques Sticky Footer Tray */}
           {customerCheques.length > 0 && (
-            <div className="shrink-0 z-30 relative border-t border-amber-500/30 bg-amber-500/5 dark:bg-amber-950/20 transition-all">
-              {/* Accordion Header Strip Trigger */}
-              <button
-                type="button"
-                onClick={() => setIsChequesExpanded((prev) => !prev)}
-                className="w-full px-3.5 sm:px-4 py-2 sm:py-2.5 flex items-center justify-between gap-2.5 cursor-pointer pointer-events-auto select-none bg-transparent hover:bg-amber-500/10 dark:hover:bg-amber-950/40 transition-colors text-left"
-                title="Click to expand/collapse upcoming customer cheques"
-                aria-expanded={isChequesExpanded}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="p-1 rounded-md bg-amber-500/20 text-amber-600 dark:text-amber-400 shrink-0">
-                    <FileText className="size-3.5" />
-                  </div>
-                  <span className="font-bold text-xs text-slate-900 dark:text-white truncate">
-                    Upcoming / Realizable Cheques
-                  </span>
-                  <Badge
-                    variant="outline"
-                    className="text-[10px] font-bold border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 shrink-0"
-                  >
-                    {customerCheques.filter((c) => c.statusLabel === 'PENDING').length} Pending
-                  </Badge>
-                </div>
-
-                <div className="flex items-center gap-2 sm:gap-3 shrink-0 text-xs">
-                  <div className="hidden sm:flex items-center gap-2 text-[11px] font-mono">
-                    <span className="text-slate-400">Pending:</span>
-                    <span className="font-bold text-amber-600 dark:text-amber-400">
-                      Rs. {customerCheques.filter((c) => c.statusLabel === 'PENDING').reduce((s, c) => s + c.amount, 0).toLocaleString()}
-                    </span>
-                    <span className="text-slate-300 dark:text-zinc-700">•</span>
-                    <span className="text-slate-400">Realized:</span>
-                    <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                      Rs. {customerCheques.filter((c) => c.statusLabel === 'REALIZED').reduce((s, c) => s + c.amount, 0).toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="p-1 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-zinc-200 shrink-0">
-                    {isChequesExpanded ? (
-                      <ChevronDown className="size-4 transition-transform duration-200" />
-                    ) : (
-                      <ChevronUp className="size-4 transition-transform duration-200" />
-                    )}
-                  </div>
-                </div>
-              </button>
-
-              {/* Collapsible Cheques Scrollable Tray */}
+            <div className="shrink-0 z-30 relative border-t border-indigo-200 dark:border-indigo-500/30 bg-indigo-50/70 dark:bg-indigo-950/30 transition-all flex flex-col justify-end">
+              {/* Collapsible Cheques Scrollable Tray - Rendered ABOVE the header button so it opens UPWARDS */}
               {isChequesExpanded && (
                 <div
                   data-vaul-no-drag=""
-                  className="w-full max-h-[38vh] overflow-y-auto overscroll-contain p-2 space-y-2.5 border-t border-amber-500/20 bg-zinc-950/95"
+                  className="w-full max-h-[38vh] sm:max-h-[44vh] overflow-y-auto overscroll-contain p-2.5 space-y-2 border-b border-indigo-200/80 dark:border-indigo-500/30 bg-indigo-50/40 dark:bg-zinc-950/95 shadow-xl"
                   style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
                 >
                   {customerCheques.map((chq, i) => {
@@ -1643,19 +1641,19 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                     return (
                       <div
                         key={chq.paymentId || `${chq.chequeNumber}-${i}`}
-                        className="p-2.5 rounded-xl bg-zinc-900 border border-amber-500/20 text-xs shadow-2xs hover:border-amber-500/40 transition-colors space-y-2"
+                        className="p-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-indigo-100 dark:border-indigo-500/30 text-xs shadow-2xs hover:border-indigo-300 dark:hover:border-indigo-400/50 transition-colors space-y-2"
                       >
                         {/* Top row: Cheque #, Bank Name, Invoice reference & Status Badges */}
                         <div className="flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
                           <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                            <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                            <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/40">
                               #{chq.chequeNumber}
                             </span>
-                            <span className="font-semibold text-zinc-100 truncate max-w-[150px] sm:max-w-none">
+                            <span className="font-semibold text-slate-900 dark:text-zinc-100 truncate max-w-[150px] sm:max-w-none">
                               {chq.bankName !== '-' ? chq.bankName : 'Bank Cheque'}
                             </span>
                             {chq.invoiceNumber && (
-                              <span className="text-[10px] text-zinc-400 font-mono">
+                              <span className="text-[10px] text-slate-500 dark:text-zinc-400 font-mono">
                                 for {chq.invoiceNumber}
                               </span>
                             )}
@@ -1667,10 +1665,10 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                               <span
                                 className={`font-semibold text-[10px] px-1.5 py-0.5 rounded border ${
                                   chq.maturityAlert === 'OVERDUE'
-                                    ? 'bg-rose-950/70 text-rose-300 border-rose-800'
+                                    ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/70 dark:text-rose-300 dark:border-rose-800'
                                     : chq.maturityAlert === 'DUE_THIS_WEEK'
-                                    ? 'bg-amber-950/70 text-amber-300 border-amber-800'
-                                    : 'bg-blue-950/70 text-blue-300 border-blue-800'
+                                    ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/70 dark:text-amber-300 dark:border-amber-800'
+                                    : 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/70 dark:text-indigo-300 dark:border-indigo-800'
                                 }`}
                               >
                                 {chq.maturityAlert === 'OVERDUE'
@@ -1684,10 +1682,10 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                             <span
                               className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border ${
                                 isRealized
-                                  ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10'
+                                  ? 'border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10'
                                   : isBounced
-                                  ? 'border-rose-500/30 text-rose-400 bg-rose-500/10'
-                                  : 'border-amber-500/30 text-amber-400 bg-amber-500/10'
+                                  ? 'border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10'
+                                  : 'border-indigo-200 dark:border-indigo-500/40 text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-500/15'
                               }`}
                             >
                               {chq.statusLabel}
@@ -1696,14 +1694,14 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                         </div>
 
                         {/* Bottom row: Maturity Date, Currency Amount & Realization Actions */}
-                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-zinc-800/80 flex-wrap sm:flex-nowrap">
-                          <div className="flex items-center gap-2 text-[11px] text-zinc-400 font-mono">
-                            <Calendar className="size-3 text-zinc-500 shrink-0" />
-                            <span>Maturity: <strong className="text-zinc-200">{chq.chequeDate}</strong></span>
+                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-zinc-800/80 flex-wrap sm:flex-nowrap">
+                          <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-zinc-400 font-mono">
+                            <Calendar className="size-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                            <span>Maturity: <strong className="text-slate-800 dark:text-zinc-200">{chq.chequeDate}</strong></span>
                           </div>
 
                           <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto flex-wrap sm:flex-nowrap shrink-0">
-                            <span className="font-mono font-bold text-white text-sm">
+                            <span className="font-mono font-bold text-slate-900 dark:text-white text-sm">
                               Rs. {chq.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                             </span>
 
@@ -1721,7 +1719,7 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                                 <button
                                   type="button"
                                   onClick={() => handleOpenCancelReplace(chq)}
-                                  className="h-8 px-2.5 text-xs font-semibold rounded-lg bg-rose-950/60 hover:bg-rose-900/60 text-rose-300 border border-rose-800/80 cursor-pointer active:scale-95 transition-all shadow-2xs flex items-center gap-1.5"
+                                  className="h-8 px-2.5 text-xs font-semibold rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 dark:bg-rose-950/60 dark:hover:bg-rose-900/60 dark:text-rose-300 dark:border-rose-800/80 cursor-pointer active:scale-95 transition-all shadow-2xs flex items-center gap-1.5"
                                   title="Mark Cheque as Bounced or Issue Replacement"
                                 >
                                   <RotateCcw className="size-3.5" />
@@ -1736,6 +1734,51 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                   })}
                 </div>
               )}
+
+              {/* Accordion Header Strip Trigger (Always pinned at the bottom) */}
+              <button
+                type="button"
+                onClick={() => setIsChequesExpanded((prev) => !prev)}
+                className="w-full px-3.5 sm:px-4 py-2 sm:py-2.5 flex items-center justify-between gap-2.5 cursor-pointer pointer-events-auto select-none bg-transparent hover:bg-indigo-100/60 dark:hover:bg-indigo-900/40 transition-colors text-left"
+                title="Click to expand/collapse upcoming customer cheques"
+                aria-expanded={isChequesExpanded}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="p-1 rounded-md bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 shrink-0">
+                    <FileText className="size-3.5" />
+                  </div>
+                  <span className="font-bold text-xs text-indigo-950 dark:text-indigo-100 truncate">
+                    Upcoming / Realizable Cheques
+                  </span>
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] font-bold border-indigo-500/40 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 shrink-0"
+                  >
+                    {customerCheques.filter((c) => c.statusLabel === 'PENDING').length} Pending
+                  </Badge>
+                </div>
+
+                <div className="flex items-center gap-2 sm:gap-3 shrink-0 text-xs">
+                  <div className="hidden sm:flex items-center gap-2 text-[11px] font-mono">
+                    <span className="text-slate-500 dark:text-zinc-400">Pending:</span>
+                    <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                      Rs. {customerCheques.filter((c) => c.statusLabel === 'PENDING').reduce((s, c) => s + c.amount, 0).toLocaleString()}
+                    </span>
+                    <span className="text-slate-300 dark:text-zinc-700">•</span>
+                    <span className="text-slate-500 dark:text-zinc-400">Realized:</span>
+                    <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                      Rs. {customerCheques.filter((c) => c.statusLabel === 'REALIZED').reduce((s, c) => s + c.amount, 0).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="p-1 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-zinc-200 shrink-0">
+                    {isChequesExpanded ? (
+                      <ChevronDown className="size-4 transition-transform duration-200" />
+                    ) : (
+                      <ChevronUp className="size-4 transition-transform duration-200" />
+                    )}
+                  </div>
+                </div>
+              </button>
             </div>
           )}
 
@@ -1768,7 +1811,7 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
       {/* Edit Payment Dialog */}
       {editingPayment && (
         <Dialog open={!!editingPayment} onOpenChange={(open) => !open && setEditingPayment(null)}>
-          <DialogContent className="w-full max-w-md p-5 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 shadow-2xl">
+          <DialogContent className="w-full max-w-md p-5 rounded-2xl bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 shadow-2xl">
             <DialogHeader>
               <DialogTitle className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Pencil className="size-4 text-blue-500" />
@@ -1792,73 +1835,72 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                   value={editAmount}
                   onChange={(e) => setEditAmount(e.target.value)}
                   placeholder="0.00"
-                  className="h-9 text-sm font-mono font-bold"
+                  className="h-9 text-sm font-mono font-bold border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-slate-900 dark:text-white"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-2 gap-2.5 items-end">
                 <div>
                   <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block mb-1">
                     Payment Method
                   </label>
-                  <select
+                  <SearchableSelect
+                    options={PAYMENT_METHOD_OPTIONS}
                     value={editMethod}
-                    onChange={(e) => setEditMethod(e.target.value)}
-                    className="w-full h-9 rounded-md border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 text-xs font-medium text-slate-900 dark:text-white focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
-                  >
-                    <option value="CASH">Cash</option>
-                    <option value="CARD">Card</option>
-                    <option value="BANK_TRANSFER">Bank Transfer</option>
-                    <option value="CHEQUE">Cheque</option>
-                  </select>
+                    onValueChange={(val) => setEditMethod(val)}
+                    placeholder="Select method..."
+                    usePortal={true}
+                    side="bottom"
+                    className="h-9 py-0 text-xs flex items-center"
+                  />
                 </div>
 
                 <div>
                   <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block mb-1">
                     Payment Date
                   </label>
-                  <Input
-                    type="datetime-local"
-                    value={editDate}
-                    onChange={(e) => setEditDate(e.target.value)}
-                    className="h-9 text-xs"
+                  <DatePicker
+                    date={parseDateToObj(editDate)}
+                    onDateChange={(d) => setEditDate(formatDateToYMD(d))}
+                    placeholder="Select payment date"
+                    className="h-9 text-xs border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex items-center"
                   />
                 </div>
               </div>
 
               {/* Conditional Cheque Fields */}
               {editMethod === 'CHEQUE' && (
-                <div className="p-3 rounded-xl border border-amber-500/30 bg-amber-500/5 dark:bg-amber-950/20 space-y-2.5">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-amber-700 dark:text-amber-300">
+                <div className="p-3 rounded-xl border border-indigo-500/20 dark:border-indigo-500/30 bg-indigo-50/40 dark:bg-indigo-950/20 space-y-2.5">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-700 dark:text-indigo-300">
                     <FileText className="size-3.5" />
                     <span>Cheque Maturity & Realization</span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-2 gap-2.5 items-end">
                     <div>
                       <label className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400 block mb-1">
                         Maturity Date
                       </label>
-                      <Input
-                        type="date"
-                        value={editChequeDate}
-                        onChange={(e) => setEditChequeDate(e.target.value)}
-                        className="h-8 text-xs"
+                      <DatePicker
+                        date={parseDateToObj(editChequeDate)}
+                        onDateChange={(d) => setEditChequeDate(formatDateToYMD(d))}
+                        placeholder="Select maturity date"
+                        className="h-9 text-xs border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex items-center"
                       />
                     </div>
                     <div>
                       <label className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400 block mb-1">
                         Clearing Status
                       </label>
-                      <select
+                      <SearchableSelect
+                        options={CLEARING_STATUS_OPTIONS}
                         value={editChequeStatus}
-                        onChange={(e) => setEditChequeStatus(e.target.value)}
-                        className="w-full h-8 rounded-md border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 text-xs font-medium text-slate-900 dark:text-white"
-                      >
-                        <option value="PENDING">PENDING</option>
-                        <option value="CLEARED">REALIZED / CLEARED</option>
-                        <option value="BOUNCED">BOUNCED</option>
-                      </select>
+                        onValueChange={(val) => setEditChequeStatus(val)}
+                        placeholder="Select status..."
+                        usePortal={true}
+                        side="bottom"
+                        className="h-9 py-0 text-xs flex items-center"
+                      />
                     </div>
                   </div>
                 </div>
@@ -1873,7 +1915,7 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                   value={editReference}
                   onChange={(e) => setEditReference(e.target.value)}
                   placeholder="e.g. Cheque #12345 (BOC Bank)"
-                  className="h-9 text-xs"
+                  className="h-9 text-xs border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-slate-900 dark:text-white"
                 />
               </div>
 
@@ -1886,7 +1928,7 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                   value={editNote}
                   onChange={(e) => setEditNote(e.target.value)}
                   placeholder="Reason for adjusting payment"
-                  className="h-9 text-xs"
+                  className="h-9 text-xs border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-slate-900 dark:text-white"
                 />
               </div>
 
@@ -1897,7 +1939,7 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                   size="sm"
                   onClick={() => setEditingPayment(null)}
                   disabled={isSubmittingEdit}
-                  className="h-8 text-xs"
+                  className="h-8 text-xs border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800"
                 >
                   Cancel
                 </Button>
@@ -2081,12 +2123,11 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                       <label className="text-[11px] font-semibold text-slate-700 dark:text-zinc-300 block mb-1">
                         New Maturity Date *
                       </label>
-                      <Input
-                        type="date"
-                        required
-                        value={replacementDate}
-                        onChange={(e) => setReplacementDate(e.target.value)}
-                        className="h-8 text-xs"
+                      <DatePicker
+                        date={parseDateToObj(replacementDate)}
+                        onDateChange={(d) => setReplacementDate(formatDateToYMD(d))}
+                        placeholder="Select maturity date"
+                        className="h-8 text-xs border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950"
                       />
                     </div>
                   </div>

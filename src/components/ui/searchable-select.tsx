@@ -2,6 +2,7 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronsUpDown, Search, X, Plus } from "lucide-react";
 import { useSafeTheme } from "../../contexts/ThemeContext";
+import { cn } from "../../lib/utils";
 
 /**
  * Type augmentation for React HTML attributes to accommodate Vaul drawer
@@ -62,6 +63,10 @@ interface SearchableSelectProps {
     onSelect: () => void;
   };
   usePortal?: boolean;
+  side?: "bottom" | "top" | "auto";
+  align?: "start" | "center" | "end";
+  avoidCollisions?: boolean;
+  collisionPadding?: number;
 }
 
 /**
@@ -70,8 +75,9 @@ interface SearchableSelectProps {
  * High-performance, keyboard-accessible searchable dropdown select component.
  * Uses the Inline Search Input pattern: when opened, the trigger box itself
  * transforms into the active search input directly within the parent DOM tree.
- * The options dropdown renders inline with position: absolute and high z-index.
- * This completely avoids document.body portal issues and Radix Dialog FocusScope focus-stealing.
+ * The options dropdown is portalled directly onto document.body by default to escape
+ * modal overflow-hidden and clipping constraints, complete with viewport collision
+ * detection, auto-flipping, and strict max-height scrolling.
  */
 export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   options,
@@ -86,7 +92,11 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   className = "",
   inline: _inline = false,
   actionOption,
-  usePortal = false,
+  usePortal = true, // Default to true: mounts on document.body to strictly escape any modal overflow-hidden constraints
+  side = "bottom",  // Default to bottom with intelligent viewport collision detection and auto-flipping
+  align = "start",
+  avoidCollisions = true,
+  collisionPadding = 16, // Standard 16px viewport collision padding
 }) => {
   const safeTheme = useSafeTheme();
   const [domIsDark, setDomIsDark] = React.useState<boolean>(() => {
@@ -121,10 +131,18 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   const [searchQuery, setSearchQuery] = React.useState("");
   const [dropUpwards, setDropUpwards] = React.useState(false);
   const popoverRef = React.useRef<HTMLDivElement>(null);
-  const [coords, setCoords] = React.useState<{ top: number; left: number; width: number }>({
-    top: 0,
+  const [coords, setCoords] = React.useState<{
+    top?: number;
+    bottom?: number;
+    left: number;
+    width: number;
+    maxHeight: number;
+    shouldDropUp: boolean;
+  }>({
     left: 0,
     width: 0,
+    maxHeight: 300,
+    shouldDropUp: false,
   });
 
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -183,29 +201,68 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
     return [...staticOptions, ...matched];
   }, [options, searchQuery, actionOption]);
 
-  // Position detection & screen coordinate calculation
+  /**
+   * Viewport collision detection, flipping, and coordinate calculation.
+   * Dynamically evaluates available vertical clearance above and below the trigger element.
+   * When avoidCollisions is active, flips the dropdown upwards if space below cannot comfortably
+   * fit the options list and space above offers more vertical room.
+   */
   const updatePosition = React.useCallback(() => {
     if (containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      const spaceAbove = rect.top;
-      const estimatedHeight = 260;
-      const shouldDropUp = spaceBelow < estimatedHeight && spaceAbove > estimatedHeight;
+      const padding = collisionPadding ?? 16;
+      const spaceBelow = window.innerHeight - rect.bottom - padding;
+      const spaceAbove = rect.top - padding;
+
+      // Strict maximum height based on viewport width: max-h-[220px] on mobile, max-h-[300px] on desktop
+      const targetMaxHeight = window.innerWidth < 640 ? 220 : 300;
+
+      // Determine placement direction with collision detection
+      let shouldDropUp = side === "top";
+      if (side !== "top" && avoidCollisions) {
+        // If space below is less than targetMaxHeight and space above offers more room, auto-flip upwards
+        if (spaceBelow < targetMaxHeight && spaceAbove > spaceBelow) {
+          shouldDropUp = true;
+        }
+      }
+
       setDropUpwards(shouldDropUp);
 
-      let top = shouldDropUp ? rect.top - estimatedHeight - 4 : rect.bottom + 4;
-      if (top < 8) top = 8;
+      // Clamp available height with safety margins so options container never bleeds out of viewport
+      const availableHeight = shouldDropUp ? spaceAbove - 8 : spaceBelow - 8;
+      const calculatedMaxHeight = Math.max(120, Math.min(targetMaxHeight, availableHeight));
+
       let left = rect.left;
       let width = rect.width;
 
-      if (left + width > window.innerWidth - 8) {
-        width = Math.min(width, window.innerWidth - 16);
-        left = Math.max(8, window.innerWidth - width - 8);
+      if (align === "end") {
+        left = rect.right - width;
       }
+      if (left + width > window.innerWidth - padding) {
+        width = Math.min(width, window.innerWidth - (padding * 2));
+        left = Math.max(padding, window.innerWidth - width - padding);
+      }
+      left = Math.max(padding, left);
 
-      setCoords({ top, left, width });
+      if (shouldDropUp) {
+        setCoords({
+          bottom: window.innerHeight - rect.top + 4,
+          left,
+          width,
+          maxHeight: calculatedMaxHeight,
+          shouldDropUp: true,
+        });
+      } else {
+        setCoords({
+          top: rect.bottom + 4,
+          left,
+          width,
+          maxHeight: calculatedMaxHeight,
+          shouldDropUp: false,
+        });
+      }
     }
-  }, []);
+  }, [side, align, avoidCollisions, collisionPadding]);
 
   React.useLayoutEffect(() => {
     if (open) {
@@ -295,10 +352,12 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
 
     document.addEventListener("mousedown", handleOutsideClick);
     document.addEventListener("touchstart", handleOutsideClick, { passive: true });
+    document.addEventListener("pointerdown", handleOutsideClick, true);
 
     return () => {
       document.removeEventListener("mousedown", handleOutsideClick);
       document.removeEventListener("touchstart", handleOutsideClick);
+      document.removeEventListener("pointerdown", handleOutsideClick, true);
     };
   }, [open]);
 
@@ -327,13 +386,14 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
               setOpen(true);
             }
           }}
-          className={`w-full flex items-center justify-between px-3 py-2 rounded-xl border text-xs transition-all ${
+          className={cn(
+            "w-full flex items-center justify-between px-3 py-2 rounded-xl border text-xs transition-all",
             isDark
               ? "bg-zinc-950 border-zinc-800 text-zinc-100 hover:border-zinc-700 focus:border-emerald-500/60"
-              : "bg-white border-slate-200 text-slate-900 hover:border-slate-300 focus:border-emerald-500 shadow-2xs"
-          } ${
-            disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
-          } ${className}`}
+              : "bg-white border-slate-200 text-slate-900 hover:border-slate-300 focus:border-emerald-500 shadow-2xs",
+            disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer",
+            className
+          )}
         >
           <span className="flex items-center gap-2 truncate">
             {selectedOption?.icon}
@@ -363,11 +423,13 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           onClick={() => {
             inputRef.current?.focus({ preventScroll: true });
           }}
-          className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl border text-xs transition-all cursor-text ring-2 ring-emerald-500/30 ${
+          className={cn(
+            "w-full flex items-center gap-2 px-3 py-2 rounded-xl border text-xs transition-all cursor-text ring-2 ring-emerald-500/30",
             isDark
               ? "bg-zinc-950 border-emerald-500/60 text-zinc-100"
-              : "bg-white border-emerald-500 text-slate-900 shadow-2xs"
-          } ${className}`}
+              : "bg-white border-emerald-500 text-slate-900 shadow-2xs",
+            className
+          )}
         >
           <Search
             className={`w-3.5 h-3.5 shrink-0 ${
@@ -445,14 +507,18 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             ref={popoverRef}
             role="listbox"
             data-radix-portal=""
+            data-searchable-select-portal=""
             onPointerDown={(e) => e.stopPropagation()}
             style={
               usePortal
                 ? {
                     position: "fixed",
-                    top: `${coords.top}px`,
+                    ...(coords.shouldDropUp
+                      ? { bottom: `${coords.bottom}px` }
+                      : { top: `${coords.top}px` }),
                     left: `${coords.left}px`,
                     width: `${coords.width}px`,
+                    maxHeight: `${coords.maxHeight}px`,
                     zIndex: 99999,
                   }
                 : undefined
@@ -479,19 +545,39 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             onWheel={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
             onTouchMove={(e) => e.stopPropagation()}
-            className="max-h-[220px] sm:max-h-[260px] overflow-y-auto overscroll-contain touch-pan-y p-1 space-y-0.5 pointer-events-auto"
-            style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
+            onTouchEnd={(e) => e.stopPropagation()}
+            className="max-h-[220px] sm:max-h-[300px] overflow-y-auto overflow-x-hidden overscroll-contain touch-pan-y p-1 space-y-0.5 pointer-events-auto"
+            style={{
+              maxHeight: `${coords.maxHeight}px`,
+              WebkitOverflowScrolling: "touch",
+              touchAction: "pan-y",
+            }}
           >
             {/* Optional Persistent Top Action Option */}
             {actionOption && (
               <button
                 type="button"
-                onMouseDown={(e) => {
+                onPointerDown={(e) => {
                   e.preventDefault();
+                  e.stopPropagation();
                   setOpen(false);
                   actionOption.onSelect();
                 }}
-                onClick={() => {
+                onTouchEnd={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setOpen(false);
+                  actionOption.onSelect();
+                }}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setOpen(false);
+                  actionOption.onSelect();
+                }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
                   setOpen(false);
                   actionOption.onSelect();
                 }}
@@ -527,11 +613,26 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     <button
                       key={opt.value}
                       type="button"
-                      onMouseDown={(e) => {
+                      onPointerDown={(e) => {
                         e.preventDefault();
+                        e.stopPropagation();
                         handleSelect(opt.value);
                       }}
-                      onClick={() => handleSelect(opt.value)}
+                      onTouchEnd={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleSelect(opt.value);
+                      }}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleSelect(opt.value);
+                      }}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleSelect(opt.value);
+                      }}
                       className={`w-full flex items-center justify-between px-2.5 py-2 mb-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer select-none text-left border-b ${
                         isDark
                           ? "bg-transparent hover:bg-zinc-800 text-emerald-400 hover:text-emerald-300 border-zinc-800"
@@ -551,12 +652,27 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     key={opt.value}
                     type="button"
                     disabled={opt.disabled}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleSelect(opt.value);
+                    }}
+                    onTouchEnd={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleSelect(opt.value);
+                    }}
                     onMouseDown={(e) => {
                       // Prevent input blur before click registers
                       e.preventDefault();
+                      e.stopPropagation();
                       handleSelect(opt.value);
                     }}
-                    onClick={() => handleSelect(opt.value)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleSelect(opt.value);
+                    }}
                     className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer select-none text-left ${
                       isSelected
                         ? isDark

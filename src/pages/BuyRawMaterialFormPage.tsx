@@ -1170,7 +1170,7 @@ export const BuyRawMaterialFormPage: React.FC = () => {
                       }
                     }}
                     placeholder="Cheque No (e.g. CHQ-48201) *"
-                    className="h-8 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl border-amber-200 dark:border-amber-800/60"
+                    className="h-10 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl border-amber-200 dark:border-amber-800/60"
                   />
                   <Input
                     type="text"
@@ -1183,7 +1183,7 @@ export const BuyRawMaterialFormPage: React.FC = () => {
                       }
                     }}
                     placeholder="Bank & Branch Name (e.g. Commercial Bank)"
-                    className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl border-amber-200 dark:border-amber-800/60"
+                    className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl border-amber-200 dark:border-amber-800/60"
                   />
                 </div>
               )}
@@ -1547,7 +1547,7 @@ export const BuyRawMaterialFormPage: React.FC = () => {
                     value={editChequeNumber}
                     onChange={(e) => setEditChequeNumber(e.target.value)}
                     placeholder="e.g. CHQ-48201"
-                    className="h-8 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl"
+                    className="h-10 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl"
                   />
                 </div>
                 <div className="space-y-1">
@@ -1557,7 +1557,7 @@ export const BuyRawMaterialFormPage: React.FC = () => {
                     value={editBankName}
                     onChange={(e) => setEditBankName(e.target.value)}
                     placeholder="e.g. Commercial Bank"
-                    className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl"
+                    className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl"
                   />
                 </div>
               </div>

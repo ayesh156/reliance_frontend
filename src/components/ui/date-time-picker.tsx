@@ -406,12 +406,12 @@ export const DateTimePicker: React.FC<DateTimePickerProps> = ({
           onDateChange={handleDateChange}
           placeholder="Pick date"
           disabled={disabled}
-          className="h-9 w-full text-xs rounded-lg"
+          className="h-10 w-full text-xs rounded-xl"
         />
       </div>
 
       {/* Modern Compact Time Box in 12-Hour Format with AM/PM */}
-      <div className="inline-flex items-center justify-between w-full h-9 px-2.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs focus-within:ring-1 focus-within:ring-indigo-500 text-xs">
+      <div className="inline-flex items-center justify-between w-full h-10 px-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xs focus-within:ring-1 focus-within:ring-indigo-500 text-xs">
         <Clock className="size-3.5 text-slate-400 shrink-0 pointer-events-none" />
 
         <div className="flex items-center justify-center gap-0.5 flex-1">

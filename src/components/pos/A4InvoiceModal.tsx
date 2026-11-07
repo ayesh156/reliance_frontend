@@ -85,6 +85,26 @@ export const generatePrintableInvoiceHtml = (
 
     const invoiceHeading = isReturnBill ? 'RETURN INVOICE' : (isWholesale ? 'WHOLESALE INVOICE' : 'INVOICE');
 
+    const formatPaymentDateTime = (dateVal: any): string => {
+      if (!dateVal) return '-';
+      try {
+        const d = new Date(dateVal);
+        if (isNaN(d.getTime())) return '-';
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        let hours = d.getHours();
+        const minutes = String(d.getMinutes()).padStart(2, '0');
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        hours = hours % 12;
+        hours = hours ? hours : 12;
+        const strHours = String(hours).padStart(2, '0');
+        return `${year}-${month}-${day} ${strHours}:${minutes} ${ampm}`;
+      } catch {
+        return '-';
+      }
+    };
+
     // Extract itemized payments from order.payments, splitPayments, or cheques
     interface PaymentHistoryEntry {
       dateTimeStr: string;
@@ -97,12 +117,22 @@ export const generatePrintableInvoiceHtml = (
     if (Array.isArray(order.payments) && order.payments.length > 0) {
       order.payments.forEach((p: any) => {
         const d = p.paymentDate || p.createdAt || order.createdAt;
-        const dateStr = d ? new Date(d).toISOString().slice(0, 16).replace('T', ' ') : '-';
+        const dateStr = formatPaymentDateTime(d);
+        const pMethod = String(p.method || 'CASH').toUpperCase();
+        let ref = p.reference || p.transactionId || (p.notes ? String(p.notes) : undefined);
+        if (pMethod === 'CHEQUE' && p.chequeDate) {
+          const matDate = new Date(p.chequeDate).toISOString().slice(0, 10);
+          if (ref && !ref.includes('Mat:')) {
+            ref = `${ref} | Mat: ${matDate}`;
+          } else if (!ref) {
+            ref = `Mat: ${matDate}`;
+          }
+        }
         itemizedPayments.push({
           dateTimeStr: dateStr,
-          method: String(p.method || 'CASH').toUpperCase(),
+          method: pMethod,
           amount: Number(p.amount) || 0,
-          reference: p.reference || p.transactionId || (p.notes ? String(p.notes) : undefined),
+          reference: ref,
         });
       });
     }
@@ -110,10 +140,13 @@ export const generatePrintableInvoiceHtml = (
     if (itemizedPayments.length === 0 && Array.isArray(order.splitPayments) && order.splitPayments.length > 0) {
       order.splitPayments.forEach((s: any) => {
         const d = s.date || order.createdAt;
-        const dateStr = d ? new Date(d).toISOString().slice(0, 16).replace('T', ' ') : '-';
+        const dateStr = formatPaymentDateTime(d);
         let ref = s.reference || '';
-        if (s.method === 'CHEQUE' && s.chequeNumber) {
-          ref = `Chq #${s.chequeNumber}${s.bankName ? ` (${s.bankName})` : ''}`;
+        if (String(s.method).toUpperCase() === 'CHEQUE') {
+          const chq = s.chequeNumber || '';
+          const bName = s.bankName || '';
+          const mat = s.chequeDate ? new Date(s.chequeDate).toISOString().slice(0, 10) : '';
+          ref = `Chq #${chq || 'N/A'}${bName ? ` | ${bName}` : ''}${mat ? ` | Mat: ${mat}` : ''}`;
         }
         itemizedPayments.push({
           dateTimeStr: dateStr,
@@ -133,7 +166,7 @@ export const generatePrintableInvoiceHtml = (
 
     // If itemized payments are empty but paidAmount > 0 (e.g. direct cash sale), add entry
     if (itemizedPayments.length === 0 && paidAmount > 0) {
-      const dStr = order.createdAt ? new Date(order.createdAt).toISOString().slice(0, 16).replace('T', ' ') : '-';
+      const dStr = formatPaymentDateTime(order.createdAt);
       itemizedPayments.push({
         dateTimeStr: dStr,
         method: paymentMethodLabel.includes('CREDIT') ? 'CASH' : paymentMethodLabel,

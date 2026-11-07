@@ -11,7 +11,9 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
 import { DateTimePicker } from '../ui/date-time-picker';
+import { DatePicker } from '../ui/date-picker';
 import { SearchableSelect } from '../ui/searchable-select';
+import { TooltipSimple } from '../ui/tooltip';
 import { useTheme } from '../../contexts/ThemeContext';
 import {
   Banknote,
@@ -27,7 +29,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 
-export type SplitMethod = 'CASH' | 'CHEQUE' | 'BANK_TRANSFER' | 'CARD';
+export type SplitMethod = 'CASH' | 'CHEQUE' | 'CARD' | 'BANK_TRANSFER';
 
 export interface SplitPaymentItem {
   id: string;
@@ -36,6 +38,7 @@ export interface SplitPaymentItem {
   date: string; // ISO DateTime string: YYYY-MM-DDTHH:mm or YYYY-MM-DD
   chequeNumber?: string;
   bankName?: string;
+  chequeDate?: string; // Maturity Date
   reference?: string;
 }
 
@@ -83,14 +86,6 @@ const METHOD_OPTIONS: {
     borderBadge: 'border-amber-300 dark:border-amber-800',
   },
   {
-    value: 'BANK_TRANSFER',
-    label: 'Bank T',
-    icon: Landmark,
-    color: 'text-blue-600 dark:text-blue-400',
-    bgColor: 'bg-blue-500/10 text-blue-700 dark:text-blue-300',
-    borderBadge: 'border-blue-300 dark:border-blue-800',
-  },
-  {
     value: 'CARD',
     label: 'Card',
     icon: CreditCard,
@@ -98,7 +93,32 @@ const METHOD_OPTIONS: {
     bgColor: 'bg-purple-500/10 text-purple-700 dark:text-purple-300',
     borderBadge: 'border-purple-300 dark:border-purple-800',
   },
+  {
+    value: 'BANK_TRANSFER',
+    label: 'Bank Transfer',
+    icon: Landmark,
+    color: 'text-blue-600 dark:text-blue-400',
+    bgColor: 'bg-blue-500/10 text-blue-700 dark:text-blue-300',
+    borderBadge: 'border-blue-300 dark:border-blue-800',
+  },
 ];
+
+const parseDateString = (str?: string): Date | undefined => {
+  if (!str) return undefined;
+  const parts = str.split('-');
+  if (parts.length !== 3) return undefined;
+  const [y, m, d] = parts.map(Number);
+  if (isNaN(y) || isNaN(m) || isNaN(d)) return undefined;
+  return new Date(y, m - 1, d);
+};
+
+const formatDateToString = (d?: Date): string => {
+  if (!d) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
 
 export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
   open,
@@ -120,6 +140,7 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
   const [entryDate, setEntryDate] = useState<string>(nowDateTimeStr);
   const [entryChequeNumber, setEntryChequeNumber] = useState<string>('');
   const [entryBankName, setEntryBankName] = useState<string>('');
+  const [entryChequeDate, setEntryChequeDate] = useState<string>('');
   const [entryReference, setEntryReference] = useState<string>('');
 
   // Editing split state
@@ -129,6 +150,7 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
   const [editDate, setEditDate] = useState<string>(nowDateTimeStr);
   const [editChequeNumber, setEditChequeNumber] = useState<string>('');
   const [editBankName, setEditBankName] = useState<string>('');
+  const [editChequeDate, setEditChequeDate] = useState<string>('');
   const [editReference, setEditReference] = useState<string>('');
 
   // Initialize or reset splits state when modal opens
@@ -148,12 +170,13 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
         setSplits([]);
       }
 
-      // Reset entry form
+      // Reset entry form (Zero auto-fill: user must enter received amount or click Fill Due)
       setEntryMethod('CASH');
-      setEntryAmount(totalBill > 0 ? String(totalBill) : '');
+      setEntryAmount('');
       setEntryDate(currentNow);
       setEntryChequeNumber('');
       setEntryBankName('');
+      setEntryChequeDate('');
       setEntryReference('');
       setEditingSplit(null);
     }
@@ -195,22 +218,24 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
       date: entryDate || nowDateTimeStr,
       chequeNumber: entryChequeNumber.trim() || undefined,
       bankName: entryBankName.trim() || undefined,
+      chequeDate: entryChequeDate || undefined,
       reference: entryReference.trim() || undefined,
     };
 
     setSplits((prev) => [...prev, newSplit]);
 
-    // Calculate new balance after adding this split
-    const nextRemaining = Math.max(0, remainingDue - num);
-    setEntryAmount(nextRemaining > 0 ? String(nextRemaining) : '');
+    // Keep entry amount empty after adding so subsequent payments require intentional entry
+    setEntryAmount('');
     setEntryChequeNumber('');
     setEntryBankName('');
+    setEntryChequeDate('');
     setEntryReference('');
     toast.success(`Payment of Rs. ${num.toLocaleString()} added`);
   };
 
   const handleAddPaymentEntry = handleAddSplitEntry;
 
+  // Real-time functional state update ensuring zero-lag recalculation of split balance
   const handleRemoveSplit = (id: string) => {
     setSplits((prev) => prev.filter((s) => s.id !== id));
     toast.info('Payment entry removed');
@@ -224,6 +249,7 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
     setEditDate(item.date || nowDateTimeStr);
     setEditChequeNumber(item.chequeNumber || '');
     setEditBankName(item.bankName || '');
+    setEditChequeDate(item.chequeDate || '');
     setEditReference(item.reference || '');
   };
 
@@ -247,6 +273,7 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
               date: editDate,
               chequeNumber: editChequeNumber.trim() || undefined,
               bankName: editBankName.trim() || undefined,
+              chequeDate: editChequeDate || undefined,
               reference: editReference.trim() || undefined,
             }
           : s
@@ -265,12 +292,29 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
   };
 
   const handleApply = () => {
-    const validSplits = splits.filter(
+    let validSplits = splits.filter(
       (s) => Number(s.amount) > 0 || (s.method === 'CHEQUE' && s.chequeNumber?.trim())
     );
 
+    // If queue is empty but user filled the entry form, stage and apply that single payment!
+    const uncommittedAmount = parseFloat(entryAmount);
+    if (validSplits.length === 0 && !isNaN(uncommittedAmount) && uncommittedAmount > 0) {
+      validSplits = [
+        {
+          id: `split-${Date.now()}`,
+          method: entryMethod,
+          amount: String(uncommittedAmount),
+          date: entryDate || nowDateTimeStr,
+          chequeNumber: entryChequeNumber.trim() || undefined,
+          bankName: entryBankName.trim() || undefined,
+          chequeDate: entryChequeDate || undefined,
+          reference: entryReference.trim() || undefined,
+        },
+      ];
+    }
+
     if (validSplits.length === 0 && totalBill > 0) {
-      toast.warn('Please add at least one payment entry');
+      toast.warn('Please enter or add at least one payment entry');
       return;
     }
 
@@ -283,14 +327,14 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
 
     onApply(validSplits);
     onOpenChange(false);
-    toast.success(`Split payment configuration applied (Rs. ${totalTendered.toLocaleString()} tendered)`);
+    toast.success(`Split payment configuration applied (Rs. ${validSplits.reduce((sum, s) => sum + (Number(s.amount) || 0), 0).toLocaleString()} tendered)`);
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg w-full max-h-[90vh] overflow-hidden p-0 border border-slate-200 dark:border-zinc-800 shadow-2xl rounded-2xl bg-white dark:bg-zinc-950 flex flex-col">
+      <DialogContent className="max-w-lg w-full max-h-[92vh] overflow-hidden overflow-x-hidden p-0 border border-slate-200 dark:border-zinc-800 shadow-2xl rounded-2xl bg-white dark:bg-zinc-950 flex flex-col">
         {/* Header Bar */}
-        <div className="p-4 pb-3 border-b border-slate-100 dark:border-zinc-800/80 bg-slate-50/50 dark:bg-zinc-900/40">
+        <div className="p-4 pb-3 border-b border-slate-100 dark:border-zinc-800/80 bg-slate-50/50 dark:bg-zinc-900/40 shrink-0">
           <DialogHeader className="gap-1">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
@@ -358,26 +402,31 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
           </div>
         </div>
 
-        {/* Modal Body */}
-        <div className="max-h-[85vh] overflow-y-auto px-4 py-3 space-y-3">
+        {/* Modal Body: Single Clean Vertical Scrollbar */}
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3.5 sm:px-4 py-3 space-y-3">
           {/* Section 1: Dedicated Add Payment Entry Form */}
           <form
             onSubmit={handleAddSplitEntry}
             className="p-3 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-900/60 space-y-2.5"
           >
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-zinc-200 flex items-center gap-1.5 whitespace-nowrap">
-                <Plus className="size-3.5 text-emerald-600" />
-                Add Payment Entry
+            {/* Header with Title and Responsive Fill Due Action */}
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-zinc-200 flex items-center gap-1.5 whitespace-nowrap truncate">
+                <Plus className="size-3.5 text-emerald-600 shrink-0" />
+                <span className="truncate">Add Payment Entry</span>
               </span>
               {remainingDue > 0 && (
-                <button
-                  type="button"
-                  onClick={handleFillEntryRemaining}
-                  className="text-[11px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 inline-flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-900/60 cursor-pointer whitespace-nowrap"
-                >
-                  <Sparkles className="size-3" /> Fill Due (Rs. {remainingDue.toLocaleString()})
-                </button>
+                <TooltipSimple content={`Fill full amount: Rs. ${remainingDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}`} side="top">
+                  <button
+                    type="button"
+                    onClick={handleFillEntryRemaining}
+                    title={`Fill full amount: Rs. ${remainingDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}`}
+                    className="text-[11px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 inline-flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-900/60 cursor-pointer whitespace-nowrap shrink-0 transition-colors shadow-2xs"
+                  >
+                    <Sparkles className="size-3 shrink-0 text-indigo-500" />
+                    <span>Fill</span>
+                  </button>
+                </TooltipSimple>
               )}
             </div>
 
@@ -396,7 +445,7 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
                   placeholder="Select Method"
                   searchPlaceholder="Search method..."
                   dark={dark}
-                  className="h-9 py-0 rounded-lg text-xs w-full"
+                  className="h-10 py-0 rounded-xl text-xs w-full"
                 />
               </div>
 
@@ -419,7 +468,7 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
                     onFocus={(e) => e.target.select()}
                     onClick={(e) => (e.target as HTMLInputElement).select()}
                     placeholder="0.00"
-                    className="pl-8 h-9 font-mono font-bold text-xs text-right bg-white dark:bg-zinc-900 rounded-lg w-full"
+                    className="pl-8 h-10 font-mono font-bold text-xs text-right bg-white dark:bg-zinc-900 rounded-xl w-full"
                   />
                 </div>
               </div>
@@ -439,50 +488,36 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
 
             {/* Contextual Extra Fields based on Method */}
             {entryMethod === 'CHEQUE' && (
-              <div className="w-full pt-1 border-t border-amber-200/40 dark:border-amber-900/40 animate-in fade-in duration-100">
-                <div className="w-full mb-2.5 space-y-1">
-                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Cheque Number *</label>
-                  <Input
-                    type="text"
-                    value={entryChequeNumber}
-                    onChange={(e) => setEntryChequeNumber(e.target.value)}
-                    placeholder="Cheque No (e.g. CHQ-994821) *"
-                    className="h-8.5 sm:h-9 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl border-amber-200 dark:border-amber-800/60 w-full"
-                  />
+              <div className="w-full pt-1 border-t border-amber-200/40 dark:border-amber-900/40 animate-in fade-in duration-100 space-y-2">
+                <div className="grid grid-cols-1 xs:grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Cheque Number *</label>
+                    <Input
+                      type="text"
+                      value={entryChequeNumber}
+                      onChange={(e) => setEntryChequeNumber(e.target.value)}
+                      placeholder="Cheque No (e.g. CHQ-994821) *"
+                      className="h-10 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl border-amber-200 dark:border-amber-800/60 w-full"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Bank / Branch Name</label>
+                    <Input
+                      type="text"
+                      value={entryBankName}
+                      onChange={(e) => setEntryBankName(e.target.value)}
+                      placeholder="Bank / Branch (e.g. Commercial Bank)"
+                      className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl border-amber-200 dark:border-amber-800/60 w-full"
+                    />
+                  </div>
                 </div>
-                <div className="w-full mb-2.5 space-y-1">
-                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Bank / Branch Name</label>
-                  <Input
-                    type="text"
-                    value={entryBankName}
-                    onChange={(e) => setEntryBankName(e.target.value)}
-                    placeholder="Bank / Branch (e.g. Commercial Bank - Colombo)"
-                    className="h-8.5 sm:h-9 text-xs bg-white dark:bg-zinc-900 rounded-xl border-amber-200 dark:border-amber-800/60 w-full"
-                  />
-                </div>
-              </div>
-            )}
-
-            {entryMethod === 'BANK_TRANSFER' && (
-              <div className="w-full pt-1 border-t border-blue-200/40 dark:border-blue-900/40 animate-in fade-in duration-100">
-                <div className="w-full mb-2.5 space-y-1">
-                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Bank Name</label>
-                  <Input
-                    type="text"
-                    value={entryBankName}
-                    onChange={(e) => setEntryBankName(e.target.value)}
-                    placeholder="Bank Name (e.g. Sampath Bank / HNB)"
-                    className="h-8.5 sm:h-9 text-xs bg-white dark:bg-zinc-900 rounded-xl border-blue-200 dark:border-blue-800/60 w-full"
-                  />
-                </div>
-                <div className="w-full mb-2.5 space-y-1">
-                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Transfer Ref / Slip No</label>
-                  <Input
-                    type="text"
-                    value={entryReference}
-                    onChange={(e) => setEntryReference(e.target.value)}
-                    placeholder="Transfer Ref / Slip No / Narration"
-                    className="h-8.5 sm:h-9 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl border-blue-200 dark:border-blue-800/60 w-full"
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Maturity Date (Pass Date)</label>
+                  <DatePicker
+                    date={parseDateString(entryChequeDate)}
+                    onDateChange={(d) => setEntryChequeDate(formatDateToString(d))}
+                    placeholder="Select maturity date"
+                    className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl border-amber-200 dark:border-amber-800/60 w-full"
                   />
                 </div>
               </div>
@@ -490,25 +525,54 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
 
             {entryMethod === 'CARD' && (
               <div className="w-full pt-1 border-t border-purple-200/40 dark:border-purple-900/40 animate-in fade-in duration-100">
-                <div className="w-full mb-2.5 space-y-1">
-                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Approval Code / POS Ref</label>
-                  <Input
-                    type="text"
-                    value={entryReference}
-                    onChange={(e) => setEntryReference(e.target.value)}
-                    placeholder="Card Approval Code / POS Ref No"
-                    className="h-8.5 sm:h-9 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl border-purple-200 dark:border-purple-800/60 w-full"
-                  />
+                <div className="grid grid-cols-1 xs:grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Approval Code / POS Ref</label>
+                    <Input
+                      type="text"
+                      value={entryReference}
+                      onChange={(e) => setEntryReference(e.target.value)}
+                      placeholder="Card Approval Code / POS Ref No"
+                      className="h-10 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl border-purple-200 dark:border-purple-800/60 w-full"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Card Type / Bank</label>
+                    <Input
+                      type="text"
+                      value={entryBankName}
+                      onChange={(e) => setEntryBankName(e.target.value)}
+                      placeholder="Card Type / Bank (e.g. Visa / Master)"
+                      className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl border-purple-200 dark:border-purple-800/60 w-full"
+                    />
+                  </div>
                 </div>
-                <div className="w-full mb-2.5 space-y-1">
-                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Card Type / Bank</label>
-                  <Input
-                    type="text"
-                    value={entryBankName}
-                    onChange={(e) => setEntryBankName(e.target.value)}
-                    placeholder="Card Type / Bank (e.g. Visa / Master)"
-                    className="h-8.5 sm:h-9 text-xs bg-white dark:bg-zinc-900 rounded-xl border-purple-200 dark:border-purple-800/60 w-full"
-                  />
+              </div>
+            )}
+
+            {entryMethod === 'BANK_TRANSFER' && (
+              <div className="w-full pt-1 border-t border-blue-200/40 dark:border-blue-900/40 animate-in fade-in duration-100">
+                <div className="grid grid-cols-1 xs:grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Bank Name</label>
+                    <Input
+                      type="text"
+                      value={entryBankName}
+                      onChange={(e) => setEntryBankName(e.target.value)}
+                      placeholder="Bank Name (e.g. Sampath Bank / HNB)"
+                      className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl border-blue-200 dark:border-blue-800/60 w-full"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Transfer Ref / Slip No</label>
+                    <Input
+                      type="text"
+                      value={entryReference}
+                      onChange={(e) => setEntryReference(e.target.value)}
+                      placeholder="Transfer Ref / Slip No / Narration"
+                      className="h-10 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl border-blue-200 dark:border-blue-800/60 w-full"
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -522,21 +586,21 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
                     value={entryReference}
                     onChange={(e) => setEntryReference(e.target.value)}
                     placeholder="Optional reference / drawer note..."
-                    className="h-8.5 sm:h-9 text-xs bg-white dark:bg-zinc-900 rounded-xl border-slate-200 dark:border-zinc-800 w-full"
+                    className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl border-slate-200 dark:border-zinc-800 w-full"
                   />
                 </div>
               </div>
             )}
 
-            {/* Dedicated Full-Width "+ Add to Split List" Action Button */}
+            {/* Dedicated Full-Width "Add Payment Entry" Action Button */}
             <button
               type="button"
               onClick={handleAddSplitEntry}
               disabled={!enteredAmount || enteredAmount <= 0}
-              className="w-full flex items-center justify-center gap-2 h-8 sm:h-9 py-1.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-semibold text-xs shadow-sm transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed select-none"
+              className="w-full flex items-center justify-center gap-2 h-9 py-1.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-bold text-xs shadow-sm transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed select-none"
             >
               <Plus className="size-3.5 sm:size-4" />
-              Add to Split List ({currentMethod} - Rs. {enteredAmount.toLocaleString()})
+              Add Payment Entry {enteredAmount > 0 ? `(${currentMethod} - Rs. ${enteredAmount.toLocaleString()})` : ''}
             </button>
           </form>
 
@@ -558,15 +622,15 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
             </div>
 
             {splits.length === 0 ? (
-              <div className="py-8 text-center rounded-2xl border border-dashed border-slate-200 dark:border-zinc-800 bg-slate-50/40 dark:bg-zinc-900/20">
+              <div className="py-6 text-center rounded-2xl border border-dashed border-slate-200 dark:border-zinc-800 bg-slate-50/40 dark:bg-zinc-900/20">
                 <Layers className="size-8 text-slate-300 dark:text-zinc-600 mx-auto mb-1.5" />
                 <p className="text-xs font-semibold text-slate-600 dark:text-zinc-400">No split payments added yet</p>
                 <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-0.5">
-                  Enter payment details above and click '+ Add to Split List' to record payments.
+                  Enter payment details above and click 'Add Payment Entry' to record payments.
                 </p>
               </div>
             ) : (
-              <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+              <div className="space-y-1.5 pr-0.5">
                 {splits.map((s) => {
                   const mConfig = METHOD_OPTIONS.find((m) => m.value === s.method) || METHOD_OPTIONS[0];
                   const IconComp = mConfig.icon;
@@ -574,39 +638,48 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
                   return (
                     <div
                       key={s.id}
-                      className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 group hover:border-slate-300 dark:hover:border-zinc-700 transition-colors shadow-xs"
+                      className="flex items-center justify-between text-xs p-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 group hover:border-slate-300 dark:hover:border-zinc-700 transition-colors shadow-xs gap-2"
                     >
                       {/* Left: Method Badge, Amount, Details */}
-                      <div className="flex items-center gap-2 flex-wrap min-w-0">
+                      <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap min-w-0 flex-1 overflow-hidden">
                         <span
-                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold inline-flex items-center gap-1 border ${mConfig.bgColor} ${mConfig.borderBadge}`}
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold inline-flex items-center gap-1 border ${mConfig.bgColor} ${mConfig.borderBadge} shrink-0`}
                         >
                           <IconComp className="size-3" />
                           {mConfig.label}
                         </span>
 
-                        <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-xs sm:text-sm">
+                        <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-xs sm:text-sm shrink-0">
                           Rs. {Number(s.amount || 0).toLocaleString('en-LK', { minimumFractionDigits: 2 })}
                         </span>
 
                         {s.chequeNumber && (
-                          <span className="font-mono text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-200/60 dark:border-amber-800/40">
+                          <span
+                            className="font-mono text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-200/60 dark:border-amber-800/40 truncate max-w-[120px] sm:max-w-[160px]"
+                            title={s.chequeNumber}
+                          >
                             #{s.chequeNumber}
                           </span>
                         )}
 
                         {s.bankName && (
                           <span
-                            className="text-slate-500 dark:text-zinc-400 text-[11px] truncate max-w-[140px] sm:max-w-[200px]"
+                            className="text-slate-500 dark:text-zinc-400 text-[11px] truncate max-w-[120px] sm:max-w-[160px]"
                             title={s.bankName}
                           >
                             ({s.bankName})
                           </span>
                         )}
 
+                        {s.chequeDate && (
+                          <span className="text-amber-600 dark:text-amber-400 text-[10px] font-mono shrink-0">
+                            Mat: {s.chequeDate}
+                          </span>
+                        )}
+
                         {s.reference && !s.chequeNumber && (
                           <span
-                            className="text-slate-500 dark:text-zinc-400 text-[11px] truncate max-w-[140px] sm:max-w-[200px]"
+                            className="text-slate-500 dark:text-zinc-400 text-[11px] truncate max-w-[120px] sm:max-w-[160px]"
                             title={s.reference}
                           >
                             ({s.reference})
@@ -615,16 +688,16 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
                       </div>
 
                       {/* Right: Date, Edit & Delete Icons */}
-                      <div className="flex items-center gap-2.5 shrink-0">
-                        <span className="text-slate-500 dark:text-zinc-400 text-[11px] font-mono">
+                      <div className="flex items-center gap-2 shrink-0 ml-auto">
+                        <span className="text-slate-500 dark:text-zinc-400 text-[11px] font-mono hidden xs:inline">
                           {s.date ? s.date.replace('T', ' ') : ''}
                         </span>
 
-                        <div className="flex items-center gap-1 border-l border-slate-200 dark:border-zinc-800 pl-2">
+                        <div className="flex items-center gap-1 border-l border-slate-200 dark:border-zinc-800 pl-1.5 sm:pl-2 shrink-0">
                           <button
                             type="button"
                             onClick={() => handleInitiateEdit(s)}
-                            className="p-1 rounded text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors cursor-pointer"
+                            className="p-1 rounded text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition-colors cursor-pointer shrink-0"
                             title="Edit Payment Entry"
                           >
                             <Pencil className="size-3.5" />
@@ -633,7 +706,7 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
                           <button
                             type="button"
                             onClick={() => handleRemoveSplit(s.id)}
-                            className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                            className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer shrink-0"
                             title="Delete Payment Entry"
                           >
                             <Trash2 className="size-3.5" />
@@ -648,8 +721,8 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
           </div>
         </div>
 
-        {/* Modal Footer */}
-        <DialogFooter className="p-3 sm:p-4 border-t border-slate-100 dark:border-zinc-800/80 bg-slate-50/50 dark:bg-zinc-900/40 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-2">
+        {/* Modal Footer with solid background and elevated z-index */}
+        <DialogFooter className="p-3 sm:p-4 border-t border-slate-100 dark:border-zinc-800/80 bg-white dark:bg-zinc-950 shrink-0 z-30 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] dark:shadow-[0_-4px_12px_rgba(0,0,0,0.4)] flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-2">
           <div className="text-xs text-slate-500 text-center sm:text-left truncate">
             {remainingDue > 0 ? (
               <span className="text-amber-600 font-semibold">
@@ -662,13 +735,13 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
             )}
           </div>
 
-          <div className="flex items-center justify-end gap-2 pt-2 sm:pt-0 space-y-1.5 sm:space-y-0">
+          <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center sm:justify-end pt-2 sm:pt-0">
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={() => onOpenChange(false)}
-              className="h-8 text-xs font-semibold rounded-xl flex-1 sm:flex-initial"
+              className="h-9 text-xs font-semibold px-3 rounded-xl w-full sm:w-auto"
             >
               Cancel
             </Button>
@@ -676,10 +749,10 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
               type="button"
               size="sm"
               onClick={handleApply}
-              disabled={splits.length === 0 && totalBill > 0}
-              className="h-8 text-xs font-bold px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex-1 sm:flex-initial"
+              disabled={splits.length === 0 && (!parseFloat(entryAmount) || parseFloat(entryAmount) <= 0) && totalBill > 0}
+              className="h-9 text-xs font-bold px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto whitespace-nowrap"
             >
-              Apply &amp; Save ({splits.length} splits)
+              Apply Payment
             </Button>
           </div>
         </DialogFooter>
@@ -715,7 +788,7 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
                   placeholder="Select Method"
                   searchPlaceholder="Search method..."
                   dark={dark}
-                  className="h-8 py-0 rounded-xl"
+                  className="h-10 py-0 rounded-xl text-xs"
                 />
               </div>
 
@@ -733,7 +806,7 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
                     onFocus={(e) => e.target.select()}
                     onClick={(e) => (e.target as HTMLInputElement).select()}
                     placeholder="0.00"
-                    className="pl-9 h-8 font-mono font-bold text-xs text-right bg-white dark:bg-zinc-900 rounded-xl"
+                    className="pl-9 h-10 font-mono font-bold text-xs text-right bg-white dark:bg-zinc-900 rounded-xl"
                   />
                 </div>
               </div>
@@ -750,25 +823,36 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
             </div>
 
             {editMethod === 'CHEQUE' && (
-              <div className="w-full mb-3 mt-1 pt-1.5 border-t border-slate-100 dark:border-zinc-800">
-                <div className="w-full mb-3 space-y-1">
-                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Cheque Number *</label>
-                  <Input
-                    type="text"
-                    value={editChequeNumber}
-                    onChange={(e) => setEditChequeNumber(e.target.value)}
-                    placeholder="e.g. CHQ-994821"
-                    className="h-8 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl w-full"
-                  />
+              <div className="w-full mb-3 mt-1 pt-1.5 border-t border-slate-100 dark:border-zinc-800 space-y-2">
+                <div className="grid grid-cols-1 xs:grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Cheque Number *</label>
+                    <Input
+                      type="text"
+                      value={editChequeNumber}
+                      onChange={(e) => setEditChequeNumber(e.target.value)}
+                      placeholder="e.g. CHQ-994821"
+                      className="h-10 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl w-full"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Bank Name / Branch</label>
+                    <Input
+                      type="text"
+                      value={editBankName}
+                      onChange={(e) => setEditBankName(e.target.value)}
+                      placeholder="e.g. Commercial Bank"
+                      className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl w-full"
+                    />
+                  </div>
                 </div>
-                <div className="w-full mb-3 space-y-1">
-                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Bank Name / Branch</label>
-                  <Input
-                    type="text"
-                    value={editBankName}
-                    onChange={(e) => setEditBankName(e.target.value)}
-                    placeholder="e.g. Commercial Bank"
-                    className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl w-full"
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Maturity Date (Pass Date)</label>
+                  <DatePicker
+                    date={parseDateString(editChequeDate)}
+                    onDateChange={(d) => setEditChequeDate(formatDateToString(d))}
+                    placeholder="Select maturity date"
+                    className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl w-full"
                   />
                 </div>
               </div>
@@ -783,7 +867,7 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
                     value={editBankName}
                     onChange={(e) => setEditBankName(e.target.value)}
                     placeholder="e.g. Sampath Bank"
-                    className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl w-full"
+                    className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl w-full"
                   />
                 </div>
                 <div className="w-full mb-3 space-y-1">
@@ -793,7 +877,7 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
                     value={editReference}
                     onChange={(e) => setEditReference(e.target.value)}
                     placeholder="e.g. REF-88129"
-                    className="h-8 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl w-full"
+                    className="h-10 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl w-full"
                   />
                 </div>
               </div>
@@ -808,7 +892,7 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
                     value={editReference}
                     onChange={(e) => setEditReference(e.target.value)}
                     placeholder="e.g. AUTH-4491"
-                    className="h-8 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl w-full"
+                    className="h-10 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl w-full"
                   />
                 </div>
                 <div className="w-full mb-3 space-y-1">
@@ -818,7 +902,7 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
                     value={editBankName}
                     onChange={(e) => setEditBankName(e.target.value)}
                     placeholder="e.g. Visa / Master"
-                    className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl w-full"
+                    className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl w-full"
                   />
                 </div>
               </div>
@@ -833,7 +917,7 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
                     value={editReference}
                     onChange={(e) => setEditReference(e.target.value)}
                     placeholder="Optional reference note"
-                    className="h-8 text-xs bg-white dark:bg-zinc-900 rounded-xl w-full"
+                    className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl w-full"
                   />
                 </div>
               </div>
