@@ -258,7 +258,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
    */
   const hasPermission = useCallback((permission: string): boolean => {
     if (!user) return false;
-    if (user.role === 'ADMIN') return true;
+    if (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN') return true;
     if (!permission) return true;
     const permissions = user.permissions || getDefaultPermissionsForRole(user.role);
     if (permissions.includes(permission)) return true;
@@ -278,7 +278,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         logout,
         isAuthenticated: !!user && !!token,
-        isAdmin: user?.role === 'ADMIN',
+        isAdmin: user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN',
         isRep: user?.role === 'REP',
         hasPermission,
       }}

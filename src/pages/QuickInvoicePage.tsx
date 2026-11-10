@@ -28,8 +28,10 @@ import {
 import { A4InvoiceModal } from '../components/pos/A4InvoiceModal';
 import { ThermalReceipt80mm } from '../components/pos/ThermalReceipt80mm';
 import { ProductPreviewModal } from '../components/pos/ProductPreviewModal';
+import { CustomerPreviewModal } from '../components/customers/CustomerPreviewModal';
 import { AnimatedInlineQtyInput } from '../components/pos/AnimatedInlineQtyInput';
 import { SplitPaymentModal, type SplitPaymentItem } from '../components/pos/SplitPaymentModal';
+import { PrintPaymentReceipt } from '../components/pos/PrintPaymentReceipt';
 import { isValidSriLankanNIC, isValidSriLankanPhone } from '../utils/validators';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -192,6 +194,7 @@ export const QuickInvoicePage: React.FC = () => {
 
   // Checkout and Customer states
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('walk-in');
+  const [customerPreviewOpen, setCustomerPreviewOpen] = useState<boolean>(false);
   const [clientGivenCash, setClientGivenCash] = useState<string>('');
   const [excessMode, setExcessMode] = useState<'CHANGE' | 'SETTLE_DUE'>('CHANGE');
   // Payment methods: Cash, Card, Bank Transfer, Cheque, and Credit (default to CREDIT when no cash is tendered)
@@ -206,6 +209,23 @@ export const QuickInvoicePage: React.FC = () => {
   const [cheques, setCheques] = useState<ChequeEntry[]>([
     { id: '1', chequeNumber: '', bankName: '', chequeDate: new Date().toISOString().split('T')[0], amount: '' },
   ]);
+  const [isPrintingSplitReceipt, setIsPrintingSplitReceipt] = useState<boolean>(false);
+
+  /**
+   * Triggers 80mm thermal receipt printing for active split payments.
+   * Utilizes 150ms timeout to ensure React paints the printable receipt to the DOM before print freeze.
+   */
+  const handlePrintSplitReceipt = () => {
+    if (splitPayments.length === 0) {
+      toast.info('No split payments configured to print.');
+      return;
+    }
+    setIsPrintingSplitReceipt(true);
+    setTimeout(() => {
+      window.print();
+      setIsPrintingSplitReceipt(false);
+    }, 150);
+  };
 
   // ⭐ Inline unit price edit state for returns and custom rates
   const [editingPriceIndex, setEditingPriceIndex] = useState<number | null>(null);
@@ -2558,6 +2578,15 @@ export const QuickInvoicePage: React.FC = () => {
                 <div className="flex items-center gap-1.5 min-w-0">
                   <User className="size-3.5 shrink-0 opacity-70" />
                   <span className="font-bold text-xs truncate">{selectedCustomer.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => setCustomerPreviewOpen(true)}
+                    className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-emerald-700 dark:text-emerald-300 transition-colors shrink-0 cursor-pointer"
+                    title="Quick Customer Profile Preview"
+                    aria-label={`Preview profile for ${selectedCustomer.name}`}
+                  >
+                    <User size={12.5} />
+                  </button>
                   <span className="text-[10.5px] opacity-75 truncate">
                     ({selectedCustomer.phone}{selectedCustomer.city ? ` · ${selectedCustomer.city}` : ''})
                   </span>
@@ -3645,6 +3674,16 @@ export const QuickInvoicePage: React.FC = () => {
                   <span className="text-slate-300 dark:text-zinc-700">·</span>
                   <button
                     type="button"
+                    onClick={handlePrintSplitReceipt}
+                    className="text-[9.5px] font-bold text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300 underline cursor-pointer flex items-center gap-0.5"
+                    title="Print 80mm POS Thermal Receipt for split payments"
+                  >
+                    <Printer className="size-2.5 inline" />
+                    <span>Print POS</span>
+                  </button>
+                  <span className="text-slate-300 dark:text-zinc-700">·</span>
+                  <button
+                    type="button"
                     onClick={() => {
                       setSplitPayments([]);
                       setCheques([{ id: '1', chequeNumber: '', bankName: '', chequeDate: new Date().toISOString().split('T')[0], amount: '' }]);
@@ -3996,11 +4035,22 @@ export const QuickInvoicePage: React.FC = () => {
                       <User className="size-2.5" />
                     </div>
                     <div className="min-w-0 leading-tight">
-                      <span className={`font-semibold text-[11px] truncate block ${
-                        previousDue > 0 ? 'text-amber-950 dark:text-amber-100' : 'text-slate-900 dark:text-white'
-                      }`}>
-                        {selectedCustomer.name}
-                      </span>
+                      <div className="flex items-center gap-1">
+                        <span className={`font-semibold text-[11px] truncate block ${
+                          previousDue > 0 ? 'text-amber-950 dark:text-amber-100' : 'text-slate-900 dark:text-white'
+                        }`}>
+                          {selectedCustomer.name}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setCustomerPreviewOpen(true)}
+                          className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 text-emerald-700 dark:text-emerald-400 transition-colors shrink-0 cursor-pointer"
+                          title="Quick Customer Profile Preview"
+                          aria-label={`Preview profile for ${selectedCustomer.name}`}
+                        >
+                          <User size={11} />
+                        </button>
+                      </div>
                       <span className={`text-[9.5px] font-mono block leading-none truncate opacity-80 ${
                         previousDue > 0 ? 'text-amber-700 dark:text-amber-300' : 'text-slate-500 dark:text-zinc-400'
                       }`}>
@@ -4671,6 +4721,16 @@ export const QuickInvoicePage: React.FC = () => {
                       <span className="text-slate-300 dark:text-zinc-700">·</span>
                       <button
                         type="button"
+                        onClick={handlePrintSplitReceipt}
+                        className="text-[9.5px] font-bold text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300 underline cursor-pointer flex items-center gap-0.5"
+                        title="Print 80mm POS Thermal Receipt for split payments"
+                      >
+                        <Printer className="size-2.5 inline" />
+                        <span>Print POS</span>
+                      </button>
+                      <span className="text-slate-300 dark:text-zinc-700">·</span>
+                      <button
+                        type="button"
                         onClick={() => {
                           setSplitPayments([]);
                           setCheques([{ id: '1', chequeNumber: '', bankName: '', chequeDate: new Date().toISOString().split('T')[0], amount: '' }]);
@@ -5052,6 +5112,9 @@ export const QuickInvoicePage: React.FC = () => {
         }
         onApply={handleApplySplitPayments}
         dark={dark}
+        customerName={selectedCustomer?.name || 'Walk-in Customer'}
+        customerPhone={selectedCustomer?.phone}
+        invoiceNumber={originalInvoice?.invoiceNumber || (originalInvoice?.id ? `INV-${originalInvoice.id}` : undefined)}
       />
 
       {/* Product Detailed Specs & Preview Modal (Eye Icon Trigger) */}
@@ -5087,6 +5150,26 @@ export const QuickInvoicePage: React.FC = () => {
 
       {/* Dedicated Hidden 80mm Thermal Receipt Layout (X-Printer format) */}
       <ThermalReceipt80mm order={savedOrderForPrint} />
+
+      {/* Hidden printable consolidated receipt for POS split payments */}
+      {isPrintingSplitReceipt && (
+        <PrintPaymentReceipt
+          payments={splitPayments}
+          invoiceTotal={total}
+          customerName={selectedCustomer?.name || 'Walk-in Customer'}
+          customerPhone={selectedCustomer?.phone}
+          customerCity={selectedCustomer?.city}
+          invoiceNumber={originalInvoice?.invoiceNumber || (originalInvoice?.id ? `INV-${originalInvoice.id}` : undefined)}
+          remainingBalance={totalAccumulatedDue}
+        />
+      )}
+
+      {/* Quick Customer Profile Preview Modal */}
+      <CustomerPreviewModal
+        open={customerPreviewOpen}
+        onClose={() => setCustomerPreviewOpen(false)}
+        customer={selectedCustomer}
+      />
 
       {/* Standard A4 Invoice Modal (Cross-Print & PDF Inspection) */}
       {a4ModalOpen && a4ModalOrder && (

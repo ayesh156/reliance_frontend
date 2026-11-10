@@ -598,13 +598,20 @@ export async function generateGarmentProductionPdf(
         const logged = Array.isArray(r.finishLogs) && r.finishLogs.length > 0
           ? r.finishLogs.reduce((acc: number, f: any) => acc + (Number(f.quantityFinished) || 0), 0)
           : 0;
-        return s + (logged > 0 ? logged : Number(r.completedQty ?? r.washedQty ?? 0));
+        const finished = logged > 0
+          ? logged
+          : (Number(r.completedQty || 0) > 0 ? Number(r.completedQty) : Number(r.washedQty || 0));
+        return s + finished;
       }, 0)
   );
   const fullyFinishedSynced = Number(
     summary.fullyFinishedSynced ??
       summary.syncedToInventory ??
-      rawRows.reduce((s, r) => (r.isStockSynced && r.status !== 'CANCELLED' ? s + Number(r.completedQty ?? r.washedQty ?? 0) : s), 0)
+      rawRows.reduce((s, r) => {
+        const isSynced = Boolean(r.isStockSynced) && r.status !== 'CANCELLED';
+        const finished = Number(r.completedQty || 0) > 0 ? Number(r.completedQty) : Number(r.washedQty || 0);
+        return isSynced ? s + finished : s;
+      }, 0)
   );
 
   // 6-Stage Production Funnel KPI Cards (rendered in 2 rows of 3)
@@ -654,7 +661,9 @@ export async function generateGarmentProductionPdf(
     const loggedFinish = Array.isArray(r.finishLogs) && r.finishLogs.length > 0
       ? r.finishLogs.reduce((acc: number, f: any) => acc + (Number(f.quantityFinished) || 0), 0)
       : 0;
-    const finished = loggedFinish > 0 ? loggedFinish : Number(r.completedQty ?? r.washedQty ?? 0);
+    const finished = loggedFinish > 0
+      ? loggedFinish
+      : (Number(r.completedQty || 0) > 0 ? Number(r.completedQty) : Number(r.washedQty || 0));
     const statusText = r.isStockSynced
       ? 'IN STOCK'
       : r.status === 'FINISHED_PENDING_STOCK'

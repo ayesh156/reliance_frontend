@@ -37,7 +37,9 @@ import {
   Landmark,
   AlertTriangle,
   Check,
+  Printer,
 } from 'lucide-react';
+import { PrintPaymentReceipt, type PaymentReceiptData } from '../pos/PrintPaymentReceipt';
 import { get, put, post, del } from '../../lib/api';
 import { toast } from 'react-toastify';
 import { DatePicker } from '../ui/date-picker';
@@ -273,6 +275,67 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
   const [receiptStartDate, setReceiptStartDate] = useState<string>('');
   const [receiptEndDate, setReceiptEndDate] = useState<string>('');
   const [expandedReceiptId, setExpandedReceiptId] = useState<number | null>(null);
+
+  // 80mm Thermal Payment Receipt Print State
+  const [paymentReceiptToPrint, setPaymentReceiptToPrint] = useState<PaymentReceiptData | null>(null);
+
+  /**
+   * Triggers clean 80mm thermal receipt printing for an individual settlement payment
+   */
+  const handlePrintPaymentReceipt = (payment: any, cust?: any, invoiceNumber?: string) => {
+    let chqNum = payment.chequeNumber;
+    let bName = payment.bankName;
+    if (!chqNum && payment.reference) {
+      const matchNum = /Cheque\s*#?([^\s(]+)/i.exec(payment.reference);
+      if (matchNum) chqNum = matchNum[1];
+      const matchBank = /\(([^)]+)\)/.exec(payment.reference);
+      if (matchBank) bName = matchBank[1];
+    }
+
+    setPaymentReceiptToPrint({
+      receiptNumber: payment.receiptNumber || `PAY-${payment.id}`,
+      date: payment.createdAt || payment.paymentDate || new Date().toISOString(),
+      customerName: cust?.name || 'Customer',
+      customerPhone: cust?.phone,
+      customerCity: cust?.city,
+      paymentMethod: payment.method || 'CASH',
+      amount: Number(payment.amount) || 0,
+      chequeNumber: chqNum,
+      bankName: bName,
+      chequeDate: payment.chequeDate,
+      chequeStatus: payment.chequeStatus,
+      invoiceNumber: invoiceNumber,
+      reference: payment.reference,
+      remainingBalance: cust?.outstandingBalance !== undefined ? Number(cust.outstandingBalance) : undefined,
+    });
+
+    // 150ms timeout ensures React commits the rendered receipt to the DOM before print dialog freezes the thread
+    setTimeout(() => {
+      window.print();
+    }, 150);
+  };
+
+  /**
+   * Triggers clean 80mm thermal receipt printing for a consolidated Master Receipt
+   */
+  const handlePrintMasterReceipt = (receipt: any, cust?: any) => {
+    setPaymentReceiptToPrint({
+      receiptNumber: receipt.receiptNumber || `REC-${receipt.id}`,
+      date: receipt.createdAt || new Date().toISOString(),
+      customerName: cust?.name || 'Customer',
+      customerPhone: cust?.phone,
+      customerCity: cust?.city,
+      paymentMethod: receipt.paymentMethod || 'CASH',
+      amount: Number(receipt.totalAmount) || 0,
+      reference: receipt.reference,
+      remainingBalance: cust?.outstandingBalance !== undefined ? Number(cust.outstandingBalance) : undefined,
+    });
+
+    // 150ms timeout ensures React commits the rendered receipt to the DOM before print dialog freezes the thread
+    setTimeout(() => {
+      window.print();
+    }, 150);
+  };
 
   const fetchMasterReceipts = async () => {
     if (!customer?.id) return;
@@ -1217,6 +1280,17 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                                 type="button"
                                 size="sm"
                                 variant="outline"
+                                onClick={() => handlePrintMasterReceipt(receipt, customer)}
+                                className="h-8 px-2.5 text-xs text-emerald-700 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300 inline-flex items-center gap-1 border-emerald-300 dark:border-emerald-700/60 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer transition-colors shadow-2xs"
+                                title="Print 80mm Thermal Receipt"
+                              >
+                                <Printer className="size-3.5" />
+                                <span className="text-[11px] font-semibold hidden sm:inline">Print Receipt</span>
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
                                 onClick={() => setExpandedReceiptId(isExpanded ? null : receipt.id)}
                                 className="h-8 px-2.5 text-xs text-slate-600 hover:text-slate-900 dark:text-zinc-300 dark:hover:text-white inline-flex items-center gap-1 border-slate-200 dark:border-zinc-700 hover:border-emerald-400 cursor-pointer transition-colors shadow-2xs"
                                 title={isExpanded ? 'Hide Breakdown' : 'View Cleared Bills'}
@@ -1534,8 +1608,17 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                                     )}
                                   </div>
 
-                                  {/* Action triggers: Edit Payment & Delete Payment */}
+                                  {/* Action triggers: Print Thermal Receipt, Edit Payment & Delete Payment */}
                                   <div className="flex items-center gap-1 shrink-0 self-end sm:self-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => handlePrintPaymentReceipt(p, customer, `INV-${inv.id}`)}
+                                      className="h-6 px-1.5 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center gap-1 font-semibold text-[11px] cursor-pointer transition-colors"
+                                      title="Print 80mm Thermal Receipt"
+                                    >
+                                      <Printer className="size-3" />
+                                      <span>Print</span>
+                                    </button>
                                     <button
                                       type="button"
                                       onClick={() => handleInitiateEditPayment(p)}
@@ -2171,6 +2254,9 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Hidden 80mm Thermal Receipt Layout for Settlements */}
+      <PrintPaymentReceipt receipt={paymentReceiptToPrint} />
     </>
   );
 };

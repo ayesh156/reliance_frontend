@@ -65,7 +65,9 @@ import {
   Sparkles,
   Droplets,
   PackageCheck,
+  User,
 } from 'lucide-react';
+import { CustomerPreviewModal } from '../components/customers/CustomerPreviewModal';
 import {
   ResponsiveContainer,
   BarChart,
@@ -132,6 +134,35 @@ export const ReportsPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [activeChequeTab, setActiveChequeTab] = useState<'PENDING' | 'REALIZED' | 'BOUNCED' | 'ALL'>('PENDING');
 
+  // User / Sales Rep Filter & Staff Directory
+  const [selectedUserId, setSelectedUserId] = useState<string>('all');
+  const [staffUsers, setStaffUsers] = useState<Array<{ id: number; name: string; role?: string; email?: string }>>([]);
+
+  // Quick Customer Profile Preview Modal State
+  const [previewCustomer, setPreviewCustomer] = useState<any>(null);
+  const [previewCustomerModalOpen, setPreviewCustomerModalOpen] = useState<boolean>(false);
+
+  // Fetch Staff / Sales Reps for report filtering
+  useEffect(() => {
+    get<any[]>('/users')
+      .then((data) => setStaffUsers(Array.isArray(data) ? data : []))
+      .catch(() => {
+        get<any[]>('/sales-persons')
+          .then((data) => setStaffUsers(Array.isArray(data) ? data : []))
+          .catch(() => {});
+      });
+  }, []);
+
+  const userSelectOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: 'all', label: 'All Users / Reps' },
+    ...staffUsers
+      .filter((u) => u.role !== 'SUPER_ADMIN' && !String(u.name || '').toLowerCase().includes('ayesh'))
+      .map((u) => ({
+        value: String(u.id),
+        label: `${u.name} (${u.role || 'STAFF'})`,
+      })),
+  ], [staffUsers]);
+
   // ⭐ Interactive Financial Breakdown Audit Modal State
   const [auditModalOpen, setAuditModalOpen] = useState<boolean>(false);
   const [auditFocusMetric, setAuditFocusMetric] = useState<FinancialMetricFocus>('grossRevenue');
@@ -170,6 +201,11 @@ export const ReportsPage: React.FC = () => {
     const params = new URLSearchParams();
     params.set('preset', activePreset);
 
+    if (selectedUserId !== 'all') {
+      params.set('repUserId', selectedUserId);
+      params.set('userId', selectedUserId);
+    }
+
     if (activePreset === 'custom' && customRange?.from) {
       const startStr = format(customRange.from, 'yyyy-MM-dd');
       const endStr = format(customRange.to || customRange.from, 'yyyy-MM-dd');
@@ -206,12 +242,12 @@ export const ReportsPage: React.FC = () => {
     }
   };
 
-  // Auto-reset pagination state to Page 1 whenever switching domain tabs or presets
+  // Auto-reset pagination state to Page 1 whenever switching domain tabs, presets, or rep/user filters
   useEffect(() => {
     fetchReport();
     setSearchQuery('');
     setCurrentPage(1);
-  }, [activeModule, activePreset]);
+  }, [activeModule, activePreset, selectedUserId]);
 
   /**
    * Defensive Date Range Change Handler for Reports module.
@@ -746,48 +782,56 @@ export const ReportsPage: React.FC = () => {
       const logged = Array.isArray(row.finishLogs) && row.finishLogs.length > 0
         ? row.finishLogs.reduce((acc: number, f: any) => acc + (Number(f.quantityFinished) || 0), 0)
         : 0;
-      return sum + (logged > 0 ? logged : Number(row.completedQty ?? row.washedQty ?? 0));
+      const finished = logged > 0
+        ? logged
+        : (Number(row.completedQty || 0) > 0 ? Number(row.completedQty) : Number(row.washedQty || 0));
+      return sum + finished;
     }, 0);
 
     // 6. Stage 6 (Finished Stock): Fully Finished / Synced to Inventory
     const fullyFinishedSynced = rows.reduce((sum, row) => {
       const isSynced = Boolean(row.isStockSynced) && row.status !== 'CANCELLED';
-      const finished = Number(row.completedQty > 0 ? row.completedQty : (row.washedQty || 0));
+      const finished = Number(row.completedQty || 0) > 0 ? Number(row.completedQty) : Number(row.washedQty || 0);
       return isSynced ? sum + finished : sum;
     }, 0);
 
     // Overall Finished & WIP backwards-compatibility metrics
-    const completedQuantity = rows.reduce((sum, row) => {
-      const finished = Number(row.washedQty > 0 ? row.washedQty : (row.completedQty ?? row.totalFinishedUnits ?? 0));
-      return sum + finished;
-    }, 0);
+    const completedQuantity = ironedAndPacked;
 
     const currentWip = rows.reduce((sum, row) => {
       if (row.status !== 'CANCELLED' && row.status !== 'COMPLETED') {
         const cut = Number(row.cutQty > 0 ? row.cutQty : (row.totalCutUnits ?? row.targetQuantity ?? 0));
-        const done = Number(row.washedQty > 0 ? row.washedQty : (row.completedQty ?? 0));
+        const done = Number(row.completedQty || 0) > 0 ? Number(row.completedQty) : Number(row.washedQty || 0);
         return sum + Math.max(0, cut - done);
       }
       return sum;
     }, 0);
 
     const pendingStockSync = rows.reduce((sum, row) => {
-      const finished = Number(row.washedQty > 0 ? row.washedQty : (row.completedQty ?? 0));
+      const finished = Number(row.completedQty || 0) > 0 ? Number(row.completedQty) : Number(row.washedQty || 0);
       const isCompleted = row.status !== 'CANCELLED' && (finished > 0 || row.status === 'COMPLETED');
       return (!row.isStockSynced && isCompleted) ? sum + finished : sum;
     }, 0);
 
     const totalScrapReturned = rows.reduce((sum, row) => {
-      const scrap = Number(row.scrapReturned ?? (Array.isArray(row.materialUsages)
-        ? row.materialUsages.reduce((acc: number, u: any) => acc + (Number(u.returnedScrap ?? u.returnedQty) || 0), 0)
-        : 0));
+      const scrap = Number(
+        row.scrapReturned !== undefined && Number(row.scrapReturned) > 0
+          ? row.scrapReturned
+          : (Array.isArray(row.materialUsages) && row.materialUsages.length > 0
+            ? row.materialUsages.reduce((acc: number, u: any) => acc + (Number(u.returnedScrap ?? u.returnedQty) || 0), 0)
+            : (Array.isArray(row.activityLogs)
+              ? row.activityLogs
+                  .filter((a: any) => a.action === 'RETURNED_SCRAP' || a.action === 'RETURNED')
+                  .reduce((acc: number, a: any) => acc + (Number(a.quantity) || 0), 0)
+              : 0))
+      );
       return sum + scrap;
     }, 0);
 
     const targetQuantity = rows.reduce((sum, row) => sum + Number(row.targetQuantity || 0), 0);
     const overallYieldDivisor = totalCutPieces > 0 ? totalCutPieces : targetQuantity;
     const overallYieldPercentage = overallYieldDivisor > 0
-      ? Math.round((ironedAndPacked / overallYieldDivisor) * 1000) / 10
+      ? Math.round((ironedAndPacked / overallYieldDivisor) * 10000) / 100
       : (summary.overallYieldPercentage || 0);
 
     return {
@@ -872,7 +916,67 @@ export const ReportsPage: React.FC = () => {
           finishedQty: Math.round((d.finishedQty || 0) * 100) / 100,
         })).reverse();
       }
-      return (filteredRows && filteredRows.length > 0 ? filteredRows : (reportData.tableItems || [])).slice(0, 8).map((item: any) => ({
+
+      // Dynamic extraction of stage-specific logs grouped by execution date
+      const dateMap: Record<string, { date: string; cutQty: number; sewnQty: number; washedQty: number; finishedQty: number }> = {};
+      const getDay = (dateStr: string) => {
+        const d = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr.slice(0, 10);
+        if (!dateMap[d]) dateMap[d] = { date: d, cutQty: 0, sewnQty: 0, washedQty: 0, finishedQty: 0 };
+        return dateMap[d];
+      };
+
+      const sourceRows = filteredRows && filteredRows.length > 0 ? filteredRows : (reportData.tableItems || []);
+      sourceRows.forEach((row: any) => {
+        if (Array.isArray(row.cutLogs) && row.cutLogs.length > 0) {
+          row.cutLogs.forEach((cl: any) => {
+            if (cl.cutDate) getDay(cl.cutDate).cutQty += Number(cl.quantityCut || 0);
+          });
+        } else if (row.productionDate) {
+          getDay(row.productionDate).cutQty += Number(row.cutQty || row.totalCutUnits || 0);
+        }
+
+        if (Array.isArray(row.activityLogs) && row.activityLogs.length > 0) {
+          row.activityLogs.forEach((al: any) => {
+            if (!al.timestamp) return;
+            const act = String(al.action || '').toUpperCase();
+            const stg = String(al.stage || '').toUpperCase();
+            const q = Number(al.quantity || 0);
+            if (act === 'SEWN' || act === 'LOG_SEWN' || stg === 'LINE') {
+              getDay(al.timestamp).sewnQty += q;
+            } else if (stg === 'WASHING' || act.includes('WASH')) {
+              getDay(al.timestamp).washedQty += q;
+            } else if (stg === 'COMPLETED' || act === 'FINALIZED') {
+              getDay(al.timestamp).finishedQty += q;
+            }
+          });
+        } else {
+          if (row.productionDate && Number(row.sewnQty || 0) > 0) getDay(row.productionDate).sewnQty += Number(row.sewnQty);
+          if (row.productionDate && Number(row.washedQty || 0) > 0) getDay(row.productionDate).washedQty += Number(row.washedQty);
+        }
+
+        if (Array.isArray(row.finishLogs) && row.finishLogs.length > 0) {
+          row.finishLogs.forEach((fl: any) => {
+            const fDate = fl.finishDate || fl.date;
+            if (fDate) getDay(fDate).finishedQty += Number(fl.quantityFinished || fl.quantity || 0);
+          });
+        } else if (Number(row.completedQty || 0) > 0) {
+          const fDate = row.stockSyncedAt || row.productionDate;
+          if (fDate) getDay(fDate).finishedQty += Number(row.completedQty);
+        }
+      });
+
+      const sortedDays = Object.values(dateMap).sort((a, b) => a.date.localeCompare(b.date));
+      if (sortedDays.length > 0) {
+        return sortedDays.slice(-10).map((d) => ({
+          name: d.date ? d.date.slice(5) : 'Date',
+          cutQty: Math.round(d.cutQty * 100) / 100,
+          sewnQty: Math.round(d.sewnQty * 100) / 100,
+          washedQty: Math.round(d.washedQty * 100) / 100,
+          finishedQty: Math.round(d.finishedQty * 100) / 100,
+        }));
+      }
+
+      return sourceRows.slice(0, 8).map((item: any) => ({
         name: item.productionNo,
         cutQty: Math.round(Number(item.cutQty || item.totalCutUnits || 0) * 100) / 100,
         sewnQty: Math.round(Number(item.sewnQty || 0) * 100) / 100,
@@ -1263,6 +1367,21 @@ export const ReportsPage: React.FC = () => {
                 className="h-8 text-xs rounded-lg w-full"
               />
             </div>
+
+            {/* Rep / User Filter Dropdown */}
+            {!isRep && (
+              <div className="w-full sm:w-48 lg:w-56 shrink-0">
+                <SearchableSelect
+                  value={selectedUserId}
+                  onValueChange={(val) => setSelectedUserId(val)}
+                  options={userSelectOptions}
+                  placeholder="All Users / Reps"
+                  searchPlaceholder="Filter rep / user..."
+                  dark={dark}
+                  className="h-8 text-xs rounded-lg w-full"
+                />
+              </div>
+            )}
           </div>
 
           {/* Right Corner: Selected Badge & Chart Toggle Button */}
@@ -2256,7 +2375,22 @@ export const ReportsPage: React.FC = () => {
                               <td className="py-2.5 px-3 font-mono font-medium text-blue-600 dark:text-blue-400 whitespace-nowrap">{row.invoiceNumber}</td>
                               <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">{row.createdAt?.split('T')[0]}</td>
                               <td className="py-2.5 px-3 font-medium text-slate-800 dark:text-zinc-200 break-words whitespace-normal">
-                                <div>{row.customerName}</div>
+                                <div className="flex items-center gap-1.5">
+                                  <span>{row.customerName}</span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setPreviewCustomer(row.customer || { id: row.customerId, name: row.customerName, phone: row.customerPhone });
+                                      setPreviewCustomerModalOpen(true);
+                                    }}
+                                    className="p-0.5 rounded text-slate-400 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors shrink-0 cursor-pointer"
+                                    title="Quick Customer Profile Preview"
+                                    aria-label={`Preview customer profile for ${row.customerName}`}
+                                  >
+                                    <User size={12.5} />
+                                  </button>
+                                </div>
                                 {row.customerPhone && row.customerPhone !== '-' && (
                                   <div className="text-[11px] text-slate-500 font-mono">{row.customerPhone}</div>
                                 )}
@@ -2409,22 +2543,64 @@ export const ReportsPage: React.FC = () => {
                               <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">{row.variant}</td>
                               <td className="py-2.5 px-3 text-center whitespace-nowrap">{formatQty(row.targetQuantity)}</td>
                               <td className="py-2.5 px-3 text-center font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">
-                                {formatQty(row.cutQty ?? row.totalCutUnits ?? row.completedQty ?? 0)}
-                                {row.cutLogsCount > 0 && (
-                                  <span className="text-[10px] text-slate-400 block font-normal">({row.cutLogsCount} cuts)</span>
-                                )}
+                                {(() => {
+                                  const cut = Number(
+                                    row.cutQty > 0
+                                      ? row.cutQty
+                                      : (row.totalCutUnits ?? (Array.isArray(row.cutLogs) && row.cutLogs.length > 0
+                                        ? row.cutLogs.reduce((acc: number, c: any) => acc + (Number(c.quantityCut) || 0), 0)
+                                        : (row.completedQty || row.targetQuantity || 0)))
+                                  );
+                                  return (
+                                    <>
+                                      {formatQty(cut)}
+                                      {row.cutLogsCount > 0 && (
+                                        <span className="text-[10px] text-slate-400 block font-normal">({row.cutLogsCount} cuts)</span>
+                                      )}
+                                    </>
+                                  );
+                                })()}
                               </td>
                               <td className="py-2.5 px-3 text-center font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                                {formatQty(row.washedQty ?? row.completedQty ?? 0)}
-                                {row.finishLogsCount > 0 && (
-                                  <span className="text-[10px] text-slate-400 block font-normal">({row.finishLogsCount} logs)</span>
-                                )}
+                                {(() => {
+                                  const loggedFinish = Array.isArray(row.finishLogs) && row.finishLogs.length > 0
+                                    ? row.finishLogs.reduce((acc: number, f: any) => acc + (Number(f.quantityFinished) || 0), 0)
+                                    : 0;
+                                  const finished = loggedFinish > 0
+                                    ? loggedFinish
+                                    : (Number(row.completedQty || 0) > 0
+                                      ? Number(row.completedQty)
+                                      : (Number(row.washedQty || 0) > 0 ? Number(row.washedQty) : (Number(row.totalFinishedUnits) || 0)));
+                                  return (
+                                    <>
+                                      {formatQty(finished)}
+                                      {row.finishLogsCount > 0 && (
+                                        <span className="text-[10px] text-slate-400 block font-normal">({row.finishLogsCount} logs)</span>
+                                      )}
+                                    </>
+                                  );
+                                })()}
                               </td>
                               <td className="py-2.5 px-3 text-center whitespace-nowrap">
                                 {(() => {
-                                  const cut = Number(row.cutQty ?? row.totalCutUnits ?? row.targetQuantity ?? 0);
-                                  const finished = Number(row.washedQty ?? row.completedQty ?? 0);
-                                  const wip = row.wipUnits !== undefined ? Number(row.wipUnits) : (row.status !== 'CANCELLED' && row.status !== 'COMPLETED' ? Math.max(0, cut - finished) : 0);
+                                  const cut = Number(
+                                    row.cutQty > 0
+                                      ? row.cutQty
+                                      : (row.totalCutUnits ?? (Array.isArray(row.cutLogs) && row.cutLogs.length > 0
+                                        ? row.cutLogs.reduce((acc: number, c: any) => acc + (Number(c.quantityCut) || 0), 0)
+                                        : (row.targetQuantity || 0)))
+                                  );
+                                  const loggedFinish = Array.isArray(row.finishLogs) && row.finishLogs.length > 0
+                                    ? row.finishLogs.reduce((acc: number, f: any) => acc + (Number(f.quantityFinished) || 0), 0)
+                                    : 0;
+                                  const finished = loggedFinish > 0
+                                    ? loggedFinish
+                                    : (Number(row.completedQty || 0) > 0
+                                      ? Number(row.completedQty)
+                                      : (Number(row.washedQty || 0) > 0 ? Number(row.washedQty) : (Number(row.totalFinishedUnits) || 0)));
+                                  const wip = row.wipUnits !== undefined && Number(row.wipUnits) >= 0
+                                    ? Number(row.wipUnits)
+                                    : (row.status !== 'CANCELLED' && row.status !== 'COMPLETED' ? Math.max(0, cut - finished) : 0);
                                   return wip > 0 ? (
                                     <Badge variant="outline" className="text-[10px] bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800 font-mono">
                                       {formatQty(wip)} WIP
@@ -2436,17 +2612,41 @@ export const ReportsPage: React.FC = () => {
                               </td>
                               <td className="py-2.5 px-3 text-center font-semibold text-blue-600 dark:text-blue-400 whitespace-nowrap">
                                 {(() => {
-                                  const cut = Number(row.cutQty ?? row.totalCutUnits ?? row.targetQuantity ?? 0);
-                                  const finished = Number(row.washedQty ?? row.completedQty ?? 0);
-                                  const yieldVal = row.yieldPercentage !== undefined && row.yieldPercentage > 0
+                                  const cut = Number(
+                                    row.cutQty > 0
+                                      ? row.cutQty
+                                      : (row.totalCutUnits ?? (Array.isArray(row.cutLogs) && row.cutLogs.length > 0
+                                        ? row.cutLogs.reduce((acc: number, c: any) => acc + (Number(c.quantityCut) || 0), 0)
+                                        : (row.targetQuantity || 0)))
+                                  );
+                                  const loggedFinish = Array.isArray(row.finishLogs) && row.finishLogs.length > 0
+                                    ? row.finishLogs.reduce((acc: number, f: any) => acc + (Number(f.quantityFinished) || 0), 0)
+                                    : 0;
+                                  const finished = loggedFinish > 0
+                                    ? loggedFinish
+                                    : (Number(row.completedQty || 0) > 0
+                                      ? Number(row.completedQty)
+                                      : (Number(row.washedQty || 0) > 0 ? Number(row.washedQty) : (Number(row.totalFinishedUnits) || 0)));
+                                  const yieldDivisor = cut > 0 ? cut : Number(row.targetQuantity || 0);
+                                  const yieldVal = row.yieldPercentage !== undefined && Number(row.yieldPercentage) > 0
                                     ? Number(row.yieldPercentage)
-                                    : (cut > 0 ? Math.round((finished / cut) * 1000) / 10 : 0);
+                                    : (yieldDivisor > 0 ? Math.round((finished / yieldDivisor) * 10000) / 100 : 0);
                                   return `${formatQty(yieldVal)}%`;
                                 })()}
                               </td>
                               <td className="py-2.5 px-3 text-right whitespace-nowrap font-mono">{formatRs(row.materialCost)}</td>
                               <td className="py-2.5 px-3 text-right text-slate-400 whitespace-nowrap font-mono">
-                                {formatQty(row.scrapReturned ?? (Array.isArray(row.materialUsages) ? row.materialUsages.reduce((s: number, u: any) => s + Number(u.returnedScrap ?? u.returnedQty ?? 0), 0) : 0))}
+                                {formatQty(
+                                  row.scrapReturned !== undefined && Number(row.scrapReturned) > 0
+                                    ? row.scrapReturned
+                                    : (Array.isArray(row.materialUsages) && row.materialUsages.length > 0
+                                      ? row.materialUsages.reduce((s: number, u: any) => s + Number(u.returnedScrap ?? u.returnedQty ?? 0), 0)
+                                      : (Array.isArray(row.activityLogs)
+                                        ? row.activityLogs
+                                            .filter((a: any) => a.action === 'RETURNED_SCRAP' || a.action === 'RETURNED')
+                                            .reduce((s: number, a: any) => s + Number(a.quantity || 0), 0)
+                                        : 0))
+                                )}
                               </td>
                               <td className="py-2.5 px-3 text-center whitespace-nowrap">
                                 <Badge
@@ -2826,6 +3026,13 @@ export const ReportsPage: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Quick Customer Profile Preview Modal */}
+      <CustomerPreviewModal
+        open={previewCustomerModalOpen}
+        onClose={() => setPreviewCustomerModalOpen(false)}
+        customer={previewCustomer}
+      />
     </div>
   );
 };

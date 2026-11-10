@@ -26,8 +26,9 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requir
     return <Navigate to="/login" replace />;
   }
 
-  // Administrators automatically bypass all role and permission checks
-  if (user?.role === 'ADMIN') {
+  // Administrators and Super Administrators automatically bypass all role and permission checks
+  const userRole = String(user?.role || '').toUpperCase();
+  if (userRole === 'ADMIN' || userRole === 'SUPER_ADMIN') {
     return <>{children}</>;
   }
 
@@ -44,10 +45,17 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requir
 
   // Check required role if specified
   if (requiredRole && user) {
-    const roles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
+    const roles = (Array.isArray(requiredRole) ? requiredRole : [requiredRole]).map((r) => String(r).toUpperCase());
+    // If allowedRoles includes 'ADMIN', implicitly allow 'SUPER_ADMIN' to bypass restriction
+    if (roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')) {
+      roles.push('SUPER_ADMIN');
+    }
+    if (userRole === 'SUPER_ADMIN') {
+      return <>{children}</>;
+    }
     // If the route allows access via permission (e.g. materials for raw materials), allow it
     const hasPermit = requiredPermission ? hasPermission(requiredPermission) : false;
-    if (!roles.includes(user.role) && !hasPermit) {
+    if (!roles.includes(userRole) && !hasPermit) {
       return (
         <Layout>
           <AccessDenied requiredRole={requiredRole} />

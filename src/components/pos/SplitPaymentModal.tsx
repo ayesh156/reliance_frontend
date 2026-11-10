@@ -26,8 +26,10 @@ import {
   Sparkles,
   Layers,
   Pencil,
+  Printer,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
+import { PrintPaymentReceipt } from './PrintPaymentReceipt';
 
 export type SplitMethod = 'CASH' | 'CHEQUE' | 'CARD' | 'BANK_TRANSFER';
 
@@ -49,6 +51,9 @@ interface SplitPaymentModalProps {
   initialSplits?: SplitPaymentItem[];
   onApply: (splits: SplitPaymentItem[]) => void;
   dark?: boolean;
+  customerName?: string;
+  customerPhone?: string;
+  invoiceNumber?: string;
 }
 
 const getCurrentLocalISOString = () => {
@@ -126,11 +131,31 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
   totalBill,
   initialSplits,
   onApply,
+  customerName,
+  customerPhone,
+  invoiceNumber,
 }) => {
   const { resolvedTheme } = useTheme();
   const dark = resolvedTheme === 'dark';
 
   const [splits, setSplits] = useState<SplitPaymentItem[]>([]);
+  const [isPrintingReceipt, setIsPrintingReceipt] = useState(false);
+
+  /**
+   * Triggers 80mm thermal receipt printing for the current split payment configuration.
+   * Utilizes 150ms timeout to ensure React finishes painting the printable receipt to the DOM before print freeze.
+   */
+  const handlePrintConsolidatedReceipt = () => {
+    if (splits.length === 0) {
+      toast.info('Please add at least one split payment before printing receipt.');
+      return;
+    }
+    setIsPrintingReceipt(true);
+    setTimeout(() => {
+      window.print();
+      setIsPrintingReceipt(false);
+    }, 150);
+  };
 
   const nowDateTimeStr = useMemo(() => getCurrentLocalISOString(), [open]);
 
@@ -735,7 +760,20 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center sm:justify-end pt-2 sm:pt-0">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 w-full sm:w-auto sm:flex sm:items-center sm:justify-end pt-2 sm:pt-0">
+            {splits.length > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handlePrintConsolidatedReceipt}
+                className="h-9 text-xs font-bold px-3 gap-1.5 rounded-xl border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 cursor-pointer w-full sm:w-auto"
+                title="Print 80mm POS Thermal Receipt for split payments"
+              >
+                <Printer className="size-3.5" />
+                <span>Print POS Receipt</span>
+              </Button>
+            )}
             <Button
               type="button"
               variant="outline"
@@ -756,6 +794,18 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
             </Button>
           </div>
         </DialogFooter>
+
+        {/* Hidden printable consolidated receipt for POS split payments */}
+        {isPrintingReceipt && (
+          <PrintPaymentReceipt
+            payments={splits}
+            invoiceTotal={totalBill}
+            customerName={customerName || 'Walk-in Customer'}
+            customerPhone={customerPhone}
+            invoiceNumber={invoiceNumber}
+            remainingBalance={remainingDue}
+          />
+        )}
       </DialogContent>
 
       {/* Edit Payment Sub-Modal */}

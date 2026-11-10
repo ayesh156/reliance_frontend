@@ -14,6 +14,7 @@ import { DatePicker } from '../ui/date-picker';
 import { toast } from 'react-toastify';
 import { put, post } from '../../lib/api';
 import { ErrorBoundary } from '../common/ErrorBoundary';
+import { CustomerPreviewModal } from '../customers/CustomerPreviewModal';
 import {
   ReceiptText,
   Calendar,
@@ -103,6 +104,7 @@ const InvoiceDetailModalContent: React.FC<InvoiceDetailModalProps & { invoice: I
   const [actionLoadingId, setActionLoadingId] = useState<number | string | null>(null);
 
   // Replacement Dialog State
+  const [customerPreviewOpen, setCustomerPreviewOpen] = useState<boolean>(false);
   const [replaceTargetCheque, setReplaceTargetCheque] = useState<InvoiceChequeItem | null>(null);
   const [issueReplacement, setIssueReplacement] = useState<boolean>(true);
   const [cancelReason, setCancelReason] = useState<string>('Insufficient funds / Customer request');
@@ -398,6 +400,15 @@ const InvoiceDetailModalContent: React.FC<InvoiceDetailModalProps & { invoice: I
               <div className="flex items-center gap-2">
                 <User className="size-4 text-slate-400" />
                 <span className="font-bold text-slate-900 dark:text-white">{invoice.customerName}</span>
+                <button
+                  type="button"
+                  onClick={() => setCustomerPreviewOpen(true)}
+                  className="p-1 rounded-md text-slate-400 hover:text-emerald-500 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors shrink-0 cursor-pointer"
+                  title="Quick Customer Profile Preview"
+                  aria-label={`Preview customer profile for ${invoice.customerName}`}
+                >
+                  <User size={13} />
+                </button>
                 {invoice.customerPhone && (
                   <span className="text-slate-500 font-mono">({invoice.customerPhone})</span>
                 )}
@@ -1076,6 +1087,13 @@ const InvoiceDetailModalContent: React.FC<InvoiceDetailModalProps & { invoice: I
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Quick Customer Profile Preview Modal */}
+      <CustomerPreviewModal
+        open={customerPreviewOpen}
+        onClose={() => setCustomerPreviewOpen(false)}
+        customer={invoice.customer || { id: (invoice as any).customerId, name: invoice.customerName, phone: invoice.customerPhone }}
+      />
     </>
   );
 };

@@ -62,7 +62,9 @@ import {
   Calculator,
   TrendingUp,
   Sparkles,
+  User,
 } from 'lucide-react';
+import { CustomerPreviewModal } from '../components/customers/CustomerPreviewModal';
 import { DateRangePicker } from '../components/ui/date-range-picker';
 import { openWhatsAppChat, generateCustomerInvoiceWhatsAppMessage } from '../utils/whatsapp';
 import { getInvoiceAgeInfo } from '../utils/invoiceAge';
@@ -267,11 +269,23 @@ export const InvoicesPage: React.FC = () => {
   // Filter States
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState('all');
+  const [selectedUserId, setSelectedUserId] = useState('all');
+  const [staffUsers, setStaffUsers] = useState<Array<{ id: number; name: string; role?: string; email?: string }>>([]);
+  const [serverSummary, setServerSummary] = useState<{
+    totalRevenue: number;
+    totalPaid: number;
+    totalDue: number;
+    totalInvoices: number;
+  } | null>(null);
   const [selectedMethod, setSelectedMethod] = useState('ALL');
   const [startDate, setStartDate] = useState<Date | undefined>(undefined);
   const [endDate, setEndDate] = useState<Date | undefined>(undefined);
   const [sortBy, setSortBy] = useState<string>('newest');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+
+  // Quick Customer Preview Modal State
+  const [previewCustomer, setPreviewCustomer] = useState<any>(null);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -582,12 +596,34 @@ export const InvoicesPage: React.FC = () => {
     }
   };
 
-  // Fetch Customers for filter dropdown
+  // Fetch Customers & Staff/Reps for filter dropdowns
   useEffect(() => {
     get<any[]>('/customers')
       .then((data) => setCustomers(Array.isArray(data) ? data : []))
       .catch(() => {});
+
+    get<any[]>('/users')
+      .then((data) => setStaffUsers(Array.isArray(data) ? data : []))
+      .catch(() => {
+        get<any[]>('/sales-persons')
+          .then((data) => setStaffUsers(Array.isArray(data) ? data : []))
+          .catch(() => {});
+      });
   }, []);
+
+  /**
+   * Memoized options for User / Sales Rep filter dropdown.
+   * Super Admins and account "Ayesh" are strictly excluded from regular user/rep selection.
+   */
+  const userOptions = useMemo(() => [
+    { value: 'all', label: 'All Users / Reps' },
+    ...staffUsers
+      .filter((u) => u.role !== 'SUPER_ADMIN' && !String(u.name || '').toLowerCase().includes('ayesh'))
+      .map((u) => ({
+        value: String(u.id),
+        label: `${u.name} (${u.role || 'STAFF'})`,
+      })),
+  ], [staffUsers]);
 
   /**
    * Helper to format a JavaScript Date into YYYY-MM-DD in local time
@@ -607,18 +643,20 @@ export const InvoicesPage: React.FC = () => {
   const activeFiltersCount = useMemo(() => {
     let count = 0;
     if (selectedCustomerId !== 'all') count++;
+    if (selectedUserId !== 'all') count++;
     if (selectedMethod !== 'ALL') count++;
     if (startDate) count++;
     if (endDate) count++;
     if (sortBy !== 'newest') count++;
     return count;
-  }, [selectedCustomerId, selectedMethod, startDate, endDate, sortBy]);
+  }, [selectedCustomerId, selectedUserId, selectedMethod, startDate, endDate, sortBy]);
 
   /**
    * Reset all secondary filters and search query back to default view
    */
   const handleClearAllFilters = () => {
     setSelectedCustomerId('all');
+    setSelectedUserId('all');
     setSelectedMethod('ALL');
     setStartDate(undefined);
     setEndDate(undefined);
@@ -640,6 +678,7 @@ export const InvoicesPage: React.FC = () => {
       params.set('limit', '12');
       if (searchQuery.trim()) params.set('search', searchQuery.trim());
       if (selectedCustomerId !== 'all') params.set('customerId', selectedCustomerId);
+      if (selectedUserId !== 'all') params.set('userId', selectedUserId);
       if (selectedMethod !== 'ALL') params.set('paymentMethod', selectedMethod);
       if (sortBy) params.set('sortBy', sortBy);
 
@@ -668,6 +707,9 @@ export const InvoicesPage: React.FC = () => {
       setInvoices(list);
       setTotalPages(res.pagination?.totalPages || 1);
       setTotalCount(res.pagination?.total || 0);
+      if (res.summary) {
+        setServerSummary(res.summary);
+      }
     } catch (err: any) {
       toast.error(err.message || 'Failed to load invoices');
     } finally {
@@ -697,7 +739,7 @@ export const InvoicesPage: React.FC = () => {
     }, delay);
 
     return () => clearTimeout(timer);
-  }, [page, selectedCustomerId, selectedMethod, startDate, endDate, sortBy, searchQuery]);
+  }, [page, selectedCustomerId, selectedUserId, selectedMethod, startDate, endDate, sortBy, searchQuery]);
 
   /**
    * Real-Time SSE Synchronization with In-Place State Mutation
@@ -746,14 +788,10 @@ export const InvoicesPage: React.FC = () => {
     },
   });
 
-  // Comprehensive Invoice Metrics
-  const totalInvoicesGenerated = totalCount;
-  const totalInvoiceRevenue = useMemo(() => {
-    return invoices.reduce((sum, i) => sum + (Number(i.totalAmount) || 0), 0);
-  }, [invoices]);
-  const totalCustomerDebt = useMemo(() => {
-    return invoices.reduce((sum, i) => sum + Math.max(0, (Number(i.totalAmount) || 0) - (Number(i.paidAmount) || 0)), 0);
-  }, [invoices]);
+  // Comprehensive Invoice Metrics: Prefers true server-aggregated totals across the entire filtered period
+  const totalInvoicesGenerated = serverSummary?.totalInvoices ?? totalCount;
+  const totalInvoiceRevenue = serverSummary?.totalRevenue ?? invoices.reduce((sum, i) => sum + (Number(i.totalAmount) || 0), 0);
+  const totalCustomerDebt = serverSummary?.totalDue ?? invoices.reduce((sum, i) => sum + Math.max(0, (Number(i.totalAmount) || 0) - (Number(i.paidAmount) || 0)), 0);
 
   // Handle Invoice Deletion with optimistic/dynamic UI removal and robust error feedback
   const confirmDelete = async () => {
@@ -964,6 +1002,25 @@ export const InvoicesPage: React.FC = () => {
                 />
               </div>
 
+              {/* 1b. User / Sales Rep Filter */}
+              <div className="min-w-0">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  User / Sales Rep
+                </label>
+                <SearchableSelect
+                  value={selectedUserId}
+                  onValueChange={(val) => {
+                    setSelectedUserId(val);
+                    if (page !== 1) setPage(1);
+                  }}
+                  options={userOptions}
+                  placeholder="All Users / Reps"
+                  searchPlaceholder="Search rep / user..."
+                  dark={dark}
+                  className="h-9 text-xs"
+                />
+              </div>
+
               {/* 2. Unified Highlighted Date Range Picker */}
               <div className="min-w-0">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
@@ -1072,6 +1129,21 @@ export const InvoicesPage: React.FC = () => {
             ]}
             placeholder="All Customers..."
             searchPlaceholder="Search customer..."
+            dark={dark}
+          />
+        </div>
+
+        {/* User / Rep Selector (w-40 xl:w-44) */}
+        <div className="w-40 xl:w-44 shrink-0">
+          <SearchableSelect
+            value={selectedUserId}
+            onValueChange={(val) => {
+              setSelectedUserId(val);
+              if (page !== 1) setPage(1);
+            }}
+            options={userOptions}
+            placeholder="All Users / Reps"
+            searchPlaceholder="Search rep / user..."
             dark={dark}
           />
         </div>
@@ -1272,13 +1344,28 @@ export const InvoicesPage: React.FC = () => {
                   {/* Customer Info: Name, bold contact number, and accumulated credit balance */}
                   <div className="flex items-center justify-between gap-1.5 pt-1 border-t border-slate-100 dark:border-zinc-800/60">
                     <div className="min-w-0">
-                      <h4
-                        onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}`)}
-                        className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white truncate cursor-pointer hover:underline hover:text-emerald-600 dark:hover:text-emerald-400"
-                        title="Click to edit invoice in POS"
-                      >
-                        {inv.customerName}
-                      </h4>
+                      <div className="flex items-center gap-1.5">
+                        <h4
+                          onClick={() => navigate(`/system/quick-invoice?editInvoiceId=${inv.id}`)}
+                          className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white truncate cursor-pointer hover:underline hover:text-emerald-600 dark:hover:text-emerald-400"
+                          title="Click to edit invoice in POS"
+                        >
+                          {inv.customerName}
+                        </h4>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPreviewCustomer(inv.customer || { id: (inv as any).customerId, name: inv.customerName, phone: inv.customerPhone });
+                            setPreviewModalOpen(true);
+                          }}
+                          className="p-1 rounded-md text-slate-400 hover:text-emerald-500 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors shrink-0 cursor-pointer"
+                          title="Quick Customer Profile Preview"
+                          aria-label={`Preview customer profile for ${inv.customerName}`}
+                        >
+                          <User size={13} />
+                        </button>
+                      </div>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-[11px] font-bold text-slate-700 dark:text-zinc-300 font-mono">
                           {inv.customerPhone || inv.customer?.phone || 'No Contact'}
@@ -1571,10 +1658,25 @@ export const InvoicesPage: React.FC = () => {
                         className="py-3 px-4 cursor-pointer group/inv-cust select-none"
                         title="Click to edit invoice in POS"
                       >
-                        <div className="font-semibold text-slate-900 dark:text-white group-hover/inv-cust:text-emerald-600 dark:group-hover/inv-cust:text-emerald-400 group-hover/inv-cust:underline transition-colors">
-                          {inv.customerName}
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-semibold text-slate-900 dark:text-white group-hover/inv-cust:text-emerald-600 dark:group-hover/inv-cust:text-emerald-400 group-hover/inv-cust:underline transition-colors">
+                            {inv.customerName}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPreviewCustomer(inv.customer || { id: (inv as any).customerId, name: inv.customerName, phone: inv.customerPhone });
+                              setPreviewModalOpen(true);
+                            }}
+                            className="p-1 rounded-md text-slate-400 hover:text-emerald-600 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors shrink-0 cursor-pointer"
+                            title="Quick Customer Profile Preview"
+                            aria-label={`Preview customer profile for ${inv.customerName}`}
+                          >
+                            <User size={13.5} />
+                          </button>
                         </div>
-                        {inv.customerPhone && <span className="text-[10px] text-slate-400 font-mono">{inv.customerPhone}</span>}
+                        {inv.customerPhone && <span className="text-[10px] text-slate-400 font-mono block">{inv.customerPhone}</span>}
                       </td>
                       {/* Shipped / Dispatch Tracking Column */}
                       <td className="py-3 px-3 text-center" onClick={(e) => e.stopPropagation()}>
@@ -2133,6 +2235,13 @@ export const InvoicesPage: React.FC = () => {
         }}
         onDownloadPdf={handleDownloadPdf}
         onWhatsApp={handleInitiateWhatsApp}
+      />
+
+      {/* Quick Customer Profile Preview Modal */}
+      <CustomerPreviewModal
+        open={previewModalOpen}
+        onClose={() => setPreviewModalOpen(false)}
+        customer={previewCustomer}
       />
     </div>
   );
