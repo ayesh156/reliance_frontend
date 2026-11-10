@@ -31,7 +31,9 @@ import {
   MessageSquare,
   Plus,
   Sparkles,
+  Printer,
 } from 'lucide-react';
+import { PrintPaymentReceipt } from '../pos/PrintPaymentReceipt';
 import { openWhatsAppChat, generateCustomerDebtSummaryWhatsAppMessage, generateMasterReceiptWhatsAppMessage } from '../../utils/whatsapp';
 // Enterprise Shadcn SearchableSelect Component
 
@@ -171,6 +173,40 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
   const [quickPayDateTime, setQuickPayDateTime] = useState<string>(getCurrentLocalISOString);
   const [isSubmittingQuickPay, setIsSubmittingQuickPay] = useState(false);
   const [showQuickPayForm, setShowQuickPayForm] = useState(false);
+
+  // Consolidated 80mm thermal receipt printing states for queued settlement payments
+  const [isPrintingQueuedQuick, setIsPrintingQueuedQuick] = useState<boolean>(false);
+  const [isPrintingQueuedBill, setIsPrintingQueuedBill] = useState<boolean>(false);
+
+  /**
+   * Triggers 80mm thermal receipt printing for whole-balance queued payments.
+   */
+  const handlePrintQueuedQuick = () => {
+    if (quickStagedPayments.length === 0) {
+      toast.info('No queued payments to print.');
+      return;
+    }
+    setIsPrintingQueuedQuick(true);
+    setTimeout(() => {
+      window.print();
+      setIsPrintingQueuedQuick(false);
+    }, 150);
+  };
+
+  /**
+   * Triggers 80mm thermal receipt printing for specific bill queued payments.
+   */
+  const handlePrintQueuedBill = () => {
+    if (billStagedPayments.length === 0) {
+      toast.info('No queued entries to print.');
+      return;
+    }
+    setIsPrintingQueuedBill(true);
+    setTimeout(() => {
+      window.print();
+      setIsPrintingQueuedBill(false);
+    }, 150);
+  };
 
   // Payment Edit & Void (Delete) states
   const [editingPayment, setEditingPayment] = useState<PaymentHistoryItem | null>(null);
@@ -1054,7 +1090,18 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                 {quickStagedPayments.length > 0 && (
                   <div className="space-y-2 p-3 rounded-xl bg-slate-50/70 dark:bg-zinc-900/50 border border-slate-200 dark:border-zinc-800">
                     <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                      <span>Queued Payments ({quickStagedPayments.length})</span>
+                      <div className="flex items-center gap-2">
+                        <span>Queued Payments ({quickStagedPayments.length})</span>
+                        <button
+                          type="button"
+                          onClick={handlePrintQueuedQuick}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors cursor-pointer shadow-2xs"
+                          title="Print 80mm POS Thermal Receipt for queued payments"
+                        >
+                          <Printer className="size-3" />
+                          <span>Print</span>
+                        </button>
+                      </div>
                       <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">
                         Tendered: Rs. {stagedTotalQuick.toLocaleString('en-LK', { minimumFractionDigits: 2 })}
                       </span>
@@ -1848,7 +1895,18 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                       {billStagedPayments.length > 0 && (
                         <div className="space-y-1.5 p-2.5 rounded-lg bg-white/80 dark:bg-zinc-900/80 border border-slate-200 dark:border-zinc-800">
                           <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                            <span>Queued Entries ({billStagedPayments.length})</span>
+                            <div className="flex items-center gap-2">
+                              <span>Queued Entries ({billStagedPayments.length})</span>
+                              <button
+                                type="button"
+                                onClick={handlePrintQueuedBill}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors cursor-pointer shadow-2xs"
+                                title="Print 80mm POS Thermal Receipt for queued entries"
+                              >
+                                <Printer className="size-3" />
+                                <span>Print</span>
+                              </button>
+                            </div>
                             <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">
                               Tendered: Rs. {billStagedPayments.reduce((s, p) => s + p.amount, 0).toFixed(2)}
                             </span>
@@ -2372,6 +2430,24 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
             Close
           </Button>
         </div>
+
+        {/* Hidden printable consolidated receipts for queued settlement payments */}
+        {isPrintingQueuedQuick && (
+          <PrintPaymentReceipt
+            payments={quickStagedPayments}
+            customerName={customerName || 'Customer'}
+            customerPhone={customerPhone || customerPhoneState || undefined}
+            outstandingBalance={totalOutstanding}
+          />
+        )}
+        {isPrintingQueuedBill && (
+          <PrintPaymentReceipt
+            payments={billStagedPayments}
+            customerName={customerName || 'Customer'}
+            customerPhone={customerPhone || customerPhoneState || undefined}
+            invoiceNumber={bills.find((b) => b.orderId === payingOrderId)?.invoiceNumber}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );

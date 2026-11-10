@@ -3675,11 +3675,11 @@ export const QuickInvoicePage: React.FC = () => {
                   <button
                     type="button"
                     onClick={handlePrintSplitReceipt}
-                    className="text-[9.5px] font-bold text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300 underline cursor-pointer flex items-center gap-0.5"
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors cursor-pointer shadow-2xs"
                     title="Print 80mm POS Thermal Receipt for split payments"
                   >
-                    <Printer className="size-2.5 inline" />
-                    <span>Print POS</span>
+                    <Printer className="size-2.5" />
+                    <span>Print</span>
                   </button>
                   <span className="text-slate-300 dark:text-zinc-700">·</span>
                   <button
@@ -4722,11 +4722,11 @@ export const QuickInvoicePage: React.FC = () => {
                       <button
                         type="button"
                         onClick={handlePrintSplitReceipt}
-                        className="text-[9.5px] font-bold text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300 underline cursor-pointer flex items-center gap-0.5"
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors cursor-pointer shadow-2xs"
                         title="Print 80mm POS Thermal Receipt for split payments"
                       >
-                        <Printer className="size-2.5 inline" />
-                        <span>Print POS</span>
+                        <Printer className="size-2.5" />
+                        <span>Print</span>
                       </button>
                       <span className="text-slate-300 dark:text-zinc-700">·</span>
                       <button

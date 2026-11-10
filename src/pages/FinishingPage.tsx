@@ -399,13 +399,15 @@ export const FinishingPage: React.FC = () => {
 
       {/* ── KPI Summary Cards ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 w-full">
-        {/* Card 1: Today Ironed */}
+        {/* Card 1: Ironed in Period / Today */}
         <div className="p-4 rounded-2xl bg-white dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800 shadow-xs flex flex-col justify-between">
           <div className="flex justify-between items-start">
             <div>
-              <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Ironed Today</span>
+              <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
+                {dateRange?.from ? 'Ironed in Period' : 'Ironed Today'}
+              </span>
               <h3 className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1 font-mono">
-                {(summary?.todayIroned ?? 0).toLocaleString()}{' '}
+                {(dateRange?.from ? filteredTotals.iron : (summary?.todayIroned ?? filteredTotals.iron)).toLocaleString()}{' '}
                 <span className="text-xs font-normal text-slate-500">Pcs</span>
               </h3>
             </div>
@@ -414,17 +416,23 @@ export const FinishingPage: React.FC = () => {
             </div>
           </div>
           <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-2">
-            This Week: <strong className="font-mono text-slate-700 dark:text-zinc-300">{(summary?.weekIroned ?? 0).toLocaleString()}</strong> Pcs
+            {dateRange?.from ? (
+              <>Strict Log Sum: <strong className="font-mono text-slate-700 dark:text-zinc-300">{filteredTotals.iron.toLocaleString()}</strong> Pcs</>
+            ) : (
+              <>This Week: <strong className="font-mono text-slate-700 dark:text-zinc-300">{(summary?.weekIroned ?? 0).toLocaleString()}</strong> Pcs</>
+            )}
           </p>
         </div>
 
-        {/* Card 2: Today Packed */}
+        {/* Card 2: Packed in Period / Today */}
         <div className="p-4 rounded-2xl bg-white dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800 shadow-xs flex flex-col justify-between">
           <div className="flex justify-between items-start">
             <div>
-              <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Packed Today</span>
+              <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
+                {dateRange?.from ? 'Packed in Period' : 'Packed Today'}
+              </span>
               <h3 className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-1 font-mono">
-                {(summary?.todayPacked ?? 0).toLocaleString()}{' '}
+                {(dateRange?.from ? filteredTotals.pack : (summary?.todayPacked ?? filteredTotals.pack)).toLocaleString()}{' '}
                 <span className="text-xs font-normal text-slate-500">Pcs</span>
               </h3>
             </div>
@@ -433,17 +441,23 @@ export const FinishingPage: React.FC = () => {
             </div>
           </div>
           <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-2">
-            This Week: <strong className="font-mono text-slate-700 dark:text-zinc-300">{(summary?.weekPacked ?? 0).toLocaleString()}</strong> Pcs
+            {dateRange?.from ? (
+              <>Strict Log Sum: <strong className="font-mono text-slate-700 dark:text-zinc-300">{filteredTotals.pack.toLocaleString()}</strong> Pcs</>
+            ) : (
+              <>This Week: <strong className="font-mono text-slate-700 dark:text-zinc-300">{(summary?.weekPacked ?? 0).toLocaleString()}</strong> Pcs</>
+            )}
           </p>
         </div>
 
-        {/* Card 3: Total Ironed (All Time) */}
+        {/* Card 3: Total Ironed */}
         <div className="p-4 rounded-2xl bg-white dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800 shadow-xs flex flex-col justify-between">
           <div className="flex justify-between items-start">
             <div>
-              <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Ironed</span>
+              <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
+                {dateRange?.from ? 'Total Filtered Ironed' : 'Total Ironed'}
+              </span>
               <h3 className="text-2xl font-bold text-slate-900 dark:text-zinc-100 mt-1 font-mono">
-                {(summary?.totalIroned ?? 0).toLocaleString()}{' '}
+                {(dateRange?.from ? filteredTotals.iron : (summary?.totalIroned ?? filteredTotals.iron)).toLocaleString()}{' '}
                 <span className="text-xs font-normal text-slate-500">Pcs</span>
               </h3>
             </div>
@@ -452,17 +466,19 @@ export const FinishingPage: React.FC = () => {
             </div>
           </div>
           <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-2">
-            Historical Ironed Garments Output
+            {dateRange?.from ? 'Event-specific date boundary' : 'Historical Ironed Garments Output'}
           </p>
         </div>
 
-        {/* Card 4: Total Packed (All Time) */}
+        {/* Card 4: Total Packed */}
         <div className="p-4 rounded-2xl bg-white dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800 shadow-xs flex flex-col justify-between">
           <div className="flex justify-between items-start">
             <div>
-              <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Packed</span>
+              <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
+                {dateRange?.from ? 'Total Filtered Packed' : 'Total Packed'}
+              </span>
               <h3 className="text-2xl font-bold text-slate-900 dark:text-zinc-100 mt-1 font-mono">
-                {(summary?.totalPacked ?? 0).toLocaleString()}{' '}
+                {(dateRange?.from ? filteredTotals.pack : (summary?.totalPacked ?? filteredTotals.pack)).toLocaleString()}{' '}
                 <span className="text-xs font-normal text-slate-500">Pcs</span>
               </h3>
             </div>
@@ -471,7 +487,7 @@ export const FinishingPage: React.FC = () => {
             </div>
           </div>
           <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-2">
-            Historical Boxed / Packed Garments Output
+            {dateRange?.from ? 'Event-specific date boundary' : 'Historical Boxed / Packed Garments Output'}
           </p>
         </div>
       </div>

@@ -934,7 +934,7 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
     <>
       <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
         <DialogContent
-          className="w-full max-w-lg sm:max-w-3xl lg:max-w-4xl max-h-[94vh] flex flex-col p-0 overflow-hidden rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 shadow-2xl"
+          className="w-full max-w-lg sm:max-w-3xl lg:max-w-4xl max-h-[92vh] overflow-y-auto overscroll-contain flex flex-col p-0 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 shadow-2xl"
         >
           {/* Compressed Top Profile Header & Micro KPI Strip (Maximized Mobile Viewport) */}
           <div className="p-2.5 sm:p-4 border-b border-slate-100 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-900/70 shrink-0 space-y-2">
@@ -1137,8 +1137,8 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
             </div>
           </div>
 
-          {/* Scrollable Invoices List Container with Dynamic Viewport Bounds */}
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-2.5 sm:p-4 pr-1 sm:pr-3 space-y-2">
+          {/* Invoices List Container - Global Modal Scroll (No Trapped Inner Overflow) */}
+          <div className="p-2.5 sm:p-4 space-y-2">
             {activeFilter === 'RECEIPTS' ? (
               <div className="space-y-3 pb-4">
                 {/* Master Receipts Date Range Filter Bar */}
@@ -1865,8 +1865,8 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
             </div>
           )}
 
-          {/* Modal Footer */}
-          <div className="p-3 sm:p-4 border-t border-slate-100 dark:border-zinc-800 bg-slate-50/60 dark:bg-zinc-900/60 flex items-center justify-between gap-2 shrink-0">
+          {/* Modal Footer - Sticky Bottom */}
+          <div className="sticky bottom-0 z-10 p-3 sm:p-4 border-t border-slate-100 dark:border-zinc-800 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xs flex items-center justify-between gap-2 shrink-0">
             <Button variant="outline" size="sm" onClick={onClose} className="h-8 text-xs">
               Close
             </Button>

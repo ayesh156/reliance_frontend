@@ -750,11 +750,146 @@ export async function generateGarmentProductionPdf(
   return doc;
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// 5. SALES & INVOICES PDF GENERATION (WITH ROLE-BASED MAPPING)
+// ══════════════════════════════════════════════════════════════════════════════
+
+export interface SalesPdfRecord {
+  id?: string | number;
+  invoiceNumber?: string;
+  createdAt?: string;
+  customerName?: string;
+  userRole?: string;
+  role?: string;
+  customerType?: string;
+  source?: string;
+  subtotal?: number;
+  discount?: number;
+  totalAmount?: number;
+  paidAmount?: number;
+  dueAmount?: number;
+  paymentMethod?: string;
+}
+
+export interface SalesPdfOptions {
+  dateRangeLabel?: string;
+  generatedBy?: string;
+  filename?: string;
+}
+
+/**
+ * Format sales rows replacing Customer Type with User Role.
+ * Maps row.userRole instead of row.customerType, cleanly defaulting to 'SYSTEM'.
+ */
+export function formatSalesPdfRows(rawRows: SalesPdfRecord[]): any[] {
+  return rawRows.map((row) => {
+    const role = String(row.userRole || row.role || 'SYSTEM').toUpperCase();
+    return [
+      row.invoiceNumber || '-',
+      row.createdAt ? String(row.createdAt).split('T')[0] : '-',
+      row.customerName || 'Walk-in Customer',
+      role,
+      formatAmountNum(row.subtotal || 0),
+      Number(row.discount || 0) > 0 ? `-${formatAmountNum(row.discount || 0)}` : '-',
+      formatAmountNum(row.totalAmount || 0),
+      formatAmountNum(row.paidAmount || 0),
+      Number(row.dueAmount || 0) > 0 ? formatAmountNum(row.dueAmount || 0) : '-',
+      row.paymentMethod || 'CASH',
+    ];
+  });
+}
+
+/**
+ * Generates executive Sales & Invoices PDF report with ROLE column alignment.
+ */
+export async function generateSalesPdf(
+  data: { tableItems?: SalesPdfRecord[]; summary?: any },
+  options: SalesPdfOptions = {}
+): Promise<jsPDF> {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'pt',
+    format: 'a4',
+  });
+
+  const logoData = await loadLogoAsDataUrl();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const startX = 42.5;
+  const rightMargin = 552.78;
+
+  const reportTitle = 'SALES & INVOICES REPORT';
+  const dateLabel = options.dateRangeLabel || 'Current Period';
+  const generatedTimestamp = formatReportTimestamp();
+  const generatedBy = options.generatedBy || 'System Administrator';
+
+  const drawMasterHeader = (headerTop = 32): number => {
+    return drawStandardReportHeader(doc, {
+      logoData,
+      reportTitle,
+      dateRangeLabel: dateLabel,
+      generatedTimestamp,
+      generatedBy,
+      headerTop,
+      startX,
+      rightMargin,
+    });
+  };
+
+  const curY = drawMasterHeader(32);
+  const rows = formatSalesPdfRows(data.tableItems || []);
+
+  autoTable(doc, {
+    startY: curY,
+    margin: { left: startX, right: pageWidth - rightMargin },
+    theme: 'plain',
+    head: [['INV #', 'DATE', 'CUSTOMER', 'ROLE', 'SUBTOTAL', 'DISC', 'NET TOTAL', 'PAID', 'DUE', 'METHOD']],
+    body: rows,
+    headStyles: {
+      fillColor: [248, 250, 252],
+      textColor: [30, 41, 59],
+      fontSize: 7.5,
+      fontStyle: 'bold',
+      lineColor: [226, 232, 240],
+      lineWidth: { top: 0.8, bottom: 0.8, left: 0, right: 0 },
+      cellPadding: { top: 4, bottom: 4, left: 3, right: 3 },
+    },
+    bodyStyles: {
+      fillColor: [255, 255, 255],
+      textColor: [51, 65, 85],
+      fontSize: 7,
+      lineColor: [241, 245, 249],
+      lineWidth: { bottom: 0.4, top: 0, left: 0, right: 0 },
+      cellPadding: { top: 3.5, bottom: 3.5, left: 3, right: 3 },
+    },
+    columnStyles: {
+      0: { cellWidth: 55 },
+      1: { cellWidth: 50 },
+      2: { cellWidth: 95 },
+      3: { cellWidth: 45, halign: 'center', fontStyle: 'bold' },
+      4: { cellWidth: 50, halign: 'right' },
+      5: { cellWidth: 38, halign: 'right' },
+      6: { cellWidth: 55, halign: 'right', fontStyle: 'bold' },
+      7: { cellWidth: 50, halign: 'right' },
+      8: { cellWidth: 50, halign: 'right' },
+      9: { cellWidth: 42, halign: 'center' },
+    },
+    didDrawPage: () => {
+      drawStandardReportFooter(doc, 'Sales & Invoices Report', startX, rightMargin);
+    },
+  });
+
+  const filename = options.filename || `reliance-sales-report-${formatReportTimestamp(new Date()).replace(/[: ]/g, '-')}.pdf`;
+  doc.save(filename);
+  return doc;
+}
+
 export const ReportPdf = {
   generateCustomerDuesPdf,
   filterAndNormalizeDueInvoices,
   generateChequeLedgerPdf,
   formatChequeLedgerPdfRows,
+  generateSalesPdf,
+  formatSalesPdfRows,
   generateMaterialProductionPdf,
   generateGarmentProductionPdf,
   generateFinancialAuditPdf,

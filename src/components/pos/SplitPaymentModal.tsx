@@ -632,9 +632,22 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
           {/* Section 2: Applied Payment Rows List (Rendered as single-line ledger rows with Edit & Delete) */}
           <div className="space-y-2">
             <div className="flex items-center justify-between px-1">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
-                Applied Split Payments ({splits.length})
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                  Applied Split Payments ({splits.length})
+                </span>
+                {splits.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handlePrintConsolidatedReceipt}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors cursor-pointer shadow-2xs"
+                    title="Print 80mm POS Thermal Receipt for split payments"
+                  >
+                    <Printer className="size-3" />
+                    <span>Print</span>
+                  </button>
+                )}
+              </div>
               {splits.length > 0 && (
                 <button
                   type="button"
@@ -760,20 +773,7 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
             )}
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 w-full sm:w-auto sm:flex sm:items-center sm:justify-end pt-2 sm:pt-0">
-            {splits.length > 0 && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handlePrintConsolidatedReceipt}
-                className="h-9 text-xs font-bold px-3 gap-1.5 rounded-xl border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 cursor-pointer w-full sm:w-auto"
-                title="Print 80mm POS Thermal Receipt for split payments"
-              >
-                <Printer className="size-3.5" />
-                <span>Print POS Receipt</span>
-              </Button>
-            )}
+          <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center sm:justify-end pt-2 sm:pt-0">
             <Button
               type="button"
               variant="outline"

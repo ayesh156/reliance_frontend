@@ -317,7 +317,7 @@ const InvoiceDetailModalContent: React.FC<InvoiceDetailModalProps & { invoice: I
   return (
     <>
       <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-        <DialogContent className="w-full max-w-lg sm:max-w-2xl lg:max-w-3xl max-h-[92vh] flex flex-col p-0 overflow-hidden overflow-x-hidden rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 shadow-2xl">
+        <DialogContent className="w-full max-w-lg sm:max-w-2xl lg:max-w-3xl max-h-[92vh] overflow-y-auto overscroll-contain flex flex-col p-0 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 shadow-2xl">
           {/* Header */}
           <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-zinc-800 bg-slate-50/80 dark:bg-zinc-900/80 shrink-0">
             <DialogHeader>
@@ -393,8 +393,8 @@ const InvoiceDetailModalContent: React.FC<InvoiceDetailModalProps & { invoice: I
             </DialogHeader>
           </div>
 
-          {/* Scrollable Body */}
-          <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-5 space-y-4">
+          {/* Modal Body - Global Modal Scrolling */}
+          <div className="p-4 sm:p-5 space-y-4">
             {/* Customer Details Pill */}
             <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-100 dark:border-zinc-800 text-xs">
               <div className="flex items-center gap-2">

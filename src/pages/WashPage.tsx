@@ -335,17 +335,23 @@ export const WashPage: React.FC = () => {
         ? new Date(dateRange.to).setHours(23, 59, 59, 999)
         : new Date(dateRange.from).setHours(23, 59, 59, 999);
 
-      list = list.filter((b) => {
-        const bDate = new Date(b.createdAt || b.productionDate).getTime();
-        return bDate >= fromTime && bDate <= toTime;
+      list = list.filter((b: any) => {
+        // Strictly evaluate stage-specific event logs or production date, eradicating root createdAt pollution
+        const hasLogInRange = (b.activityLogs || []).some((log: any) => {
+          const t = new Date(log.timestamp).getTime();
+          return t >= fromTime && t <= toTime;
+        });
+        if (hasLogInRange) return true;
+        const pDate = new Date(b.productionDate).getTime();
+        return !isNaN(pDate) && pDate >= fromTime && pDate <= toTime;
       });
     }
 
     switch (sortBy) {
       case 'oldest':
         list.sort((a, b) => {
-          const dateA = new Date(a.createdAt || a.productionDate).getTime();
-          const dateB = new Date(b.createdAt || b.productionDate).getTime();
+          const dateA = new Date(a.productionDate || a.createdAt).getTime();
+          const dateB = new Date(b.productionDate || b.createdAt).getTime();
           return dateA - dateB || a.id - b.id;
         });
         break;
@@ -367,21 +373,53 @@ export const WashPage: React.FC = () => {
 
   /**
    * Dynamically aggregated KPI metrics for Wash Summary Cards.
-   * Calculates total active wash batches, total sent to wash, and washed output
-   * specifically from the `filteredBatches` array.
+   * Strictly sums event-specific activity logs matching the active dateRange filter,
+   * eradicating root batch createdAt contamination and guaranteeing parity with reports.
    */
   const metrics = useMemo(() => {
     const totalBatches = filteredBatches.length;
     let totalSentToWash = 0;
     let totalWashedSoFar = 0;
 
-    filteredBatches.forEach((b) => {
-      const sent = b.sentToWashQty > 0
-        ? b.sentToWashQty
-        : (b.targetQuantity > 0 ? b.targetQuantity : b.completedQty);
-      const washed = b.washedQty || 0;
-      totalSentToWash += sent;
-      totalWashedSoFar += washed;
+    const isWithinRange = (ts: string | Date | undefined) => {
+      if (!ts) return false;
+      const t = new Date(ts).getTime();
+      if (isNaN(t)) return false;
+      if (!dateRange?.from) return true;
+      const fromTime = new Date(dateRange.from).setHours(0, 0, 0, 0);
+      const toTime = dateRange.to
+        ? new Date(dateRange.to).setHours(23, 59, 59, 999)
+        : new Date(dateRange.from).setHours(23, 59, 59, 999);
+      return t >= fromTime && t <= toTime;
+    };
+
+    filteredBatches.forEach((b: any) => {
+      // Sent to Wash: activity logs with SEND_TO_WASH or wash stage send
+      const sentLogs = (b.activityLogs || []).filter(
+        (log: any) =>
+          (log.action === 'SEND_TO_WASH' || (log.stage === 'WASHING' && String(log.action || '').includes('SEND'))) &&
+          isWithinRange(log.timestamp)
+      );
+      const logSentQty = sentLogs.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
+
+      // Washed Output: activity logs with WASH, WASH_COMPLETED, STOCK_SYNC, or washed
+      const washedLogs = (b.activityLogs || []).filter(
+        (log: any) =>
+          (log.stage === 'WASHING' && (log.action === 'WASH_COMPLETED' || log.action === 'STOCK_SYNC' || log.action === 'WASH' || log.action === 'LOG_WASH')) &&
+          isWithinRange(log.timestamp)
+      );
+      const logWashedQty = washedLogs.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
+
+      if (dateRange?.from) {
+        totalSentToWash += logSentQty;
+        totalWashedSoFar += logWashedQty;
+      } else {
+        const sent = b.sentToWashQty > 0
+          ? b.sentToWashQty
+          : (b.targetQuantity > 0 ? b.targetQuantity : b.completedQty);
+        totalSentToWash += logSentQty > 0 ? logSentQty : sent;
+        totalWashedSoFar += logWashedQty > 0 ? logWashedQty : (b.washedQty || 0);
+      }
     });
 
     const totalRemainingToWash = Math.max(0, totalSentToWash - totalWashedSoFar);
@@ -392,7 +430,7 @@ export const WashPage: React.FC = () => {
       totalWashedSoFar,
       totalRemainingToWash,
     };
-  }, [filteredBatches]);
+  }, [filteredBatches, dateRange]);
 
   // Open "Log Washed Items" modal
   const handleOpenLogWashModal = (batch: WashBatchItem) => {

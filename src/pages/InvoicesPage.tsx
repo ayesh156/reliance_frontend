@@ -13,6 +13,7 @@ import { Badge } from '../components/ui/badge';
 import { Checkbox } from '../components/ui/checkbox';
 import { SearchableSelect } from '../components/ui/searchable-select';
 import { A4InvoiceModal } from '../components/pos/A4InvoiceModal';
+import { PrintPaymentReceipt } from '../components/pos/PrintPaymentReceipt';
 import { InvoiceDetailModal } from '../components/invoices/InvoiceDetailModal';
 import {
   Dialog,
@@ -115,6 +116,8 @@ interface InvoiceRecord {
   paymentMethod: string;
   createdAt: string;
   userId?: number;
+  userRole?: string;
+  role?: string;
   user?: {
     id: number;
     name: string;
@@ -337,6 +340,24 @@ export const InvoicesPage: React.FC = () => {
   const [settleChequeDate, setSettleChequeDate] = useState<string>('');
   const [stagedPayments, setStagedPayments] = useState<StagedPaymentItem[]>([]);
   const [isSettling, setIsSettling] = useState<boolean>(false);
+  // Printable receipt state for queued settlement payments in Settle Invoice modal
+  const [isPrintingQueuedReceipt, setIsPrintingQueuedReceipt] = useState<boolean>(false);
+
+  /**
+   * Triggers 80mm thermal receipt printing for staged/queued split payments.
+   * Uses 150ms timeout to ensure DOM finishes rendering before window.print() is called.
+   */
+  const handlePrintQueuedPayments = () => {
+    if (stagedPayments.length === 0) {
+      toast.info('No queued payments to print.');
+      return;
+    }
+    setIsPrintingQueuedReceipt(true);
+    setTimeout(() => {
+      window.print();
+      setIsPrintingQueuedReceipt(false);
+    }, 150);
+  };
 
   const openSettleInvoiceModal = (inv: InvoiceRecord) => {
     setSettlingInvoice(inv);
@@ -1579,6 +1600,7 @@ export const InvoicesPage: React.FC = () => {
                 <th className="py-3 px-4">Invoice #</th>
                 <th className="py-3 px-4">Date</th>
                 <th className="py-3 px-4">Customer</th>
+                <th className="py-3 px-3 text-center">ROLE</th>
                 <th className="py-3 px-3 text-center">Shipped</th>
                 <th className="py-3 px-4 text-center">Method</th>
                 <th className="py-3 px-4 text-right">Total Amount</th>
@@ -1590,14 +1612,14 @@ export const InvoicesPage: React.FC = () => {
             <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60">
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
+                  <td colSpan={10} className="py-12 text-center text-slate-400">
                     <Loader2 className="size-6 animate-spin mx-auto mb-2 text-emerald-500" />
                     <span>Loading invoices...</span>
                   </td>
                 </tr>
               ) : invoices.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
+                  <td colSpan={10} className="py-12 text-center text-slate-400">
                     <FileText className="size-8 opacity-30 mx-auto mb-2" />
                     <span>No invoices found matching current criteria.</span>
                   </td>
@@ -1677,6 +1699,12 @@ export const InvoicesPage: React.FC = () => {
                           </button>
                         </div>
                         {inv.customerPhone && <span className="text-[10px] text-slate-400 font-mono block">{inv.customerPhone}</span>}
+                      </td>
+                      {/* Creator Role Badge Column */}
+                      <td className="py-3 px-3 text-center whitespace-nowrap">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase border ${getRoleBadgeStyle(inv.userRole || inv.user?.role)}`}>
+                          {inv.userRole || inv.user?.role || 'SYSTEM'}
+                        </span>
                       </td>
                       {/* Shipped / Dispatch Tracking Column */}
                       <td className="py-3 px-3 text-center" onClick={(e) => e.stopPropagation()}>
@@ -2013,7 +2041,18 @@ export const InvoicesPage: React.FC = () => {
               {stagedPayments.length > 0 && (
                 <div className="space-y-2 p-3 rounded-xl bg-slate-50/70 dark:bg-zinc-900/50 border border-slate-200 dark:border-zinc-800">
                   <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                    <span>Queued Payments ({stagedPayments.length})</span>
+                    <div className="flex items-center gap-2">
+                      <span>Queued Payments ({stagedPayments.length})</span>
+                      <button
+                        type="button"
+                        onClick={handlePrintQueuedPayments}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors cursor-pointer shadow-2xs"
+                        title="Print 80mm POS Thermal Receipt for queued payments"
+                      >
+                        <Printer className="size-3" />
+                        <span>Print</span>
+                      </button>
+                    </div>
                     <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">
                       Tendered: Rs. {totalStaged.toLocaleString()}
                     </span>
@@ -2243,6 +2282,18 @@ export const InvoicesPage: React.FC = () => {
         onClose={() => setPreviewModalOpen(false)}
         customer={previewCustomer}
       />
+
+      {/* Hidden printable consolidated receipt for staged settlement payments */}
+      {isPrintingQueuedReceipt && (
+        <PrintPaymentReceipt
+          payments={stagedPayments}
+          invoiceTotal={settlingInvoice ? Number(settlingInvoice.totalAmount) : undefined}
+          customerName={settlingInvoice?.customer?.name || 'Walk-in Customer'}
+          customerPhone={settlingInvoice?.customer?.phone}
+          invoiceNumber={settlingInvoice ? `INV-${settlingInvoice.id}` : undefined}
+          outstandingBalance={remainingDue}
+        />
+      )}
     </div>
   );
 };

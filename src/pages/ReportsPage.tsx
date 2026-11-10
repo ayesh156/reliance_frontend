@@ -12,6 +12,7 @@ import { TooltipSimple } from '../components/ui/tooltip';
 import { toast } from 'react-toastify';
 import { generateCustomerDuesPdf } from '../utils/customerDuesPdf';
 import { generateMaterialProductionPdf, generateGarmentProductionPdf } from '../utils/reportPdf';
+import { getRoleBadgeStyle } from './InvoicesPage';
 import { formatQty } from '../lib/utils';
 import { FinancialAuditModal, type FinancialMetricFocus } from '../components/reports/FinancialAuditModal';
 import {
@@ -747,53 +748,60 @@ export const ReportsPage: React.FC = () => {
     if (activeModule !== 'production') return null;
 
     const rows = filteredRows;
-    const totalBatches = rows.length;
+    const totalBatches = summary.totalBatches ?? rows.length;
 
-    // 1. Stage 1 (Cutting): Total Cut Pieces - Sum of cutQty
-    const totalCutPieces = rows.reduce((sum, row) => {
-      const cut = Number(row.cutQty > 0 ? row.cutQty : (row.totalCutUnits ?? (Array.isArray(row.cutLogs) && row.cutLogs.length > 0
-        ? row.cutLogs.reduce((acc: number, c: any) => acc + (c.quantityCut || 0), 0)
-        : (row.completedQty || row.targetQuantity || 0))));
-      return sum + cut;
-    }, 0);
+    // Strictly prioritize backend summary's stage-specific event-logging sums over batch row aggregations
+    const totalCutPieces = summary.totalCutPieces !== undefined
+      ? Number(summary.totalCutPieces)
+      : rows.reduce((sum, row) => {
+          const cut = Number(row.cutQty > 0 ? row.cutQty : (row.totalCutUnits ?? (Array.isArray(row.cutLogs) && row.cutLogs.length > 0
+            ? row.cutLogs.reduce((acc: number, c: any) => acc + (c.quantityCut || 0), 0)
+            : (row.completedQty || row.targetQuantity || 0))));
+          return sum + cut;
+        }, 0);
 
-    // 2. Stage 2 (Line WIP): In Sewing Line (WIP) - Sum of (cutQty - sewnQty)
-    const inSewingWip = rows.reduce((sum, row) => {
-      if (row.status !== 'CANCELLED' && row.status !== 'COMPLETED') {
-        const cut = Number(row.cutQty > 0 ? row.cutQty : (row.lineSentQty > 0 ? row.lineSentQty : (row.totalCutUnits ?? row.targetQuantity ?? 0)));
-        const sewn = Number(row.sewnQty || 0);
-        return sum + Math.max(0, cut - sewn);
-      }
-      return sum;
-    }, 0);
+    const inSewingWip = summary.inSewingWip !== undefined
+      ? Number(summary.inSewingWip)
+      : rows.reduce((sum, row) => {
+          if (row.status !== 'CANCELLED' && row.status !== 'COMPLETED') {
+            const cut = Number(row.cutQty > 0 ? row.cutQty : (row.lineSentQty > 0 ? row.lineSentQty : (row.totalCutUnits ?? row.targetQuantity ?? 0)));
+            const sewn = Number(row.sewnQty || 0);
+            return sum + Math.max(0, cut - sewn);
+          }
+          return sum;
+        }, 0);
 
-    // 3. Stage 3 (Sewn Output): Total Sewn Output - Sum of sewnQty
-    const totalSewnOutput = rows.reduce((sum, row) => sum + Number(row.sewnQty || 0), 0);
+    const totalSewnOutput = summary.totalSewnOutput !== undefined
+      ? Number(summary.totalSewnOutput)
+      : rows.reduce((sum, row) => sum + Number(row.sewnQty || 0), 0);
 
-    // 4. Stage 4 (Wash): In Wash / Washed - Sum of sentToWashQty + washedQty
-    const inWashTotal = rows.reduce((sum, row) => {
-      const sentWash = Number(row.sentToWashQty || 0);
-      const washed = Number(row.washedQty || 0);
-      return sum + sentWash + washed;
-    }, 0);
+    const inWashTotal = summary.inWashTotal !== undefined
+      ? Number(summary.inWashTotal)
+      : rows.reduce((sum, row) => {
+          const sentWash = Number(row.sentToWashQty || 0);
+          const washed = Number(row.washedQty || 0);
+          return sum + sentWash + washed;
+        }, 0);
 
-    // 5. Stage 5 (Iron & Pack): Ironed & Packed - FinishingLog aggregate or completedQty
-    const ironedAndPacked = rows.reduce((sum, row) => {
-      const logged = Array.isArray(row.finishLogs) && row.finishLogs.length > 0
-        ? row.finishLogs.reduce((acc: number, f: any) => acc + (Number(f.quantityFinished) || 0), 0)
-        : 0;
-      const finished = logged > 0
-        ? logged
-        : (Number(row.completedQty || 0) > 0 ? Number(row.completedQty) : Number(row.washedQty || 0));
-      return sum + finished;
-    }, 0);
+    const ironedAndPacked = summary.ironedAndPacked !== undefined
+      ? Number(summary.ironedAndPacked)
+      : rows.reduce((sum, row) => {
+          const logged = Array.isArray(row.finishLogs) && row.finishLogs.length > 0
+            ? row.finishLogs.reduce((acc: number, f: any) => acc + (Number(f.quantityFinished) || 0), 0)
+            : 0;
+          const finished = logged > 0
+            ? logged
+            : (Number(row.completedQty || 0) > 0 ? Number(row.completedQty) : Number(row.washedQty || 0));
+          return sum + finished;
+        }, 0);
 
-    // 6. Stage 6 (Finished Stock): Fully Finished / Synced to Inventory
-    const fullyFinishedSynced = rows.reduce((sum, row) => {
-      const isSynced = Boolean(row.isStockSynced) && row.status !== 'CANCELLED';
-      const finished = Number(row.completedQty || 0) > 0 ? Number(row.completedQty) : Number(row.washedQty || 0);
-      return isSynced ? sum + finished : sum;
-    }, 0);
+    const fullyFinishedSynced = summary.fullyFinishedSynced !== undefined
+      ? Number(summary.fullyFinishedSynced)
+      : rows.reduce((sum, row) => {
+          const isSynced = Boolean(row.isStockSynced) && row.status !== 'CANCELLED';
+          const finished = Number(row.completedQty || 0) > 0 ? Number(row.completedQty) : Number(row.washedQty || 0);
+          return isSynced ? sum + finished : sum;
+        }, 0);
 
     // Overall Finished & WIP backwards-compatibility metrics
     const completedQuantity = ironedAndPacked;
@@ -2221,7 +2229,7 @@ export const ReportsPage: React.FC = () => {
                         <th className="py-2.5 px-3 font-semibold w-28 min-w-[100px]">Invoice #</th>
                         <th className="py-2.5 px-3 font-semibold w-28 min-w-[100px]">Date</th>
                         <th className="py-2.5 px-3 font-semibold min-w-[160px]">Customer</th>
-                        <th className="py-2.5 px-3 font-semibold w-28 min-w-[90px]">Channel</th>
+                        <th className="py-2.5 px-3 font-semibold w-24 min-w-[80px] text-center">ROLE</th>
                         <th className="py-2.5 px-3 font-semibold text-right w-28 min-w-[100px]">Subtotal</th>
                         <th className="py-2.5 px-3 font-semibold text-right w-24 min-w-[80px]">Discount</th>
                         <th className="py-2.5 px-3 font-semibold text-right w-28 min-w-[110px]">Net Total</th>
@@ -2400,10 +2408,10 @@ export const ReportsPage: React.FC = () => {
                                   </div>
                                 )}
                               </td>
-                              <td className="py-2.5 px-3 whitespace-nowrap">
-                                <Badge variant="outline" className="text-[10px]">
-                                  {row.source === 'POS_WHOLESALE' ? 'Wholesale' : 'Retail'}
-                                </Badge>
+                              <td className="py-2.5 px-3 whitespace-nowrap text-center">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase border ${getRoleBadgeStyle(row.userRole || row.role)}`}>
+                                  {row.userRole || row.role || 'SYSTEM'}
+                                </span>
                               </td>
                               <td className="py-2.5 px-3 text-right whitespace-nowrap">{formatRs(row.subtotal)}</td>
                               <td className="py-2.5 px-3 text-right text-slate-400 whitespace-nowrap">{row.discount > 0 ? `-${formatRs(row.discount)}` : '-'}</td>

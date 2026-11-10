@@ -340,17 +340,23 @@ export const LinePage: React.FC = () => {
         ? new Date(dateRange.to).setHours(23, 59, 59, 999)
         : new Date(dateRange.from).setHours(23, 59, 59, 999);
 
-      list = list.filter((b) => {
-        const bDate = new Date(b.createdAt || b.productionDate).getTime();
-        return bDate >= fromTime && bDate <= toTime;
+      list = list.filter((b: any) => {
+        // Strictly evaluate stage-specific event logs or production date, eradicating root createdAt pollution
+        const hasLogInRange = (b.activityLogs || []).some((log: any) => {
+          const t = new Date(log.timestamp).getTime();
+          return t >= fromTime && t <= toTime;
+        });
+        if (hasLogInRange) return true;
+        const pDate = new Date(b.productionDate).getTime();
+        return !isNaN(pDate) && pDate >= fromTime && pDate <= toTime;
       });
     }
 
     switch (sortBy) {
       case 'oldest':
         list.sort((a, b) => {
-          const dateA = new Date(a.createdAt || a.productionDate).getTime();
-          const dateB = new Date(b.createdAt || b.productionDate).getTime();
+          const dateA = new Date(a.productionDate || a.createdAt).getTime();
+          const dateB = new Date(b.productionDate || b.createdAt).getTime();
           return dateA - dateB || a.id - b.id;
         });
         break;
@@ -372,8 +378,8 @@ export const LinePage: React.FC = () => {
 
   /**
    * Dynamically aggregated KPI metrics for Top Summary Cards.
-   * Calculates active sewing batches, total line intake, forwarded to wash, and pending WIP
-   * specifically from the `filteredBatches` array (active search, product, and date filters).
+   * Strictly sums event-specific activity logs matching the active dateRange filter,
+   * eradicating root batch createdAt contamination and guaranteeing parity with reports.
    */
   const metrics = useMemo(() => {
     const totalBatches = filteredBatches.length;
@@ -381,12 +387,54 @@ export const LinePage: React.FC = () => {
     let totalForwardedToWash = 0;
     let totalSewnQty = 0;
 
-    filteredBatches.forEach((b) => {
-      const prods = getBatchProducts(b, productsList);
-      const batchSentTotal = prods.reduce((sum, p) => sum + p.sentToLineQty, 0);
-      totalLineIntake += batchSentTotal > 0 ? batchSentTotal : (b.lineSentQty || b.targetQuantity || b.completedQty || 0);
-      totalForwardedToWash += b.sentToWashQty || 0;
-      totalSewnQty += Number(b.sewnQty || 0);
+    const isWithinRange = (ts: string | Date | undefined) => {
+      if (!ts) return false;
+      const t = new Date(ts).getTime();
+      if (isNaN(t)) return false;
+      if (!dateRange?.from) return true;
+      const fromTime = new Date(dateRange.from).setHours(0, 0, 0, 0);
+      const toTime = dateRange.to
+        ? new Date(dateRange.to).setHours(23, 59, 59, 999)
+        : new Date(dateRange.from).setHours(23, 59, 59, 999);
+      return t >= fromTime && t <= toTime;
+    };
+
+    filteredBatches.forEach((b: any) => {
+      // 1. Sewn Output: strictly aggregate activity logs within dateRange
+      const sewnLogs = (b.activityLogs || []).filter(
+        (log: any) =>
+          (log.action === 'LOG_SEWN' || log.action === 'SEWN' || (log.stage === 'LINE' && String(log.action || '').includes('SEWN'))) &&
+          isWithinRange(log.timestamp)
+      );
+      const logSewn = sewnLogs.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
+
+      // 2. Wash Forwarding: strictly aggregate activity logs within dateRange
+      const washLogs = (b.activityLogs || []).filter(
+        (log: any) =>
+          (log.action === 'SEND_TO_WASH' || log.stage === 'WASHING') &&
+          isWithinRange(log.timestamp)
+      );
+      const logWash = washLogs.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
+
+      // 3. Line Intake: strictly aggregate activity logs within dateRange
+      const lineLogs = (b.activityLogs || []).filter(
+        (log: any) =>
+          (log.action === 'SEND_TO_LINE' || log.action === 'LINE_INTAKE' || (log.stage === 'LINE' && log.action === 'SEND_TO_LINE')) &&
+          isWithinRange(log.timestamp)
+      );
+      const logLine = lineLogs.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
+
+      if (dateRange?.from) {
+        totalSewnQty += logSewn;
+        totalForwardedToWash += logWash;
+        totalLineIntake += logLine;
+      } else {
+        const prods = getBatchProducts(b, productsList);
+        const batchSentTotal = prods.reduce((sum, p) => sum + p.sentToLineQty, 0);
+        totalLineIntake += batchSentTotal > 0 ? batchSentTotal : (b.lineSentQty || b.targetQuantity || b.completedQty || 0);
+        totalForwardedToWash += logWash > 0 ? logWash : (b.sentToWashQty || 0);
+        totalSewnQty += logSewn > 0 ? logSewn : Number(b.sewnQty || 0);
+      }
     });
 
     const pendingSewing = Math.max(0, totalLineIntake - totalForwardedToWash);
@@ -398,7 +446,7 @@ export const LinePage: React.FC = () => {
       totalSewnQty,
       pendingSewing,
     };
-  }, [filteredBatches, productsList]);
+  }, [filteredBatches, productsList, dateRange]);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);

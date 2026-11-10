@@ -74,53 +74,72 @@ export const GarmentProductionReport: React.FC<GarmentProductionReportProps> = (
 
   // Dynamically compute real-time KPIs across filtered batches for the 6-stage funnel
   const kpis = useMemo(() => {
-    const totalBatches = rows.length;
+    const totalBatches = summary.totalBatches ?? rows.length;
 
-    // 1. Stage 1 (Cutting): Total Cut Pieces - Sum of cutQty
-    const totalCutPieces = rows.reduce((sum, row) => {
-      const cut = Number(row.cutQty > 0 ? row.cutQty : (row.totalCutUnits ?? (Array.isArray(row.cutLogs) && row.cutLogs.length > 0
-        ? row.cutLogs.reduce((acc: number, c: any) => acc + (c.quantityCut || 0), 0)
-        : (row.completedQty || row.targetQuantity || 0))));
-      return sum + cut;
-    }, 0);
+    // Strictly prioritize backend summary's stage-specific event-logging sums over batch row aggregations
+    const totalCutPieces = summary.totalCutPieces !== undefined
+      ? Number(summary.totalCutPieces)
+      : rows.reduce((sum, row) => {
+          const cut = Number(row.cutQty > 0 ? row.cutQty : (row.totalCutUnits ?? (Array.isArray(row.cutLogs) && row.cutLogs.length > 0
+            ? row.cutLogs.reduce((acc: number, c: any) => acc + (c.quantityCut || 0), 0)
+            : (row.completedQty || row.targetQuantity || 0))));
+          return sum + cut;
+        }, 0);
 
-    // 2. Stage 2 (Line WIP): In Sewing Line (WIP) - Sum of (cutQty - sewnQty)
-    const inSewingWip = rows.reduce((sum, row) => {
-      if (row.status !== 'CANCELLED' && row.status !== 'COMPLETED') {
-        const cut = Number(row.cutQty > 0 ? row.cutQty : (row.lineSentQty > 0 ? row.lineSentQty : (row.totalCutUnits ?? row.targetQuantity ?? 0)));
-        const sewn = Number(row.sewnQty || 0);
-        return sum + Math.max(0, cut - sewn);
-      }
-      return sum;
-    }, 0);
+    // 2. Stage 2 (Line WIP): In Sewing Line (WIP)
+    const inSewingWip = summary.inSewingWip !== undefined
+      ? Number(summary.inSewingWip)
+      : rows.reduce((sum, row) => {
+          if (row.status !== 'CANCELLED' && row.status !== 'COMPLETED') {
+            const cut = Number(row.cutQty > 0 ? row.cutQty : (row.lineSentQty > 0 ? row.lineSentQty : (row.totalCutUnits ?? row.targetQuantity ?? 0)));
+            const sewn = Number(row.sewnQty || 0);
+            return sum + Math.max(0, cut - sewn);
+          }
+          return sum;
+        }, 0);
 
-    // 3. Stage 3 (Sewn Output): Total Sewn Output - Sum of sewnQty
-    const totalSewnOutput = rows.reduce((sum, row) => sum + Number(row.sewnQty || 0), 0);
+    // 3. Stage 3 (Sewn Output): Total Sewn Output strictly prioritized from isolated backend summary
+    const totalSewnOutput = summary.totalSewnOutput !== undefined
+      ? Number(summary.totalSewnOutput)
+      : rows.reduce((sum, row) => {
+          const loggedSewn = Array.isArray(row.activityLogs)
+            ? row.activityLogs
+                .filter((a: any) => a.action === 'LOG_SEWN' || a.action === 'SEWN' || (a.stage === 'LINE' && String(a.action || '').includes('SEWN')))
+                .reduce((acc: number, l: any) => acc + (Number(l.quantity) || 0), 0)
+            : 0;
+          return sum + (loggedSewn > 0 ? loggedSewn : Number(row.sewnQty || 0));
+        }, 0);
 
-    // 4. Stage 4 (Wash): In Wash / Washed - Sum of sentToWashQty + washedQty
-    const inWashTotal = rows.reduce((sum, row) => {
-      const sentWash = Number(row.sentToWashQty || 0);
-      const washed = Number(row.washedQty || 0);
-      return sum + sentWash + washed;
-    }, 0);
+    // 4. Stage 4 (Wash): In Wash / Washed strictly prioritized from isolated backend summary
+    const inWashTotal = summary.inWashTotal !== undefined
+      ? Number(summary.inWashTotal)
+      : rows.reduce((sum, row) => {
+          const loggedWash = Array.isArray(row.activityLogs)
+            ? row.activityLogs
+                .filter((a: any) => a.stage === 'WASHING' || String(a.action || '').includes('WASH'))
+                .reduce((acc: number, l: any) => acc + (Number(l.quantity) || 0), 0)
+            : 0;
+          return sum + (loggedWash > 0 ? loggedWash : (Number(row.sentToWashQty || 0) + Number(row.washedQty || 0)));
+        }, 0);
 
-    // 5. Stage 5 (Iron & Pack): Ironed & Packed - FinishingLog aggregate or completedQty
-    const ironedAndPacked = rows.reduce((sum, row) => {
-      const logged = Array.isArray(row.finishLogs) && row.finishLogs.length > 0
-        ? row.finishLogs.reduce((acc: number, f: any) => acc + (Number(f.quantityFinished) || 0), 0)
-        : 0;
-      const finished = logged > 0
-        ? logged
-        : (Number(row.completedQty || 0) > 0 ? Number(row.completedQty) : Number(row.washedQty || 0));
-      return sum + finished;
-    }, 0);
+    // 5. Stage 5 (Iron & Pack): Ironed & Packed strictly prioritized from isolated backend summary
+    const ironedAndPacked = summary.ironedAndPacked !== undefined
+      ? Number(summary.ironedAndPacked)
+      : rows.reduce((sum, row) => {
+          const logged = Array.isArray(row.finishLogs) && row.finishLogs.length > 0
+            ? row.finishLogs.reduce((acc: number, f: any) => acc + (Number(f.quantityFinished) || 0), 0)
+            : 0;
+          return sum + logged;
+        }, 0);
 
     // 6. Stage 6 (Finished Stock): Fully Finished / Synced to Inventory
-    const fullyFinishedSynced = rows.reduce((sum, row) => {
-      const isSynced = Boolean(row.isStockSynced) && row.status !== 'CANCELLED';
-      const finished = Number(row.completedQty || 0) > 0 ? Number(row.completedQty) : Number(row.washedQty || 0);
-      return isSynced ? sum + finished : sum;
-    }, 0);
+    const fullyFinishedSynced = summary.fullyFinishedSynced !== undefined
+      ? Number(summary.fullyFinishedSynced)
+      : rows.reduce((sum, row) => {
+          const isSynced = Boolean(row.isStockSynced) && row.status !== 'CANCELLED';
+          const finished = Number(row.completedQty || 0) > 0 ? Number(row.completedQty) : Number(row.washedQty || 0);
+          return isSynced ? sum + finished : sum;
+        }, 0);
 
     const pendingStockSync = rows.reduce((sum, row) => {
       const finished = Number(row.completedQty || 0) > 0 ? Number(row.completedQty) : Number(row.washedQty || 0);
