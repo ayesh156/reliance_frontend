@@ -11,7 +11,8 @@ import { SearchableSelect, type SearchableSelectOption } from '../components/ui/
 import { TooltipSimple } from '../components/ui/tooltip';
 import { toast } from 'react-toastify';
 import { generateCustomerDuesPdf } from '../utils/customerDuesPdf';
-import { generateMaterialProductionPdf } from '../utils/reportPdf';
+import { generateMaterialProductionPdf, generateGarmentProductionPdf } from '../utils/reportPdf';
+import { formatQty } from '../lib/utils';
 import { FinancialAuditModal, type FinancialMetricFocus } from '../components/reports/FinancialAuditModal';
 import {
   Dialog,
@@ -61,6 +62,9 @@ import {
   Eye,
   Check,
   BarChart3,
+  Sparkles,
+  Droplets,
+  PackageCheck,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -72,6 +76,7 @@ import {
   Cell,
   PieChart,
   Pie,
+  Legend,
 } from 'recharts';
 
 type ModuleKey =
@@ -493,20 +498,28 @@ export const ReportsPage: React.FC = () => {
   };
 
   /**
-   * Generates executive Material & Production Audit PDF using jspdf-autotable
+   * Generates executive Material or Garment Production Audit PDF using jspdf-autotable
    * matching the exact monochrome audit layout and date range filtering.
    */
   const handleDownloadMaterialPdf = async () => {
     try {
       setDownloadingMaterialPdf(true);
       if (!reportData) return;
-      await generateMaterialProductionPdf(reportData, {
-        dateRangeLabel: formattedSelectedBadge,
-        generatedBy: user?.name ? `${user.name} (${user.role || 'Staff'})` : undefined,
-      });
-      toast.success('Material & Production PDF generated and downloaded successfully!');
+      if (activeModule === 'production') {
+        await generateGarmentProductionPdf(reportData, {
+          dateRangeLabel: formattedSelectedBadge,
+          generatedBy: user?.name ? `${user.name} (${user.role || 'Staff'})` : undefined,
+        });
+        toast.success('Garment Production PDF generated and downloaded successfully!');
+      } else {
+        await generateMaterialProductionPdf(reportData, {
+          dateRangeLabel: formattedSelectedBadge,
+          generatedBy: user?.name ? `${user.name} (${user.role || 'Staff'})` : undefined,
+        });
+        toast.success('Material & Production PDF generated and downloaded successfully!');
+      }
     } catch (err: any) {
-      toast.error(err.message || 'Failed to generate Material & Production PDF');
+      toast.error(err.message || 'Failed to generate PDF');
     } finally {
       setDownloadingMaterialPdf(false);
     }
@@ -686,8 +699,13 @@ export const ReportsPage: React.FC = () => {
 
   /**
    * Dynamic KPI Aggregations for Garment Production Report module.
-   * Derives live totals for Materials Cut, Scrap Returned, Garments Finished,
-   * Pending Stock Sync, Synced to Inventory, WIP, and Yield % directly from `filteredRows`.
+   * Derives live totals for the 6-stage production funnel directly from `filteredRows`:
+   *  1. Total Cut Pieces: Sum of cutQty
+   *  2. In Sewing Line (WIP): Sum of (cutQty - sewnQty) for active lines
+   *  3. Total Sewn Output: Sum of sewnQty
+   *  4. In Wash / Washed: Sum of sentToWashQty + washedQty
+   *  5. Ironed & Packed: Aggregate values from finishLogs / completedQty
+   *  6. Fully Finished / Synced: Sum of completedQty synced to inventory
    */
   const productionKPIs = useMemo(() => {
     if (activeModule !== 'production') return null;
@@ -695,66 +713,99 @@ export const ReportsPage: React.FC = () => {
     const rows = filteredRows;
     const totalBatches = rows.length;
 
-    // 1. Materials Cut: Sum of cut logs or total cut units/completedQty/targetQuantity
-    const totalMaterialsCut = rows.reduce((sum, row) => {
-      const cut = Number(row.totalCutUnits ?? (Array.isArray(row.cutLogs) && row.cutLogs.length > 0
+    // 1. Stage 1 (Cutting): Total Cut Pieces - Sum of cutQty
+    const totalCutPieces = rows.reduce((sum, row) => {
+      const cut = Number(row.cutQty > 0 ? row.cutQty : (row.totalCutUnits ?? (Array.isArray(row.cutLogs) && row.cutLogs.length > 0
         ? row.cutLogs.reduce((acc: number, c: any) => acc + (c.quantityCut || 0), 0)
-        : (row.completedQty || row.targetQuantity || 0)));
+        : (row.completedQty || row.targetQuantity || 0))));
       return sum + cut;
     }, 0);
 
-    // 2. Scrap Returned: Sum of returned fabric / scrap quantity across material usages
-    const totalScrapReturned = rows.reduce((sum, row) => {
-      const scrap = Number(row.scrapReturned ?? (Array.isArray(row.materialUsages)
-        ? row.materialUsages.reduce((acc: number, u: any) => acc + (Number(u.returnedQty) || 0), 0)
-        : 0));
-      return sum + scrap;
-    }, 0);
-
-    // 3. Garments Finished: Total completed garments or finished logs
-    const completedQuantity = rows.reduce((sum, row) => {
-      const finished = Number(row.completedQty ?? row.totalFinishedUnits ?? (Array.isArray(row.finishLogs) && row.finishLogs.length > 0
-        ? row.finishLogs.reduce((acc: number, f: any) => acc + (f.quantityFinished || 0), 0)
-        : 0));
-      return sum + finished;
-    }, 0);
-
-    // 4. Pending Stock Sync: Batches completed but not yet synced to inventory (and not cancelled)
-    const pendingStockSync = rows.reduce((sum, row) => {
-      const isCompleted = row.status !== 'CANCELLED' && (Number(row.completedQty || 0) > 0 || row.status === 'COMPLETED');
-      const isPending = !row.isStockSynced && isCompleted;
-      return isPending ? sum + Number(row.completedQty || 0) : sum;
-    }, 0);
-
-    // 5. Synced to Inventory: Batches that have been confirmed and synced into inventory
-    const syncedToInventory = rows.reduce((sum, row) => {
-      const isSynced = Boolean(row.isStockSynced) && row.status !== 'CANCELLED';
-      return isSynced ? sum + Number(row.completedQty || 0) : sum;
-    }, 0);
-
-    // WIP & Yield calculations across active batches
-    const targetQuantity = rows.reduce((sum, row) => sum + Number(row.targetQuantity || 0), 0);
-    const currentWip = rows.reduce((sum, row) => {
+    // 2. Stage 2 (Line WIP): In Sewing Line (WIP) - Sum of (cutQty - sewnQty)
+    const inSewingWip = rows.reduce((sum, row) => {
       if (row.status !== 'CANCELLED' && row.status !== 'COMPLETED') {
-        const target = Number(row.targetQuantity || 0);
-        const done = Number(row.completedQty || 0);
-        return sum + Math.max(0, target - done);
+        const cut = Number(row.cutQty > 0 ? row.cutQty : (row.lineSentQty > 0 ? row.lineSentQty : (row.totalCutUnits ?? row.targetQuantity ?? 0)));
+        const sewn = Number(row.sewnQty || 0);
+        return sum + Math.max(0, cut - sewn);
       }
       return sum;
     }, 0);
 
-    const overallYieldPercentage = targetQuantity > 0
-      ? Math.round((completedQuantity / targetQuantity) * 1000) / 10
+    // 3. Stage 3 (Sewn Output): Total Sewn Output - Sum of sewnQty
+    const totalSewnOutput = rows.reduce((sum, row) => sum + Number(row.sewnQty || 0), 0);
+
+    // 4. Stage 4 (Wash): In Wash / Washed - Sum of sentToWashQty + washedQty
+    const inWashTotal = rows.reduce((sum, row) => {
+      const sentWash = Number(row.sentToWashQty || 0);
+      const washed = Number(row.washedQty || 0);
+      return sum + sentWash + washed;
+    }, 0);
+
+    // 5. Stage 5 (Iron & Pack): Ironed & Packed - FinishingLog aggregate or completedQty
+    const ironedAndPacked = rows.reduce((sum, row) => {
+      const logged = Array.isArray(row.finishLogs) && row.finishLogs.length > 0
+        ? row.finishLogs.reduce((acc: number, f: any) => acc + (Number(f.quantityFinished) || 0), 0)
+        : 0;
+      return sum + (logged > 0 ? logged : Number(row.completedQty ?? row.washedQty ?? 0));
+    }, 0);
+
+    // 6. Stage 6 (Finished Stock): Fully Finished / Synced to Inventory
+    const fullyFinishedSynced = rows.reduce((sum, row) => {
+      const isSynced = Boolean(row.isStockSynced) && row.status !== 'CANCELLED';
+      const finished = Number(row.completedQty > 0 ? row.completedQty : (row.washedQty || 0));
+      return isSynced ? sum + finished : sum;
+    }, 0);
+
+    // Overall Finished & WIP backwards-compatibility metrics
+    const completedQuantity = rows.reduce((sum, row) => {
+      const finished = Number(row.washedQty > 0 ? row.washedQty : (row.completedQty ?? row.totalFinishedUnits ?? 0));
+      return sum + finished;
+    }, 0);
+
+    const currentWip = rows.reduce((sum, row) => {
+      if (row.status !== 'CANCELLED' && row.status !== 'COMPLETED') {
+        const cut = Number(row.cutQty > 0 ? row.cutQty : (row.totalCutUnits ?? row.targetQuantity ?? 0));
+        const done = Number(row.washedQty > 0 ? row.washedQty : (row.completedQty ?? 0));
+        return sum + Math.max(0, cut - done);
+      }
+      return sum;
+    }, 0);
+
+    const pendingStockSync = rows.reduce((sum, row) => {
+      const finished = Number(row.washedQty > 0 ? row.washedQty : (row.completedQty ?? 0));
+      const isCompleted = row.status !== 'CANCELLED' && (finished > 0 || row.status === 'COMPLETED');
+      return (!row.isStockSynced && isCompleted) ? sum + finished : sum;
+    }, 0);
+
+    const totalScrapReturned = rows.reduce((sum, row) => {
+      const scrap = Number(row.scrapReturned ?? (Array.isArray(row.materialUsages)
+        ? row.materialUsages.reduce((acc: number, u: any) => acc + (Number(u.returnedScrap ?? u.returnedQty) || 0), 0)
+        : 0));
+      return sum + scrap;
+    }, 0);
+
+    const targetQuantity = rows.reduce((sum, row) => sum + Number(row.targetQuantity || 0), 0);
+    const overallYieldDivisor = totalCutPieces > 0 ? totalCutPieces : targetQuantity;
+    const overallYieldPercentage = overallYieldDivisor > 0
+      ? Math.round((ironedAndPacked / overallYieldDivisor) * 1000) / 10
       : (summary.overallYieldPercentage || 0);
 
     return {
       totalBatches,
-      totalMaterialsCut: Math.round(totalMaterialsCut * 100) / 100,
+      // 6-Stage Funnel Metrics
+      totalCutPieces: Math.round(totalCutPieces * 100) / 100,
+      inSewingWip: Math.round(inSewingWip * 100) / 100,
+      totalSewnOutput: Math.round(totalSewnOutput * 100) / 100,
+      inWashTotal: Math.round(inWashTotal * 100) / 100,
+      ironedAndPacked: Math.round(ironedAndPacked * 100) / 100,
+      fullyFinishedSynced: Math.round(fullyFinishedSynced * 100) / 100,
+      // Backwards-compatibility properties
+      totalMaterialsCut: Math.round(totalCutPieces * 100) / 100,
       totalScrapReturned: Math.round(totalScrapReturned * 100) / 100,
       completedQuantity,
       pendingStockSync,
-      syncedToInventory,
-      currentWip,
+      syncedToInventory: Math.round(fullyFinishedSynced * 100) / 100,
+      currentWip: Math.round(inSewingWip * 100) / 100,
       overallYieldPercentage,
     };
   }, [activeModule, filteredRows, summary]);
@@ -815,14 +866,18 @@ export const ReportsPage: React.FC = () => {
       if (Array.isArray(daily) && daily.length > 0) {
         return daily.slice(0, 10).map((d: any) => ({
           name: d.date ? d.date.slice(5) : 'Date',
-          cutQty: Math.round((d.cutQty || 0) * 10) / 10,
-          finishedQty: d.finishedQty || 0,
+          cutQty: Math.round((d.cutQty || 0) * 100) / 100,
+          sewnQty: Math.round((d.sewnQty || 0) * 100) / 100,
+          washedQty: Math.round((d.washedQty || 0) * 100) / 100,
+          finishedQty: Math.round((d.finishedQty || 0) * 100) / 100,
         })).reverse();
       }
-      return (reportData.tableItems || []).slice(0, 8).map((item: any) => ({
+      return (filteredRows && filteredRows.length > 0 ? filteredRows : (reportData.tableItems || [])).slice(0, 8).map((item: any) => ({
         name: item.productionNo,
-        cutQty: item.totalCutUnits || 0,
-        finishedQty: item.completedQty || 0,
+        cutQty: Math.round(Number(item.cutQty || item.totalCutUnits || 0) * 100) / 100,
+        sewnQty: Math.round(Number(item.sewnQty || 0) * 100) / 100,
+        washedQty: Math.round(Number(item.washedQty || 0) * 100) / 100,
+        finishedQty: Math.round(Number(item.completedQty || item.totalFinishedUnits || 0) * 100) / 100,
       }));
     }
 
@@ -1038,14 +1093,14 @@ export const ReportsPage: React.FC = () => {
             {/* Raw Materials & Production: PDF and Excel Buttons */}
             {(activeModule === 'materials' || activeModule === 'production') && (
               <>
-                <TooltipSimple content="Download Material & Production Audit PDF" side="top">
+                <TooltipSimple content={activeModule === 'production' ? "Download Garment Production Audit PDF" : "Download Material & Production Audit PDF"} side="top">
                   <Button
                     onClick={handleDownloadMaterialPdf}
                     disabled={downloadingMaterialPdf || loading || !reportData}
                     variant="outline"
                     className="h-9 sm:h-10 px-2.5 sm:px-3.5 rounded-xl text-xs font-semibold border-amber-300 dark:border-amber-800/80 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 shadow-xs shrink-0 cursor-pointer flex items-center justify-center gap-1.5"
-                    title="Download Material & Production Audit PDF"
-                    aria-label="Download Material & Production Audit PDF"
+                    title={activeModule === 'production' ? "Download Garment Production Audit PDF" : "Download Material & Production Audit PDF"}
+                    aria-label={activeModule === 'production' ? "Download Garment Production Audit PDF" : "Download Material & Production Audit PDF"}
                   >
                     {downloadingMaterialPdf ? (
                       <>
@@ -1056,8 +1111,10 @@ export const ReportsPage: React.FC = () => {
                     ) : (
                       <>
                         <FileText className="size-3.5 sm:size-4 text-amber-600 shrink-0" />
-                        <span className="hidden sm:inline">Material &amp; Production PDF</span>
-                        <span className="sm:hidden">Mat PDF</span>
+                        <span className="hidden sm:inline">
+                          {activeModule === 'production' ? 'Production PDF' : 'Material & Production PDF'}
+                        </span>
+                        <span className="sm:hidden">{activeModule === 'production' ? 'Prod PDF' : 'Mat PDF'}</span>
                       </>
                     )}
                   </Button>
@@ -1255,7 +1312,7 @@ export const ReportsPage: React.FC = () => {
         <div className="space-y-6">
           {/* Quick Summary Metric Cards */}
           <div className={`grid gap-2.5 sm:gap-3.5 md:gap-4 ${
-            activeModule === 'production' ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5' : 'grid-cols-2 md:grid-cols-4'
+            activeModule === 'production' ? 'grid-cols-2 md:grid-cols-3 lg:grid-cols-6' : 'grid-cols-2 md:grid-cols-4'
           }`}>
             {activeModule === 'sales' && (
               <>
@@ -1513,64 +1570,80 @@ export const ReportsPage: React.FC = () => {
 
             {activeModule === 'production' && (
               <>
-                {/* 1. Materials Cut */}
+                {/* Stage 1: Cutting - Total Cut Pieces */}
                 <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Materials Cut</p>
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Total Cut Pieces</p>
                     <Scissors className="w-3.5 h-3.5 text-amber-500" />
                   </div>
                   <p className="text-lg md:text-xl font-bold mt-1 text-amber-600 dark:text-amber-400 font-mono">
-                    {(productionKPIs?.totalMaterialsCut ?? summary.totalMaterialsCut ?? summary.completedQuantity ?? 0).toLocaleString()} <span className="text-xs font-medium text-slate-500">Units</span>
+                    {formatQty(productionKPIs?.totalCutPieces ?? summary.totalCutPieces ?? summary.totalMaterialsCut ?? 0)} <span className="text-xs font-medium text-slate-500">Units</span>
                   </p>
                   <p className="text-[11px] text-slate-400 mt-1">{productionKPIs?.totalBatches ?? summary.totalBatches ?? 0} Batches Started</p>
                 </div>
 
-                {/* 2. Scrap Returned */}
+                {/* Stage 2: Line Intake - In Sewing Line (WIP) */}
                 <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Scrap Returned</p>
-                    <RotateCcw className="w-3.5 h-3.5 text-teal-500" />
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">In Sewing Line (WIP)</p>
+                    <Clock className="w-3.5 h-3.5 text-indigo-500" />
                   </div>
-                  <p className="text-lg md:text-xl font-bold mt-1 text-teal-600 dark:text-teal-400 font-mono">
-                    {(productionKPIs?.totalScrapReturned ?? summary.totalScrapReturned ?? summary.scrapVariance ?? 0).toLocaleString()} <span className="text-xs font-medium text-slate-500">Units</span>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-indigo-600 dark:text-indigo-400 font-mono">
+                    {formatQty(productionKPIs?.inSewingWip ?? summary.inSewingWip ?? summary.currentWip ?? 0)} <span className="text-xs font-medium text-slate-500">Pcs</span>
                   </p>
-                  <p className="text-[11px] text-slate-400 mt-1">Restored to warehouse stock</p>
+                  <p className="text-[11px] text-slate-400 mt-1">Ongoing in Sewing Floor</p>
                 </div>
 
-                {/* 3. Garments Finished */}
+                {/* Stage 3: Sewing - Total Sewn Output */}
                 <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Garments Finished</p>
-                    <Shirt className="w-3.5 h-3.5 text-emerald-500" />
-                  </div>
-                  <p className="text-lg md:text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400 font-mono">
-                    {(productionKPIs?.completedQuantity ?? summary.completedQuantity ?? 0).toLocaleString()} <span className="text-xs font-medium text-slate-500">Pcs</span>
-                  </p>
-                  <p className="text-[11px] text-slate-400 mt-1">Yield: {productionKPIs?.overallYieldPercentage ?? summary.overallYieldPercentage ?? 0}% · WIP: {productionKPIs?.currentWip ?? summary.currentWip ?? 0} Pcs</p>
-                </div>
-
-                {/* 4. Pending Stock Sync */}
-                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Pending Stock Sync</p>
-                    <Clock className="w-3.5 h-3.5 text-purple-500" />
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Total Sewn Output</p>
+                    <Sparkles className="w-3.5 h-3.5 text-purple-500" />
                   </div>
                   <p className="text-lg md:text-xl font-bold mt-1 text-purple-600 dark:text-purple-400 font-mono">
-                    {(productionKPIs?.pendingStockSync ?? summary.pendingStockSync ?? 0).toLocaleString()} <span className="text-xs font-medium text-slate-500">Pcs</span>
+                    {formatQty(productionKPIs?.totalSewnOutput ?? summary.totalSewnOutput ?? 0)} <span className="text-xs font-medium text-slate-500">Pcs</span>
                   </p>
-                  <p className="text-[11px] text-purple-500/80 mt-1">Awaiting sync confirmation</p>
+                  <p className="text-[11px] text-slate-400 mt-1">Exited Sewing Floor</p>
                 </div>
 
-                {/* 5. Synced to Inventory */}
+                {/* Stage 4: Washing - In Wash / Washed */}
                 <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Synced to Inventory</p>
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">In Wash / Washed</p>
+                    <Droplets className="w-3.5 h-3.5 text-cyan-500" />
+                  </div>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-cyan-600 dark:text-cyan-400 font-mono">
+                    {formatQty(productionKPIs?.inWashTotal ?? summary.inWashTotal ?? 0)} <span className="text-xs font-medium text-slate-500">Pcs</span>
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-1">Wet Processing Pipeline</p>
+                </div>
+
+                {/* Stage 5: Ironing & Packing */}
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Ironed &amp; Packed</p>
+                    <PackageCheck className="w-3.5 h-3.5 text-emerald-500" />
+                  </div>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400 font-mono">
+                    {formatQty(productionKPIs?.ironedAndPacked ?? summary.ironedAndPacked ?? summary.completedQuantity ?? 0)} <span className="text-xs font-medium text-slate-500">Pcs</span>
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-1">Yield: {formatQty(productionKPIs?.overallYieldPercentage ?? summary.overallYieldPercentage ?? 0)}%</p>
+                </div>
+
+                {/* Stage 6: Finished Inventory - Fully Finished / Synced */}
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Fully Finished / Synced</p>
                     <Package className="w-3.5 h-3.5 text-blue-500" />
                   </div>
                   <p className="text-lg md:text-xl font-bold mt-1 text-blue-600 dark:text-blue-400 font-mono">
-                    {(productionKPIs?.syncedToInventory ?? summary.syncedToInventory ?? 0).toLocaleString()} <span className="text-xs font-medium text-slate-500">Pcs</span>
+                    {formatQty(productionKPIs?.fullyFinishedSynced ?? summary.fullyFinishedSynced ?? summary.syncedToInventory ?? 0)} <span className="text-xs font-medium text-slate-500">Pcs</span>
                   </p>
-                  <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1">Active in sellable stock</p>
+                  <p className="text-[11px] text-purple-500/80 mt-1">
+                    {(productionKPIs?.pendingStockSync ?? summary.pendingStockSync ?? 0) > 0
+                      ? `${formatQty(productionKPIs?.pendingStockSync ?? summary.pendingStockSync)} Pcs Pending Sync`
+                      : 'Confirmed In Warehouse'}
+                  </p>
                 </div>
               </>
             )}
@@ -1693,8 +1766,11 @@ export const ReportsPage: React.FC = () => {
                       <XAxis dataKey="name" stroke={dark ? '#71717a' : '#94a3b8'} fontSize={11} />
                       <YAxis stroke={dark ? '#71717a' : '#94a3b8'} fontSize={11} />
                       <RechartsTooltip />
-                      <Bar dataKey="cutQty" name="Materials Cut" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="finishedQty" name="Garments Finished" fill="#10b981" radius={[4, 4, 0, 0]} />
+                      <Legend wrapperStyle={{ fontSize: 11, paddingTop: 6 }} />
+                      <Bar dataKey="cutQty" name="1. Cut Pieces" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="sewnQty" name="2. Sewn Output" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="washedQty" name="3. In Wash / Washed" fill="#06b6d4" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="finishedQty" name="4. Finished / Packed" fill="#10b981" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   ) : activeModule === 'suppliers' ? (
                     <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -2331,31 +2407,47 @@ export const ReportsPage: React.FC = () => {
                                 </div>
                               </td>
                               <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">{row.variant}</td>
-                              <td className="py-2.5 px-3 text-center whitespace-nowrap">{row.targetQuantity}</td>
+                              <td className="py-2.5 px-3 text-center whitespace-nowrap">{formatQty(row.targetQuantity)}</td>
                               <td className="py-2.5 px-3 text-center font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">
-                                {row.totalCutUnits ?? row.completedQty ?? 0}
+                                {formatQty(row.cutQty ?? row.totalCutUnits ?? row.completedQty ?? 0)}
                                 {row.cutLogsCount > 0 && (
                                   <span className="text-[10px] text-slate-400 block font-normal">({row.cutLogsCount} cuts)</span>
                                 )}
                               </td>
                               <td className="py-2.5 px-3 text-center font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                                {row.completedQty}
+                                {formatQty(row.washedQty ?? row.completedQty ?? 0)}
                                 {row.finishLogsCount > 0 && (
                                   <span className="text-[10px] text-slate-400 block font-normal">({row.finishLogsCount} logs)</span>
                                 )}
                               </td>
                               <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                                {row.wipUnits > 0 ? (
-                                  <Badge variant="outline" className="text-[10px] bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800 font-mono">
-                                    {row.wipUnits} WIP
-                                  </Badge>
-                                ) : (
-                                  <span className="text-slate-400 font-mono text-[11px]">-</span>
-                                )}
+                                {(() => {
+                                  const cut = Number(row.cutQty ?? row.totalCutUnits ?? row.targetQuantity ?? 0);
+                                  const finished = Number(row.washedQty ?? row.completedQty ?? 0);
+                                  const wip = row.wipUnits !== undefined ? Number(row.wipUnits) : (row.status !== 'CANCELLED' && row.status !== 'COMPLETED' ? Math.max(0, cut - finished) : 0);
+                                  return wip > 0 ? (
+                                    <Badge variant="outline" className="text-[10px] bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800 font-mono">
+                                      {formatQty(wip)} WIP
+                                    </Badge>
+                                  ) : (
+                                    <span className="text-slate-400 font-mono text-[11px]">-</span>
+                                  );
+                                })()}
                               </td>
-                              <td className="py-2.5 px-3 text-center font-semibold text-blue-600 dark:text-blue-400 whitespace-nowrap">{row.yieldPercentage}%</td>
+                              <td className="py-2.5 px-3 text-center font-semibold text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                                {(() => {
+                                  const cut = Number(row.cutQty ?? row.totalCutUnits ?? row.targetQuantity ?? 0);
+                                  const finished = Number(row.washedQty ?? row.completedQty ?? 0);
+                                  const yieldVal = row.yieldPercentage !== undefined && row.yieldPercentage > 0
+                                    ? Number(row.yieldPercentage)
+                                    : (cut > 0 ? Math.round((finished / cut) * 1000) / 10 : 0);
+                                  return `${formatQty(yieldVal)}%`;
+                                })()}
+                              </td>
                               <td className="py-2.5 px-3 text-right whitespace-nowrap font-mono">{formatRs(row.materialCost)}</td>
-                              <td className="py-2.5 px-3 text-right text-slate-400 whitespace-nowrap font-mono">{row.scrapReturned}</td>
+                              <td className="py-2.5 px-3 text-right text-slate-400 whitespace-nowrap font-mono">
+                                {formatQty(row.scrapReturned ?? (Array.isArray(row.materialUsages) ? row.materialUsages.reduce((s: number, u: any) => s + Number(u.returnedScrap ?? u.returnedQty ?? 0), 0) : 0))}
+                              </td>
                               <td className="py-2.5 px-3 text-center whitespace-nowrap">
                                 <Badge
                                   variant="outline"
@@ -2588,25 +2680,31 @@ export const ReportsPage: React.FC = () => {
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 uppercase block">Planned Target</span>
                   <span className="font-mono font-bold text-slate-700 dark:text-zinc-300 text-sm">
-                    {selectedProductionBatch.targetQuantity} Pcs
+                    {formatQty(selectedProductionBatch.targetQuantity)} Pcs
                   </span>
                 </div>
                 <div>
                   <span className="text-[10px] font-bold text-amber-600 block">Materials Cut</span>
                   <span className="font-mono font-bold text-amber-600 dark:text-amber-400 text-sm">
-                    {selectedProductionBatch.totalCutUnits ?? selectedProductionBatch.completedQty} Units
+                    {formatQty(selectedProductionBatch.cutQty ?? selectedProductionBatch.totalCutUnits ?? selectedProductionBatch.completedQty ?? 0)} Units
                   </span>
                 </div>
                 <div>
                   <span className="text-[10px] font-bold text-emerald-600 block">Garments Finished</span>
                   <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-sm">
-                    {selectedProductionBatch.completedQty} Pcs
+                    {formatQty(selectedProductionBatch.washedQty ?? selectedProductionBatch.completedQty ?? 0)} Pcs
                   </span>
                 </div>
                 <div>
                   <span className="text-[10px] font-bold text-indigo-600 block">Yield / Efficiency</span>
                   <span className="font-mono font-extrabold text-indigo-600 dark:text-indigo-400 text-sm">
-                    {selectedProductionBatch.yieldPercentage}%
+                    {selectedProductionBatch.yieldPercentage !== undefined && selectedProductionBatch.yieldPercentage > 0
+                      ? `${formatQty(selectedProductionBatch.yieldPercentage)}%`
+                      : (() => {
+                          const cut = Number(selectedProductionBatch.cutQty ?? selectedProductionBatch.totalCutUnits ?? selectedProductionBatch.targetQuantity ?? 0);
+                          const finished = Number(selectedProductionBatch.washedQty ?? selectedProductionBatch.completedQty ?? 0);
+                          return cut > 0 ? `${formatQty(Math.round((finished / cut) * 1000) / 10)}%` : '0%';
+                        })()}
                   </span>
                 </div>
               </div>
@@ -2616,7 +2714,13 @@ export const ReportsPage: React.FC = () => {
                 <div>
                   <span className="text-[10px] font-bold text-amber-600 uppercase block">Remaining WIP</span>
                   <span className="font-mono font-bold text-slate-900 dark:text-white">
-                    {selectedProductionBatch.wipUnits || 0} Pcs
+                    {formatQty(selectedProductionBatch.wipUnits !== undefined
+                      ? selectedProductionBatch.wipUnits
+                      : (() => {
+                          const cut = Number(selectedProductionBatch.cutQty ?? selectedProductionBatch.totalCutUnits ?? selectedProductionBatch.targetQuantity ?? 0);
+                          const finished = Number(selectedProductionBatch.washedQty ?? selectedProductionBatch.completedQty ?? 0);
+                          return Math.max(0, cut - finished);
+                        })())} Pcs
                   </span>
                 </div>
                 <div>
@@ -2628,7 +2732,7 @@ export const ReportsPage: React.FC = () => {
                 <div>
                   <span className="text-[10px] font-bold text-teal-600 uppercase block">Scrap Returned</span>
                   <span className="font-mono font-bold text-teal-600 dark:text-teal-400">
-                    {selectedProductionBatch.scrapReturned || 0} Units
+                    {formatQty(selectedProductionBatch.scrapReturned ?? (Array.isArray(selectedProductionBatch.materialUsages) ? selectedProductionBatch.materialUsages.reduce((s: number, u: any) => s + Number(u.returnedScrap ?? u.returnedQty ?? 0), 0) : 0))} Units
                   </span>
                 </div>
                 <div>
@@ -2673,13 +2777,13 @@ export const ReportsPage: React.FC = () => {
                                 )}
                               </TableCell>
                               <TableCell className="text-right font-mono text-slate-700 dark:text-zinc-300">
-                                {u.issuedQty} {unit}
+                                {formatQty(u.issuedQty ?? 0)} {unit}
                               </TableCell>
                               <TableCell className="text-right font-mono text-teal-600 dark:text-teal-400 font-semibold">
-                                {u.returnedQty} {unit}
+                                {formatQty(u.returnedScrap ?? u.returnedQty ?? 0)} {unit}
                               </TableCell>
                               <TableCell className="text-right font-mono font-bold text-slate-900 dark:text-white">
-                                {u.netConsumedQty} {unit}
+                                {formatQty(u.netConsumedQty ?? 0)} {unit}
                               </TableCell>
                               <TableCell className="text-right font-mono text-slate-500">
                                 {formatRs(u.unitCost || 0)}

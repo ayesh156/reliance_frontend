@@ -14,7 +14,7 @@ import {
   TableCell,
 } from '../components/ui/table';
 import { get, del } from '../lib/api';
-import { getProductImageUrl } from '../lib/utils';
+import { getProductImageUrl, formatQty } from '../lib/utils';
 import { toast } from 'react-toastify';
 import { BatchStatusBadge } from '../components/production/BatchStatusBadge';
 import {
@@ -379,12 +379,14 @@ export const LinePage: React.FC = () => {
     const totalBatches = filteredBatches.length;
     let totalLineIntake = 0;
     let totalForwardedToWash = 0;
+    let totalSewnQty = 0;
 
     filteredBatches.forEach((b) => {
       const prods = getBatchProducts(b, productsList);
       const batchSentTotal = prods.reduce((sum, p) => sum + p.sentToLineQty, 0);
       totalLineIntake += batchSentTotal > 0 ? batchSentTotal : (b.lineSentQty || b.targetQuantity || b.completedQty || 0);
       totalForwardedToWash += b.sentToWashQty || 0;
+      totalSewnQty += Number(b.sewnQty || 0);
     });
 
     const pendingSewing = Math.max(0, totalLineIntake - totalForwardedToWash);
@@ -393,6 +395,7 @@ export const LinePage: React.FC = () => {
       totalBatches,
       totalLineIntake,
       totalForwardedToWash,
+      totalSewnQty,
       pendingSewing,
     };
   }, [filteredBatches, productsList]);
@@ -540,24 +543,24 @@ export const LinePage: React.FC = () => {
           </p>
         </div>
 
-        {/* Metric 4: In Sewing Line */}
+        {/* Metric 4: Daily Sewn Qty (Filtered Sewn Output) */}
         <div className="rounded-2xl border p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex flex-col justify-between min-h-[110px]">
           <div className="flex justify-between items-start">
             <div>
               <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
-                In Sewing WIP
+                Daily Sewn Qty
               </span>
-              <h3 className="text-2xl font-bold text-amber-600 dark:text-amber-400 mt-1 font-mono">
-                {metrics.pendingSewing.toLocaleString()}{' '}
-                <span className="text-xs font-medium text-slate-500">Units</span>
+              <h3 className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-1 font-mono">
+                {formatQty(metrics.totalSewnQty)}{' '}
+                <span className="text-xs font-medium text-slate-500">Pcs</span>
               </h3>
             </div>
-            <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 rounded-xl shrink-0">
-              <Clock className="size-5" />
+            <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-xl shrink-0">
+              <Sparkles className="size-5" />
             </div>
           </div>
           <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-2">
-            Remaining to be sewn and inspected
+            Filtered completed sewn output across active lines
           </p>
         </div>
       </div>
@@ -930,7 +933,7 @@ export const LinePage: React.FC = () => {
                                 </span>
                                 {' · '}
                                 <span className="font-mono text-amber-700 dark:text-amber-400 font-semibold">
-                                  {u.netConsumedQty ?? u.issuedQty} {u.rawMaterial?.unit || 'Units'}
+                                  {formatQty(u.netConsumedQty ?? u.issuedQty)} {u.rawMaterial?.unit || 'Units'}
                                 </span>
                               </div>
                             ))

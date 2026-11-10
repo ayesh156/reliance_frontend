@@ -43,7 +43,7 @@ import {
 } from '../components/ui/dropdown-menu';
 import { DateTimePicker } from '../components/ui/date-time-picker';
 import { get, post, put, del } from '../lib/api';
-import { getProductImageUrl } from '../lib/utils';
+import { getProductImageUrl, formatQty } from '../lib/utils';
 import { toast } from 'react-toastify';
 import CuttingModal from '../components/production/CuttingModal';
 import CuttingDetailModal, {
@@ -1997,7 +1997,7 @@ export const CuttingListPage: React.FC = () => {
                                 <div key={usage.id} className="text-slate-700 dark:text-zinc-300 font-mono text-xs truncate max-w-[150px]">
                                   <span className="font-semibold text-slate-900 dark:text-white">{usage.rawMaterial.name}</span>
                                   {' · '}
-                                  <span className="font-bold text-amber-700 dark:text-amber-400">{usage.netConsumedQty} {usage.rawMaterial.unit}</span>
+                                  <span className="font-bold text-amber-700 dark:text-amber-400">{formatQty(usage.netConsumedQty)} {usage.rawMaterial.unit}</span>
                                 </div>
                               ))}
                               {order.materialUsages.length > 2 && (
@@ -2192,7 +2192,7 @@ export const CuttingListPage: React.FC = () => {
                               <span className="text-slate-400 mx-1.5">·</span>
                               <span>{usage.piecesCount || 0} Rolls</span>
                               <span className="text-slate-400 mx-1.5">·</span>
-                              <span className="font-bold text-slate-900 dark:text-white">{usage.netConsumedQty} {usage.rawMaterial.unit}</span>
+                              <span className="font-bold text-slate-900 dark:text-white">{formatQty(usage.netConsumedQty)} {usage.rawMaterial.unit}</span>
                             </div>
                           ))}
                         </div>
@@ -2208,15 +2208,15 @@ export const CuttingListPage: React.FC = () => {
                         <div className="grid grid-cols-3 gap-2 p-2.5 rounded-xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-200/60 dark:border-zinc-800 text-center font-mono">
                           <div>
                             <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-sans font-bold">Pieces</span>
-                            <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300">{m.pieces} Pcs</span>
+                            <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300">{formatQty(m.pieces)} Pcs</span>
                           </div>
                           <div>
                             <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-sans font-bold">Yards / Pc</span>
-                            <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">{m.yardsPerPiece > 0 ? `${m.yardsPerPiece.toFixed(2)} ${m.unit}` : '—'}</span>
+                            <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">{m.yardsPerPiece > 0 ? `${formatQty(m.yardsPerPiece)} ${m.unit}` : '—'}</span>
                           </div>
                           <div>
                             <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-sans font-bold">Allocated Yards</span>
-                            <span className="text-xs font-bold text-amber-700 dark:text-amber-400">{m.totalAllocatedYards} {m.unit}</span>
+                            <span className="text-xs font-bold text-amber-700 dark:text-amber-400">{formatQty(m.totalAllocatedYards)} {m.unit}</span>
                           </div>
                         </div>
                       );
@@ -2538,10 +2538,10 @@ export const CuttingListPage: React.FC = () => {
                       </h4>
                       <div className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5 space-y-0.5">
                         <p>
-                          Issued: <span className="font-mono font-medium">{line.issuedQty} {line.unit}</span> · Cut Used: <span className="font-mono font-medium text-amber-600 dark:text-amber-400">{line.totalCutQty} {line.unit}</span> · Previously Returned: <span className="font-mono font-medium text-teal-600 dark:text-teal-400">{line.currentReturnedQty} {line.unit}</span>
+                          Issued: <span className="font-mono font-medium">{formatQty(line.issuedQty)} {line.unit}</span> · Cut Used: <span className="font-mono font-medium text-amber-600 dark:text-amber-400">{formatQty(line.totalCutQty)} {line.unit}</span> · Previously Returned: <span className="font-mono font-medium text-teal-600 dark:text-teal-400">{formatQty(line.currentReturnedQty)} {line.unit}</span>
                         </p>
                         <p className="font-semibold text-emerald-700 dark:text-emerald-400">
-                          Available Leftover to Return: Max <span className="font-mono">{line.maxReturnable} {line.unit}</span>
+                          Available Leftover to Return: Max <span className="font-mono">{formatQty(line.maxReturnable)} {line.unit}</span>
                         </p>
                       </div>
                     </div>

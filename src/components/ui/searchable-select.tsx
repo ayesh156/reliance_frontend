@@ -148,6 +148,9 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   const containerRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const listContainerRef = React.useRef<HTMLDivElement>(null);
+  // Mobile touch-scroll gesture tracking to prevent premature selection during touch drags
+  const touchStartRef = React.useRef<{ x: number; y: number } | null>(null);
+  const isScrollingRef = React.useRef<boolean>(false);
 
   const selectedOption = options.find((opt) => opt.value === value);
 
@@ -352,12 +355,10 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
 
     document.addEventListener("mousedown", handleOutsideClick);
     document.addEventListener("touchstart", handleOutsideClick, { passive: true });
-    document.addEventListener("pointerdown", handleOutsideClick, true);
 
     return () => {
       document.removeEventListener("mousedown", handleOutsideClick);
       document.removeEventListener("touchstart", handleOutsideClick);
-      document.removeEventListener("pointerdown", handleOutsideClick, true);
     };
   }, [open]);
 
@@ -543,9 +544,31 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             ref={listContainerRef}
             data-vaul-no-drag=""
             onWheel={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
-            onTouchMove={(e) => e.stopPropagation()}
-            onTouchEnd={(e) => e.stopPropagation()}
+            onTouchStart={(e) => {
+              e.stopPropagation();
+              if (e.touches && e.touches[0]) {
+                touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                isScrollingRef.current = false;
+              }
+            }}
+            onTouchMove={(e) => {
+              e.stopPropagation();
+              if (touchStartRef.current && e.touches && e.touches[0]) {
+                const deltaY = Math.abs(e.touches[0].clientY - touchStartRef.current.y);
+                const deltaX = Math.abs(e.touches[0].clientX - touchStartRef.current.x);
+                if (deltaY > 5 || deltaX > 5) {
+                  isScrollingRef.current = true;
+                }
+              }
+            }}
+            onTouchEnd={(e) => {
+              e.stopPropagation();
+              // Reset scrolling state after click events finish bubbling
+              setTimeout(() => {
+                isScrollingRef.current = false;
+                touchStartRef.current = null;
+              }, 120);
+            }}
             className="max-h-[220px] sm:max-h-[300px] overflow-y-auto overflow-x-hidden overscroll-contain touch-pan-y p-1 space-y-0.5 pointer-events-auto"
             style={{
               maxHeight: `${coords.maxHeight}px`,
@@ -557,27 +580,14 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             {actionOption && (
               <button
                 type="button"
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setOpen(false);
-                  actionOption.onSelect();
-                }}
-                onTouchEnd={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setOpen(false);
-                  actionOption.onSelect();
-                }}
                 onMouseDown={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  setOpen(false);
-                  actionOption.onSelect();
                 }}
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
+                  if (isScrollingRef.current) return;
                   setOpen(false);
                   actionOption.onSelect();
                 }}
@@ -613,24 +623,14 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     <button
                       key={opt.value}
                       type="button"
-                      onPointerDown={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        handleSelect(opt.value);
-                      }}
-                      onTouchEnd={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        handleSelect(opt.value);
-                      }}
                       onMouseDown={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        handleSelect(opt.value);
                       }}
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
+                        if (isScrollingRef.current) return;
                         handleSelect(opt.value);
                       }}
                       className={`w-full flex items-center justify-between px-2.5 py-2 mb-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer select-none text-left border-b ${
@@ -652,25 +652,15 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     key={opt.value}
                     type="button"
                     disabled={opt.disabled}
-                    onPointerDown={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      handleSelect(opt.value);
-                    }}
-                    onTouchEnd={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      handleSelect(opt.value);
-                    }}
                     onMouseDown={(e) => {
-                      // Prevent input blur before click registers
+                      // Prevent input blur before click registers on desktop
                       e.preventDefault();
                       e.stopPropagation();
-                      handleSelect(opt.value);
                     }}
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
+                      if (isScrollingRef.current) return;
                       handleSelect(opt.value);
                     }}
                     className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer select-none text-left ${

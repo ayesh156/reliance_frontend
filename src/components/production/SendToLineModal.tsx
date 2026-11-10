@@ -9,7 +9,7 @@ import {
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { DateTimePicker } from '../ui/date-time-picker';
-import { getProductImageUrl, getCurrentLocalDateTime } from '../../lib/utils';
+import { getProductImageUrl, getCurrentLocalDateTime, formatQty } from '../../lib/utils';
 import { post } from '../../lib/api';
 import { toast } from 'react-toastify';
 import {
@@ -344,7 +344,7 @@ export const SendToLineModal: React.FC<SendToLineModalProps> = ({
                           {mat.rolls} {mat.rolls === 1 ? 'Roll' : 'Rolls'}
                         </span>
                         <span className="font-bold text-amber-700 dark:text-amber-400">
-                          {mat.cutQty} {mat.unit}
+                          {formatQty(mat.cutQty)} {mat.unit}
                         </span>
                       </div>
                     </div>
@@ -420,7 +420,7 @@ export const SendToLineModal: React.FC<SendToLineModalProps> = ({
                                 Cut Pieces
                               </span>
                               <span className="font-mono font-bold text-slate-800 dark:text-zinc-200 leading-none">
-                                {tp.cutQty || plannedQty} Pcs
+                                {formatQty(tp.cutQty || plannedQty)} Pcs
                               </span>
                             </div>
                           )}

@@ -16,7 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from '../ui/table';
-import { getProductImageUrl } from '../../lib/utils';
+import { getProductImageUrl, formatQty } from '../../lib/utils';
 import {
   Scissors,
   Shirt,
@@ -331,7 +331,7 @@ export const CuttingDetailModal: React.FC<CuttingDetailModalProps> = ({
                   <span>TARGET GARMENTS ({targetProductsList.length})</span>
                 </h4>
                 <span className="text-[11px] font-mono font-semibold text-slate-500">
-                  Total Cut: {targetProductsList.reduce((sum, p) => sum + (p.cutQty || 0), 0)} Pcs
+                  Total Cut: {formatQty(targetProductsList.reduce((sum, p) => sum + (Number(p.cutQty) || 0), 0))} Pcs
                 </span>
               </div>
 
@@ -369,10 +369,10 @@ export const CuttingDetailModal: React.FC<CuttingDetailModalProps> = ({
 
                     <div className="flex items-center gap-2 shrink-0">
                       <Badge variant="outline" className="font-mono text-[10px] font-bold px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800">
-                        Cut: {tp.cutQty ?? 0} Pcs
+                        Cut: {formatQty(tp.cutQty ?? 0)} Pcs
                       </Badge>
                       <Badge variant="outline" className="font-mono text-[10px] font-bold px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800">
-                        Sent to Line: {tp.sentToLineQty ?? 0} Pcs
+                        Sent to Line: {formatQty(tp.sentToLineQty ?? 0)} Pcs
                       </Badge>
                     </div>
                   </div>
@@ -402,7 +402,7 @@ export const CuttingDetailModal: React.FC<CuttingDetailModalProps> = ({
                         </div>
                       </div>
                       <span className="font-mono font-bold text-amber-700 dark:text-amber-400">
-                        {usage.netConsumedQty ?? usage.issuedQty} {usage.rawMaterial?.unit || 'Units'}
+                        {formatQty(usage.netConsumedQty ?? usage.issuedQty)} {usage.rawMaterial?.unit || 'Units'}
                       </span>
                     </div>
                   ))}

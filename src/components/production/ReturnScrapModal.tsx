@@ -10,6 +10,7 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Input } from '../ui/input';
 import { post } from '../../lib/api';
+import { formatQty } from '../../lib/utils';
 import { toast } from 'react-toastify';
 import {
   RotateCcw,
@@ -229,11 +230,11 @@ export const ReturnScrapModal: React.FC<ReturnScrapModalProps> = ({
                         </h4>
                         <div className="text-[10px] text-slate-500 dark:text-zinc-400 font-mono flex items-center gap-2 mt-0.5">
                           {line.materialCode && <span>Code: {line.materialCode}</span>}
-                          <span>Issued: {line.issuedQty} {line.unit}</span>
-                          {line.totalCutQty > 0 && <span>· Cut: {line.totalCutQty} {line.unit}</span>}
+                          <span>Issued: {formatQty(line.issuedQty)} {line.unit}</span>
+                          {line.totalCutQty > 0 && <span>· Cut: {formatQty(line.totalCutQty)} {line.unit}</span>}
                           {line.previouslyReturnedScrap > 0 && (
                             <span className="text-teal-600 dark:text-teal-400 font-medium">
-                              · Prev Scrap: {line.previouslyReturnedScrap} {line.unit}
+                              · Prev Scrap: {formatQty(line.previouslyReturnedScrap)} {line.unit}
                             </span>
                           )}
                         </div>

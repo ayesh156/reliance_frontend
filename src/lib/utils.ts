@@ -24,6 +24,17 @@ export function formatNumber(num: number): string {
   return num.toString();
 }
 
+/**
+ * Formats any quantity or calculated numeric value strictly with a maximum of 2 decimal places,
+ * stripping redundant trailing zeros (e.g. 92.10000000000002 -> "92.1", 10.00 -> "10", 15.25 -> "15.25").
+ */
+export function formatQty(val: number | string | null | undefined): string {
+  if (val === null || val === undefined || val === '') return '0';
+  const num = typeof val === 'number' ? val : Number(val);
+  if (isNaN(num)) return '0';
+  return String(parseFloat(num.toFixed(2)));
+}
+
 export function generateId(): string {
   return Math.random().toString(36).substring(2, 11);
 }
