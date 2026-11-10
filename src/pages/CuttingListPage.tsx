@@ -1201,7 +1201,11 @@ export const CuttingListPage: React.FC = () => {
     return productWiseBreakdown.filter((p) => p.productName.toLowerCase().includes(q));
   }, [productWiseBreakdown, garmentsSearch]);
 
-  // Live Recalculated KPI Metrics with WIP & Decoupled Cutting/Finishing Stats
+  /**
+   * Dynamically aggregated KPI metrics for Cutting Summary Cards.
+   * Calculates Total Materials Cut, Finished Garments, Net Material Consumed, and WIP
+   * specifically from the `filteredRecords` array (active search, status, and date filters).
+   */
   const liveMetrics = useMemo(() => {
     const totalOutput = filteredRecords.reduce((acc, r) => acc + (r.completedQty || 0), 0);
     const activeBatches = filteredRecords.length;
@@ -1209,21 +1213,24 @@ export const CuttingListPage: React.FC = () => {
       return acc + (r.materialUsages || []).reduce((sub, u) => sub + (u.netConsumedQty || 0), 0);
     }, 0);
 
-    // Filtered materials cut
+    // Filtered materials cut: sum of logged cuts or cutQty / targetQuantity
     const totalCutInFilter = filteredRecords.reduce((acc, r) => {
-      return acc + (r.cutLogs || []).reduce((sub, c) => sub + (c.quantityCut || 0), 0);
+      const logsCut = (r.cutLogs || []).reduce((sub, c) => sub + (c.quantityCut || 0), 0);
+      return acc + (logsCut > 0 ? logsCut : (r.cutQty ? r.cutQty : (r.targetQuantity || r.completedQty || 0)));
     }, 0);
 
-    // Filtered finished garments
+    // Filtered finished garments: sum of finish logs or completedQty
     const totalFinishedInFilter = filteredRecords.reduce((acc, r) => {
-      return acc + (r.finishLogs || []).reduce((sub, f) => sub + (f.quantityFinished || 0), 0);
+      const logsFinished = (r.finishLogs || []).reduce((sub, f) => sub + (f.quantityFinished || 0), 0);
+      return acc + (logsFinished > 0 ? logsFinished : (r.completedQty || 0));
     }, 0);
 
     // Compute WIP: Units cut or planned in batches that are not yet finished
     let currentWip = 0;
     filteredRecords.forEach((r) => {
       if (r.status !== 'CANCELLED' && r.status !== 'COMPLETED') {
-        const remaining = Math.max(0, r.targetQuantity - (r.completedQty || 0));
+        const target = r.cutQty ? r.cutQty : r.targetQuantity;
+        const remaining = Math.max(0, target - (r.completedQty || 0));
         currentWip += remaining;
       }
     });
@@ -1232,12 +1239,14 @@ export const CuttingListPage: React.FC = () => {
       totalOutput,
       activeBatches,
       netMaterialConsumed: Number(netMaterialConsumed.toFixed(2)),
+      totalMaterialsCut: totalCutInFilter,
+      totalGarmentsFinished: totalFinishedInFilter,
+      currentWip,
       todayOutput: summaryData?.metrics?.todayOutput ?? 0,
       totalCutToday: summaryData?.metrics?.totalCutToday ?? 0,
       totalCutWeek: summaryData?.metrics?.totalCutWeek ?? totalCutInFilter,
       totalFinishedToday: summaryData?.metrics?.totalFinishedToday ?? summaryData?.metrics?.todayOutput ?? 0,
       totalFinishedWeek: summaryData?.metrics?.totalFinishedWeek ?? totalFinishedInFilter,
-      currentWip: summaryData?.metrics?.currentWip ?? currentWip,
       activeWipBatches: summaryData?.metrics?.activeWipBatches ?? 0,
     };
   }, [filteredRecords, summaryData?.metrics]);
@@ -1480,7 +1489,7 @@ export const CuttingListPage: React.FC = () => {
             <div>
               <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Materials Cut</span>
               <h3 className="text-2xl font-bold text-sky-600 dark:text-sky-400 mt-1 font-mono">
-                {liveMetrics.totalCutToday.toLocaleString()} <span className="text-xs font-medium text-slate-500">Today</span>
+                {liveMetrics.totalMaterialsCut.toLocaleString()} <span className="text-xs font-medium text-slate-500">Units</span>
               </h3>
             </div>
             <div className="p-2.5 bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 rounded-xl shrink-0">
@@ -1488,7 +1497,7 @@ export const CuttingListPage: React.FC = () => {
             </div>
           </div>
           <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-2">
-            Week: <strong className="font-mono text-slate-700 dark:text-zinc-300">{liveMetrics.totalCutWeek.toLocaleString()}</strong> Units • Net: {liveMetrics.netMaterialConsumed.toLocaleString()}
+            Net Consumed: <strong className="font-mono text-slate-700 dark:text-zinc-300">{liveMetrics.netMaterialConsumed.toLocaleString()}</strong> Units • {liveMetrics.activeBatches} Batches
           </p>
         </div>
 
@@ -1498,7 +1507,7 @@ export const CuttingListPage: React.FC = () => {
             <div>
               <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Garments Finished</span>
               <h3 className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-1 font-mono">
-                {liveMetrics.totalFinishedToday.toLocaleString()} <span className="text-xs font-medium text-slate-500">Today</span>
+                {liveMetrics.totalGarmentsFinished.toLocaleString()} <span className="text-xs font-medium text-slate-500">Pcs</span>
               </h3>
             </div>
             <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-xl shrink-0">
@@ -1506,7 +1515,7 @@ export const CuttingListPage: React.FC = () => {
             </div>
           </div>
           <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-2">
-            Week: <strong className="font-mono text-slate-700 dark:text-zinc-300">{liveMetrics.totalFinishedWeek.toLocaleString()}</strong> Pcs • Total: {liveMetrics.totalOutput.toLocaleString()} Pcs
+            Yield Output: <strong className="font-mono text-slate-700 dark:text-zinc-300">{liveMetrics.totalOutput.toLocaleString()}</strong> Pcs produced
           </p>
         </div>
 

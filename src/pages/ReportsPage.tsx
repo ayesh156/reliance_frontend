@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { startOfYear, endOfYear } from 'date-fns';
+import { startOfYear, endOfYear, startOfDay, endOfDay, format } from 'date-fns';
 import { get, downloadBlob } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -157,29 +157,28 @@ export const ReportsPage: React.FC = () => {
   const PAGE_SIZE = 15;
   const [currentPage, setCurrentPage] = useState<number>(1);
 
+  /**
+   * Builds query parameters for report filtering.
+   * Serializes dates as YYYY-MM-DD in local time to avoid timezone offset shifts across boundaries.
+   */
   const buildDateFilterParams = () => {
     const params = new URLSearchParams();
     params.set('preset', activePreset);
 
     if (activePreset === 'custom' && customRange?.from) {
-      params.set('startDate', customRange.from.toISOString());
-      // Gracefully handle single-date selection without passing invalid or missing ranges
-      if (customRange.to) {
-        params.set('endDate', customRange.to.toISOString());
-      } else {
-        params.set('endDate', customRange.from.toISOString());
-      }
+      const startStr = format(customRange.from, 'yyyy-MM-dd');
+      const endStr = format(customRange.to || customRange.from, 'yyyy-MM-dd');
+      params.set('startDate', startStr);
+      params.set('endDate', endStr);
     } else if (activePreset === 'yearly') {
       const from = customRange?.from || startOfYear(new Date());
       const to = customRange?.to || endOfYear(new Date());
-      params.set('startDate', from.toISOString());
-      params.set('endDate', to.toISOString());
+      params.set('startDate', format(from, 'yyyy-MM-dd'));
+      params.set('endDate', format(to, 'yyyy-MM-dd'));
     } else if (activePreset === 'next_year') {
       const nextYear = new Date().getFullYear() + 1;
-      const from = new Date(nextYear, 0, 1, 0, 0, 0, 0);
-      const to = new Date(nextYear, 11, 31, 23, 59, 59, 999);
-      params.set('startDate', from.toISOString());
-      params.set('endDate', to.toISOString());
+      params.set('startDate', `${nextYear}-01-01`);
+      params.set('endDate', `${nextYear}-12-31`);
     }
     return params;
   };
@@ -209,15 +208,22 @@ export const ReportsPage: React.FC = () => {
     setCurrentPage(1);
   }, [activeModule, activePreset]);
 
-  // When custom range is clicked/updated, handle single-date selection gracefully
+  /**
+   * Defensive Date Range Change Handler for Reports module.
+   * Normalizes selected date boundaries to local start-of-day (00:00:00.000)
+   * and end-of-day (23:59:59.999), preventing UTC off-by-one shifts.
+   */
   const handleRangeChange = (range: DateRange | undefined) => {
-    setCustomRange(range);
     setCurrentPage(1);
-    if (!range) {
+    if (!range || (!range.from && !range.to)) {
+      setCustomRange(undefined);
       setActivePreset('monthly');
       return;
     }
     if (range.from) {
+      const normalizedFrom = startOfDay(range.from);
+      const normalizedTo = range.to ? endOfDay(range.to) : undefined;
+      setCustomRange({ from: normalizedFrom, to: normalizedTo });
       setActivePreset('custom');
       // Single-date or full range selection triggers fetch
       setTimeout(fetchReport, 50);
@@ -678,6 +684,81 @@ export const ReportsPage: React.FC = () => {
     return filteredRows.slice(startIndex, startIndex + PAGE_SIZE);
   }, [filteredRows, startIndex, PAGE_SIZE]);
 
+  /**
+   * Dynamic KPI Aggregations for Garment Production Report module.
+   * Derives live totals for Materials Cut, Scrap Returned, Garments Finished,
+   * Pending Stock Sync, Synced to Inventory, WIP, and Yield % directly from `filteredRows`.
+   */
+  const productionKPIs = useMemo(() => {
+    if (activeModule !== 'production') return null;
+
+    const rows = filteredRows;
+    const totalBatches = rows.length;
+
+    // 1. Materials Cut: Sum of cut logs or total cut units/completedQty/targetQuantity
+    const totalMaterialsCut = rows.reduce((sum, row) => {
+      const cut = Number(row.totalCutUnits ?? (Array.isArray(row.cutLogs) && row.cutLogs.length > 0
+        ? row.cutLogs.reduce((acc: number, c: any) => acc + (c.quantityCut || 0), 0)
+        : (row.completedQty || row.targetQuantity || 0)));
+      return sum + cut;
+    }, 0);
+
+    // 2. Scrap Returned: Sum of returned fabric / scrap quantity across material usages
+    const totalScrapReturned = rows.reduce((sum, row) => {
+      const scrap = Number(row.scrapReturned ?? (Array.isArray(row.materialUsages)
+        ? row.materialUsages.reduce((acc: number, u: any) => acc + (Number(u.returnedQty) || 0), 0)
+        : 0));
+      return sum + scrap;
+    }, 0);
+
+    // 3. Garments Finished: Total completed garments or finished logs
+    const completedQuantity = rows.reduce((sum, row) => {
+      const finished = Number(row.completedQty ?? row.totalFinishedUnits ?? (Array.isArray(row.finishLogs) && row.finishLogs.length > 0
+        ? row.finishLogs.reduce((acc: number, f: any) => acc + (f.quantityFinished || 0), 0)
+        : 0));
+      return sum + finished;
+    }, 0);
+
+    // 4. Pending Stock Sync: Batches completed but not yet synced to inventory (and not cancelled)
+    const pendingStockSync = rows.reduce((sum, row) => {
+      const isCompleted = row.status !== 'CANCELLED' && (Number(row.completedQty || 0) > 0 || row.status === 'COMPLETED');
+      const isPending = !row.isStockSynced && isCompleted;
+      return isPending ? sum + Number(row.completedQty || 0) : sum;
+    }, 0);
+
+    // 5. Synced to Inventory: Batches that have been confirmed and synced into inventory
+    const syncedToInventory = rows.reduce((sum, row) => {
+      const isSynced = Boolean(row.isStockSynced) && row.status !== 'CANCELLED';
+      return isSynced ? sum + Number(row.completedQty || 0) : sum;
+    }, 0);
+
+    // WIP & Yield calculations across active batches
+    const targetQuantity = rows.reduce((sum, row) => sum + Number(row.targetQuantity || 0), 0);
+    const currentWip = rows.reduce((sum, row) => {
+      if (row.status !== 'CANCELLED' && row.status !== 'COMPLETED') {
+        const target = Number(row.targetQuantity || 0);
+        const done = Number(row.completedQty || 0);
+        return sum + Math.max(0, target - done);
+      }
+      return sum;
+    }, 0);
+
+    const overallYieldPercentage = targetQuantity > 0
+      ? Math.round((completedQuantity / targetQuantity) * 1000) / 10
+      : (summary.overallYieldPercentage || 0);
+
+    return {
+      totalBatches,
+      totalMaterialsCut: Math.round(totalMaterialsCut * 100) / 100,
+      totalScrapReturned: Math.round(totalScrapReturned * 100) / 100,
+      completedQuantity,
+      pendingStockSync,
+      syncedToInventory,
+      currentWip,
+      overallYieldPercentage,
+    };
+  }, [activeModule, filteredRows, summary]);
+
   useEffect(() => {
     if (currentPage > totalPages) {
       setCurrentPage(1);
@@ -686,14 +767,14 @@ export const ReportsPage: React.FC = () => {
 
   // Readable active date badge formatter (e.g. Selected: 2026-10-01 to 2026-10-09)
   const formattedSelectedBadge = useMemo(() => {
-    if (reportData?.dateFilter?.startDate && reportData?.dateFilter?.endDate) {
-      const s = new Date(reportData.dateFilter.startDate).toISOString().split('T')[0];
-      const e = new Date(reportData.dateFilter.endDate).toISOString().split('T')[0];
+    if (activePreset === 'custom' && customRange?.from) {
+      const s = format(customRange.from, 'yyyy-MM-dd');
+      const e = format(customRange.to || customRange.from, 'yyyy-MM-dd');
       return `${s} to ${e}`;
     }
-    if (activePreset === 'custom' && customRange?.from) {
-      const s = customRange.from.toISOString().split('T')[0];
-      const e = (customRange.to || customRange.from).toISOString().split('T')[0];
+    if (reportData?.dateFilter?.startDate && reportData?.dateFilter?.endDate) {
+      const s = format(new Date(reportData.dateFilter.startDate), 'yyyy-MM-dd');
+      const e = format(new Date(reportData.dateFilter.endDate), 'yyyy-MM-dd');
       return `${s} to ${e}`;
     }
     return reportData?.dateFilter?.presetLabel || 'Resolving...';
@@ -1439,9 +1520,9 @@ export const ReportsPage: React.FC = () => {
                     <Scissors className="w-3.5 h-3.5 text-amber-500" />
                   </div>
                   <p className="text-lg md:text-xl font-bold mt-1 text-amber-600 dark:text-amber-400 font-mono">
-                    {(summary.totalMaterialsCut ?? summary.completedQuantity ?? 0).toLocaleString()} <span className="text-xs font-medium text-slate-500">Units</span>
+                    {(productionKPIs?.totalMaterialsCut ?? summary.totalMaterialsCut ?? summary.completedQuantity ?? 0).toLocaleString()} <span className="text-xs font-medium text-slate-500">Units</span>
                   </p>
-                  <p className="text-[11px] text-slate-400 mt-1">{summary.totalBatches || 0} Batches Started</p>
+                  <p className="text-[11px] text-slate-400 mt-1">{productionKPIs?.totalBatches ?? summary.totalBatches ?? 0} Batches Started</p>
                 </div>
 
                 {/* 2. Scrap Returned */}
@@ -1451,7 +1532,7 @@ export const ReportsPage: React.FC = () => {
                     <RotateCcw className="w-3.5 h-3.5 text-teal-500" />
                   </div>
                   <p className="text-lg md:text-xl font-bold mt-1 text-teal-600 dark:text-teal-400 font-mono">
-                    {(summary.totalScrapReturned ?? summary.scrapVariance ?? 0).toLocaleString()} <span className="text-xs font-medium text-slate-500">Units</span>
+                    {(productionKPIs?.totalScrapReturned ?? summary.totalScrapReturned ?? summary.scrapVariance ?? 0).toLocaleString()} <span className="text-xs font-medium text-slate-500">Units</span>
                   </p>
                   <p className="text-[11px] text-slate-400 mt-1">Restored to warehouse stock</p>
                 </div>
@@ -1463,9 +1544,9 @@ export const ReportsPage: React.FC = () => {
                     <Shirt className="w-3.5 h-3.5 text-emerald-500" />
                   </div>
                   <p className="text-lg md:text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400 font-mono">
-                    {(summary.completedQuantity || 0).toLocaleString()} <span className="text-xs font-medium text-slate-500">Pcs</span>
+                    {(productionKPIs?.completedQuantity ?? summary.completedQuantity ?? 0).toLocaleString()} <span className="text-xs font-medium text-slate-500">Pcs</span>
                   </p>
-                  <p className="text-[11px] text-slate-400 mt-1">Yield: {summary.overallYieldPercentage || 0}% · WIP: {summary.currentWip || 0} Pcs</p>
+                  <p className="text-[11px] text-slate-400 mt-1">Yield: {productionKPIs?.overallYieldPercentage ?? summary.overallYieldPercentage ?? 0}% · WIP: {productionKPIs?.currentWip ?? summary.currentWip ?? 0} Pcs</p>
                 </div>
 
                 {/* 4. Pending Stock Sync */}
@@ -1475,7 +1556,7 @@ export const ReportsPage: React.FC = () => {
                     <Clock className="w-3.5 h-3.5 text-purple-500" />
                   </div>
                   <p className="text-lg md:text-xl font-bold mt-1 text-purple-600 dark:text-purple-400 font-mono">
-                    {(summary.pendingStockSync || 0).toLocaleString()} <span className="text-xs font-medium text-slate-500">Pcs</span>
+                    {(productionKPIs?.pendingStockSync ?? summary.pendingStockSync ?? 0).toLocaleString()} <span className="text-xs font-medium text-slate-500">Pcs</span>
                   </p>
                   <p className="text-[11px] text-purple-500/80 mt-1">Awaiting sync confirmation</p>
                 </div>
@@ -1487,7 +1568,7 @@ export const ReportsPage: React.FC = () => {
                     <Package className="w-3.5 h-3.5 text-blue-500" />
                   </div>
                   <p className="text-lg md:text-xl font-bold mt-1 text-blue-600 dark:text-blue-400 font-mono">
-                    {(summary.syncedToInventory || 0).toLocaleString()} <span className="text-xs font-medium text-slate-500">Pcs</span>
+                    {(productionKPIs?.syncedToInventory ?? summary.syncedToInventory ?? 0).toLocaleString()} <span className="text-xs font-medium text-slate-500">Pcs</span>
                   </p>
                   <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1">Active in sellable stock</p>
                 </div>

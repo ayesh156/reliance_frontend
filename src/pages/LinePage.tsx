@@ -370,13 +370,17 @@ export const LinePage: React.FC = () => {
     return list;
   }, [batches, searchQuery, selectedProductFilter, dateRange, sortBy, productsList]);
 
-  // Aggregate Metrics for Top KPI Cards
+  /**
+   * Dynamically aggregated KPI metrics for Top Summary Cards.
+   * Calculates active sewing batches, total line intake, forwarded to wash, and pending WIP
+   * specifically from the `filteredBatches` array (active search, product, and date filters).
+   */
   const metrics = useMemo(() => {
-    const totalBatches = batches.length;
+    const totalBatches = filteredBatches.length;
     let totalLineIntake = 0;
     let totalForwardedToWash = 0;
 
-    batches.forEach((b) => {
+    filteredBatches.forEach((b) => {
       const prods = getBatchProducts(b, productsList);
       const batchSentTotal = prods.reduce((sum, p) => sum + p.sentToLineQty, 0);
       totalLineIntake += batchSentTotal > 0 ? batchSentTotal : (b.lineSentQty || b.targetQuantity || b.completedQty || 0);
@@ -391,7 +395,7 @@ export const LinePage: React.FC = () => {
       totalForwardedToWash,
       pendingSewing,
     };
-  }, [batches, productsList]);
+  }, [filteredBatches, productsList]);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);

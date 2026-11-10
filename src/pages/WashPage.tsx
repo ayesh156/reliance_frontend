@@ -365,13 +365,17 @@ export const WashPage: React.FC = () => {
     return list;
   }, [batches, searchQuery, selectedProductFilter, dateRange, sortBy]);
 
-  // Aggregate Metrics
+  /**
+   * Dynamically aggregated KPI metrics for Wash Summary Cards.
+   * Calculates total active wash batches, total sent to wash, and washed output
+   * specifically from the `filteredBatches` array.
+   */
   const metrics = useMemo(() => {
-    const totalBatches = batches.length;
+    const totalBatches = filteredBatches.length;
     let totalSentToWash = 0;
     let totalWashedSoFar = 0;
 
-    batches.forEach((b) => {
+    filteredBatches.forEach((b) => {
       const sent = b.sentToWashQty > 0
         ? b.sentToWashQty
         : (b.targetQuantity > 0 ? b.targetQuantity : b.completedQty);
@@ -388,7 +392,7 @@ export const WashPage: React.FC = () => {
       totalWashedSoFar,
       totalRemainingToWash,
     };
-  }, [batches]);
+  }, [filteredBatches]);
 
   // Open "Log Washed Items" modal
   const handleOpenLogWashModal = (batch: WashBatchItem) => {
