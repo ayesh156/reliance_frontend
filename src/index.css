@@ -199,38 +199,65 @@ html[data-scroll-locked] {
 /* 80mm POS Receipt & Payment Receipt Print */
 @media print {
   @page {
-    size: 80mm auto;
+    size: auto;
     margin: 0;
   }
+
+  html,
   body {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
     margin: 0 !important;
     padding: 0 !important;
+    overflow: visible !important;
     background: #ffffff !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
-  body * {
-    visibility: hidden;
+
+  /* Completely remove the application body and all dialogs/portals from the print layout */
+  #root,
+  body > *:not(#printable-receipt):not(#printable-payment-receipt) {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    max-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
   }
-  #printable-receipt,
-  #printable-receipt *,
-  #printable-payment-receipt,
-  #printable-payment-receipt * {
-    visibility: visible !important;
-  }
+
+  /* Make printable receipts the sole, visible, naturally flowing elements on page 1 */
   #printable-receipt,
   #printable-payment-receipt {
     display: block !important;
-    position: absolute !important;
-    left: 0 !important;
-    top: 0 !important;
-    width: 80mm !important;
-    max-width: 80mm !important;
-    margin: 0 !important;
-    padding: 2mm 1mm !important;
+    visibility: visible !important;
+    position: relative !important;
+    left: auto !important;
+    right: auto !important;
+    top: auto !important;
+    width: 72mm !important;
+    max-width: 72mm !important;
+    margin: 0 auto !important;
+    padding: 0 2mm !important;
+    box-sizing: border-box !important;
+    overflow: visible !important;
+    word-break: break-word !important;
     border: none !important;
     box-shadow: none !important;
     background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  #printable-receipt *,
+  #printable-payment-receipt *,
+  #printable-receipt span,
+  #printable-payment-receipt span,
+  #printable-receipt div,
+  #printable-payment-receipt div {
+    visibility: visible !important;
     color: #000000 !important;
   }
 }

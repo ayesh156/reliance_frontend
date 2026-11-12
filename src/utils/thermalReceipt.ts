@@ -517,27 +517,27 @@ export const generate80mmThermalReceiptHtml = (
       let detailsHtml = '';
       if (isChq && (chqNum || bName || chqDate || p.chequeStatus || p.residualNotes || (p.fullChequeAmount && p.fullChequeAmount > p.amount))) {
         detailsHtml = `
-        <div style="font-size: 11px; line-height: 1.35; font-weight: 700; padding-left: 6px; border-left: 1.5px solid #000000; margin-top: 1.5px; margin-bottom: 2px;">
-          ${chqNum ? `<div class="flex-between"><span>&bull; Cheque #:</span><span style="font-weight: 800;">${chqNum}</span></div>` : ''}
-          ${bName ? `<div class="flex-between"><span>&bull; Bank &amp; Town:</span><span style="font-weight: 800;">${bName}</span></div>` : ''}
-          ${chqDate ? `<div class="flex-between"><span>&bull; Pass / Maturity:</span><span style="font-weight: 800;">${chqDate}</span></div>` : ''}
-          ${p.chequeStatus ? `<div class="flex-between"><span>&bull; Status:</span><span style="font-weight: 800; text-transform: uppercase;">${p.chequeStatus}</span></div>` : ''}
+        <div style="font-size: 10px; line-height: 1.3; font-weight: 700; padding-left: 5px; border-left: 1.5px solid #000000; margin-top: 1.5px; margin-bottom: 2px; width: 100%; box-sizing: border-box;">
+          ${chqNum ? `<div class="flex-between"><span>&bull; Cheque #:</span><span style="font-weight: 800; text-align: right; white-space: nowrap;">${chqNum}</span></div>` : ''}
+          ${bName ? `<div class="flex-between"><span style="max-width: 45%; white-space: nowrap;">&bull; Bank &amp; Town:</span><span style="font-weight: 800; text-align: right; max-width: 55%; word-break: break-word; overflow: hidden;">${bName}</span></div>` : ''}
+          ${chqDate ? `<div class="flex-between"><span>&bull; Pass / Maturity:</span><span style="font-weight: 800; text-align: right; white-space: nowrap;">${chqDate}</span></div>` : ''}
+          ${p.chequeStatus ? `<div class="flex-between"><span>&bull; Status:</span><span style="font-weight: 800; text-transform: uppercase; text-align: right;">${p.chequeStatus}</span></div>` : ''}
           ${p.fullChequeAmount && p.fullChequeAmount > p.amount ? `
-          <div style="border-top: 1px dashed #000000; padding-top: 1.5px; margin-top: 1.5px;">
-            <div class="flex-between"><span>&bull; Cheque Full Amount:</span><span style="font-weight: 800;">Rs. ${formatReceiptPrice(p.fullChequeAmount)}</span></div>
-            <div class="flex-between"><span>&bull; Applied to This Bill:</span><span style="font-weight: 800;">Rs. ${formatReceiptPrice(p.amount)}</span></div>
+          <div style="border-top: 1px dashed #000000; padding-top: 1.5px; margin-top: 1.5px; width: 100%; box-sizing: border-box;">
+            <div class="flex-between"><span>&bull; Full Chq Val:</span><span style="font-weight: 800; text-align: right; white-space: nowrap;">Rs. ${formatReceiptPrice(p.fullChequeAmount)}</span></div>
+            <div class="flex-between"><span>&bull; Bill Allocated:</span><span style="font-weight: 800; text-align: right; white-space: nowrap;">Rs. ${formatReceiptPrice(p.amount)}</span></div>
           </div>` : ''}
-          ${p.residualNotes ? `<div class="flex-between"><span>&bull; Details:</span><span style="font-weight: 800;">${p.residualNotes}</span></div>` : ''}
+          ${p.residualNotes ? `<div class="flex-between"><span style="max-width: 40%;">&bull; Details:</span><span style="font-weight: 800; text-align: right; max-width: 60%; word-break: break-word;">${p.residualNotes}</span></div>` : ''}
         </div>`;
       } else if (!isChq && (ref || p.residualNotes)) {
         detailsHtml = `
-        <div style="font-size: 10.5px; line-height: 1.3; font-weight: 700; padding-left: 6px; border-left: 1.5px solid #000000; margin-top: 1.5px; margin-bottom: 2px;">
-          <div class="flex-between"><span>&bull; Ref / Info:</span><span style="font-weight: 800;">${p.residualNotes || ref}</span></div>
+        <div style="font-size: 9.5px; line-height: 1.3; font-weight: 700; padding-left: 5px; border-left: 1.5px solid #000000; margin-top: 1.5px; margin-bottom: 2px; width: 100%; box-sizing: border-box;">
+          <div class="flex-between"><span style="max-width: 40%;">&bull; Ref / Info:</span><span style="font-weight: 800; text-align: right; max-width: 60%; word-break: break-word;">${p.residualNotes || ref}</span></div>
         </div>`;
       }
 
       return `
-      <div style="margin-bottom: 3px;">
+      <div style="margin-bottom: 3px; width: 100%; box-sizing: border-box;">
         <div class="flex-between">
           <span style="font-weight: 800;">Paid (${p.method}):</span>
           <span style="font-weight: 900; text-align: right; white-space: nowrap;">${p.amount > 0 ? '+' : ''}${formatReceiptPrice(p.amount)}</span>
@@ -554,23 +554,23 @@ export const generate80mmThermalReceiptHtml = (
   <title>Receipt-${invoiceNo.replace('#', '')}</title>
   <style>
     @page {
-      size: auto;
+      size: 72mm auto;
       margin: 0;
     }
     @media print {
       @page {
-        size: auto;
+        size: 72mm auto;
         margin: 0;
       }
       html, body {
-        width: 100% !important;
-        max-width: 100% !important;
-        margin: 0 !important;
+        width: 72mm !important;
+        max-width: 72mm !important;
+        margin: 0 auto !important;
         padding: 0 !important;
         height: auto !important;
         min-height: 0 !important;
         font-family: 'Courier New', Courier, monospace !important;
-        font-size: 12.5px !important;
+        font-size: 11.5px !important;
         font-weight: 700 !important;
         color: #000000 !important;
         background: #ffffff !important;
@@ -578,12 +578,13 @@ export const generate80mmThermalReceiptHtml = (
         print-color-adjust: exact !important;
       }
       #invoice-root {
-        width: 100% !important;
-        max-width: 100% !important;
-        margin: 0 !important;
-        padding: 2mm 1mm 2mm 1mm !important;
+        width: 72mm !important;
+        max-width: 72mm !important;
+        margin: 0 auto !important;
+        padding: 0 2mm !important;
         box-sizing: border-box !important;
         overflow: hidden !important;
+        word-break: break-word !important;
         height: auto !important;
         min-height: 0 !important;
       }
@@ -605,14 +606,14 @@ export const generate80mmThermalReceiptHtml = (
     body {
       margin: 0 auto;
       padding: 0;
-      width: 100% !important;
-      max-width: 100% !important;
+      width: 72mm !important;
+      max-width: 72mm !important;
       height: auto;
       min-height: 0;
       font-family: 'Courier New', Courier, monospace;
-      font-size: 12.5px;
+      font-size: 11.5px;
       font-weight: 700;
-      line-height: 1.35;
+      line-height: 1.3;
       color: #000000 !important;
       background-color: #ffffff;
       box-sizing: border-box;
@@ -640,7 +641,7 @@ export const generate80mmThermalReceiptHtml = (
   </style>
 </head>
 <body>
-  <div id="invoice-root" style="width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; padding: 2mm 1mm 2mm 1mm !important; margin: 0 auto; overflow: hidden; height: auto; min-height: 0; background: #ffffff;">
+  <div id="invoice-root" style="width: 72mm !important; max-width: 72mm !important; box-sizing: border-box !important; padding: 0 2mm !important; margin: 0 auto; overflow: hidden; word-break: break-word; height: auto; min-height: 0; background: #ffffff;">
     <!-- Header: Centered Flexbox with Logo left & Brand text right -->
     <div style="width: 100%; text-align: center; margin-bottom: 4px;">
       <div style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 4px;">

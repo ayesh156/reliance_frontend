@@ -276,31 +276,32 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
       id="printable-receipt"
       className="hidden print:block font-mono text-black bg-white"
       style={{
-        width: '100%',
-        maxWidth: '100%',
+        width: '72mm',
+        maxWidth: '72mm',
         height: 'auto',
         minHeight: '0',
         margin: '0 auto',
-        padding: '2mm 1mm 2mm 1mm',
+        padding: '0 2mm',
         boxSizing: 'border-box',
         overflow: 'hidden',
+        wordBreak: 'break-word',
         fontFamily: "'Courier New', Courier, monospace",
-        fontSize: '12.5px',
+        fontSize: '11.5px',
         fontWeight: 700,
-        lineHeight: '1.35',
+        lineHeight: '1.3',
         color: '#000000',
         backgroundColor: '#ffffff',
       }}
     >
       {/* Header: Centered Flexbox with Logo left & Brand text right */}
-      <div style={{ width: '100%', textAlign: 'center', marginBottom: '5px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', marginBottom: '4px' }}>
+      <div style={{ width: '100%', textAlign: 'center', marginBottom: '5px', boxSizing: 'border-box' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '4px' }}>
           <img
             src="/images/logo.jpg"
             alt="RELIANCE"
             style={{
-              width: '50px',
-              height: '50px',
+              width: '46px',
+              height: '46px',
               objectFit: 'contain',
               display: 'block',
               filter: 'grayscale(100%) contrast(300%) brightness(90%)',
@@ -309,7 +310,7 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
             }}
           />
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: 'left' }}>
-            <div style={{ fontSize: '26px', fontWeight: 900, letterSpacing: '2px', lineHeight: 1, textTransform: 'uppercase' }}>
+            <div style={{ fontSize: '24px', fontWeight: 900, letterSpacing: '2px', lineHeight: 1, textTransform: 'uppercase' }}>
               RELIANCE
             </div>
             <div style={{ fontSize: '10.5px', fontWeight: 800, letterSpacing: '0.8px', textTransform: 'uppercase', lineHeight: 1.2, marginTop: '2px' }}>
@@ -317,13 +318,13 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
             </div>
           </div>
         </div>
-        <div style={{ fontSize: '11.5px', fontWeight: 700, lineHeight: '1.3', textAlign: 'center' }}>
+        <div style={{ fontSize: '11px', fontWeight: 700, lineHeight: '1.3', textAlign: 'center' }}>
           Mawarala Road, Makandura, Matara
         </div>
-        <div style={{ fontSize: '11.5px', fontWeight: 700, lineHeight: '1.3', textAlign: 'center' }}>
+        <div style={{ fontSize: '11px', fontWeight: 700, lineHeight: '1.3', textAlign: 'center' }}>
           Hotline: 041-2268739 / 071-1350123
         </div>
-        <div style={{ fontSize: '11.5px', fontWeight: 700, lineHeight: '1.3', textAlign: 'center' }}>
+        <div style={{ fontSize: '11px', fontWeight: 700, lineHeight: '1.3', textAlign: 'center' }}>
           Web: relianceapparel.lk
         </div>
       </div>
@@ -331,42 +332,42 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
       <div style={{ borderTop: '1.5px dashed #000', margin: '5px 0', width: '100%' }} />
 
       {/* Invoice & Rep Meta: Tight Single-Line Layout */}
-      <div style={{ width: '100%', fontSize: '11.5px', lineHeight: '1.35', fontWeight: 600 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', whiteSpace: 'nowrap' }}>
+      <div style={{ width: '100%', fontSize: '11px', lineHeight: '1.35', fontWeight: 600, boxSizing: 'border-box' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box', whiteSpace: 'nowrap' }}>
           <span>INVOICE:</span>
-          <span style={{ fontWeight: 900, fontSize: '12.5px' }}>{invoiceNo}</span>
+          <span style={{ fontWeight: 900, fontSize: '12px', textAlign: 'right' }}>{invoiceNo}</span>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', whiteSpace: 'nowrap' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box', whiteSpace: 'nowrap' }}>
           <span>Date &amp; Time:</span>
-          <span style={{ fontWeight: 700 }}>{dateStr}</span>
+          <span style={{ fontWeight: 700, textAlign: 'right' }}>{dateStr}</span>
         </div>
         {salesRepName ? (
-          <div style={{ display: 'flex', justifyContent: 'space-between', whiteSpace: 'nowrap' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box', whiteSpace: 'nowrap' }}>
             <span>Sales Rep:</span>
-            <span style={{ fontWeight: 800 }}>{salesRepName}</span>
+            <span style={{ fontWeight: 800, textAlign: 'right' }}>{salesRepName}</span>
           </div>
         ) : null}
-        <div style={{ display: 'flex', justifyContent: 'space-between', whiteSpace: 'nowrap' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box', whiteSpace: 'nowrap' }}>
           <span>Billing Type:</span>
-          <span style={{ fontWeight: 800, textTransform: 'uppercase' }}>{billingType}</span>
+          <span style={{ fontWeight: 800, textTransform: 'uppercase', textAlign: 'right' }}>{billingType}</span>
         </div>
 
         <div style={{ borderTop: '1px dotted #000', margin: '4px 0', width: '100%' }} />
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', whiteSpace: 'nowrap' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box', whiteSpace: 'nowrap' }}>
           <span>Customer:</span>
-          <span style={{ fontWeight: 800, maxWidth: '68%', textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis' }}>{customerName}</span>
+          <span style={{ fontWeight: 800, maxWidth: '62%', textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis' }}>{customerName}</span>
         </div>
         {customerPhone ? (
-          <div style={{ display: 'flex', justifyContent: 'space-between', whiteSpace: 'nowrap' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box', whiteSpace: 'nowrap' }}>
             <span>Phone:</span>
-            <span style={{ fontWeight: 700 }}>{customerPhone}</span>
+            <span style={{ fontWeight: 700, textAlign: 'right' }}>{customerPhone}</span>
           </div>
         ) : null}
         {customerCityOrRoute ? (
-          <div style={{ display: 'flex', justifyContent: 'space-between', whiteSpace: 'nowrap' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box', whiteSpace: 'nowrap' }}>
             <span>City / Route:</span>
-            <span style={{ textAlign: 'right', maxWidth: '68%', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis' }}>{customerCityOrRoute}</span>
+            <span style={{ textAlign: 'right', maxWidth: '62%', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis' }}>{customerCityOrRoute}</span>
           </div>
         ) : null}
       </div>
@@ -385,6 +386,7 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
           borderBottom: '1.5px dashed #000',
           paddingBottom: '3px',
           textTransform: 'uppercase',
+          boxSizing: 'border-box',
         }}
       >
         <span style={{ textAlign: 'left' }}>ITEMS &amp; DETAILS</span>
@@ -392,11 +394,11 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
       </div>
 
       {/* 3-Line Layout Item Rows */}
-      <div style={{ width: '100%', margin: '2px 0' }}>
+      <div style={{ width: '100%', margin: '2px 0', boxSizing: 'border-box' }}>
         {items.map((it, idx) => (
-          <div key={idx} style={{ width: '100%', padding: '4px 0 3px 0', borderBottom: '1px dotted #000' }}>
+          <div key={idx} style={{ width: '100%', padding: '4px 0 3px 0', borderBottom: '1px dotted #000', boxSizing: 'border-box' }}>
             {/* Line 1: Item Name (Bold) with Distinct [RETURN] Tag */}
-            <div style={{ fontWeight: 800, fontSize: '13px', lineHeight: '1.25', wordBreak: 'break-word', textAlign: 'left', width: '100%', color: '#000' }}>
+            <div style={{ fontWeight: 800, fontSize: '12.5px', lineHeight: '1.25', wordBreak: 'break-word', textAlign: 'left', width: '100%', color: '#000' }}>
               {it.isReturn ? (
                 <span
                   style={{
@@ -405,7 +407,7 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
                     background: '#000',
                     color: '#fff',
                     padding: '0 4px',
-                    fontSize: '10px',
+                    fontSize: '9.5px',
                     marginRight: '4px',
                     borderRadius: '2px',
                   }}
@@ -417,7 +419,7 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
             </div>
             {/* Line 2: Size & Color enclosed in brackets (small font, left-aligned) */}
             {it.variantDesc ? (
-              <div style={{ fontSize: '11px', fontWeight: 600, textAlign: 'left', width: '100%', marginTop: '1px', color: '#000', wordBreak: 'break-word' }}>
+              <div style={{ fontSize: '10.5px', fontWeight: 600, textAlign: 'left', width: '100%', marginTop: '1px', color: '#000', wordBreak: 'break-word' }}>
                 {it.variantDesc}
               </div>
             ) : null}
@@ -428,16 +430,17 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'baseline',
-                fontSize: '12px',
+                fontSize: '11.5px',
                 fontWeight: 700,
                 marginTop: '2px',
                 color: '#000',
+                boxSizing: 'border-box',
               }}
             >
-              <span>
+              <span style={{ textAlign: 'left' }}>
                 {it.qty} @ {formatReceiptPrice(it.rate)}
                 {it.discount > 0 ? (
-                  <span style={{ fontSize: '10px', fontWeight: 700 }}>
+                  <span style={{ fontSize: '9.5px', fontWeight: 700 }}>
                     {` (-${formatReceiptDiscount(it.discount, it.discountType, it.discountInput)})`}
                   </span>
                 ) : null}
@@ -533,9 +536,9 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
               return (
                 <div key={pIdx} style={{ marginBottom: '3px' }}>
                   {/* Primary Payment Method & Amount Line */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', boxSizing: 'border-box' }}>
                     <span style={{ fontWeight: 800 }}>Paid ({p.method}):</span>
-                    <span style={{ fontWeight: 900 }}>
+                    <span style={{ fontWeight: 900, textAlign: 'right', whiteSpace: 'nowrap' }}>
                       {p.amount > 0 ? `+${formatReceiptPrice(p.amount)}` : formatReceiptPrice(p.amount)}
                     </span>
                   </div>
@@ -544,55 +547,57 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
                   {isChq && (chqNum || bName || chqDate || p.chequeStatus || p.residualNotes || (p.fullChequeAmount && p.fullChequeAmount > p.amount)) && (
                     <div
                       style={{
-                        fontSize: '11px',
-                        lineHeight: '1.35',
+                        fontSize: '10px',
+                        lineHeight: '1.3',
                         fontWeight: 700,
-                        paddingLeft: '6px',
+                        paddingLeft: '5px',
                         borderLeft: '1.5px solid #000000',
                         marginTop: '1.5px',
                         marginBottom: '2px',
+                        width: '100%',
+                        boxSizing: 'border-box',
                       }}
                     >
                       {chqNum && (
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box' }}>
                           <span>&bull; Cheque #:</span>
-                          <span style={{ fontWeight: 800 }}>{chqNum}</span>
+                          <span style={{ fontWeight: 800, textAlign: 'right', whiteSpace: 'nowrap' }}>{chqNum}</span>
                         </div>
                       )}
                       {bName && (
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span>&bull; Bank &amp; Town:</span>
-                          <span style={{ fontWeight: 800 }}>{bName}</span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box' }}>
+                          <span style={{ maxWidth: '45%', whiteSpace: 'nowrap' }}>&bull; Bank &amp; Town:</span>
+                          <span style={{ fontWeight: 800, textAlign: 'right', maxWidth: '55%', wordBreak: 'break-word', overflow: 'hidden' }}>{bName}</span>
                         </div>
                       )}
                       {chqDate && (
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box' }}>
                           <span>&bull; Pass / Maturity:</span>
-                          <span style={{ fontWeight: 800 }}>{chqDate}</span>
+                          <span style={{ fontWeight: 800, textAlign: 'right', whiteSpace: 'nowrap' }}>{chqDate}</span>
                         </div>
                       )}
                       {p.chequeStatus && (
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box' }}>
                           <span>&bull; Status:</span>
-                          <span style={{ fontWeight: 800, textTransform: 'uppercase' }}>{p.chequeStatus}</span>
+                          <span style={{ fontWeight: 800, textTransform: 'uppercase', textAlign: 'right' }}>{p.chequeStatus}</span>
                         </div>
                       )}
                       {p.fullChequeAmount && p.fullChequeAmount > p.amount && (
-                        <div style={{ borderTop: '1px dashed #000000', paddingTop: '1.5px', marginTop: '1.5px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <div style={{ borderTop: '1px dashed #000000', paddingTop: '1.5px', marginTop: '1.5px', width: '100%', boxSizing: 'border-box' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box' }}>
                             <span>&bull; Full Chq Val:</span>
-                            <span style={{ fontWeight: 800 }}>{formatReceiptPrice(p.fullChequeAmount)}</span>
+                            <span style={{ fontWeight: 800, textAlign: 'right', whiteSpace: 'nowrap' }}>{formatReceiptPrice(p.fullChequeAmount)}</span>
                           </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box' }}>
                             <span>&bull; Bill Allocated:</span>
-                            <span style={{ fontWeight: 800 }}>{formatReceiptPrice(p.amount)}</span>
+                            <span style={{ fontWeight: 800, textAlign: 'right', whiteSpace: 'nowrap' }}>{formatReceiptPrice(p.amount)}</span>
                           </div>
                         </div>
                       )}
                       {p.residualNotes && (
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span>&bull; Details:</span>
-                          <span style={{ fontWeight: 800 }}>{p.residualNotes}</span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box' }}>
+                          <span style={{ maxWidth: '40%' }}>&bull; Details:</span>
+                          <span style={{ fontWeight: 800, textAlign: 'right', maxWidth: '60%', wordBreak: 'break-word' }}>{p.residualNotes}</span>
                         </div>
                       )}
                     </div>
@@ -602,18 +607,20 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
                   {!isChq && (ref || p.residualNotes) && (
                     <div
                       style={{
-                        fontSize: '10.5px',
+                        fontSize: '9.5px',
                         lineHeight: '1.3',
                         fontWeight: 700,
-                        paddingLeft: '6px',
+                        paddingLeft: '5px',
                         borderLeft: '1.5px solid #000000',
                         marginTop: '1.5px',
                         marginBottom: '2px',
+                        width: '100%',
+                        boxSizing: 'border-box',
                       }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span>&bull; Ref / Info:</span>
-                        <span style={{ fontWeight: 800 }}>{p.residualNotes || ref}</span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box' }}>
+                        <span style={{ maxWidth: '40%' }}>&bull; Ref / Info:</span>
+                        <span style={{ fontWeight: 800, textAlign: 'right', maxWidth: '60%', wordBreak: 'break-word' }}>{p.residualNotes || ref}</span>
                       </div>
                     </div>
                   )}
@@ -750,18 +757,20 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
                 padding: '3px 0',
                 margin: '3px 0',
                 fontWeight: 900,
+                width: '100%',
+                boxSizing: 'border-box',
               }}
             >
               <span>Final Remaining Balance:</span>
-              <span style={{ fontWeight: 900, whiteSpace: 'nowrap' }}>
+              <span style={{ fontWeight: 900, whiteSpace: 'nowrap', textAlign: 'right' }}>
                 Rs. {formatReceiptPrice(hasCustomerAccount ? updatedBalance : balanceDue)}
               </span>
             </div>
 
             {/* Itemized Payment Details with Full Cheque Particulars */}
             {itemizedPayments.length > 0 && (
-              <div style={{ marginTop: '5px' }}>
-                <div style={{ fontSize: '11px', fontWeight: 900, textTransform: 'uppercase', marginBottom: '3px', borderBottom: '1px dotted #000000', paddingBottom: '2px' }}>
+              <div style={{ marginTop: '5px', width: '100%', boxSizing: 'border-box' }}>
+                <div style={{ fontSize: '11px', fontWeight: 900, textTransform: 'uppercase', marginBottom: '3px', borderBottom: '1px dotted #000000', paddingBottom: '2px', width: '100%', boxSizing: 'border-box' }}>
                   Payment Particulars ({itemizedPayments.length}):
                 </div>
                 {itemizedPayments.map((p, idx) => {
@@ -772,67 +781,72 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
                       style={{
                         padding: '3px 0',
                         borderBottom: idx < itemizedPayments.length - 1 ? '1px dotted #000000' : 'none',
+                        width: '100%',
+                        boxSizing: 'border-box',
                       }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 900 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 900, width: '100%', boxSizing: 'border-box' }}>
                         <span>{idx + 1}. {p.method}</span>
-                        <span style={{ fontWeight: 900, whiteSpace: 'nowrap' }}>Rs. {formatReceiptPrice(p.amount)}</span>
+                        <span style={{ fontWeight: 900, whiteSpace: 'nowrap', textAlign: 'right' }}>Rs. {formatReceiptPrice(p.amount)}</span>
                       </div>
                       {isChq && (
                         <div
                           style={{
-                            fontSize: '10.5px',
+                            fontSize: '10px',
+                            lineHeight: '1.3',
                             fontWeight: 800,
-                            paddingLeft: '6px',
+                            paddingLeft: '5px',
                             borderLeft: '2px solid #000000',
                             marginTop: '2px',
+                            width: '100%',
+                            boxSizing: 'border-box',
                           }}
                         >
                           {p.chequeNumber && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box' }}>
                               <span>Cheque No:</span>
-                              <span style={{ fontWeight: 900 }}>{p.chequeNumber}</span>
+                              <span style={{ fontWeight: 900, textAlign: 'right', whiteSpace: 'nowrap' }}>{p.chequeNumber}</span>
                             </div>
                           )}
                           {p.bankName && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <span>Bank &amp; Town:</span>
-                              <span style={{ fontWeight: 900 }}>{p.bankName}</span>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box' }}>
+                              <span style={{ maxWidth: '45%', whiteSpace: 'nowrap' }}>Bank &amp; Town:</span>
+                              <span style={{ fontWeight: 900, textAlign: 'right', maxWidth: '55%', wordBreak: 'break-word', overflow: 'hidden' }}>{p.bankName}</span>
                             </div>
                           )}
                           {p.chequeDate && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box' }}>
                               <span>Maturity / Pass Date:</span>
-                              <span style={{ fontWeight: 900 }}>{p.chequeDate}</span>
+                              <span style={{ fontWeight: 900, textAlign: 'right', whiteSpace: 'nowrap' }}>{p.chequeDate}</span>
                             </div>
                           )}
                           {p.chequeStatus && (
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box' }}>
                               <span>Status:</span>
-                              <span style={{ fontWeight: 900, textTransform: 'uppercase' }}>{p.chequeStatus}</span>
+                              <span style={{ fontWeight: 900, textTransform: 'uppercase', textAlign: 'right' }}>{p.chequeStatus}</span>
                             </div>
                           )}
                           {p.fullChequeAmount && p.fullChequeAmount > p.amount && (
-                            <div style={{ borderTop: '1px dashed #000000', paddingTop: '2px', marginTop: '2px' }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <div style={{ borderTop: '1px dashed #000000', paddingTop: '2px', marginTop: '2px', width: '100%', boxSizing: 'border-box' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box' }}>
                                 <span>Cheque Full Amount:</span>
-                                <span style={{ fontWeight: 900 }}>Rs. {formatReceiptPrice(p.fullChequeAmount)}</span>
+                                <span style={{ fontWeight: 900, textAlign: 'right', whiteSpace: 'nowrap' }}>Rs. {formatReceiptPrice(p.fullChequeAmount)}</span>
                               </div>
-                              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', boxSizing: 'border-box' }}>
                                 <span>Applied to This Bill:</span>
-                                <span style={{ fontWeight: 900 }}>Rs. {formatReceiptPrice(p.amount)}</span>
+                                <span style={{ fontWeight: 900, textAlign: 'right', whiteSpace: 'nowrap' }}>Rs. {formatReceiptPrice(p.amount)}</span>
                               </div>
                             </div>
                           )}
                           {p.residualNotes && (
-                            <div style={{ fontSize: '10px', fontWeight: 800, marginTop: '1.5px' }}>
+                            <div style={{ fontSize: '9.5px', fontWeight: 800, marginTop: '1.5px', wordBreak: 'break-word', width: '100%', boxSizing: 'border-box' }}>
                               Ref / Details: {p.residualNotes}
                             </div>
                           )}
                         </div>
                       )}
                       {!isChq && (p.reference || p.residualNotes) && (
-                        <div style={{ fontSize: '10px', fontWeight: 800, paddingLeft: '6px', marginTop: '1px' }}>
+                        <div style={{ fontSize: '9.5px', fontWeight: 800, paddingLeft: '5px', marginTop: '1px', wordBreak: 'break-word', width: '100%', boxSizing: 'border-box' }}>
                           Ref: {p.residualNotes || p.reference}
                         </div>
                       )}
