@@ -41,6 +41,7 @@ import {
   generateCustomerDuesPdf,
   filterAndNormalizeDueInvoices,
 } from './customerDuesPdf';
+import { parseChequeMetadata } from './chequeParser';
 
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -513,6 +514,47 @@ export interface GarmentProductionPdfOptions {
   dateRangeLabel?: string;
   generatedBy?: string;
   filename?: string;
+  stageFilter?: string;
+}
+
+/**
+ * Stage filter helper to match production batches across the 6 pipeline stages.
+ */
+export function matchProductionStage(row: any, stage?: string): boolean {
+  if (!stage || stage === 'ALL' || stage === 'ALL STAGES') return true;
+  const status = String(row.status || '').toUpperCase();
+  const isStockSynced = Boolean(row.isStockSynced);
+  const cut = Number(row.cutQty || row.totalCutUnits || 0);
+  const sewn = Number(row.sewnQty || 0);
+  const sentWash = Number(row.sentToWashQty || 0);
+  const washed = Number(row.washedQty || 0);
+  const finished = Number(row.completedQty || 0) > 0
+    ? Number(row.completedQty)
+    : (Array.isArray(row.finishLogs) && row.finishLogs.length > 0
+      ? row.finishLogs.reduce((s: number, f: any) => s + (Number(f.quantityFinished) || 0), 0)
+      : 0);
+
+  switch (stage) {
+    case 'CUTTING':
+      return status === 'CUTTING' || (cut > 0 && sewn === 0 && !isStockSynced && status !== 'COMPLETED');
+    case 'SEWING LINE':
+    case 'SEWING':
+    case 'LINE':
+      return status === 'SEWING' || status === 'LINE' || (cut > sewn && !isStockSynced && status !== 'COMPLETED');
+    case 'WASHING':
+    case 'WASH':
+      return status === 'WASHING' || ((sentWash > 0 || washed > 0) && finished === 0 && !isStockSynced && status !== 'COMPLETED');
+    case 'FINISHING / PACKING':
+    case 'FINISHING':
+    case 'PACKING':
+      return status === 'FINISHING' || status === 'FINISHED_PENDING_STOCK' || (finished > 0 && !isStockSynced && status !== 'COMPLETED');
+    case 'IN STOCK / COMPLETED':
+    case 'COMPLETED':
+    case 'IN STOCK':
+      return isStockSynced || status === 'COMPLETED';
+    default:
+      return true;
+  }
 }
 
 /**
@@ -531,7 +573,11 @@ export async function generateGarmentProductionPdf(
   },
   options: GarmentProductionPdfOptions = {}
 ): Promise<jsPDF> {
-  const rawRows = reportData.tableItems || [];
+  const stageFilter = options.stageFilter;
+  const initialRows = reportData.tableItems || [];
+  const rawRows = (stageFilter && stageFilter !== 'ALL' && stageFilter !== 'ALL STAGES')
+    ? initialRows.filter((r) => matchProductionStage(r, stageFilter))
+    : initialRows;
   const logoData = await loadLogoAsDataUrl();
 
   const doc = new jsPDF({
@@ -545,7 +591,9 @@ export async function generateGarmentProductionPdf(
   const rightMargin = 552.78;
   const contentWidth = rightMargin - startX;
 
-  const reportTitle = 'GARMENT PRODUCTION & 6-STAGE PIPELINE AUDIT';
+  const reportTitle = (stageFilter && stageFilter !== 'ALL' && stageFilter !== 'ALL STAGES')
+    ? `GARMENT PRODUCTION AUDIT - [${stageFilter.toUpperCase()}]`
+    : 'GARMENT PRODUCTION & 6-STAGE PIPELINE AUDIT';
   const dateLabel = options.dateRangeLabel || reportData.dateFilter?.presetLabel || 'Current Period';
   const generatedTimestamp = formatReportTimestamp();
   const generatedBy = options.generatedBy || 'System Administrator';
@@ -674,7 +722,6 @@ export async function generateGarmentProductionPdf(
       r.productionNo || '-',
       r.productName || 'Garment',
       r.variant || 'Standard',
-      formatAmountNum(r.targetQuantity || 0),
       formatAmountNum(cut),
       formatAmountNum(sewn),
       formatAmountNum(washed),
@@ -687,12 +734,11 @@ export async function generateGarmentProductionPdf(
     startY: curY,
     margin: { left: startX, right: pageWidth - rightMargin, top: 115, bottom: 45 },
     theme: 'plain',
-    head: [['BATCH NO', 'GARMENT STYLE', 'VARIANT', 'TARGET', 'CUT QTY', 'SEWN', 'WASHED', 'FINISHED', 'STATUS']],
+    head: [['BATCH NO', 'GARMENT STYLE', 'VARIANT', 'CUT QTY', 'SEWN', 'WASHED', 'FINISHED', 'STATUS']],
     body: tableData,
     foot: [
       [
         { content: `TOTAL (${rawRows.length} BATCHES)`, colSpan: 3, styles: { halign: 'right', fontStyle: 'bold' } },
-        { content: formatAmountNum(rawRows.reduce((s, r) => s + (Number(r.targetQuantity) || 0), 0)), styles: { halign: 'center', fontStyle: 'bold' } },
         { content: formatAmountNum(totalCutPieces), styles: { halign: 'center', fontStyle: 'bold' } },
         { content: formatAmountNum(totalSewnOutput), styles: { halign: 'center', fontStyle: 'bold' } },
         { content: formatAmountNum(rawRows.reduce((s, r) => s + (Number(r.washedQty) || 0), 0)), styles: { halign: 'center', fontStyle: 'bold' } },
@@ -727,16 +773,14 @@ export async function generateGarmentProductionPdf(
       cellPadding: { top: 4, bottom: 4, left: 3, right: 3 },
     },
     columnStyles: {
-      0: { cellWidth: 62 },
-      1: { cellWidth: 105 },
-      2: { cellWidth: 55 },
-      3: { halign: 'center', cellWidth: 38 },
-      4: { halign: 'center', cellWidth: 38 },
-      5: { halign: 'center', cellWidth: 40 },
-      6: { halign: 'center', cellWidth: 32 },
-      7: { halign: 'center', cellWidth: 38 },
-      8: { halign: 'right', cellWidth: 52 },
-      9: { halign: 'center', cellWidth: 50.28 },
+      0: { cellWidth: 65 },
+      1: { cellWidth: 125 },
+      2: { cellWidth: 65 },
+      3: { halign: 'center', cellWidth: 50 },
+      4: { halign: 'center', cellWidth: 50 },
+      5: { halign: 'center', cellWidth: 50 },
+      6: { halign: 'center', cellWidth: 50 },
+      7: { halign: 'center', cellWidth: 55.28 },
     },
     didDrawPage: () => {
       drawStandardReportFooter(doc, 'Garment Production Report', startX, rightMargin);
@@ -883,6 +927,837 @@ export async function generateSalesPdf(
   return doc;
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// 7. CUSTOMER / REP STATEMENT OF ACCOUNT PDF GENERATOR (DUPLICATE PRINTING)
+// ══════════════════════════════════════════════════════════════════════════════
+
+export interface StatementPdfCustomer {
+  id?: number;
+  name: string;
+  phone?: string;
+  address?: string;
+  city?: string;
+  type?: string;
+  outstandingBalance?: number;
+}
+
+export interface StatementPdfInvoice {
+  orderId?: number;
+  id?: number;
+  invoiceNumber?: string;
+  createdAt?: string | Date;
+  date?: string | Date;
+  source?: string;
+  totalAmount: number;
+  paidAmount: number;
+  dueAmount?: number;
+  paymentMethod?: string;
+  payments?: any[];
+  paymentHistory?: any[];
+  cheques?: any[];
+  notes?: string;
+  reference?: string;
+}
+
+export interface StatementPdfCheque {
+  id?: number;
+  chequeNumber: string;
+  bankName: string;
+  chequeDate: string;
+  amount: number;
+  status?: string;
+  invoiceNumber?: string;
+  invoiceNumbers?: string[];
+}
+
+export interface StatementPdfOptions {
+  autoPrint?: boolean;
+  filename?: string;
+  generatedBy?: string;
+}
+
+/**
+ * Aggressively extracts a clean numeric cheque number from any raw cheque field,
+ * reference text, or payment note string by stripping non-numeric prefixes and prioritizing
+ * 4-8 digit sequences (e.g. "000080").
+ */
+export const extractCleanChequeNumber = (...sources: any[]): string => {
+  for (const src of sources) {
+    if (!src || src === '-' || src === 'undefined' || src === 'null') continue;
+    const str = String(src).trim();
+    if (!str || str === '-') continue;
+
+    // Remove ISO dates (e.g. 2027-01-05) so calendar years are never mistakenly captured as cheque numbers
+    const withoutDates = str.replace(/\b\d{4}-\d{2}-\d{2}\b/g, ' ');
+
+    // 1. Explicit prefix pattern: "Chq #000080", "Cheque: 000080", "Cheque #000080"
+    const explicitPrefixMatch = /(?:Cheque|Chq)\s*#?:?\s*([A-Za-z0-9-]+)/i.exec(withoutDates);
+    if (explicitPrefixMatch && explicitPrefixMatch[1]) {
+      const candidate = explicitPrefixMatch[1].trim();
+      if (!/^(?:Bank|Date|Mat|-)$/i.test(candidate)) {
+        const digits = candidate.replace(/\D/g, '');
+        if (digits.length >= 4) {
+          return digits;
+        }
+      }
+    }
+
+    // 2. Standalone 4 to 8 digit sequence (standard Sri Lankan cheque number format e.g. "000080", "143006")
+    const digitsMatch = /\b(\d{4,8})\b/.exec(withoutDates);
+    if (digitsMatch && digitsMatch[1]) {
+      return digitsMatch[1];
+    }
+
+    // 3. Fallback: Any 3+ digits found in the source string
+    const anyDigitsMatch = /(\d{3,8})/.exec(withoutDates);
+    if (anyDigitsMatch && anyDigitsMatch[1]) {
+      return anyDigitsMatch[1];
+    }
+
+    // 4. Fallback for alphanumeric cheque codes without digits - MUST contain at least one digit
+    const cleaned = withoutDates
+      .replace(/^(?:Chq|Cheque)\s*#?/gi, '')
+      .replace(/^#+/, '')
+      .replace(/[^a-zA-Z0-9-]/g, '')
+      .replace(/^-+|-+$/g, '')
+      .trim();
+    if (cleaned && cleaned !== '-' && cleaned.length >= 3 && /\d/.test(cleaned)) {
+      return cleaned;
+    }
+  }
+  return '-';
+};
+
+/**
+ * Normalizes bank name from candidate fields, stripping prefixes, hyphens, and noise.
+ * If multiple representations exist, prioritizes cleaner, capitalized bank names.
+ */
+export const extractCleanBankName = (...sources: any[]): string => {
+  for (const src of sources) {
+    if (!src || src === '-' || src === 'undefined' || src === 'null') continue;
+    let str = String(src).trim();
+    if (!str || str === '-') continue;
+
+    let candidate = '';
+
+    // Check for explicit "Bank: ..." or "Branch: ..."
+    const bankColonMatch = /(?:Bank|Branch):\s*([^|\n]+)/i.exec(str);
+    if (bankColonMatch && bankColonMatch[1]) {
+      candidate = bankColonMatch[1].trim();
+    } else {
+      // Check for parenthesized bank name e.g. "(Sampath Bank - Wariyapola)"
+      const parenMatch = /\(([^)]+)\)/.exec(str);
+      if (parenMatch && parenMatch[1] && !/^\d+$/.test(parenMatch[1])) {
+        candidate = parenMatch[1].trim();
+      } else {
+        // Check for text following leading cheque digits e.g. "000080 sampath bank - wariyapola"
+        const afterDigitsMatch = /^\s*\d{4,8}\s+([A-Za-z0-9\s&/.-]+)$/i.exec(str);
+        if (afterDigitsMatch && afterDigitsMatch[1]) {
+          candidate = afterDigitsMatch[1].trim();
+        } else {
+          // If this is an explicit bank property (not a long generic memo/sentence)
+          const isExplicitField = !/(?:settlement|payment|invoice|bill|cash|card|due|transfer)/i.test(str);
+          if (isExplicitField && (/(?:Bank|Branch|BOC|HNB|NSB|NDB|Commercial|Sampath|Seylan|DFCC|Peoples|Nations)/i.test(str) || str.length < 35)) {
+            candidate = str;
+          }
+        }
+      }
+    }
+
+    if (candidate) {
+      // Strip leading/trailing punctuation and keywords
+      candidate = candidate
+        .replace(/^(?:Bank|Branch)[:\s-]*/i, '')
+        .replace(/^[-\s|]+/, '')
+        .replace(/[-\s|]+$/, '')
+        .trim();
+
+      if (candidate && candidate !== '-' && !/^\d+$/.test(candidate)) {
+        // Capitalize first letter of each word if lowercase
+        if (candidate === candidate.toLowerCase()) {
+          candidate = candidate
+            .split(/\s+/)
+            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(' ')
+            .replace(/\s*-\s*/g, ' - ');
+        }
+        return candidate;
+      }
+    }
+  }
+  return '-';
+};
+
+/**
+ * Normalizes maturity/realization date to YYYY-MM-DD.
+ */
+export const extractCleanMaturityDate = (...sources: any[]): string => {
+  for (const src of sources) {
+    if (!src || src === '-' || src === 'undefined' || src === 'null') continue;
+    const str = String(src).trim();
+    if (!str || str === '-') continue;
+
+    // Look for YYYY-MM-DD
+    const isoMatch = /(\d{4}-\d{2}-\d{2})/.exec(str);
+    if (isoMatch && isoMatch[1]) {
+      return isoMatch[1];
+    }
+
+    try {
+      const d = new Date(str);
+      if (!isNaN(d.getTime())) {
+        return d.toISOString().split('T')[0];
+      }
+    } catch {}
+  }
+  return '-';
+};
+
+/**
+ * Normalizes cheque number and bank name to produce a bulletproof deduplication key for statement grouping.
+ * Strips all prefixes ("Chq", "Cheque", "#", spaces) and extracts clean raw numeric cheque numbers
+ * across explicitly stored fields and raw reference/memo strings.
+ */
+export const normalizeChequeGrouping = (
+  rawCheque: any
+): { cleanChequeNo: string; cleanBank: string; groupKey: string; maturityDate: string } => {
+  const parsed = parseChequeMetadata(rawCheque);
+
+  const cleanChequeNo = extractCleanChequeNumber(
+    rawCheque.chequeNumber,
+    rawCheque.number,
+    rawCheque.chqNo,
+    parsed.chequeNumber,
+    rawCheque.reference,
+    rawCheque.notes
+  );
+
+  const cleanBank = extractCleanBankName(
+    parsed.bankAndTown,
+    rawCheque.bankName,
+    rawCheque.bank,
+    rawCheque.branch,
+    rawCheque.reference,
+    rawCheque.notes
+  );
+
+  const maturityDate = extractCleanMaturityDate(
+    parsed.maturityDate,
+    rawCheque.realizeDate,
+    rawCheque.chequeDate,
+    rawCheque.date,
+    rawCheque.paymentDate,
+    rawCheque.reference,
+    rawCheque.notes
+  );
+
+  // Group key: strict deduplication on raw numeric cheque number
+  let groupKey = '';
+  if (cleanChequeNo && cleanChequeNo !== '-') {
+    groupKey = `CHQ_${cleanChequeNo.toLowerCase()}`;
+  } else {
+    groupKey = `RAW_${rawCheque.id || rawCheque.orderId || Math.random()}`;
+  }
+
+  return {
+    cleanChequeNo,
+    cleanBank,
+    groupKey,
+    maturityDate,
+  };
+};
+
+/**
+ * Generates an official Customer / Rep Statement of Account PDF
+ * with tight 8pt font layout, grouped multi-bill cheque settlements, Old vs. New balance separation,
+ * distinct Customer and Rep signature blocks, and dynamic "PAID IN FULL" stamping.
+ */
+export async function generateStatementPdf(
+  customer: StatementPdfCustomer,
+  invoices: StatementPdfInvoice[] = [],
+  cheques: StatementPdfCheque[] = [],
+  options: StatementPdfOptions = {}
+): Promise<jsPDF> {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'pt',
+    format: 'a4',
+  });
+
+  const logoData = await loadLogoAsDataUrl();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const startX = 42.5;
+  const rightMargin = 552.78;
+  const contentWidth = rightMargin - startX;
+
+  // 1. Group / aggregate cheques by normalized groupKey
+  const groupedChequesMap = new Map<string, {
+    chequeNumber: string;
+    bankName: string;
+    chequeDate: string;
+    amount: number;
+    invoiceNumbers: string[];
+    invoiceNumber: string;
+    _seenPaymentIds?: Set<any>;
+  }>();
+
+  // Combine directly provided cheques list with any pending cheque payments on invoice objects
+  const allChequeCandidates: any[] = [];
+  const preAggregatedChequeNos = new Set<string>();
+
+  if (Array.isArray(cheques) && cheques.length > 0) {
+    for (const c of cheques) {
+      allChequeCandidates.push(c);
+      const { cleanChequeNo } = normalizeChequeGrouping(c);
+      if (cleanChequeNo && cleanChequeNo !== '-') {
+        preAggregatedChequeNos.add(cleanChequeNo.toLowerCase());
+      }
+    }
+  }
+
+  for (const inv of invoices) {
+    const invPayments = Array.isArray(inv.payments) && inv.payments.length > 0
+      ? inv.payments
+      : (Array.isArray(inv.paymentHistory) ? inv.paymentHistory : []);
+    for (const p of invPayments) {
+      const pMethod = String(p.method || p.paymentMethod || '').toUpperCase();
+      const pStatus = String(p.chequeStatus || p.status || 'PENDING').toUpperCase();
+      if (
+        (pMethod === 'CHEQUE' || p.chequeNumber || (p.reference && /(?:Chq|Cheque|\b\d{4,}\b)/i.test(p.reference))) &&
+        pStatus !== 'CLEARED' &&
+        pStatus !== 'BOUNCED'
+      ) {
+        const { cleanChequeNo } = normalizeChequeGrouping(p);
+        // Avoid duplicate inclusion if already captured via the pre-aggregated cheques array
+        if (cleanChequeNo !== '-' && preAggregatedChequeNos.has(cleanChequeNo.toLowerCase())) {
+          continue;
+        }
+        allChequeCandidates.push({
+          ...p,
+          invoiceNumber: inv.invoiceNumber || `INV-${inv.orderId || inv.id}`,
+        });
+      }
+    }
+  }
+
+  for (const rawChq of allChequeCandidates) {
+    const { cleanChequeNo, cleanBank, groupKey, maturityDate } = normalizeChequeGrouping(rawChq);
+
+    // Strict deduplication: resolve target entry by cleanChequeNo or groupKey
+    let targetKey = groupKey;
+    if (cleanChequeNo !== '-') {
+      for (const [existingKey, existingVal] of groupedChequesMap.entries()) {
+        if (existingVal.chequeNumber.toLowerCase() === cleanChequeNo.toLowerCase()) {
+          targetKey = existingKey;
+          break;
+        }
+      }
+    }
+
+    const rawInvs = rawChq.invoiceNumbers || (rawChq.invoiceNumber ? [rawChq.invoiceNumber] : []);
+    const invNumbers = rawInvs
+      .map((inv: string) => String(inv).replace(/^#+/, '').trim())
+      .filter(Boolean);
+
+    const chqAmt = Number(rawChq.amount || 0);
+
+    const existing = groupedChequesMap.get(targetKey);
+    if (existing) {
+      const paymentId = rawChq.id || (rawChq as any).paymentId;
+      const alreadyCounted = paymentId && existing._seenPaymentIds?.has(paymentId);
+      if (!alreadyCounted) {
+        existing.amount = Math.round((existing.amount + chqAmt) * 100) / 100;
+        if (paymentId && existing._seenPaymentIds) {
+          existing._seenPaymentIds.add(paymentId);
+        }
+      }
+      for (const invNo of invNumbers) {
+        if (!existing.invoiceNumbers.includes(invNo)) {
+          existing.invoiceNumbers.push(invNo);
+        }
+      }
+      existing.invoiceNumber = existing.invoiceNumbers.join(', ');
+
+      // Retain or upgrade to richer/more descriptive bank name
+      if ((!existing.bankName || existing.bankName === '-') && cleanBank !== '-') {
+        existing.bankName = cleanBank;
+      } else if (cleanBank !== '-' && cleanBank.length > existing.bankName.length) {
+        existing.bankName = cleanBank;
+      }
+
+      // Retain or populate maturity date
+      if ((!existing.chequeDate || existing.chequeDate === '-') && maturityDate !== '-') {
+        existing.chequeDate = maturityDate;
+      }
+    } else {
+      const seenIds = new Set<any>();
+      if (rawChq.id || (rawChq as any).paymentId) seenIds.add(rawChq.id || (rawChq as any).paymentId);
+
+      groupedChequesMap.set(targetKey, {
+        chequeNumber: cleanChequeNo,
+        bankName: cleanBank,
+        chequeDate: maturityDate,
+        amount: isNaN(chqAmt) ? 0 : chqAmt,
+        invoiceNumbers: [...invNumbers],
+        invoiceNumber: invNumbers.join(', '),
+        _seenPaymentIds: seenIds,
+      });
+    }
+  }
+
+  const consolidatedCheques = Array.from(groupedChequesMap.values()).filter(
+    (c) => c.amount > 0 || (c.chequeNumber && c.chequeNumber !== '-')
+  );
+
+  // 2. Old vs. New Balance calculations
+  const currentBillsDue = invoices.reduce((s, b) => {
+    const total = Number(b.totalAmount || 0);
+    const paid = Number(b.paidAmount || 0);
+    return s + Number(b.dueAmount !== undefined ? b.dueAmount : Math.max(0, total - paid));
+  }, 0);
+
+  const customerTotalDue = Number(customer.outstandingBalance || 0);
+  const totalNetOutstanding = customerTotalDue > 0 ? customerTotalDue : Math.max(0, currentBillsDue);
+  const previousOldBalance = Math.max(0, Math.round((totalNetOutstanding - currentBillsDue) * 100) / 100);
+
+  const currentDate = new Date().toISOString().split('T')[0];
+
+  // 3. Render Single Copy (Standard Official A4 Statement Layout)
+  let curY = 32;
+
+  // Corporate Header
+  if (logoData) {
+    try {
+      doc.addImage(logoData, 'JPEG', startX, curY - 2, 48, 48);
+    } catch {}
+  }
+  const brandX = logoData ? startX + 58 : startX;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15);
+  doc.setTextColor(0, 0, 0);
+  doc.text('RELIANCE', brandX, curY + 10);
+
+  doc.setFontSize(6.5);
+  doc.text('BRANDED MENS CLOTHING', brandX, curY + 19);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(50, 50, 50);
+  doc.text('Mawarala Road, Makandura, Matara. | Tel: 041-2268739, 071-1350123', brandX, curY + 28);
+  doc.text('Web: relianceapparel.lk', brandX, curY + 36);
+
+  // Title & Clean Metadata Header
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.setTextColor(0, 0, 0);
+  doc.text('STATEMENT OF ACCOUNT', rightMargin, curY + 10, { align: 'right' });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(80, 80, 80);
+  doc.text(`DATE: ${currentDate}`, rightMargin, curY + 24, { align: 'right' });
+  doc.text(`TYPE: ${customer.type || 'RETAIL'}`, rightMargin, curY + 34, { align: 'right' });
+    doc.setFontSize(7);
+    doc.setTextColor(80, 80, 80);
+    doc.text(`DATE: ${currentDate}`, rightMargin, curY + 37, { align: 'right' });
+    doc.text(`TYPE: ${customer.type || 'RETAIL'}`, rightMargin, curY + 45, { align: 'right' });
+
+    // Divider
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(1);
+    doc.line(startX, curY + 52, rightMargin, curY + 52);
+
+    // Customer Info & Summary Pill
+    const custTop = curY + 60;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(0, 0, 0);
+    doc.text('STATEMENT ISSUED TO:', startX, custTop);
+
+    doc.setFontSize(9.5);
+    doc.text(customer.name || 'Valued Customer', startX, custTop + 12);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(50, 50, 50);
+    doc.text(customer.address || customer.city || 'No registered address', startX, custTop + 22);
+    doc.text(`Contact: ${customer.phone || '-'}`, startX, custTop + 31);
+
+    // Outstanding Pill on Right
+    const pillW = 140;
+    const pillH = 34;
+    const pillX = rightMargin - pillW;
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.8);
+    doc.rect(pillX, custTop, pillW, pillH);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(80, 80, 80);
+    doc.text('TOTAL OUTSTANDING BALANCE', pillX + pillW / 2, custTop + 10, { align: 'center' });
+    doc.setFontSize(10);
+    if (totalNetOutstanding > 0) {
+      doc.setTextColor(185, 28, 28);
+    } else {
+      doc.setTextColor(21, 128, 61);
+    }
+    doc.text(`Rs. ${totalNetOutstanding.toLocaleString('en-LK', { minimumFractionDigits: 2 })}`, pillX + pillW / 2, custTop + 24, { align: 'center' });
+
+    curY = custTop + 44;
+
+    // Invoices Table (Condensed Commercial Layout with Multi-Bill Payment Sub-Rows)
+    const invoiceRows: any[] = [];
+    invoices.forEach((inv, idx) => {
+      const invNo = inv.invoiceNumber || `INV-${inv.orderId || inv.id || idx + 1}`;
+      const rawDate = inv.createdAt || inv.date;
+      let dStr = '-';
+      if (rawDate) {
+        try {
+          const d = new Date(rawDate);
+          dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        } catch {
+          dStr = String(rawDate);
+        }
+      }
+      const bType = inv.source === 'POS_WHOLESALE' ? 'WHOLESALE' : 'RETAIL';
+      const bTotal = Number(inv.totalAmount || 0);
+      const bPaid = Number(inv.paidAmount || 0);
+      const bDue = Number(inv.dueAmount !== undefined ? inv.dueAmount : Math.max(0, bTotal - bPaid));
+      const dueStr = bDue <= 0 ? '0.00 (PAID)' : `Rs. ${bDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}`;
+
+      // Primary Invoice Header Row
+      invoiceRows.push([
+        String(idx + 1),
+        invNo,
+        dStr,
+        bType,
+        `Rs. ${bTotal.toLocaleString('en-LK')}`,
+        `Rs. ${bPaid.toLocaleString('en-LK')}`,
+        dueStr,
+      ]);
+
+      // Render Itemized Payment Settlement Lines for this specific bill
+      const paymentsList = Array.isArray(inv.payments) && inv.payments.length > 0
+        ? inv.payments
+        : (Array.isArray(inv.paymentHistory) ? inv.paymentHistory : []);
+
+      if (paymentsList.length > 0) {
+        paymentsList.forEach((p: any) => {
+          const pRawDate = p.createdAt || p.paidAt || p.date || p.paymentDate;
+          let pDateStr = '-';
+          if (pRawDate) {
+            try {
+              const pd = new Date(pRawDate);
+              pDateStr = `${pd.getFullYear()}-${String(pd.getMonth() + 1).padStart(2, '0')}-${String(pd.getDate()).padStart(2, '0')}`;
+            } catch {}
+          }
+          const pMethod = String(p.method || p.paymentMethod || 'CASH').toUpperCase();
+          const pAmt = Number(p.amount || 0).toLocaleString('en-LK', { minimumFractionDigits: 2 });
+          const parsed = parseChequeMetadata(p);
+
+          const normChq = String(parsed.chequeNumber || p.chequeNumber || '').replace(/^#/, '').trim().toUpperCase();
+          const normBnk = String(parsed.bankAndTown || p.bankName || '').trim().toUpperCase();
+          const matchedGroupChq = normChq
+            ? Array.from(groupedChequesMap.values()).find(
+                (g) => g.chequeNumber.toUpperCase() === normChq && (!normBnk || g.bankName.toUpperCase().includes(normBnk) || normBnk.includes(g.bankName.toUpperCase()))
+              )
+            : null;
+
+          const fullChequeAmt = p.fullChequeAmount || parsed.fullChequeAmount || (matchedGroupChq && matchedGroupChq.amount > Number(p.amount || 0) ? matchedGroupChq.amount : undefined);
+
+          let paymentLine = '';
+          if (pMethod === 'RETURN_CREDIT') {
+            const refText = p.reference ? ` (${p.reference})` : '';
+            paymentLine = `  • Return Credit: ${pDateStr}${refText} | Applied to Bill: Rs. ${pAmt}`;
+          } else if (pMethod === 'CHEQUE') {
+            const chqNumLabel = parsed.chequeNumber ? `Chq #${parsed.chequeNumber}` : 'Cheque';
+            const bankLabel = parsed.bankAndTown ? ` (${parsed.bankAndTown})` : '';
+            const matLabel = parsed.maturityDate ? ` | Mat: ${parsed.maturityDate}` : '';
+            const multiBillNote = fullChequeAmt && fullChequeAmt > Number(p.amount || 0)
+              ? ` [Shared Cheque Total: Rs. ${Number(fullChequeAmt).toLocaleString('en-LK', { minimumFractionDigits: 2 })}]`
+              : '';
+            paymentLine = `  • Payment: ${pDateStr} | CHEQUE: ${chqNumLabel}${bankLabel}${matLabel} | Applied to Bill: Rs. ${pAmt}${multiBillNote}`;
+          } else {
+            const refStr = p.reference || parsed.residualNotes ? ` (${p.reference || parsed.residualNotes})` : '';
+            paymentLine = `  • Payment: ${pDateStr} | ${pMethod}${refStr} | Applied to Bill: Rs. ${pAmt}`;
+          }
+
+          invoiceRows.push([
+            {
+              content: paymentLine,
+              colSpan: 7,
+              styles: {
+                fontSize: 6.8,
+                textColor: pMethod === 'RETURN_CREDIT' ? [107, 33, 168] : [55, 65, 81],
+                fontStyle: 'italic',
+                cellPadding: { top: 1.5, bottom: 2, left: 24, right: 6 },
+                fillColor: [248, 250, 252],
+                lineWidth: { bottom: 0.3, top: 0, left: 0, right: 0 },
+                lineColor: [226, 232, 240],
+              },
+            },
+          ]);
+        });
+      } else if (bPaid > 0) {
+        // Fallback: If payments array is not directly on the invoice, check if consolidatedCheques lists this invoice
+        const matchingChq = consolidatedCheques.find((c) => c.invoiceNumbers && c.invoiceNumbers.includes(invNo));
+        if (matchingChq) {
+          const pAmt = bPaid.toLocaleString('en-LK', { minimumFractionDigits: 2 });
+          const multiBillNote = matchingChq.amount > bPaid
+            ? ` [Shared Cheque Total: Rs. ${matchingChq.amount.toLocaleString('en-LK', { minimumFractionDigits: 2 })}]`
+            : '';
+          const chqNumLabel = matchingChq.chequeNumber ? `Chq #${matchingChq.chequeNumber}` : 'Cheque';
+          const bankLabel = matchingChq.bankName ? ` (${matchingChq.bankName})` : '';
+          const matLabel = matchingChq.chequeDate ? ` | Mat: ${matchingChq.chequeDate}` : '';
+          const paymentLine = `  • Payment: ${dStr} | CHEQUE: ${chqNumLabel}${bankLabel}${matLabel} | Applied to Bill: Rs. ${pAmt}${multiBillNote}`;
+
+          invoiceRows.push([
+            {
+              content: paymentLine,
+              colSpan: 7,
+              styles: {
+                fontSize: 6.8,
+                textColor: [55, 65, 81],
+                fontStyle: 'italic',
+                cellPadding: { top: 1.5, bottom: 2, left: 24, right: 6 },
+                fillColor: [248, 250, 252],
+                lineWidth: { bottom: 0.3, top: 0, left: 0, right: 0 },
+                lineColor: [226, 232, 240],
+              },
+            },
+          ]);
+        }
+      }
+    });
+
+    autoTable(doc, {
+      startY: curY,
+      margin: { left: startX, right: pageWidth - rightMargin },
+      head: [['#', 'INVOICE NO', 'DATE', 'BILL TYPE', 'BILL TOTAL', 'PAID', 'DUE AMOUNT']],
+      body: invoiceRows.length > 0 ? invoiceRows : [['-', 'No recorded invoices', '-', '-', '-', '-', '-']],
+      theme: 'plain',
+      styles: {
+        overflow: 'linebreak',
+        cellPadding: 2,
+        fontSize: 7.5,
+        valign: 'middle',
+      },
+      headStyles: {
+        fillColor: [248, 250, 252],
+        textColor: [0, 0, 0],
+        fontSize: 7.5,
+        fontStyle: 'bold',
+        lineColor: [0, 0, 0],
+        lineWidth: { top: 0.8, bottom: 0.8, left: 0, right: 0 },
+        cellPadding: { top: 3.5, bottom: 3.5, left: 3, right: 3 },
+      },
+      bodyStyles: {
+        textColor: [30, 41, 59],
+        fontSize: 7.5,
+        lineColor: [226, 232, 240],
+        lineWidth: { bottom: 0.4, top: 0, left: 0, right: 0 },
+        cellPadding: { top: 3, bottom: 3, left: 3, right: 3 },
+      },
+      columnStyles: {
+        0: { cellWidth: 20, halign: 'center' },
+        1: { cellWidth: 85, fontStyle: 'bold' },
+        2: { cellWidth: 75 },
+        3: { cellWidth: 70 },
+        4: { cellWidth: 85, halign: 'right' },
+        5: { cellWidth: 85, halign: 'right' },
+        6: { cellWidth: 90.28, halign: 'right', fontStyle: 'bold' },
+      },
+    });
+
+    curY = (doc as any).lastAutoTable?.finalY || curY + 60;
+
+    // Distinct Old vs. New Balance Reconciliation Section
+    curY += 8;
+    const balBoxW = 280;
+    const balBoxH = 68;
+    const balBoxX = rightMargin - balBoxW;
+
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.8);
+    doc.rect(balBoxX, curY, balBoxW, balBoxH);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(0, 0, 0);
+    doc.text('BALANCE RECONCILIATION SUMMARY', balBoxX + balBoxW / 2, curY + 10, { align: 'center' });
+
+    doc.line(balBoxX + 8, curY + 15, rightMargin - 8, curY + 15);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(50, 50, 50);
+    doc.text('Current Bill Total (Active Dues):', balBoxX + 10, curY + 26);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Rs. ${currentBillsDue.toLocaleString('en-LK', { minimumFractionDigits: 2 })}`, rightMargin - 10, curY + 26, { align: 'right' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.text('Previous Old Balance (Carried Forward):', balBoxX + 10, curY + 38);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Rs. ${previousOldBalance.toLocaleString('en-LK', { minimumFractionDigits: 2 })}`, rightMargin - 10, curY + 38, { align: 'right' });
+
+    doc.line(balBoxX + 8, curY + 44, rightMargin - 8, curY + 44);
+
+    doc.setFontSize(8);
+    doc.text('Total Net Outstanding:', balBoxX + 10, curY + 56);
+    doc.setFontSize(8.5);
+    if (totalNetOutstanding > 0) {
+      doc.setTextColor(185, 28, 28);
+    } else {
+      doc.setTextColor(21, 128, 61);
+    }
+    doc.text(`Rs. ${totalNetOutstanding.toLocaleString('en-LK', { minimumFractionDigits: 2 })}`, rightMargin - 10, curY + 56, { align: 'right' });
+
+    // Dynamic "PAID IN FULL" Stamp
+    if (totalNetOutstanding <= 0) {
+      doc.saveGraphicsState();
+      const stampX = startX + 35;
+      const stampY = curY + 14;
+      const stampW = 135;
+      const stampH = 32;
+
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(2);
+      doc.rect(stampX, stampY, stampW, stampH);
+      doc.setLineWidth(0.6);
+      doc.rect(stampX + 2, stampY + 2, stampW - 4, stampH - 4);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.setTextColor(0, 0, 0);
+      doc.text('PAID IN FULL', stampX + stampW / 2, stampY + 20, { align: 'center' });
+      doc.restoreGraphicsState();
+    }
+
+    curY += balBoxH + 10;
+
+    // Grouped Pending Cheques Table (When Present)
+    if (consolidatedCheques.length > 0) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(0, 0, 0);
+      doc.text('PENDING / UNCLEARED CHEQUES IN HAND', startX, curY);
+      curY += 5;
+
+      const chqRows = consolidatedCheques.map((c, i) => {
+        const invsJoined = c.invoiceNumbers && c.invoiceNumbers.length > 0
+          ? c.invoiceNumbers.join(', ')
+          : (c.invoiceNumber || '');
+        const invsSuffix = invsJoined ? ` (${invsJoined})` : '';
+        const bankPart = c.bankName && c.bankName !== '-' ? ` | Bank: ${c.bankName}` : '';
+        const descriptionCell = `Cheque #${c.chequeNumber}${bankPart}${invsSuffix}`;
+
+        return [
+          String(i + 1),
+          descriptionCell,
+          c.bankName || '-',
+          c.chequeDate || '-',
+          `Rs. ${c.amount.toLocaleString('en-LK', { minimumFractionDigits: 2 })}`,
+        ];
+      });
+
+      autoTable(doc, {
+        startY: curY,
+        margin: { left: startX, right: pageWidth - rightMargin },
+        head: [['#', 'CHEQUE DETAILS & INVOICES', 'BANK', 'REALIZATION DATE', 'AMOUNT']],
+        body: chqRows,
+        theme: 'plain',
+        styles: {
+          overflow: 'linebreak',
+          cellPadding: 2,
+          fontSize: 7.5,
+          valign: 'top',
+        },
+        headStyles: {
+          fillColor: [248, 250, 252],
+          textColor: [0, 0, 0],
+          fontSize: 7.5,
+          fontStyle: 'bold',
+          lineColor: [0, 0, 0],
+          lineWidth: { top: 0.8, bottom: 0.8, left: 0, right: 0 },
+          cellPadding: { top: 3, bottom: 3, left: 3, right: 3 },
+        },
+        bodyStyles: {
+          textColor: [30, 41, 59],
+          fontSize: 7.5,
+          lineColor: [226, 232, 240],
+          lineWidth: { bottom: 0.4, top: 0, left: 0, right: 0 },
+          cellPadding: { top: 2.5, bottom: 2.5, left: 3, right: 3 },
+          overflow: 'linebreak',
+        },
+        columnStyles: {
+          0: { cellWidth: 20, halign: 'center' },
+          1: { cellWidth: 180, fontStyle: 'bold', overflow: 'linebreak' },
+          2: { cellWidth: 105, overflow: 'linebreak' },
+          3: { cellWidth: 105, overflow: 'linebreak' },
+          4: { cellWidth: 100.28, halign: 'right', fontStyle: 'bold' },
+        },
+      });
+
+      curY = (doc as any).lastAutoTable?.finalY || curY + 40;
+    }
+
+    // Pinned Signatures at Bottom of Page
+    const sigY = 745;
+    const sigBoxW = 180;
+    const custX = startX + 15;
+    const repX = rightMargin - sigBoxW - 15;
+
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.8);
+    doc.setLineDashPattern([2, 2], 0);
+
+    // Customer Signature Dotted Line
+    doc.line(custX, sigY, custX + sigBoxW, sigY);
+    // Authorized Rep Signature Dotted Line
+    doc.line(repX, sigY, repX + sigBoxW, sigY);
+
+    doc.setLineDashPattern([], 0);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(0, 0, 0);
+    doc.text('Customer Signature', custX + sigBoxW / 2, sigY + 9, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 100, 100);
+    doc.text('Goods & statement received in good order', custX + sigBoxW / 2, sigY + 18, { align: 'center' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(0, 0, 0);
+    doc.text('Authorized Rep Signature', repX + sigBoxW / 2, sigY + 9, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 100, 100);
+    doc.text('Reliance Sales / Credit Representative', repX + sigBoxW / 2, sigY + 18, { align: 'center' });
+
+    // Footer Legal Text
+    doc.setLineWidth(0.6);
+    doc.line(startX, 780, rightMargin, 780);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(0, 0, 0);
+    doc.text('RELIANCE CLOTHING - CREDIT MANAGEMENT DIVISION', startX + contentWidth / 2, 788, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(100, 100, 100);
+    doc.text('Please verify all listed invoice dues. For settlement receipts, contact our finance hotline: 041-2268739.', startX + contentWidth / 2, 797, { align: 'center' });
+
+  if (options.autoPrint) {
+    doc.autoPrint({ variant: 'non-conform' });
+  }
+
+  if (options.filename) {
+    doc.save(options.filename);
+  }
+
+  return doc;
+}
+
 export const ReportPdf = {
   generateCustomerDuesPdf,
   filterAndNormalizeDueInvoices,
@@ -893,6 +1768,7 @@ export const ReportPdf = {
   generateMaterialProductionPdf,
   generateGarmentProductionPdf,
   generateFinancialAuditPdf,
+  generateStatementPdf,
   drawStandardReportHeader,
   drawStandardReportFooter,
 };

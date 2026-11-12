@@ -57,6 +57,7 @@ interface SearchableSelectProps {
   dark?: boolean;
   className?: string;
   inline?: boolean;
+  creatable?: boolean;
   actionOption?: {
     label: string;
     icon?: React.ReactNode;
@@ -91,6 +92,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   dark: darkProp,
   className = "",
   inline: _inline = false,
+  creatable = false,
   actionOption,
   usePortal = true, // Default to true: mounts on document.body to strictly escape any modal overflow-hidden constraints
   side = "bottom",  // Default to bottom with intelligent viewport collision detection and auto-flipping
@@ -152,7 +154,9 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   const touchStartRef = React.useRef<{ x: number; y: number } | null>(null);
   const isScrollingRef = React.useRef<boolean>(false);
 
-  const selectedOption = options.find((opt) => opt.value === value);
+  const selectedOption =
+    options.find((opt) => opt.value === value) ||
+    (value ? { value, label: value } : undefined);
 
   const filteredOptions = React.useMemo(() => {
     // If actionOption is provided via props, strip any redundant inline action options to guarantee zero duplicates
@@ -610,7 +614,29 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                   isDark ? "text-zinc-500" : "text-slate-400"
                 }`}
               >
-                {emptyMessage}
+                {creatable && searchQuery.trim() ? (
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleSelect(searchQuery.trim());
+                    }}
+                    className={`w-full py-1.5 px-2 rounded-lg font-semibold transition-colors cursor-pointer text-left ${
+                      isDark
+                        ? "bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/60"
+                        : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                    }`}
+                  >
+                    + Use &quot;{searchQuery.trim()}&quot; (Custom)
+                  </button>
+                ) : (
+                  emptyMessage
+                )}
               </div>
             ) : (
               filteredOptions.map((opt) => {
@@ -705,6 +731,29 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                   </button>
                 );
               })
+            )}
+
+            {/* Creatable custom entry button when typed text doesn't match an existing option */}
+            {creatable && searchQuery.trim() && !options.some((o) => o.label.toLowerCase() === searchQuery.trim().toLowerCase()) && (
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleSelect(searchQuery.trim());
+                }}
+                className={`w-full flex items-center justify-between px-2.5 py-1.5 mt-1 border-t rounded-lg text-xs font-semibold transition-colors cursor-pointer select-none text-left ${
+                  isDark
+                    ? "border-zinc-800 bg-zinc-900/60 text-emerald-400 hover:bg-zinc-800"
+                    : "border-slate-100 bg-emerald-50/60 text-emerald-700 hover:bg-emerald-100/70"
+                }`}
+              >
+                <span>+ Use &quot;{searchQuery.trim()}&quot; (Custom)</span>
+              </button>
             )}
           </div>
           </div>

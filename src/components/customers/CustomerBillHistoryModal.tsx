@@ -40,6 +40,7 @@ import {
   Printer,
 } from 'lucide-react';
 import { PrintPaymentReceipt, type PaymentReceiptData } from '../pos/PrintPaymentReceipt';
+import { ChequeBankTownSelect } from '../pos/ChequeBankTownSelect';
 import { get, put, post, del } from '../../lib/api';
 import { toast } from 'react-toastify';
 import { DatePicker } from '../ui/date-picker';
@@ -52,6 +53,13 @@ import {
   generateMasterReceiptWhatsAppMessage,
 } from '../../utils/whatsapp';
 import { getInvoiceAgeInfo } from '../../utils/invoiceAge';
+import { parseChequeMetadata } from '../../utils/chequeParser';
+import {
+  extractCleanChequeNumber,
+  extractCleanBankName,
+  extractCleanMaturityDate,
+} from '../../utils/reportPdf';
+import { splitBankAndTown, formatBankAndTown } from '../../utils/sriLankanBanks';
 
 /**
  * Customer profile summary definition required for billing history scoping.
@@ -77,6 +85,8 @@ export interface PaymentHistoryItem {
   amount: number;
   method: string;
   reference?: string | null;
+  chequeNumber?: string | null;
+  bankName?: string | null;
   chequeDate?: string | null;
   chequeStatus?: 'PENDING' | 'CLEARED' | 'BOUNCED' | null;
   createdAt: string;
@@ -124,6 +134,7 @@ interface CustomerChequeItem {
   paymentId?: number;
   invoiceId: number;
   invoiceNumber: string;
+  invoiceNumbers?: string[];
   amount: number;
   chequeNumber: string;
   bankName: string;
@@ -278,63 +289,204 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
 
   // 80mm Thermal Payment Receipt Print State
   const [paymentReceiptToPrint, setPaymentReceiptToPrint] = useState<PaymentReceiptData | null>(null);
+  const [consolidatedPaymentsToPrint, setConsolidatedPaymentsToPrint] = useState<any[] | null>(null);
+  const [consolidatedReceiptMeta, setConsolidatedReceiptMeta] = useState<{
+    invoiceNumber?: string;
+    invoiceTotal?: number;
+    remainingBalance?: number;
+    previousDue?: number;
+    customerName?: string;
+    customerPhone?: string;
+    customerCity?: string;
+    customerAddress?: string;
+    receiptNumber?: string;
+    date?: string | Date;
+  } | null>(null);
+
+  /**
+   * Resolves the true total face value of a cheque when shared across multiple bills or issued via master receipt.
+   */
+  const resolveChequeFullAmount = (chqNumber?: string | null, currentAmt?: number): number => {
+    const single = Number(currentAmt) || 0;
+    if (!chqNumber) return single;
+    const cleanTarget = String(chqNumber).trim().toLowerCase();
+
+    // 1. Check Master Receipts for a matching receipt or underlying payments
+    for (const mr of masterReceipts) {
+      const parsedMr = parseChequeMetadata(mr);
+      if (parsedMr.chequeNumber && parsedMr.chequeNumber.toLowerCase() === cleanTarget) {
+        if (Number(mr.totalAmount) > single) return Number(mr.totalAmount);
+      }
+      if (Array.isArray(mr.payments)) {
+        for (const p of mr.payments) {
+          const parsedP = parseChequeMetadata(p);
+          if (parsedP.chequeNumber && parsedP.chequeNumber.toLowerCase() === cleanTarget) {
+            if (Number(mr.totalAmount) > single) return Number(mr.totalAmount);
+          }
+        }
+      }
+    }
+
+    // 2. Sum matching payments across all invoices in customer history
+    let sumAcrossInvoices = 0;
+    let matchCount = 0;
+
+    for (const inv of invoices) {
+      if (Array.isArray(inv.payments)) {
+        for (const p of inv.payments) {
+          const parsed = parseChequeMetadata(p);
+          if (parsed.chequeNumber && parsed.chequeNumber.toLowerCase() === cleanTarget) {
+            sumAcrossInvoices += Number(p.amount) || 0;
+            matchCount++;
+          }
+        }
+      }
+      if (Array.isArray(inv.cheques)) {
+        for (const c of inv.cheques) {
+          const parsed = parseChequeMetadata(c);
+          if (parsed.chequeNumber && parsed.chequeNumber.toLowerCase() === cleanTarget) {
+            if (Number(c.amount) > single) {
+              return Number(c.amount);
+            }
+          }
+        }
+      }
+    }
+
+    if (matchCount > 1 && sumAcrossInvoices > single) {
+      return sumAcrossInvoices;
+    }
+
+    return single;
+  };
 
   /**
    * Triggers clean 80mm thermal receipt printing for an individual settlement payment
    */
   const handlePrintPaymentReceipt = (payment: any, cust?: any, invoiceNumber?: string) => {
-    let chqNum = payment.chequeNumber;
-    let bName = payment.bankName;
-    if (!chqNum && payment.reference) {
-      const matchNum = /Cheque\s*#?([^\s(]+)/i.exec(payment.reference);
-      if (matchNum) chqNum = matchNum[1];
-      const matchBank = /\(([^)]+)\)/.exec(payment.reference);
-      if (matchBank) bName = matchBank[1];
-    }
+    const parsed = parseChequeMetadata(payment);
+    const fullChq = resolveChequeFullAmount(parsed.chequeNumber || payment.chequeNumber, payment.amount);
 
+    setConsolidatedPaymentsToPrint(null);
+    setConsolidatedReceiptMeta(null);
     setPaymentReceiptToPrint({
-      receiptNumber: payment.receiptNumber || `PAY-${payment.id}`,
-      date: payment.createdAt || payment.paymentDate || new Date().toISOString(),
-      customerName: cust?.name || 'Customer',
-      customerPhone: cust?.phone,
-      customerCity: cust?.city,
-      paymentMethod: payment.method || 'CASH',
+      receiptNumber: payment.receiptNumber || (payment.id ? `PAY-${payment.id}` : `PAY-${Date.now()}`),
+      date: payment.createdAt || payment.paidAt || payment.paymentDate || payment.date || new Date().toISOString(),
+      customerName: cust?.name || customer?.name || 'Walk-in Customer',
+      customerPhone: cust?.phone || customer?.phone,
+      customerCity: (cust?.city || customer?.city) || undefined,
+      customerAddress: (cust?.address || customer?.address) || undefined,
+      paymentMethod: payment.method || payment.paymentMethod || 'CASH',
       amount: Number(payment.amount) || 0,
-      chequeNumber: chqNum,
-      bankName: bName,
-      chequeDate: payment.chequeDate,
-      chequeStatus: payment.chequeStatus,
+      chequeNumber: parsed.chequeNumber || payment.chequeNumber || undefined,
+      bankName: parsed.bankAndTown || payment.bankName || undefined,
+      chequeDate: parsed.maturityDate || payment.chequeDate || undefined,
+      chequeStatus: parsed.chequeStatus || payment.chequeStatus || undefined,
+      fullChequeAmount: fullChq > Number(payment.amount) ? fullChq : (parsed.fullChequeAmount || undefined),
       invoiceNumber: invoiceNumber,
-      reference: payment.reference,
-      remainingBalance: cust?.outstandingBalance !== undefined ? Number(cust.outstandingBalance) : undefined,
+      reference: payment.reference || undefined,
+      notes: payment.notes || parsed.residualNotes || undefined,
+      remainingBalance: cust?.outstandingBalance !== undefined ? Number(cust.outstandingBalance) : (customer?.outstandingBalance !== undefined ? Number(customer.outstandingBalance) : undefined),
     });
 
-    // 150ms timeout ensures React commits the rendered receipt to the DOM before print dialog freezes the thread
-    setTimeout(() => {
-      window.print();
-    }, 150);
+    // RAF + 200ms ensures React flushes the portalled DOM update and styles paint before print freezes thread
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        window.print();
+      }, 200);
+    });
+  };
+
+  /**
+   * Triggers clean 80mm thermal receipt printing for all payments consolidated under a specific invoice
+   */
+  const handlePrintInvoiceConsolidatedReceipt = (inv: any) => {
+    const rawPayments = Array.isArray(inv.payments) && inv.payments.length > 0
+      ? inv.payments.map((p: any) => {
+          const parsed = parseChequeMetadata(p);
+          const fullChq = resolveChequeFullAmount(parsed.chequeNumber || p.chequeNumber, p.amount);
+          return {
+            ...p,
+            chequeNumber: parsed.chequeNumber || p.chequeNumber || undefined,
+            bankName: parsed.bankAndTown || p.bankName || undefined,
+            chequeDate: parsed.maturityDate || p.chequeDate || undefined,
+            chequeStatus: parsed.chequeStatus || p.chequeStatus || undefined,
+            fullChequeAmount: fullChq > Number(p.amount) ? fullChq : (parsed.fullChequeAmount || undefined),
+            residualNotes: parsed.residualNotes || undefined,
+          };
+        })
+      : (Number(inv.paidAmount) > 0
+          ? [{
+              id: 1,
+              method: inv.paymentMethod || 'CASH',
+              amount: Number(inv.paidAmount),
+              date: inv.createdAt,
+            }]
+          : []);
+
+    if (rawPayments.length === 0) {
+      toast.warning('No payments recorded for this invoice yet.');
+      return;
+    }
+
+    const invTotal = Number(inv.totalAmount || 0);
+    const invPaid = Number(inv.paidAmount || 0);
+    const invDue = Math.max(0, invTotal - invPaid);
+    const custBal = customer?.outstandingBalance !== undefined ? Number(customer.outstandingBalance) : undefined;
+    const prevDue = custBal !== undefined ? Math.max(0, custBal - invDue) : undefined;
+
+    setPaymentReceiptToPrint(null);
+    setConsolidatedPaymentsToPrint(rawPayments);
+    setConsolidatedReceiptMeta({
+      invoiceNumber: inv.invoiceNumber || `INV-${inv.id}`,
+      invoiceTotal: invTotal,
+      remainingBalance: invDue,
+      previousDue: prevDue,
+      customerName: customer?.name || 'Walk-in Customer',
+      customerPhone: customer?.phone || undefined,
+      customerCity: customer?.city || undefined,
+      customerAddress: customer?.address || undefined,
+      date: inv.createdAt,
+      receiptNumber: `RCP-INV${inv.id}`,
+    });
+
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        window.print();
+      }, 200);
+    });
   };
 
   /**
    * Triggers clean 80mm thermal receipt printing for a consolidated Master Receipt
    */
   const handlePrintMasterReceipt = (receipt: any, cust?: any) => {
+    const parsed = parseChequeMetadata(receipt);
+    setConsolidatedPaymentsToPrint(null);
+    setConsolidatedReceiptMeta(null);
     setPaymentReceiptToPrint({
       receiptNumber: receipt.receiptNumber || `REC-${receipt.id}`,
-      date: receipt.createdAt || new Date().toISOString(),
-      customerName: cust?.name || 'Customer',
-      customerPhone: cust?.phone,
-      customerCity: cust?.city,
+      date: receipt.createdAt || receipt.receiptDate || new Date().toISOString(),
+      customerName: cust?.name || customer?.name || 'Customer',
+      customerPhone: cust?.phone || customer?.phone,
+      customerCity: cust?.city || customer?.city,
+      customerAddress: cust?.address || customer?.address,
       paymentMethod: receipt.paymentMethod || 'CASH',
       amount: Number(receipt.totalAmount) || 0,
-      reference: receipt.reference,
-      remainingBalance: cust?.outstandingBalance !== undefined ? Number(cust.outstandingBalance) : undefined,
+      chequeNumber: parsed.chequeNumber || receipt.chequeNumber || undefined,
+      bankName: parsed.bankAndTown || receipt.bankName || undefined,
+      chequeDate: parsed.maturityDate || receipt.chequeDate || undefined,
+      chequeStatus: parsed.chequeStatus || receipt.chequeStatus || undefined,
+      reference: receipt.reference || undefined,
+      notes: receipt.notes || parsed.residualNotes || undefined,
+      remainingBalance: cust?.outstandingBalance !== undefined ? Number(cust.outstandingBalance) : (customer?.outstandingBalance !== undefined ? Number(customer.outstandingBalance) : undefined),
     });
 
-    // 150ms timeout ensures React commits the rendered receipt to the DOM before print dialog freezes the thread
-    setTimeout(() => {
-      window.print();
-    }, 150);
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        window.print();
+      }, 200);
+    });
   };
 
   const fetchMasterReceipts = async () => {
@@ -419,6 +571,10 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
   const [editAmount, setEditAmount] = useState<string>('');
   const [editMethod, setEditMethod] = useState<string>('CASH');
   const [editReference, setEditReference] = useState<string>('');
+  const [editChequeNumber, setEditChequeNumber] = useState<string>('');
+  const [editBankName, setEditBankName] = useState<string>('');
+  const [editBank, setEditBank] = useState<string>('');
+  const [editTown, setEditTown] = useState<string>('');
   const [editDate, setEditDate] = useState<string>('');
   const [editChequeDate, setEditChequeDate] = useState<string>('');
   const [editChequeStatus, setEditChequeStatus] = useState<string>('PENDING');
@@ -611,13 +767,63 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
     openWhatsAppChat(phone, msg);
   };
 
-  // Open Edit Payment Dialog
+  /**
+   * Universal Payment Adjustment Form Initialization
+   * Leverages universal regex parsing to aggressively extract and pre-fill Cheque Number,
+   * Bank Name, Town/Branch, and Maturity Date from explicit properties, reference strings,
+   * or notes before opening the Adjust Payment Record modal.
+   */
   const handleInitiateEditPayment = (ph: PaymentHistoryItem) => {
     setEditingPayment(ph);
     setEditAmount(String(ph.amount));
-    setEditMethod(ph.method || 'CASH');
-    const cleanRef = ph.reference?.replace(/\s*\[Edit:.*?\]$/, '') || '';
+
+    // Parse cheque metadata universally across all legacy and current formats
+    const parsed = parseChequeMetadata(ph);
+
+    // Extract clean numeric cheque number, bank name, and realization date
+    const cleanChq = extractCleanChequeNumber(
+      ph.chequeNumber,
+      parsed.chequeNumber,
+      ph.reference,
+      (ph as any).notes
+    );
+
+    const cleanBankTown = extractCleanBankName(
+      ph.bankName,
+      parsed.bankAndTown,
+      parsed.bankName,
+      ph.reference,
+      (ph as any).notes
+    );
+
+    const cleanMaturity = extractCleanMaturityDate(
+      ph.chequeDate,
+      parsed.maturityDate,
+      ph.reference,
+      (ph as any).notes
+    );
+
+    // If cheque particulars exist, automatically align method to CHEQUE
+    const isCheque =
+      (ph.method && ph.method.toUpperCase() === 'CHEQUE') ||
+      (cleanChq && cleanChq !== '-');
+    setEditMethod(isCheque ? 'CHEQUE' : (ph.method || 'CASH'));
+
+    // Populate residual notes/reference
+    const cleanRef = parsed.residualNotes || ph.reference?.replace(/\s*\[Edit:.*?\]$/, '') || '';
     setEditReference(cleanRef);
+
+    // Split bank and town for discrete and combined combobox inputs
+    const validChqNum = cleanChq && cleanChq !== '-' ? cleanChq : '';
+    const validBankTown = cleanBankTown && cleanBankTown !== '-' ? cleanBankTown : '';
+    const { bank, town } = splitBankAndTown(validBankTown);
+
+    setEditChequeNumber(validChqNum);
+    setEditBank(bank);
+    setEditTown(town);
+    setEditBankName(validBankTown);
+
+    // Format payment date
     if (ph.createdAt) {
       try {
         const d = new Date(ph.createdAt);
@@ -631,10 +837,55 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
     } else {
       setEditDate('');
     }
-    setEditChequeDate(ph.chequeDate ? ph.chequeDate.split('T')[0] : '');
-    setEditChequeStatus(ph.chequeStatus || 'PENDING');
+
+    // Set maturity date & status
+    setEditChequeDate(
+      cleanMaturity && cleanMaturity !== '-'
+        ? cleanMaturity
+        : (ph.chequeDate ? ph.chequeDate.split('T')[0] : '')
+    );
+    setEditChequeStatus(ph.chequeStatus || (parsed.chequeStatus as any) || 'PENDING');
     setEditNote('');
   };
+
+  // Synchronize payment adjustment form whenever editingPayment target changes
+  useEffect(() => {
+    if (!editingPayment) return;
+    const parsed = parseChequeMetadata(editingPayment);
+    const cleanChq = extractCleanChequeNumber(
+      editingPayment.chequeNumber,
+      parsed.chequeNumber,
+      editingPayment.reference,
+      (editingPayment as any).notes
+    );
+    const cleanBankTown = extractCleanBankName(
+      editingPayment.bankName,
+      parsed.bankAndTown,
+      parsed.bankName,
+      editingPayment.reference,
+      (editingPayment as any).notes
+    );
+    const cleanMaturity = extractCleanMaturityDate(
+      editingPayment.chequeDate,
+      parsed.maturityDate,
+      editingPayment.reference,
+      (editingPayment as any).notes
+    );
+    const validBankTown = cleanBankTown && cleanBankTown !== '-' ? cleanBankTown : '';
+    const { bank, town } = splitBankAndTown(validBankTown);
+
+    if (cleanChq && cleanChq !== '-') {
+      setEditChequeNumber((prev) => (!prev || prev === '-' ? cleanChq : prev));
+    }
+    if (validBankTown) {
+      setEditBankName((prev) => (!prev || prev === '-' ? validBankTown : prev));
+      setEditBank((prev) => (!prev ? bank : prev));
+      setEditTown((prev) => (!prev ? town : prev));
+    }
+    if (cleanMaturity && cleanMaturity !== '-') {
+      setEditChequeDate((prev) => (!prev ? cleanMaturity : prev));
+    }
+  }, [editingPayment]);
 
   // Save Edit Payment Submit
   const handleSaveEditPayment = async (e?: React.FormEvent) => {
@@ -650,10 +901,25 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
     try {
       const resolvedDateTime = editDate ? new Date(editDate) : new Date();
 
+      let finalRef = editReference.trim() || undefined;
+      const combinedBankTown = (editBankName || formatBankAndTown(editBank, editTown)).trim();
+
+      if (editMethod === 'CHEQUE') {
+        const cNum = editChequeNumber.trim();
+        if (!cNum || cNum === '-') {
+          toast.error('Please enter a valid Cheque Number');
+          setIsSubmittingEdit(false);
+          return;
+        }
+        finalRef = `Cheque #${cNum}${combinedBankTown ? ` (${combinedBankTown})` : ''}`;
+      }
+
       await put(`/payments/${editingPayment.id}`, {
         amount: num,
         method: editMethod,
-        reference: editReference.trim() || undefined,
+        reference: finalRef,
+        chequeNumber: editMethod === 'CHEQUE' ? editChequeNumber.trim() || undefined : undefined,
+        bankName: editMethod === 'CHEQUE' ? combinedBankTown || undefined : undefined,
         paymentDate: resolvedDateTime.toISOString(),
         chequeDate: editMethod === 'CHEQUE' && editChequeDate ? new Date(editChequeDate).toISOString() : undefined,
         chequeStatus: editMethod === 'CHEQUE' ? editChequeStatus : undefined,
@@ -716,7 +982,8 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
     setReplaceTargetCheque(chq);
     setCancelReason('Cheque returned / payment replacement requested');
     setReplacementAmount(String(chq.amount));
-    setReplacementBankName(chq.bankName !== '-' ? chq.bankName : '');
+    const cleanBank = extractCleanBankName(chq.bankName);
+    setReplacementBankName(cleanBank !== '-' ? cleanBank : '');
     setReplacementChequeNumber('');
     const nextWeek = new Date(Date.now() + 7 * 86400000);
     const yr = nextWeek.getFullYear();
@@ -889,7 +1156,40 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
       }
     });
 
-    return list;
+    // Aggregate cheques sharing the same chequeNumber + bankName across multiple bills
+    const groupedMap = new Map<string, CustomerChequeItem & { invoiceNumbers: string[] }>();
+
+    list.forEach((chq) => {
+      const normChq = String(chq.chequeNumber || '-').replace(/^#/, '').trim();
+      const normBank = String(chq.bankName || '-').trim();
+      const key = (normChq && normChq !== '-')
+        ? `${normChq.toUpperCase()}_${normBank.toUpperCase()}`
+        : `RAW_${chq.paymentId || chq.invoiceId}_${Math.random()}`;
+
+      const existing = groupedMap.get(key);
+      if (existing) {
+        existing.amount = Math.round((existing.amount + chq.amount) * 100) / 100;
+        if (chq.invoiceNumber && !existing.invoiceNumbers.includes(chq.invoiceNumber)) {
+          existing.invoiceNumbers.push(chq.invoiceNumber);
+        }
+        existing.invoiceNumber = existing.invoiceNumbers.join(', ');
+        if (chq.statusLabel === 'PENDING') {
+          existing.status = chq.status;
+          existing.statusLabel = 'PENDING';
+        }
+      } else {
+        const invNumbers = chq.invoiceNumber ? [chq.invoiceNumber] : [];
+        groupedMap.set(key, {
+          ...chq,
+          chequeNumber: normChq,
+          bankName: normBank,
+          invoiceNumbers: invNumbers,
+          invoiceNumber: invNumbers.join(', '),
+        });
+      }
+    });
+
+    return Array.from(groupedMap.values());
   }, [invoices]);
 
   // Filtered invoices matrix
@@ -1441,6 +1741,21 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                         <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 text-slate-900 dark:text-white">
                           #INV{inv.id}
                         </span>
+                        {/* Consolidated POS Print for all payments recorded on this invoice */}
+                        {((inv.payments && inv.payments.length > 0) || Number(inv.paidAmount) > 0) && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handlePrintInvoiceConsolidatedReceipt(inv);
+                            }}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors cursor-pointer shadow-2xs"
+                            title="Print 80mm POS Receipt for all payments on this invoice"
+                          >
+                            <Printer className="size-2.5" />
+                            <span>Print</span>
+                          </button>
+                        )}
                         <span
                           className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
                             inv.source === 'POS_WHOLESALE'
@@ -1956,8 +2271,45 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                 <div className="p-3 rounded-xl border border-indigo-500/20 dark:border-indigo-500/30 bg-indigo-50/40 dark:bg-indigo-950/20 space-y-2.5">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-700 dark:text-indigo-300">
                     <FileText className="size-3.5" />
-                    <span>Cheque Maturity & Realization</span>
+                    <span>Cheque Particulars &amp; Clearing</span>
                   </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400 block mb-1">
+                      Cheque Number *
+                    </label>
+                    <Input
+                      type="text"
+                      value={editChequeNumber}
+                      onChange={(e) => setEditChequeNumber(e.target.value)}
+                      placeholder="e.g. CHQ-994821"
+                      className="h-9 text-xs font-mono border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-slate-900 dark:text-white"
+                    />
+                  </div>
+
+                  {/* Dual Bank & Town Combobox Selectors */}
+                  <ChequeBankTownSelect
+                    value={editBankName}
+                    bank={editBank}
+                    town={editTown}
+                    onBankChange={(newBank) => {
+                      setEditBank(newBank);
+                      const combined = formatBankAndTown(newBank, editTown);
+                      setEditBankName(combined);
+                    }}
+                    onTownChange={(newTown) => {
+                      setEditTown(newTown);
+                      const combined = formatBankAndTown(editBank, newTown);
+                      setEditBankName(combined);
+                    }}
+                    onChange={(combined) => {
+                      setEditBankName(combined);
+                      const s = splitBankAndTown(combined);
+                      setEditBank(s.bank);
+                      setEditTown(s.town);
+                    }}
+                    size="sm"
+                  />
 
                   <div className="grid grid-cols-2 gap-2.5 items-end">
                     <div>
@@ -1989,18 +2341,20 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                 </div>
               )}
 
-              <div>
-                <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block mb-1">
-                  Reference / Cheque No / Slip
-                </label>
-                <Input
-                  type="text"
-                  value={editReference}
-                  onChange={(e) => setEditReference(e.target.value)}
-                  placeholder="e.g. Cheque #12345 (BOC Bank)"
-                  className="h-9 text-xs border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-slate-900 dark:text-white"
-                />
-              </div>
+              {editMethod !== 'CHEQUE' && (
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block mb-1">
+                    Reference / Slip / Approval Code
+                  </label>
+                  <Input
+                    type="text"
+                    value={editReference}
+                    onChange={(e) => setEditReference(e.target.value)}
+                    placeholder="e.g. Card Approval Code or Slip Ref"
+                    className="h-9 text-xs border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-slate-900 dark:text-white"
+                  />
+                </div>
+              )}
 
               <div>
                 <label className="text-xs font-semibold text-slate-700 dark:text-zinc-300 block mb-1">
@@ -2160,7 +2514,7 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
               {/* Replacement Cheque Fields */}
               {issueReplacement && (
                 <div className="p-3 rounded-xl border border-blue-500/30 bg-blue-500/5 dark:bg-blue-950/20 space-y-2.5">
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-2">
                     <div>
                       <label className="text-[11px] font-semibold text-slate-700 dark:text-zinc-300 block mb-1">
                         New Cheque # *
@@ -2173,17 +2527,12 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                         className="h-8 text-xs font-mono"
                       />
                     </div>
-                    <div>
-                      <label className="text-[11px] font-semibold text-slate-700 dark:text-zinc-300 block mb-1">
-                        Bank Name
-                      </label>
-                      <Input
-                        value={replacementBankName}
-                        onChange={(e) => setReplacementBankName(e.target.value)}
-                        placeholder="e.g. Commercial Bank"
-                        className="h-8 text-xs"
-                      />
-                    </div>
+                    {/* Dual Bank Name and Town / Branch Combobox */}
+                    <ChequeBankTownSelect
+                      value={replacementBankName}
+                      onChange={setReplacementBankName}
+                      size="sm"
+                    />
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
@@ -2256,7 +2605,20 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
       )}
 
       {/* Hidden 80mm Thermal Receipt Layout for Settlements */}
-      <PrintPaymentReceipt receipt={paymentReceiptToPrint} />
+      <PrintPaymentReceipt
+        receipt={paymentReceiptToPrint}
+        payments={consolidatedPaymentsToPrint}
+        invoiceNumber={consolidatedReceiptMeta?.invoiceNumber}
+        invoiceTotal={consolidatedReceiptMeta?.invoiceTotal}
+        remainingBalance={consolidatedReceiptMeta?.remainingBalance}
+        previousDue={consolidatedReceiptMeta?.previousDue}
+        customerName={consolidatedReceiptMeta?.customerName || customer?.name}
+        customerPhone={consolidatedReceiptMeta?.customerPhone || customer?.phone}
+        customerCity={(consolidatedReceiptMeta?.customerCity || customer?.city) || undefined}
+        customerAddress={(consolidatedReceiptMeta?.customerAddress || customer?.address) || undefined}
+        receiptNumber={consolidatedReceiptMeta?.receiptNumber}
+        date={consolidatedReceiptMeta?.date}
+      />
     </>
   );
 };

@@ -1,10 +1,12 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import {
   type ThermalOrder,
   formatReceiptPrice,
   formatReceiptDiscount,
   formatThermalReceiptDateTime,
 } from '../../utils/thermalReceipt';
+import { parseChequeMetadata } from '../../utils/chequeParser';
 
 export interface ThermalReceipt80mmProps {
   order: ThermalOrder | null | undefined;
@@ -110,8 +112,10 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
   const isCreditOrder = paymentMethodLabel.includes('CREDIT') || balanceDue > 0;
   const currentBillCredit = isCreditOrder ? balanceDue : 0;
 
-  // Previous Due Before Normal Bill
-  const previousDueBeforeBill = Math.max(0, Math.round((updatedBalance - currentBillCredit + settledDue) * 100) / 100);
+  // Previous Due Before Normal Bill (Uses accurate historical snapshot or prior balance when provided)
+  const previousDueBeforeBill = (order as any).previousDue !== undefined
+    ? Math.max(0, Number((order as any).previousDue))
+    : Math.max(0, Math.round((updatedBalance - currentBillCredit + settledDue) * 100) / 100);
   const hasCustomerAccount = Boolean((order as any).customerId || order.customer?.id) || customerName !== 'Walk-in Customer';
 
   // Itemized Payments Construction
@@ -119,34 +123,71 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
     method: string;
     amount: number;
     reference?: string;
+    chequeNumber?: string;
+    bankName?: string;
+    chequeDate?: string;
+    chequeStatus?: string;
+    fullChequeAmount?: number;
+    residualNotes?: string;
   }
   const itemizedPayments: ResolvedPayment[] = [];
 
   if (Array.isArray(order.payments) && order.payments.length > 0) {
-    order.payments.forEach((p) => {
+    order.payments.forEach((p: any) => {
       const amt = Number(p.amount) || 0;
       if (amt > 0) {
+        const pMethod = String(p.method || p.paymentMethod || 'CASH').toUpperCase();
+        const parsed = parseChequeMetadata(p);
         itemizedPayments.push({
-          method: String(p.method || 'CASH').toUpperCase(),
+          method: pMethod,
           amount: amt,
           reference: p.reference || (p.notes ? String(p.notes) : undefined),
+          chequeNumber: parsed.chequeNumber || p.chequeNumber || undefined,
+          bankName: parsed.bankAndTown || p.bankName || undefined,
+          chequeDate: parsed.maturityDate || (p.chequeDate ? String(p.chequeDate).split('T')[0] : undefined),
+          chequeStatus: parsed.chequeStatus || p.chequeStatus || undefined,
+          fullChequeAmount: parsed.fullChequeAmount || p.fullChequeAmount || undefined,
+          residualNotes: parsed.residualNotes || undefined,
         });
       }
     });
   }
 
   if (itemizedPayments.length === 0 && Array.isArray(order.splitPayments) && order.splitPayments.length > 0) {
-    order.splitPayments.forEach((s) => {
+    order.splitPayments.forEach((s: any) => {
       const amt = Number(s.amount) || 0;
       if (amt > 0) {
-        let ref = s.reference || '';
-        if (s.method === 'CHEQUE' && s.chequeNumber) {
-          ref = `Chq #${s.chequeNumber}${s.bankName ? ` (${s.bankName})` : ''}`;
-        }
+        const pMethod = String(s.method || 'CASH').toUpperCase();
+        const parsed = parseChequeMetadata(s);
         itemizedPayments.push({
-          method: String(s.method || 'CASH').toUpperCase(),
+          method: pMethod,
           amount: amt,
-          reference: ref || undefined,
+          reference: s.reference || undefined,
+          chequeNumber: parsed.chequeNumber || s.chequeNumber || undefined,
+          bankName: parsed.bankAndTown || s.bankName || undefined,
+          chequeDate: parsed.maturityDate || (s.chequeDate ? String(s.chequeDate).split('T')[0] : undefined),
+          chequeStatus: parsed.chequeStatus || s.chequeStatus || undefined,
+          fullChequeAmount: parsed.fullChequeAmount || s.fullChequeAmount || undefined,
+          residualNotes: parsed.residualNotes || undefined,
+        });
+      }
+    });
+  }
+
+  if (itemizedPayments.length === 0 && Array.isArray((order as any).cheques) && (order as any).cheques.length > 0) {
+    (order as any).cheques.forEach((c: any) => {
+      const amt = Number(c.amount) || 0;
+      if (amt > 0 || c.chequeNumber) {
+        const parsed = parseChequeMetadata(c);
+        itemizedPayments.push({
+          method: 'CHEQUE',
+          amount: amt,
+          chequeNumber: parsed.chequeNumber || c.chequeNumber || undefined,
+          bankName: parsed.bankAndTown || c.bankName || undefined,
+          chequeDate: parsed.maturityDate || (c.chequeDate ? String(c.chequeDate).split('T')[0] : undefined),
+          chequeStatus: parsed.chequeStatus || c.chequeStatus || undefined,
+          fullChequeAmount: parsed.fullChequeAmount || c.fullChequeAmount || undefined,
+          residualNotes: parsed.residualNotes || undefined,
         });
       }
     });
@@ -156,6 +197,24 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
     itemizedPayments.push({
       method: paymentMethodLabel.includes('CREDIT') ? 'CASH' : paymentMethodLabel,
       amount: paidAmount,
+    });
+  }
+
+  // Correlate fullChequeAmount across order.cheques if an overarching cheque object exists
+  if (Array.isArray((order as any).cheques)) {
+    (order as any).cheques.forEach((c: any) => {
+      const cParsed = parseChequeMetadata(c);
+      const cNum = cParsed.chequeNumber || c.chequeNumber;
+      const cAmt = Number(c.amount) || 0;
+      if (cNum && cAmt > 0) {
+        itemizedPayments.forEach((ip) => {
+          if (ip.chequeNumber && ip.chequeNumber.toLowerCase() === String(cNum).toLowerCase()) {
+            if (cAmt > ip.amount) {
+              ip.fullChequeAmount = cAmt;
+            }
+          }
+        });
+      }
     });
   }
 
@@ -212,7 +271,7 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
   const totalDiscounts = totalItemDiscounts + billDiscountAmount;
   const netBillAmount = isReturnBill ? total : (grossSubtotal - totalDiscounts);
 
-  return (
+  const receiptContent = (
     <div
       id="printable-receipt"
       className="hidden print:block font-mono text-black bg-white"
@@ -457,16 +516,107 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
             {hasCustomerAccount ? (
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span>Previous Due (Before Bill):</span>
-                <span style={{ fontWeight: 700 }}>{formatReceiptPrice(previousDueBeforeBill)}</span>
+                <span style={{ fontWeight: 700 }}>
+                  {previousDueBeforeBill > 0 ? `-${formatReceiptPrice(previousDueBeforeBill)}` : '0.00'}
+                </span>
               </div>
             ) : null}
 
+            {/* Itemized Payment Lines with Clean Vertical Details Alignment */}
             {itemizedPayments.map((p, pIdx) => {
-              const label = p.method === 'CHEQUE' ? (p.reference || 'Cheque') : p.method;
+              const isChq = p.method === 'CHEQUE';
+              const chqNum = p.chequeNumber;
+              const bName = p.bankName;
+              const chqDate = p.chequeDate;
+              const ref = p.reference;
+
               return (
-                <div key={pIdx} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Paid ({label}):</span>
-                  <span style={{ fontWeight: 700 }}>{formatReceiptPrice(p.amount)}</span>
+                <div key={pIdx} style={{ marginBottom: '3px' }}>
+                  {/* Primary Payment Method & Amount Line */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 800 }}>Paid ({p.method}):</span>
+                    <span style={{ fontWeight: 900 }}>
+                      {p.amount > 0 ? `+${formatReceiptPrice(p.amount)}` : formatReceiptPrice(p.amount)}
+                    </span>
+                  </div>
+
+                  {/* Vertical Itemized Particulars (Cheque #, Bank & Town, Maturity Date, Status, Full Cheque Value) */}
+                  {isChq && (chqNum || bName || chqDate || p.chequeStatus || p.residualNotes || (p.fullChequeAmount && p.fullChequeAmount > p.amount)) && (
+                    <div
+                      style={{
+                        fontSize: '11px',
+                        lineHeight: '1.35',
+                        fontWeight: 700,
+                        paddingLeft: '6px',
+                        borderLeft: '1.5px solid #000000',
+                        marginTop: '1.5px',
+                        marginBottom: '2px',
+                      }}
+                    >
+                      {chqNum && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span>&bull; Cheque #:</span>
+                          <span style={{ fontWeight: 800 }}>{chqNum}</span>
+                        </div>
+                      )}
+                      {bName && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span>&bull; Bank &amp; Town:</span>
+                          <span style={{ fontWeight: 800 }}>{bName}</span>
+                        </div>
+                      )}
+                      {chqDate && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span>&bull; Pass / Maturity:</span>
+                          <span style={{ fontWeight: 800 }}>{chqDate}</span>
+                        </div>
+                      )}
+                      {p.chequeStatus && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span>&bull; Status:</span>
+                          <span style={{ fontWeight: 800, textTransform: 'uppercase' }}>{p.chequeStatus}</span>
+                        </div>
+                      )}
+                      {p.fullChequeAmount && p.fullChequeAmount > p.amount && (
+                        <div style={{ borderTop: '1px dashed #000000', paddingTop: '1.5px', marginTop: '1.5px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>&bull; Full Chq Val:</span>
+                            <span style={{ fontWeight: 800 }}>{formatReceiptPrice(p.fullChequeAmount)}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>&bull; Bill Allocated:</span>
+                            <span style={{ fontWeight: 800 }}>{formatReceiptPrice(p.amount)}</span>
+                          </div>
+                        </div>
+                      )}
+                      {p.residualNotes && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span>&bull; Details:</span>
+                          <span style={{ fontWeight: 800 }}>{p.residualNotes}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Reference / Transaction Info for Card, Bank Transfer, or Notes */}
+                  {!isChq && (ref || p.residualNotes) && (
+                    <div
+                      style={{
+                        fontSize: '10.5px',
+                        lineHeight: '1.3',
+                        fontWeight: 700,
+                        paddingLeft: '6px',
+                        borderLeft: '1.5px solid #000000',
+                        marginTop: '1.5px',
+                        marginBottom: '2px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>&bull; Ref / Info:</span>
+                        <span style={{ fontWeight: 800 }}>{p.residualNotes || ref}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -474,7 +624,7 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
             {balanceDue > 0 && hasCustomerAccount ? (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
                 <span>Bill Credit (Unpaid):</span>
-                <span>+{formatReceiptPrice(balanceDue)}</span>
+                <span>-{formatReceiptPrice(balanceDue)}</span>
               </div>
             ) : null}
 
@@ -520,6 +670,181 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
         )}
       </div>
 
+      {/* Bold High-Contrast "PAID IN FULL" Stamp for Fully Settled 80mm POS Bill */}
+      {!isReturnBill && total > 0 && balanceDue <= 0 && (
+        <div
+          style={{
+            margin: '6px auto',
+            padding: '4px 8px',
+            border: '2.5px solid #000000',
+            outline: '1px solid #000000',
+            outlineOffset: '-4px',
+            textAlign: 'center',
+            width: '80%',
+            maxWidth: '220px',
+            boxSizing: 'border-box',
+          }}
+        >
+          <div
+            style={{
+              fontSize: '15px',
+              fontWeight: 900,
+              letterSpacing: '2px',
+              textTransform: 'uppercase',
+              lineHeight: '1.2',
+              color: '#000000',
+            }}
+          >
+            PAID IN FULL
+          </div>
+        </div>
+      )}
+
+      {/* Comprehensive High-Contrast PAYMENT & SETTLEMENT BREAKDOWN (Crisp Thermal Head 800/900 Bold Black) */}
+      {(itemizedPayments.length > 0 || paidAmount > 0 || isWholesale) && (
+        <div style={{ width: '100%', color: '#000000', marginTop: '6px', paddingTop: '4px', borderTop: '2px solid #000000' }}>
+          <div
+            style={{
+              fontSize: '12px',
+              fontWeight: 900,
+              textAlign: 'center',
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+              borderBottom: '1.5px solid #000000',
+              paddingBottom: '3px',
+              marginBottom: '5px',
+              color: '#000000',
+            }}
+          >
+            PAYMENT &amp; SETTLEMENT BREAKDOWN
+          </div>
+
+          <div style={{ width: '100%', fontSize: '11.5px', lineHeight: '1.4', fontWeight: 800, color: '#000000' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>Previous Due / Old Balance:</span>
+              <span style={{ fontWeight: 900, whiteSpace: 'nowrap' }}>
+                Rs. {formatReceiptPrice(isReturnBill ? previousDueBeforeReturn : previousDueBeforeBill)}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>Current Bill Total:</span>
+              <span style={{ fontWeight: 900, whiteSpace: 'nowrap' }}>
+                Rs. {formatReceiptPrice(netBillAmount)}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed #000000', paddingTop: '2px', marginTop: '2px' }}>
+              <span>Total Paid:</span>
+              <span style={{ fontWeight: 900, whiteSpace: 'nowrap' }}>
+                Rs. {formatReceiptPrice(itemizedPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0) || paidAmount)}
+              </span>
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                borderTop: '1.5px solid #000000',
+                borderBottom: '1.5px solid #000000',
+                padding: '3px 0',
+                margin: '3px 0',
+                fontWeight: 900,
+              }}
+            >
+              <span>Final Remaining Balance:</span>
+              <span style={{ fontWeight: 900, whiteSpace: 'nowrap' }}>
+                Rs. {formatReceiptPrice(hasCustomerAccount ? updatedBalance : balanceDue)}
+              </span>
+            </div>
+
+            {/* Itemized Payment Details with Full Cheque Particulars */}
+            {itemizedPayments.length > 0 && (
+              <div style={{ marginTop: '5px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 900, textTransform: 'uppercase', marginBottom: '3px', borderBottom: '1px dotted #000000', paddingBottom: '2px' }}>
+                  Payment Particulars ({itemizedPayments.length}):
+                </div>
+                {itemizedPayments.map((p, idx) => {
+                  const isChq = p.method === 'CHEQUE';
+                  return (
+                    <div
+                      key={idx}
+                      style={{
+                        padding: '3px 0',
+                        borderBottom: idx < itemizedPayments.length - 1 ? '1px dotted #000000' : 'none',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 900 }}>
+                        <span>{idx + 1}. {p.method}</span>
+                        <span style={{ fontWeight: 900, whiteSpace: 'nowrap' }}>Rs. {formatReceiptPrice(p.amount)}</span>
+                      </div>
+                      {isChq && (
+                        <div
+                          style={{
+                            fontSize: '10.5px',
+                            fontWeight: 800,
+                            paddingLeft: '6px',
+                            borderLeft: '2px solid #000000',
+                            marginTop: '2px',
+                          }}
+                        >
+                          {p.chequeNumber && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span>Cheque No:</span>
+                              <span style={{ fontWeight: 900 }}>{p.chequeNumber}</span>
+                            </div>
+                          )}
+                          {p.bankName && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span>Bank &amp; Town:</span>
+                              <span style={{ fontWeight: 900 }}>{p.bankName}</span>
+                            </div>
+                          )}
+                          {p.chequeDate && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span>Maturity / Pass Date:</span>
+                              <span style={{ fontWeight: 900 }}>{p.chequeDate}</span>
+                            </div>
+                          )}
+                          {p.chequeStatus && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span>Status:</span>
+                              <span style={{ fontWeight: 900, textTransform: 'uppercase' }}>{p.chequeStatus}</span>
+                            </div>
+                          )}
+                          {p.fullChequeAmount && p.fullChequeAmount > p.amount && (
+                            <div style={{ borderTop: '1px dashed #000000', paddingTop: '2px', marginTop: '2px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span>Cheque Full Amount:</span>
+                                <span style={{ fontWeight: 900 }}>Rs. {formatReceiptPrice(p.fullChequeAmount)}</span>
+                              </div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span>Applied to This Bill:</span>
+                                <span style={{ fontWeight: 900 }}>Rs. {formatReceiptPrice(p.amount)}</span>
+                              </div>
+                            </div>
+                          )}
+                          {p.residualNotes && (
+                            <div style={{ fontSize: '10px', fontWeight: 800, marginTop: '1.5px' }}>
+                              Ref / Details: {p.residualNotes}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {!isChq && (p.reference || p.residualNotes) && (
+                        <div style={{ fontSize: '10px', fontWeight: 800, paddingLeft: '6px', marginTop: '1px' }}>
+                          Ref: {p.residualNotes || p.reference}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div style={{ borderTop: '1.5px dashed #000', margin: '6px 0', width: '100%' }} />
 
       {/* Footer: Exchange Policy & Partnership Message (Barcode and duplicate invoice no removed) */}
@@ -536,4 +861,9 @@ export const ThermalReceipt80mm: React.FC<ThermalReceipt80mmProps> = ({
       </div>
     </div>
   );
+
+  if (typeof document !== 'undefined') {
+    return createPortal(receiptContent, document.body);
+  }
+  return receiptContent;
 };

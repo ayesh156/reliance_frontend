@@ -1,4 +1,5 @@
 import JsBarcode from 'jsbarcode';
+import { parseChequeMetadata } from './chequeParser';
 
 export interface ThermalOrderItem {
   id?: number | string;
@@ -47,6 +48,9 @@ export interface ThermalPaymentEntry {
   reference?: string;
   chequeNumber?: string;
   bankName?: string;
+  chequeDate?: string | Date;
+  chequeStatus?: string;
+  fullChequeAmount?: number;
   notes?: string;
   date?: string | Date;
   createdAt?: string | Date;
@@ -315,7 +319,9 @@ export const generate80mmThermalReceiptHtml = (
   const currentBillCredit = isCreditOrder ? balanceDue : 0;
 
   // Previous Due Before Normal Bill
-  const previousDueBeforeBill = Math.max(0, Math.round((updatedBalance - currentBillCredit + settledDue) * 100) / 100);
+  const previousDueBeforeBill = (order as any).previousDue !== undefined
+    ? Math.max(0, Number((order as any).previousDue))
+    : Math.max(0, Math.round((updatedBalance - currentBillCredit + settledDue) * 100) / 100);
   const hasCustomerAccount = Boolean((order as any).customerId || order.customer?.id) || customerName !== 'Walk-in Customer';
 
   // Itemized Payments Construction
@@ -323,6 +329,12 @@ export const generate80mmThermalReceiptHtml = (
     method: string;
     amount: number;
     reference?: string;
+    chequeNumber?: string;
+    bankName?: string;
+    chequeDate?: string;
+    chequeStatus?: string;
+    fullChequeAmount?: number;
+    residualNotes?: string;
   }
   const itemizedPayments: ResolvedPayment[] = [];
 
@@ -330,10 +342,18 @@ export const generate80mmThermalReceiptHtml = (
     order.payments.forEach((p) => {
       const amt = Number(p.amount) || 0;
       if (amt > 0) {
+        const pMethod = String(p.method || 'CASH').toUpperCase();
+        const parsed = parseChequeMetadata(p);
         itemizedPayments.push({
-          method: String(p.method || 'CASH').toUpperCase(),
+          method: pMethod,
           amount: amt,
           reference: p.reference || (p.notes ? String(p.notes) : undefined),
+          chequeNumber: parsed.chequeNumber || p.chequeNumber || undefined,
+          bankName: parsed.bankAndTown || p.bankName || undefined,
+          chequeDate: parsed.maturityDate || (p.paymentDate ? String(p.paymentDate).split('T')[0] : (p.date ? String(p.date).split('T')[0] : undefined)),
+          chequeStatus: parsed.chequeStatus || p.chequeStatus || undefined,
+          fullChequeAmount: parsed.fullChequeAmount || p.fullChequeAmount || undefined,
+          residualNotes: parsed.residualNotes || undefined,
         });
       }
     });
@@ -343,14 +363,37 @@ export const generate80mmThermalReceiptHtml = (
     order.splitPayments.forEach((s) => {
       const amt = Number(s.amount) || 0;
       if (amt > 0) {
-        let ref = s.reference || '';
-        if (s.method === 'CHEQUE' && s.chequeNumber) {
-          ref = `Chq #${s.chequeNumber}${s.bankName ? ` (${s.bankName})` : ''}`;
-        }
+        const pMethod = String(s.method || 'CASH').toUpperCase();
+        const parsed = parseChequeMetadata(s);
         itemizedPayments.push({
-          method: String(s.method || 'CASH').toUpperCase(),
+          method: pMethod,
           amount: amt,
-          reference: ref || undefined,
+          reference: s.reference || undefined,
+          chequeNumber: parsed.chequeNumber || s.chequeNumber || undefined,
+          bankName: parsed.bankAndTown || s.bankName || undefined,
+          chequeDate: parsed.maturityDate || (s.date ? String(s.date).split('T')[0] : undefined),
+          chequeStatus: parsed.chequeStatus || s.chequeStatus || undefined,
+          fullChequeAmount: parsed.fullChequeAmount || s.fullChequeAmount || undefined,
+          residualNotes: parsed.residualNotes || undefined,
+        });
+      }
+    });
+  }
+
+  if (itemizedPayments.length === 0 && Array.isArray((order as any).cheques) && (order as any).cheques.length > 0) {
+    (order as any).cheques.forEach((c: any) => {
+      const amt = Number(c.amount) || 0;
+      if (amt > 0 || c.chequeNumber) {
+        const parsed = parseChequeMetadata(c);
+        itemizedPayments.push({
+          method: 'CHEQUE',
+          amount: amt,
+          chequeNumber: parsed.chequeNumber || c.chequeNumber || undefined,
+          bankName: parsed.bankAndTown || c.bankName || undefined,
+          chequeDate: parsed.maturityDate || (c.chequeDate ? String(c.chequeDate).split('T')[0] : undefined),
+          chequeStatus: parsed.chequeStatus || c.chequeStatus || undefined,
+          fullChequeAmount: parsed.fullChequeAmount || c.fullChequeAmount || undefined,
+          residualNotes: parsed.residualNotes || undefined,
         });
       }
     });
@@ -360,6 +403,24 @@ export const generate80mmThermalReceiptHtml = (
     itemizedPayments.push({
       method: paymentMethodLabel.includes('CREDIT') ? 'CASH' : paymentMethodLabel,
       amount: paidAmount,
+    });
+  }
+
+  // Correlate fullChequeAmount across order.cheques if an overarching cheque object exists
+  if (Array.isArray((order as any).cheques)) {
+    (order as any).cheques.forEach((c: any) => {
+      const cParsed = parseChequeMetadata(c);
+      const cNum = cParsed.chequeNumber || c.chequeNumber;
+      const cAmt = Number(c.amount) || 0;
+      if (cNum && cAmt > 0) {
+        itemizedPayments.forEach((ip) => {
+          if (ip.chequeNumber && ip.chequeNumber.toLowerCase() === String(cNum).toLowerCase()) {
+            if (cAmt > ip.amount) {
+              ip.fullChequeAmount = cAmt;
+            }
+          }
+        });
+      }
     });
   }
 
@@ -444,14 +505,44 @@ export const generate80mmThermalReceiptHtml = (
     )
     .join('');
 
-  // Itemized Payment Lines HTML (No redundant Rs. prefix, flush right aligned)
+  // Itemized Payment Lines HTML with Vertical Particulars Alignment
   const paymentsHtml = itemizedPayments
     .map((p) => {
-      const label = p.method === 'CHEQUE' ? (p.reference || 'Cheque') : p.method;
+      const isChq = p.method === 'CHEQUE';
+      const chqNum = p.chequeNumber;
+      const bName = p.bankName;
+      const chqDate = p.chequeDate;
+      const ref = p.reference;
+
+      let detailsHtml = '';
+      if (isChq && (chqNum || bName || chqDate || p.chequeStatus || p.residualNotes || (p.fullChequeAmount && p.fullChequeAmount > p.amount))) {
+        detailsHtml = `
+        <div style="font-size: 11px; line-height: 1.35; font-weight: 700; padding-left: 6px; border-left: 1.5px solid #000000; margin-top: 1.5px; margin-bottom: 2px;">
+          ${chqNum ? `<div class="flex-between"><span>&bull; Cheque #:</span><span style="font-weight: 800;">${chqNum}</span></div>` : ''}
+          ${bName ? `<div class="flex-between"><span>&bull; Bank &amp; Town:</span><span style="font-weight: 800;">${bName}</span></div>` : ''}
+          ${chqDate ? `<div class="flex-between"><span>&bull; Pass / Maturity:</span><span style="font-weight: 800;">${chqDate}</span></div>` : ''}
+          ${p.chequeStatus ? `<div class="flex-between"><span>&bull; Status:</span><span style="font-weight: 800; text-transform: uppercase;">${p.chequeStatus}</span></div>` : ''}
+          ${p.fullChequeAmount && p.fullChequeAmount > p.amount ? `
+          <div style="border-top: 1px dashed #000000; padding-top: 1.5px; margin-top: 1.5px;">
+            <div class="flex-between"><span>&bull; Cheque Full Amount:</span><span style="font-weight: 800;">Rs. ${formatReceiptPrice(p.fullChequeAmount)}</span></div>
+            <div class="flex-between"><span>&bull; Applied to This Bill:</span><span style="font-weight: 800;">Rs. ${formatReceiptPrice(p.amount)}</span></div>
+          </div>` : ''}
+          ${p.residualNotes ? `<div class="flex-between"><span>&bull; Details:</span><span style="font-weight: 800;">${p.residualNotes}</span></div>` : ''}
+        </div>`;
+      } else if (!isChq && (ref || p.residualNotes)) {
+        detailsHtml = `
+        <div style="font-size: 10.5px; line-height: 1.3; font-weight: 700; padding-left: 6px; border-left: 1.5px solid #000000; margin-top: 1.5px; margin-bottom: 2px;">
+          <div class="flex-between"><span>&bull; Ref / Info:</span><span style="font-weight: 800;">${p.residualNotes || ref}</span></div>
+        </div>`;
+      }
+
       return `
-      <div class="flex-between">
-        <span>Paid (${label}):</span>
-        <span style="font-weight: 700; text-align: right; white-space: nowrap;">${formatReceiptPrice(p.amount)}</span>
+      <div style="margin-bottom: 3px;">
+        <div class="flex-between">
+          <span style="font-weight: 800;">Paid (${p.method}):</span>
+          <span style="font-weight: 900; text-align: right; white-space: nowrap;">${p.amount > 0 ? '+' : ''}${formatReceiptPrice(p.amount)}</span>
+        </div>
+        ${detailsHtml}
       </div>`;
     })
     .join('');
@@ -674,7 +765,7 @@ export const generate80mmThermalReceiptHtml = (
       ${hasCustomerAccount ? `
       <div class="flex-between">
         <span>Previous Due (Before Bill):</span>
-        <span style="font-weight: 700; text-align: right; white-space: nowrap;">${formatReceiptPrice(previousDueBeforeBill)}</span>
+        <span style="font-weight: 700; text-align: right; white-space: nowrap;">${previousDueBeforeBill > 0 ? `-${formatReceiptPrice(previousDueBeforeBill)}` : '0.00'}</span>
       </div>` : ''}
 
       ${paymentsHtml}
@@ -682,7 +773,7 @@ export const generate80mmThermalReceiptHtml = (
       ${balanceDue > 0 && hasCustomerAccount ? `
       <div class="flex-between" style="font-weight: 700;">
         <span>Bill Credit (Unpaid):</span>
-        <span style="text-align: right; white-space: nowrap;">+${formatReceiptPrice(balanceDue)}</span>
+        <span style="text-align: right; white-space: nowrap;">-${formatReceiptPrice(balanceDue)}</span>
       </div>` : ''}
 
       ${settledDue > 0 ? `
@@ -709,6 +800,14 @@ export const generate80mmThermalReceiptHtml = (
       `}
       `}
     </div>
+
+    ${!isReturnBill && total > 0 && balanceDue <= 0 ? `
+    <!-- Bold High-Contrast "PAID IN FULL" Stamp for Fully Settled 80mm POS Bill -->
+    <div style="margin: 6px auto; padding: 4px 8px; border: 2.5px solid #000000; outline: 1px solid #000000; outline-offset: -4px; text-align: center; width: 80%; max-width: 220px; box-sizing: border-box;">
+      <div style="font-size: 15px; font-weight: 900; letter-spacing: 2px; text-transform: uppercase; line-height: 1.2; color: #000000;">
+        PAID IN FULL
+      </div>
+    </div>` : ''}
 
     <div class="dashed-sep"></div>
 

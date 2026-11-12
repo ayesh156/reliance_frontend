@@ -30,6 +30,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { PrintPaymentReceipt } from './PrintPaymentReceipt';
+import { ChequeBankTownSelect, CreatableCombobox } from './ChequeBankTownSelect';
+import { SRI_LANKAN_BANKS } from '../../utils/sriLankanBanks';
 
 export type SplitMethod = 'CASH' | 'CHEQUE' | 'CARD' | 'BANK_TRANSFER';
 
@@ -54,6 +56,7 @@ interface SplitPaymentModalProps {
   customerName?: string;
   customerPhone?: string;
   invoiceNumber?: string;
+  initialMethod?: SplitMethod;
 }
 
 const getCurrentLocalISOString = () => {
@@ -134,6 +137,7 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
   customerName,
   customerPhone,
   invoiceNumber,
+  initialMethod,
 }) => {
   const { resolvedTheme } = useTheme();
   const dark = resolvedTheme === 'dark';
@@ -195,8 +199,8 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
         setSplits([]);
       }
 
-      // Reset entry form (Zero auto-fill: user must enter received amount or click Fill Due)
-      setEntryMethod('CASH');
+      // Pre-select clicked payment method if provided, or default to CASH
+      setEntryMethod(initialMethod || 'CASH');
       setEntryAmount('');
       setEntryDate(currentNow);
       setEntryChequeNumber('');
@@ -205,7 +209,7 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
       setEntryReference('');
       setEditingSplit(null);
     }
-  }, [open, initialSplits, totalBill]);
+  }, [open, initialSplits, totalBill, initialMethod]);
 
   // Live Calculations
   const totalTendered = useMemo(() => {
@@ -317,25 +321,31 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
   };
 
   const handleApply = () => {
-    let validSplits = splits.filter(
+    let validSplits = [...splits.filter(
       (s) => Number(s.amount) > 0 || (s.method === 'CHEQUE' && s.chequeNumber?.trim())
-    );
+    )];
 
-    // If queue is empty but user filled the entry form, stage and apply that single payment!
-    const uncommittedAmount = parseFloat(entryAmount);
-    if (validSplits.length === 0 && !isNaN(uncommittedAmount) && uncommittedAmount > 0) {
-      validSplits = [
-        {
-          id: `split-${Date.now()}`,
-          method: entryMethod,
-          amount: String(uncommittedAmount),
-          date: entryDate || nowDateTimeStr,
-          chequeNumber: entryChequeNumber.trim() || undefined,
-          bankName: entryBankName.trim() || undefined,
-          chequeDate: entryChequeDate || undefined,
-          reference: entryReference.trim() || undefined,
-        },
-      ];
+    // Auto-capture uncommitted input:
+    // If the operator enters an Amount (or leaves it to default to the remaining balance) and fills in
+    // method details (like Cheque No, Bank, Town) and clicks "Apply Payment" directly WITHOUT clicking "+ Add Payment Entry" first:
+    let uncommittedAmount = parseFloat(entryAmount);
+
+    // If no split rows exist and user didn't enter an amount, auto-allocate remaining bill balance
+    if (validSplits.length === 0 && (isNaN(uncommittedAmount) || uncommittedAmount <= 0) && remainingDue > 0) {
+      uncommittedAmount = remainingDue;
+    }
+
+    if (!isNaN(uncommittedAmount) && uncommittedAmount > 0) {
+      validSplits.push({
+        id: `split-${Date.now()}`,
+        method: entryMethod,
+        amount: String(uncommittedAmount),
+        date: entryDate || nowDateTimeStr,
+        chequeNumber: entryChequeNumber.trim() || undefined,
+        bankName: entryBankName.trim() || undefined,
+        chequeDate: entryChequeDate || undefined,
+        reference: entryReference.trim() || undefined,
+      });
     }
 
     if (validSplits.length === 0 && totalBill > 0) {
@@ -358,8 +368,8 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg w-full max-h-[92vh] overflow-hidden overflow-x-hidden p-0 border border-slate-200 dark:border-zinc-800 shadow-2xl rounded-2xl bg-white dark:bg-zinc-950 flex flex-col">
-        {/* Header Bar */}
-        <div className="p-4 pb-3 border-b border-slate-100 dark:border-zinc-800/80 bg-slate-50/50 dark:bg-zinc-900/40 shrink-0">
+        {/* Header Bar: Clean Compact Title */}
+        <div className="p-3.5 sm:p-4 border-b border-slate-100 dark:border-zinc-800/80 bg-slate-50/50 dark:bg-zinc-900/40 shrink-0">
           <DialogHeader className="gap-1">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
@@ -383,9 +393,12 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
               </div>
             </div>
           </DialogHeader>
+        </div>
 
-          {/* Live Financial Balance Indicator - Balanced 2-col / 3-col responsive layout */}
-          <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2 p-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800 shadow-xs">
+        {/* Modal Body: Single Unified Clean Vertical Scrollbar for Whole Modal */}
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3.5 sm:px-4 py-3 space-y-3">
+          {/* Live Financial Balance Indicator - Unified in Scroll Container for effortless accessibility on smaller screens */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-2.5 rounded-xl bg-slate-50/90 dark:bg-zinc-900/90 border border-slate-200/80 dark:border-zinc-800 shadow-xs">
             <div className="space-y-0.5">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 block truncate">
                 Total Bill
@@ -395,7 +408,7 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
               </div>
             </div>
 
-            <div className="space-y-0.5 border-l border-slate-100 dark:border-zinc-800 pl-2 sm:border-x sm:px-2">
+            <div className="space-y-0.5 border-l border-slate-200 dark:border-zinc-800 pl-2 sm:border-x sm:px-2">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 block truncate">
                 Total Tendered
               </span>
@@ -404,7 +417,7 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
               </div>
             </div>
 
-            <div className="space-y-0.5 col-span-2 sm:col-span-1 border-t sm:border-t-0 pt-1.5 sm:pt-0 border-slate-100 dark:border-zinc-800 sm:pl-1">
+            <div className="space-y-0.5 col-span-2 sm:col-span-1 border-t sm:border-t-0 pt-1.5 sm:pt-0 border-slate-200 dark:border-zinc-800 sm:pl-1">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 block truncate">
                 {excessTendered > 0 ? 'Excess (Change)' : remainingDue === 0 ? 'Settlement Status' : 'Remaining Due'}
               </span>
@@ -425,10 +438,6 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
               </div>
             </div>
           </div>
-        </div>
-
-        {/* Modal Body: Single Clean Vertical Scrollbar */}
-        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3.5 sm:px-4 py-3 space-y-3">
           {/* Section 1: Dedicated Add Payment Entry Form */}
           <form
             onSubmit={handleAddSplitEntry}
@@ -514,28 +523,23 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
             {/* Contextual Extra Fields based on Method */}
             {entryMethod === 'CHEQUE' && (
               <div className="w-full pt-1 border-t border-amber-200/40 dark:border-amber-900/40 animate-in fade-in duration-100 space-y-2">
-                <div className="grid grid-cols-1 xs:grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Cheque Number *</label>
-                    <Input
-                      type="text"
-                      value={entryChequeNumber}
-                      onChange={(e) => setEntryChequeNumber(e.target.value)}
-                      placeholder="Cheque No (e.g. CHQ-994821) *"
-                      className="h-10 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl border-amber-200 dark:border-amber-800/60 w-full"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Bank / Branch Name</label>
-                    <Input
-                      type="text"
-                      value={entryBankName}
-                      onChange={(e) => setEntryBankName(e.target.value)}
-                      placeholder="Bank / Branch (e.g. Commercial Bank)"
-                      className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl border-amber-200 dark:border-amber-800/60 w-full"
-                    />
-                  </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Cheque Number *</label>
+                  <Input
+                    type="text"
+                    value={entryChequeNumber}
+                    onChange={(e) => setEntryChequeNumber(e.target.value)}
+                    placeholder="Cheque No (e.g. CHQ-994821) *"
+                    className="h-10 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl border-amber-200 dark:border-amber-800/60 w-full"
+                  />
                 </div>
+                {/* Searchable / Creatable Bank Name and Town / Branch Selectors */}
+                <ChequeBankTownSelect
+                  value={entryBankName}
+                  onChange={setEntryBankName}
+                  onValueChange={setEntryBankName}
+                  dark={dark}
+                />
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Maturity Date (Pass Date)</label>
                   <DatePicker
@@ -580,12 +584,15 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
                 <div className="grid grid-cols-1 xs:grid-cols-2 gap-2">
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Bank Name</label>
-                    <Input
-                      type="text"
+                    <CreatableCombobox
                       value={entryBankName}
-                      onChange={(e) => setEntryBankName(e.target.value)}
+                      onChange={setEntryBankName}
+                      options={SRI_LANKAN_BANKS}
                       placeholder="Bank Name (e.g. Sampath Bank / HNB)"
-                      className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl border-blue-200 dark:border-blue-800/60 w-full"
+                      size="md"
+                      dark={dark}
+                      icon="bank"
+                      className="border-blue-200 dark:border-blue-800/60"
                     />
                   </div>
                   <div className="space-y-1">
@@ -874,28 +881,23 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
 
             {editMethod === 'CHEQUE' && (
               <div className="w-full mb-3 mt-1 pt-1.5 border-t border-slate-100 dark:border-zinc-800 space-y-2">
-                <div className="grid grid-cols-1 xs:grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Cheque Number *</label>
-                    <Input
-                      type="text"
-                      value={editChequeNumber}
-                      onChange={(e) => setEditChequeNumber(e.target.value)}
-                      placeholder="e.g. CHQ-994821"
-                      className="h-10 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl w-full"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Bank Name / Branch</label>
-                    <Input
-                      type="text"
-                      value={editBankName}
-                      onChange={(e) => setEditBankName(e.target.value)}
-                      placeholder="e.g. Commercial Bank"
-                      className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl w-full"
-                    />
-                  </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Cheque Number *</label>
+                  <Input
+                    type="text"
+                    value={editChequeNumber}
+                    onChange={(e) => setEditChequeNumber(e.target.value)}
+                    placeholder="e.g. CHQ-994821"
+                    className="h-10 text-xs font-mono bg-white dark:bg-zinc-900 rounded-xl w-full"
+                  />
                 </div>
+                {/* Searchable / Creatable Bank Name and Town / Branch Selectors */}
+                <ChequeBankTownSelect
+                  value={editBankName}
+                  onChange={setEditBankName}
+                  onValueChange={setEditBankName}
+                  dark={dark}
+                />
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Maturity Date (Pass Date)</label>
                   <DatePicker
@@ -912,12 +914,14 @@ export const SplitPaymentModal: React.FC<SplitPaymentModalProps> = ({
               <div className="w-full mb-3 mt-1 pt-1.5 border-t border-slate-100 dark:border-zinc-800">
                 <div className="w-full mb-3 space-y-1">
                   <label className="text-[10px] font-bold text-slate-600 dark:text-zinc-300 block">Bank Name</label>
-                  <Input
-                    type="text"
+                  <CreatableCombobox
                     value={editBankName}
-                    onChange={(e) => setEditBankName(e.target.value)}
+                    onChange={setEditBankName}
+                    options={SRI_LANKAN_BANKS}
                     placeholder="e.g. Sampath Bank"
-                    className="h-10 text-xs bg-white dark:bg-zinc-900 rounded-xl w-full"
+                    size="md"
+                    dark={dark}
+                    icon="bank"
                   />
                 </div>
                 <div className="w-full mb-3 space-y-1">

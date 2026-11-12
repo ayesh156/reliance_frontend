@@ -11,7 +11,7 @@ import { SearchableSelect, type SearchableSelectOption } from '../components/ui/
 import { TooltipSimple } from '../components/ui/tooltip';
 import { toast } from 'react-toastify';
 import { generateCustomerDuesPdf } from '../utils/customerDuesPdf';
-import { generateMaterialProductionPdf, generateGarmentProductionPdf } from '../utils/reportPdf';
+import { generateMaterialProductionPdf, generateGarmentProductionPdf, matchProductionStage } from '../utils/reportPdf';
 import { getRoleBadgeStyle } from './InvoicesPage';
 import { formatQty } from '../lib/utils';
 import { FinancialAuditModal, type FinancialMetricFocus } from '../components/reports/FinancialAuditModal';
@@ -171,6 +171,7 @@ export const ReportsPage: React.FC = () => {
   // ⭐ Interactive Production Batch Summary Modal State
   const [selectedProductionBatch, setSelectedProductionBatch] = useState<any | null>(null);
   const [isProductionBatchModalOpen, setIsProductionBatchModalOpen] = useState<boolean>(false);
+  const [productionStageFilter, setProductionStageFilter] = useState<string>('ALL STAGES');
 
   const handleOpenAudit = (metric: FinancialMetricFocus) => {
     setAuditFocusMetric(metric);
@@ -212,15 +213,23 @@ export const ReportsPage: React.FC = () => {
       const endStr = format(customRange.to || customRange.from, 'yyyy-MM-dd');
       params.set('startDate', startStr);
       params.set('endDate', endStr);
+      params.set('from', startStr);
+      params.set('to', endStr);
     } else if (activePreset === 'yearly') {
       const from = customRange?.from || startOfYear(new Date());
       const to = customRange?.to || endOfYear(new Date());
-      params.set('startDate', format(from, 'yyyy-MM-dd'));
-      params.set('endDate', format(to, 'yyyy-MM-dd'));
+      const fromStr = format(from, 'yyyy-MM-dd');
+      const toStr = format(to, 'yyyy-MM-dd');
+      params.set('startDate', fromStr);
+      params.set('endDate', toStr);
+      params.set('from', fromStr);
+      params.set('to', toStr);
     } else if (activePreset === 'next_year') {
       const nextYear = new Date().getFullYear() + 1;
       params.set('startDate', `${nextYear}-01-01`);
       params.set('endDate', `${nextYear}-12-31`);
+      params.set('from', `${nextYear}-01-01`);
+      params.set('to', `${nextYear}-12-31`);
     }
     return params;
   };
@@ -243,12 +252,16 @@ export const ReportsPage: React.FC = () => {
     }
   };
 
-  // Auto-reset pagination state to Page 1 whenever switching domain tabs, presets, or rep/user filters
+  // Convert customRange to stable timestamps for clean React dependency tracking
+  const customFromTime = customRange?.from ? customRange.from.getTime() : null;
+  const customToTime = customRange?.to ? customRange.to.getTime() : null;
+
+  // Auto-reset pagination state to Page 1 whenever switching domain tabs, presets, custom date range, or rep/user filters
   useEffect(() => {
     fetchReport();
     setSearchQuery('');
     setCurrentPage(1);
-  }, [activeModule, activePreset, selectedUserId]);
+  }, [activeModule, activePreset, selectedUserId, customFromTime, customToTime]);
 
   /**
    * Defensive Date Range Change Handler for Reports module.
@@ -267,8 +280,6 @@ export const ReportsPage: React.FC = () => {
       const normalizedTo = range.to ? endOfDay(range.to) : undefined;
       setCustomRange({ from: normalizedFrom, to: normalizedTo });
       setActivePreset('custom');
-      // Single-date or full range selection triggers fetch
-      setTimeout(fetchReport, 50);
     }
   };
 
@@ -543,10 +554,17 @@ export const ReportsPage: React.FC = () => {
       setDownloadingMaterialPdf(true);
       if (!reportData) return;
       if (activeModule === 'production') {
-        await generateGarmentProductionPdf(reportData, {
-          dateRangeLabel: formattedSelectedBadge,
-          generatedBy: user?.name ? `${user.name} (${user.role || 'Staff'})` : undefined,
-        });
+        await generateGarmentProductionPdf(
+          {
+            ...reportData,
+            tableItems: filteredRows,
+          },
+          {
+            dateRangeLabel: formattedSelectedBadge,
+            generatedBy: user?.name ? `${user.name} (${user.role || 'Staff'})` : undefined,
+            stageFilter: productionStageFilter,
+          }
+        );
         toast.success('Garment Production PDF generated and downloaded successfully!');
       } else {
         await generateMaterialProductionPdf(reportData, {
@@ -670,8 +688,14 @@ export const ReportsPage: React.FC = () => {
       if (activeChequeTab === 'BOUNCED') return reportData.bouncedCheques || [];
       return reportData.tableItems || [];
     }
+    if (activeModule === 'production' && reportData?.tableItems) {
+      if (productionStageFilter && productionStageFilter !== 'ALL STAGES' && productionStageFilter !== 'ALL') {
+        return (reportData.tableItems || []).filter((row: any) => matchProductionStage(row, productionStageFilter));
+      }
+      return reportData.tableItems || [];
+    }
     return reportData?.tableItems || [];
-  }, [reportData, activeModule, activeChequeTab]);
+  }, [reportData, activeModule, activeChequeTab, productionStageFilter]);
 
   const handleExportChequesCsv = () => {
     if (!reportData) return;
@@ -1387,6 +1411,28 @@ export const ReportsPage: React.FC = () => {
                   searchPlaceholder="Filter rep / user..."
                   dark={dark}
                   className="h-8 text-xs rounded-lg w-full"
+                />
+              </div>
+            )}
+
+            {/* Production Stage / Section Filter Dropdown */}
+            {activeModule === 'production' && (
+              <div className="w-full sm:w-48 lg:w-56 shrink-0">
+                <SearchableSelect
+                  value={productionStageFilter}
+                  onValueChange={(val) => setProductionStageFilter(val)}
+                  options={[
+                    { value: 'ALL STAGES', label: 'All Stages' },
+                    { value: 'CUTTING', label: 'Cutting' },
+                    { value: 'SEWING LINE', label: 'Sewing Line' },
+                    { value: 'WASHING', label: 'Washing' },
+                    { value: 'FINISHING / PACKING', label: 'Finishing / Packing' },
+                    { value: 'IN STOCK / COMPLETED', label: 'In Stock / Completed' },
+                  ]}
+                  placeholder="All Stages"
+                  searchPlaceholder="Filter section / stage..."
+                  dark={dark}
+                  className="h-8 text-xs rounded-lg w-full font-semibold"
                 />
               </div>
             )}
@@ -2301,7 +2347,6 @@ export const ReportsPage: React.FC = () => {
                         <th className="py-2.5 px-3 font-semibold w-28 min-w-[100px]">Batch No</th>
                         <th className="py-2.5 px-3 font-semibold min-w-[180px]">Garment Style</th>
                         <th className="py-2.5 px-3 font-semibold w-28 min-w-[90px]">Size / Color</th>
-                        <th className="py-2.5 px-3 font-semibold text-center w-20 min-w-[60px]">Target</th>
                         <th className="py-2.5 px-3 font-semibold text-center w-24 min-w-[70px]">Cut Units</th>
                         <th className="py-2.5 px-3 font-semibold text-center w-24 min-w-[70px]">Finished</th>
                         <th className="py-2.5 px-3 font-semibold text-center w-24 min-w-[70px]">WIP Units</th>
@@ -2549,7 +2594,6 @@ export const ReportsPage: React.FC = () => {
                                 </div>
                               </td>
                               <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">{row.variant}</td>
-                              <td className="py-2.5 px-3 text-center whitespace-nowrap">{formatQty(row.targetQuantity)}</td>
                               <td className="py-2.5 px-3 text-center font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">
                                 {(() => {
                                   const cut = Number(

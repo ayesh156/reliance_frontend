@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   Scissors,
   Shirt,
@@ -25,7 +25,16 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { TooltipSimple } from '../ui/tooltip';
 import { formatQty, formatCurrency, getProductImageUrl } from '../../lib/utils';
-import { generateGarmentProductionPdf } from '../../utils/reportPdf';
+import { generateGarmentProductionPdf, matchProductionStage } from '../../utils/reportPdf';
+
+export const PRODUCTION_STAGES = [
+  'ALL STAGES',
+  'CUTTING',
+  'SEWING LINE',
+  'WASHING',
+  'FINISHING / PACKING',
+  'IN STOCK / COMPLETED',
+] as const;
 
 export interface GarmentProductionReportProps {
   reportData?: {
@@ -41,6 +50,8 @@ export interface GarmentProductionReportProps {
   onSelectBatch?: (batch: any) => void;
   onDownloadPdf?: () => void;
   downloadingPdf?: boolean;
+  stageFilter?: string;
+  onStageFilterChange?: (stage: string) => void;
 }
 
 /**
@@ -65,10 +76,32 @@ export const GarmentProductionReport: React.FC<GarmentProductionReportProps> = (
   onSelectBatch,
   onDownloadPdf,
   downloadingPdf = false,
+  stageFilter,
+  onStageFilterChange,
 }) => {
-  const rows = useMemo(() => {
+  const [selectedStage, setSelectedStage] = useState<string>(stageFilter || 'ALL STAGES');
+
+  useEffect(() => {
+    if (stageFilter) setSelectedStage(stageFilter);
+  }, [stageFilter]);
+
+  const handleStageSelect = (stage: string) => {
+    setSelectedStage(stage);
+    if (onStageFilterChange) {
+      onStageFilterChange(stage);
+    }
+  };
+
+  const initialRows = useMemo(() => {
     return filteredRows || reportData?.tableItems || [];
   }, [filteredRows, reportData]);
+
+  const rows = useMemo(() => {
+    if (!selectedStage || selectedStage === 'ALL STAGES' || selectedStage === 'ALL') {
+      return initialRows;
+    }
+    return initialRows.filter((r) => matchProductionStage(r, selectedStage));
+  }, [initialRows, selectedStage]);
 
   const summary = reportData?.summary || {};
 
@@ -264,10 +297,17 @@ export const GarmentProductionReport: React.FC<GarmentProductionReportProps> = (
       return;
     }
     if (!reportData) return;
-    await generateGarmentProductionPdf(reportData, {
-      dateRangeLabel,
-      generatedBy,
-    });
+    await generateGarmentProductionPdf(
+      {
+        ...reportData,
+        tableItems: rows,
+      },
+      {
+        dateRangeLabel,
+        generatedBy,
+        stageFilter: selectedStage,
+      }
+    );
   };
 
   return (
@@ -377,15 +417,42 @@ export const GarmentProductionReport: React.FC<GarmentProductionReportProps> = (
 
       {/* Production Batches Detailed Table with Resolved Funnel Metrics */}
       <div className={`rounded-2xl border overflow-hidden ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
-        <div className="p-4 border-b border-slate-100 dark:border-zinc-800 flex items-center justify-between">
+        <div className="p-4 border-b border-slate-100 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h3 className="text-sm font-bold tracking-tight">Production Batches &amp; Stage Yield Audit</h3>
             <p className="text-xs text-slate-400">Order-level intake, stage throughput, yield efficiency, and inventory sync status</p>
           </div>
-          <Badge variant="outline" className="font-mono text-xs">
-            {rows.length} Batches
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="font-mono text-xs">
+              {rows.length} Batches
+            </Badge>
+          </div>
         </div>
+
+        {/* Section-Wise Stage Filter Toolbar */}
+        <div className="px-4 py-2.5 border-b border-slate-100 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 shrink-0 mr-1">
+            Stage Filter:
+          </span>
+          {PRODUCTION_STAGES.map((stg) => {
+            const isSelected = selectedStage === stg;
+            return (
+              <button
+                key={stg}
+                type="button"
+                onClick={() => handleStageSelect(stg)}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                  isSelected
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'bg-white dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-700'
+                }`}
+              >
+                {stg}
+              </button>
+            );
+          })}
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-left border-collapse">
             <thead>
@@ -393,7 +460,6 @@ export const GarmentProductionReport: React.FC<GarmentProductionReportProps> = (
                 <th className="py-2.5 px-3">Batch No</th>
                 <th className="py-2.5 px-3 min-w-[160px]">Garment Style</th>
                 <th className="py-2.5 px-3">Size / Color</th>
-                <th className="py-2.5 px-3 text-center">Target</th>
                 <th className="py-2.5 px-3 text-center">Cut Units</th>
                 <th className="py-2.5 px-3 text-center">Finished</th>
                 <th className="py-2.5 px-3 text-center">WIP Units</th>
@@ -470,9 +536,6 @@ export const GarmentProductionReport: React.FC<GarmentProductionReportProps> = (
                     </td>
                     <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">
                       {row.variant || 'Standard'}
-                    </td>
-                    <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                      {formatQty(row.targetQuantity || 0)}
                     </td>
                     <td className="py-2.5 px-3 text-center font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">
                       {formatQty(cut)}

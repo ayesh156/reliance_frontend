@@ -30,7 +30,8 @@ import { ThermalReceipt80mm } from '../components/pos/ThermalReceipt80mm';
 import { ProductPreviewModal } from '../components/pos/ProductPreviewModal';
 import { CustomerPreviewModal } from '../components/customers/CustomerPreviewModal';
 import { AnimatedInlineQtyInput } from '../components/pos/AnimatedInlineQtyInput';
-import { SplitPaymentModal, type SplitPaymentItem } from '../components/pos/SplitPaymentModal';
+import { SplitPaymentModal, type SplitPaymentItem, type SplitMethod } from '../components/pos/SplitPaymentModal';
+import { ChequeBankTownSelect } from '../components/pos/ChequeBankTownSelect';
 import { PrintPaymentReceipt } from '../components/pos/PrintPaymentReceipt';
 import { isValidSriLankanNIC, isValidSriLankanPhone } from '../utils/validators';
 import { useTheme } from '../contexts/ThemeContext';
@@ -205,6 +206,7 @@ export const QuickInvoicePage: React.FC = () => {
 
   // Multi-method split payment & cheques modal states
   const [splitModalOpen, setSplitModalOpen] = useState<boolean>(false);
+  const [splitModalInitialMethod, setSplitModalInitialMethod] = useState<SplitMethod>('CASH');
   const [splitPayments, setSplitPayments] = useState<SplitPaymentItem[]>([]);
   const [cheques, setCheques] = useState<ChequeEntry[]>([
     { id: '1', chequeNumber: '', bankName: '', chequeDate: new Date().toISOString().split('T')[0], amount: '' },
@@ -605,13 +607,13 @@ export const QuickInvoicePage: React.FC = () => {
           setSplitPayments((prev) => {
             if (prev.length === 0) {
               return inv.payments.map((p: any, idx: number) => {
-                let chqNo = '';
-                let bName = '';
+                let chqNo = p.chequeNumber || '';
+                let bName = p.bankName || '';
                 if (p.method === 'CHEQUE' && p.reference) {
                   const match = p.reference.match(/Cheque #([^\s(]+)(?:\s*\(([^)]+)\))?/i);
                   if (match) {
-                    chqNo = match[1] || '';
-                    bName = match[2] || '';
+                    if (!chqNo) chqNo = match[1] || '';
+                    if (!bName) bName = match[2] || '';
                   }
                 }
                 return {
@@ -632,13 +634,24 @@ export const QuickInvoicePage: React.FC = () => {
           if (chqPayments.length > 0) {
             setCheques((prev) => {
               if (prev.length === 1 && !prev[0].chequeNumber && !prev[0].amount) {
-                return chqPayments.map((p: any, idx: number) => ({
-                  id: String(p.id || idx + 1),
-                  chequeNumber: p.reference || '',
-                  bankName: '',
-                  chequeDate: p.chequeDate ? new Date(p.chequeDate).toISOString().split('T')[0] : new Date(p.createdAt || Date.now()).toISOString().split('T')[0],
-                  amount: String(p.amount || ''),
-                }));
+                return chqPayments.map((p: any, idx: number) => {
+                  let chqNo = p.chequeNumber || '';
+                  let bName = p.bankName || '';
+                  if (p.reference) {
+                    const match = p.reference.match(/Cheque #([^\s(]+)(?:\s*\(([^)]+)\))?/i);
+                    if (match) {
+                      if (!chqNo) chqNo = match[1] || '';
+                      if (!bName) bName = match[2] || '';
+                    }
+                  }
+                  return {
+                    id: String(p.id || idx + 1),
+                    chequeNumber: chqNo || p.reference || '',
+                    bankName: bName,
+                    chequeDate: p.chequeDate ? new Date(p.chequeDate).toISOString().split('T')[0] : new Date(p.createdAt || Date.now()).toISOString().split('T')[0],
+                    amount: String(p.amount || ''),
+                  };
+                });
               }
               return prev;
             });
@@ -1949,35 +1962,18 @@ export const QuickInvoicePage: React.FC = () => {
 
   /**
    * Cashier payment method selection:
-   * - If Cash is clicked and client cash is empty or 0, auto-fill with exact PAYABLE TOTAL.
-   * - If Cheque is clicked, open Split Payment Modal for detailed cheque/split entry.
-   * - Cashier can switch to any payment method at any point.
+   * - Clicking Cash, Cheque, Card, or Bank opens the Split Payment Modal with that clicked method pre-selected.
+   * - Clicking Credit sets mode to CREDIT and clears split payments.
    */
   const handleSelectPaymentMethod = (method: 'CASH' | 'CHEQUE' | 'CARD' | 'BANK_TRANSFER' | 'CREDIT') => {
     setPaymentMethod(method);
-    if (method === 'CASH' || method === 'CARD' || method === 'BANK_TRANSFER') {
-      setSplitPayments([]);
-      if (!clientGivenCash || Number(clientGivenCash) === 0) {
-        if (total > 0) {
-          setClientGivenCash(String(total));
-        }
-      }
-    } else if (method === 'CHEQUE') {
-      setSplitPayments([]);
-      setCheques((prev) => {
-        if (prev.length === 0) {
-          return [{ id: '1', chequeNumber: '', bankName: '', chequeDate: new Date().toISOString().split('T')[0], amount: String(total || '') }];
-        }
-        return [{ ...prev[0], amount: prev[0].amount || String(total || '') }];
-      });
-      if (!clientGivenCash || Number(clientGivenCash) === 0) {
-        if (total > 0) {
-          setClientGivenCash(String(total));
-        }
-      }
-    } else if (method === 'CREDIT') {
+    if (method === 'CREDIT') {
       setSplitPayments([]);
       setClientGivenCash('');
+    } else {
+      // Auto-open Split Payment Modal on method button click with clicked method pre-selected
+      setSplitModalInitialMethod(method as SplitMethod);
+      setSplitModalOpen(true);
     }
   };
 
@@ -2417,6 +2413,29 @@ export const QuickInvoicePage: React.FC = () => {
           discountAmount: discountAmount,
           discountType,
           discountRate: discountType === 'PERCENT' ? (discountInput > 0 ? discountInput : undefined) : undefined,
+          previousDue: previousDue,
+          totalAccumulatedDue: totalAccumulatedDue,
+          splitPayments: splitPayments.length > 0 ? splitPayments : undefined,
+          cheques: cheques.length > 0 ? cheques : undefined,
+          payments: splitPayments.length > 0
+            ? splitPayments.map((sp) => ({
+                method: sp.method,
+                amount: Number(sp.amount) || 0,
+                chequeNumber: sp.chequeNumber,
+                bankName: sp.bankName,
+                chequeDate: sp.chequeDate,
+                reference: sp.reference || (sp.method === 'CHEQUE' && sp.chequeNumber ? `Cheque #${sp.chequeNumber}${sp.bankName ? ` (${sp.bankName})` : ''}` : undefined),
+              }))
+            : (cheques.length > 0 && paymentMethod === 'CHEQUE' && cheques[0]?.chequeNumber
+                ? cheques.map((ch) => ({
+                    method: 'CHEQUE',
+                    amount: Number(ch.amount) || Number(resolvedPaid),
+                    chequeNumber: ch.chequeNumber,
+                    bankName: ch.bankName,
+                    chequeDate: ch.chequeDate,
+                    reference: `Cheque #${ch.chequeNumber}${ch.bankName ? ` (${ch.bankName})` : ''}`,
+                  }))
+                : undefined),
         };
 
         setMobileCartOpen(false);
@@ -2485,6 +2504,29 @@ export const QuickInvoicePage: React.FC = () => {
           discountAmount: discountAmount,
           discountType,
           discountRate: discountType === 'PERCENT' ? (discountInput > 0 ? discountInput : undefined) : undefined,
+          previousDue: previousDue,
+          totalAccumulatedDue: totalAccumulatedDue,
+          splitPayments: splitPayments.length > 0 ? splitPayments : undefined,
+          cheques: cheques.length > 0 ? cheques : undefined,
+          payments: splitPayments.length > 0
+            ? splitPayments.map((sp) => ({
+                method: sp.method,
+                amount: Number(sp.amount) || 0,
+                chequeNumber: sp.chequeNumber,
+                bankName: sp.bankName,
+                chequeDate: sp.chequeDate,
+                reference: sp.reference || (sp.method === 'CHEQUE' && sp.chequeNumber ? `Cheque #${sp.chequeNumber}${sp.bankName ? ` (${sp.bankName})` : ''}` : undefined),
+              }))
+            : (cheques.length > 0 && paymentMethod === 'CHEQUE' && cheques[0]?.chequeNumber
+                ? cheques.map((ch) => ({
+                    method: 'CHEQUE',
+                    amount: Number(ch.amount) || Number(resolvedPaid),
+                    chequeNumber: ch.chequeNumber,
+                    bankName: ch.bankName,
+                    chequeDate: ch.chequeDate,
+                    reference: `Cheque #${ch.chequeNumber}${ch.bankName ? ` (${ch.bankName})` : ''}`,
+                  }))
+                : undefined),
         };
 
         const custPhone = resultOrder?.customerPhone || completeOrderObj.customer?.phone;
@@ -3522,9 +3564,19 @@ export const QuickInvoicePage: React.FC = () => {
             <div className="flex items-center justify-between">
               <span className="w-[58%] text-slate-600 dark:text-zinc-400 font-medium">Paid for Current Bill:</span>
               <span className="w-[42%] text-right font-mono font-bold text-slate-900 dark:text-white">
-                Rs. {paidAmount.toLocaleString()}
+                {paidAmount > 0 ? `+ Rs. ${paidAmount.toLocaleString()}` : `Rs. 0`}
               </span>
             </div>
+
+            {/* Bill Credit (Unpaid) */}
+            {currentNetBillDue > 0 && selectedCustomer && (
+              <div className="flex items-center justify-between text-rose-600 dark:text-rose-400">
+                <span className="w-[58%] font-medium">Bill Credit (Unpaid):</span>
+                <span className="w-[42%] text-right font-mono font-bold">
+                  - Rs. {currentNetBillDue.toLocaleString()}
+                </span>
+              </div>
+            )}
 
             {/* Credit Offset on Customer Ledger row (strictly right-aligned in price column) */}
             {isNetCredit && paymentMethod === 'CREDIT' && (
@@ -3589,7 +3641,7 @@ export const QuickInvoicePage: React.FC = () => {
                 <div className="border-t border-dashed border-slate-200 dark:border-zinc-800 my-0.5 pt-0.5 flex items-center justify-between text-slate-600 dark:text-zinc-400">
                   <span className="w-[58%] font-medium">Previous Due (Old Bills):</span>
                   <span className="w-[42%] text-right font-mono font-bold text-slate-900 dark:text-white">
-                    Rs. {previousDue.toLocaleString()}
+                    {previousDue > 0 ? `- Rs. ${previousDue.toLocaleString()}` : 'Cleared (Rs. 0)'}
                   </span>
                 </div>
 
@@ -3776,49 +3828,6 @@ export const QuickInvoicePage: React.FC = () => {
                 <Building className="size-3" /> <span className="hidden sm:inline">Credit</span>
               </button>
             </div>
-
-            {/* Smoothly revealed Cheque Inputs when CHEQUE method is active */}
-            {paymentMethod === 'CHEQUE' && splitPayments.length === 0 && (
-              <div className="p-2 rounded-lg bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/60 space-y-1.5 animate-in fade-in duration-150">
-                <div className="flex items-center justify-between text-[10px]">
-                  <span className="font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1">
-                    <FileText className="size-3 text-amber-600" /> Cheque Details
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setSplitModalOpen(true)}
-                    className="text-[9.5px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
-                  >
-                    + Multiple Cheques / Split
-                  </button>
-                </div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <Input
-                    type="text"
-                    value={cheques[0]?.chequeNumber || ''}
-                    onChange={(e) => handleUpdateCheque(cheques[0]?.id || '1', 'chequeNumber', e.target.value)}
-                    placeholder="Cheque No *"
-                    className="h-7 text-[10.5px] font-mono bg-white dark:bg-zinc-900 rounded-md"
-                  />
-                  <Input
-                    type="text"
-                    value={cheques[0]?.bankName || ''}
-                    onChange={(e) => handleUpdateCheque(cheques[0]?.id || '1', 'bankName', e.target.value)}
-                    placeholder="Bank / Branch"
-                    className="h-7 text-[10.5px] bg-white dark:bg-zinc-900 rounded-md"
-                  />
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[9.5px] text-slate-500 dark:text-zinc-400 font-medium shrink-0">Pass Date:</span>
-                  <Input
-                    type="date"
-                    value={cheques[0]?.chequeDate || ''}
-                    onChange={(e) => handleUpdateCheque(cheques[0]?.id || '1', 'chequeDate', e.target.value)}
-                    className="h-7 text-[10.5px] bg-white dark:bg-zinc-900 rounded-md flex-1"
-                  />
-                </div>
-              </div>
-            )}
           </div>
         </div>
 
@@ -4577,9 +4586,19 @@ export const QuickInvoicePage: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <span className="w-[58%] text-slate-600 dark:text-zinc-400 font-medium">Paid for Current Bill:</span>
                   <span className="w-[42%] text-right font-mono font-bold text-slate-900 dark:text-white">
-                    Rs. {paidAmount.toLocaleString()}
+                    {paidAmount > 0 ? `+ Rs. ${paidAmount.toLocaleString()}` : `Rs. 0`}
                   </span>
                 </div>
+
+                {/* Bill Credit (Unpaid) */}
+                {currentNetBillDue > 0 && selectedCustomer && (
+                  <div className="flex items-center justify-between text-rose-600 dark:text-rose-400">
+                    <span className="w-[58%] font-medium">Bill Credit (Unpaid):</span>
+                    <span className="w-[42%] text-right font-mono font-bold">
+                      - Rs. {currentNetBillDue.toLocaleString()}
+                    </span>
+                  </div>
+                )}
 
                 {/* Credit Offset on Customer Ledger row (strictly right-aligned in price column) */}
                 {isNetCredit && paymentMethod === 'CREDIT' && (
@@ -4639,7 +4658,7 @@ export const QuickInvoicePage: React.FC = () => {
                     <div className="border-t border-dashed border-slate-200 dark:border-zinc-800 my-0.5 pt-0.5 flex items-center justify-between text-slate-600 dark:text-zinc-400">
                       <span className="w-[58%] font-medium">Previous Due (Old Bills):</span>
                       <span className="w-[42%] text-right font-mono font-bold text-slate-900 dark:text-white">
-                        Rs. {previousDue.toLocaleString()}
+                        {previousDue > 0 ? `- Rs. ${previousDue.toLocaleString()}` : 'Cleared (Rs. 0)'}
                       </span>
                     </div>
 
@@ -4818,49 +4837,6 @@ export const QuickInvoicePage: React.FC = () => {
                     <Building className="size-3" /> <span>Credit</span>
                   </button>
                 </div>
-
-                {/* Smoothly revealed Cheque Details on Mobile Drawer */}
-                {paymentMethod === 'CHEQUE' && splitPayments.length === 0 && (
-                  <div className="p-2 rounded-lg bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/60 space-y-1.5 animate-in fade-in duration-150">
-                    <div className="flex items-center justify-between text-[10px]">
-                      <span className="font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1">
-                        <FileText className="size-3 text-amber-600" /> Cheque Details
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setSplitModalOpen(true)}
-                        className="text-[9.5px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
-                      >
-                        + Multiple Cheques / Split
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <Input
-                        type="text"
-                        value={cheques[0]?.chequeNumber || ''}
-                        onChange={(e) => handleUpdateCheque(cheques[0]?.id || '1', 'chequeNumber', e.target.value)}
-                        placeholder="Cheque No *"
-                        className="h-7 text-[10.5px] font-mono bg-white dark:bg-zinc-900 rounded-md"
-                      />
-                      <Input
-                        type="text"
-                        value={cheques[0]?.bankName || ''}
-                        onChange={(e) => handleUpdateCheque(cheques[0]?.id || '1', 'bankName', e.target.value)}
-                        placeholder="Bank / Branch"
-                        className="h-7 text-[10.5px] bg-white dark:bg-zinc-900 rounded-md"
-                      />
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[9.5px] text-slate-500 dark:text-zinc-400 font-medium shrink-0">Pass Date:</span>
-                      <Input
-                        type="date"
-                        value={cheques[0]?.chequeDate || ''}
-                        onChange={(e) => handleUpdateCheque(cheques[0]?.id || '1', 'chequeDate', e.target.value)}
-                        className="h-7 text-[10.5px] bg-white dark:bg-zinc-900 rounded-md flex-1"
-                      />
-                    </div>
-                  </div>
-                )}
               </div>
 
               {/* Sales Rep Commission Breakdown Card (Mobile) */}
@@ -5111,6 +5087,7 @@ export const QuickInvoicePage: React.FC = () => {
             : undefined
         }
         onApply={handleApplySplitPayments}
+        initialMethod={splitModalInitialMethod}
         dark={dark}
         customerName={selectedCustomer?.name || 'Walk-in Customer'}
         customerPhone={selectedCustomer?.phone}
