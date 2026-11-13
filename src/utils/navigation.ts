@@ -24,6 +24,7 @@ export const ORDERED_SIDEBAR_ROUTES: RoutePermissionMapping[] = [
   { route: '/system/wash', actualPath: '/system/wash', permission: 'wash' },
   { route: '/system/finishing', actualPath: '/system/finishing', permission: 'finishing' },
   { route: '/system/materials', actualPath: '/system/buy-raw-materials', permission: 'materials' },
+  { route: '/system/expenses', actualPath: '/system/expenses', permission: 'expenses' },
   { route: '/system/reports', actualPath: '/system/reports', permission: 'reports' },
   { route: '/system/settings', actualPath: '/system/settings', permission: 'settings' },
 ];

@@ -6,7 +6,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter,
 } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -16,36 +15,35 @@ import {
   Download,
   Loader2,
   Copy,
-  Printer,
-  FileText,
-  DollarSign,
-  TrendingUp,
-  CreditCard,
-  Banknote,
-  AlertCircle,
   CheckCircle2,
   MinusCircle,
   PlusCircle,
   Equal,
-  RotateCcw,
-  Clock,
-  Layers,
-  ArrowRight,
 } from 'lucide-react';
 
 export type FinancialMetricFocus =
   | 'grossRevenue'
   | 'netSales'
+  | 'costOfGoodsSold'
+  | 'grossProfit'
+  | 'totalExpenses'
+  | 'netProfit'
   | 'totalPaid'
-  | 'totalDue'
-  | 'netOperationalRevenue'
-  | 'netOperationalProfit';
+  | 'totalDue';
 
 export interface FinancialAuditData {
   grossRevenue: number;
   totalDiscount: number;
   totalReturns?: number;
   netSales: number;
+  costOfGoodsSold?: number;
+  totalCostOfGoodsSold?: number;
+  grossProfit?: number;
+  grossProfitMargin?: number;
+  totalExpenses?: number;
+  netProfit?: number;
+  netProfitMargin?: number;
+  expensesByCategory?: Array<{ name: string; total: number; count: number }>;
   totalPaid: number;
   totalDue: number;
   orderCount?: number;
@@ -55,9 +53,6 @@ export interface FinancialAuditData {
   totalProductionCost?: number;
   totalGrnExpenses?: number;
   totalGrnLiabilities?: number;
-  costOfGoodsSold?: number;
-  grossProfit?: number;
-  grossProfitMargin?: number;
   netOperationalRevenue?: number;
   netOperationalProfit?: number;
 }
@@ -93,20 +88,14 @@ export const FinancialAuditModal: React.FC<FinancialAuditModalProps> = ({
   const totalDiscount = Number(data.totalDiscount) || 0;
   const totalReturns = Number(data.totalReturns) || 0;
   const netSales = Number(data.netSales) || 0;
+  const cogs = Number(data.costOfGoodsSold ?? data.totalCostOfGoodsSold) || 0;
+  const grossProfit = Number(data.grossProfit ?? (netSales - cogs)) || 0;
+  const totalExpenses = Number(data.totalExpenses) || 0;
+  const netProfit = Number(data.netProfit ?? (grossProfit - totalExpenses)) || 0;
   const totalPaid = Number(data.totalPaid) || 0;
   const totalDue = Number(data.totalDue) || 0;
   const orderCount = Number(data.orderCount) || 0;
-  const totalProductionCost = Number(data.totalProductionCost) || 0;
-  const totalGrnExpenses = Number(data.totalGrnExpenses) || 0;
-  const totalGrnLiabilities = Number(data.totalGrnLiabilities) || 0;
-  const netOperationalRevenue =
-    data.netOperationalRevenue !== undefined
-      ? Number(data.netOperationalRevenue)
-      : Math.round((totalPaid - totalProductionCost - totalGrnExpenses) * 100) / 100;
-  const netOperationalProfit =
-    data.netOperationalProfit !== undefined
-      ? Number(data.netOperationalProfit)
-      : Math.round((netSales - totalProductionCost - totalGrnExpenses) * 100) / 100;
+  const expensesByCategory = data.expensesByCategory || [];
 
   const paymentSplit = data.paymentSplit || {};
   const cashAmount = paymentSplit['CASH']?.amount || 0;
@@ -115,112 +104,88 @@ export const FinancialAuditModal: React.FC<FinancialAuditModalProps> = ({
   const cardCount = paymentSplit['CARD']?.count || 0;
   const chequeAmount = paymentSplit['CHEQUE']?.amount || 0;
   const chequeCount = paymentSplit['CHEQUE']?.count || 0;
-  const creditAmount = paymentSplit['CREDIT']?.amount || 0;
-  const creditCount = paymentSplit['CREDIT']?.count || 0;
 
   const formatRs = (val: number) =>
-    `Rs. ${(val || 0).toLocaleString('en-LK', { minimumFractionDigits: 2 })}`;
+    `Rs. ${(val || 0).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  // Metric Tab Details
+  // Metric Tab Details strictly following Client-Mandated Formula
   const METRIC_TABS = [
     {
-      key: 'grossRevenue' as FinancialMetricFocus,
-      label: 'Gross Revenue',
-      badgeLabel: 'Gross Volume',
-      color: 'text-slate-900 dark:text-white',
-      amount: grossRevenue,
-      formula: 'Gross Revenue = Total Item List Value before discounts or returns',
-      description: 'The aggregate sum of all garment items billed at standard catalogue value.',
-    },
-    {
       key: 'netSales' as FinancialMetricFocus,
-      label: 'Net Sales',
-      badgeLabel: 'Adjusted Revenue',
-      color: 'text-emerald-600 dark:text-emerald-400',
-      amount: netSales,
-      formula: 'Net Sales = Gross Item Volume - Discounts Applied - Restocked Returns',
-      description: 'True revenue accrued to the business after deducting promotions and returns.',
-    },
-    {
-      key: 'totalPaid' as FinancialMetricFocus,
-      label: 'Collected / Paid',
-      badgeLabel: 'Liquid Cash & Inflow',
+      label: '1. Total Sales',
+      badgeLabel: 'Total Sales',
       color: 'text-blue-600 dark:text-blue-400',
-      amount: totalPaid,
-      formula: 'Collected / Paid = Cash Tendered + Card Settled + Cleared Cheque Payments',
-      description: 'Total liquid capital realized and deposited into store accounts.',
+      amount: netSales,
+      formula: 'TOTAL SALES (+ Rs. X)',
+      description: 'Total billed sales revenue accrued for the selected period after deducting promotions and returns.',
     },
     {
-      key: 'totalDue' as FinancialMetricFocus,
-      label: 'Outstanding Credit Due',
-      badgeLabel: 'Open Accounts Receivable',
+      key: 'costOfGoodsSold' as FinancialMetricFocus,
+      label: '2. Cost of Sale',
+      badgeLabel: 'Cost of Sale',
+      color: 'text-amber-600 dark:text-amber-400',
+      amount: cogs,
+      formula: 'Less: Cost of Sale (- Rs. Y)',
+      description: 'Direct cost of goods sold based on production cost and item purchase prices.',
+    },
+    {
+      key: 'grossProfit' as FinancialMetricFocus,
+      label: '3. Gross Profit',
+      badgeLabel: 'Gross Profit',
+      color: 'text-emerald-600 dark:text-emerald-400',
+      amount: grossProfit,
+      formula: 'EQUALS: GROSS PROFIT (= Rs. X - Y)',
+      description: 'Trading surplus calculated strictly as Total Sales minus Cost of Sale.',
+    },
+    {
+      key: 'totalExpenses' as FinancialMetricFocus,
+      label: '4. Total Expenses',
+      badgeLabel: 'Total Expenses',
       color: 'text-rose-600 dark:text-rose-400',
-      amount: totalDue,
-      formula: 'Outstanding Due = Net Sales Total - Realized Payments Received',
-      description: 'Unpaid customer receivables and pending credit balances awaiting collection.',
+      amount: totalExpenses,
+      formula: 'Less: Total Expenses (- Rs. Z)',
+      description: 'Total operational expenditures recorded in the Expenses module.',
     },
     {
-      key: 'netOperationalRevenue' as FinancialMetricFocus,
-      label: 'Net Operational Revenue',
-      badgeLabel: 'Operational Cash Surplus',
-      color: 'text-emerald-700 dark:text-emerald-400',
-      amount: netOperationalRevenue,
-      formula: 'Net Operational Revenue = Realized Collections (Total Paid) - Production Costs - GRN Expenses',
-      description: 'The net operational liquid cash surplus after accounting for direct manufacturing and fabric procurement outflows.',
-    },
-    {
-      key: 'netOperationalProfit' as FinancialMetricFocus,
-      label: 'Operational Profit',
-      badgeLabel: 'Operating Margin',
-      color: 'text-indigo-600 dark:text-indigo-400',
-      amount: netOperationalProfit,
-      formula: 'Operational Profit = Net Billed Sales - Total Production Material Costs - GRN Purchases',
-      description: 'Accrual-based operating surplus reflecting trading income minus production and supplier procurement liabilities.',
+      key: 'netProfit' as FinancialMetricFocus,
+      label: '5. Net Profit',
+      badgeLabel: 'Net Profit',
+      color: 'text-purple-600 dark:text-purple-400',
+      amount: netProfit,
+      formula: 'EQUALS: NET PROFIT (= Rs. Gross Profit - Z)',
+      description: 'True bottom-line net profit calculated strictly as Gross Profit minus Total Expenses.',
     },
   ];
 
   const currentTab = METRIC_TABS.find((t) => t.key === currentFocus) || METRIC_TABS[0];
 
-  // Generate plain-text audit summary string
+  /**
+   * Plain-text audit summary strictly adhering to Client-Mandated Formula.
+   */
   const generateAuditSummaryText = () => {
     return `=====================================================
 RELIANCE APPAREL - FINANCIAL AUDIT BREAKDOWN
 Report Period: ${data.dateLabel || 'Selected Range'}
+Accounting Engine: Sales - Cost of Sale = Gross Profit | Gross Profit - Expenses = Net Profit
 Generated At: ${new Date().toLocaleString()}
 =====================================================
 
-1. MATHEMATICAL FORMULA TRANSPARENCY:
-Metric in Focus: ${currentTab.label}
-Target Value: ${formatRs(currentTab.amount)}
-Formula: ${currentTab.formula}
-Definition: ${currentTab.description}
-
-2. ITEMIZED FINANCIAL WATERFALL BREAKDOWN:
-(+) Total Item List Value (Gross Volume):  ${formatRs(grossRevenue)} (${orderCount} Orders)
-(-) Less: Total Discounts Applied:          - ${formatRs(totalDiscount)}
-(-) Less: Restocked Garment Returns:       - ${formatRs(totalReturns)}
-(=) EQUALS: Net Sales Revenue:              ${formatRs(netSales)}
-
-3. CASHFLOW & COLLECTIONS BREAKDOWN:
-(+) Cash Tendered Inflow:                   ${formatRs(cashAmount)} (${cashCount} Orders)
-(+) Card & Bank Digital Payments:           ${formatRs(cardAmount)} (${cardCount} Orders)
-(+) Cheque Payments Realized/Registered:    ${formatRs(chequeAmount)} (${chequeCount} Orders)
+1. TOTAL SALES:                               + ${formatRs(netSales)}
+2. Less: Cost of Sale:                        - ${formatRs(cogs)}
 -----------------------------------------------------
-(=) Total Liquid Collected / Paid:          ${formatRs(totalPaid)}
-(-) Outstanding Customer Credit Debt:       ${formatRs(totalDue)} (${creditCount} Orders)
+3. EQUALS: GROSS PROFIT:                      = ${formatRs(grossProfit)}
 
-4. DIRECT PRODUCTION & GRN PROCUREMENT LIABILITIES:
-(-) Direct Production Batch Costs:          - ${formatRs(totalProductionCost)}
-(-) GRN Supplier Procurement Expenses:     - ${formatRs(totalGrnExpenses)}
+4. Less: Total Expenses:                      - ${formatRs(totalExpenses)}
 -----------------------------------------------------
-(=) EQUALS: Net Operational Revenue:        ${formatRs(netOperationalRevenue)}
-(=) EQUALS: Net Operational Profit:         ${formatRs(netOperationalProfit)}
+5. EQUALS: NET PROFIT:                        = ${formatRs(netProfit)}
 =====================================================
-Verified & Certified by Reliance Accounting System
+Certified by Reliance Apparel Financial Accounting Engine
 =====================================================`;
   };
 
-  // Copy plain text summary to clipboard
+  /**
+   * Copy audit breakdown to clipboard.
+   */
   const handleCopySummary = async () => {
     try {
       await navigator.clipboard.writeText(generateAuditSummaryText());
@@ -230,7 +195,9 @@ Verified & Certified by Reliance Accounting System
     }
   };
 
-  // Download branded Financial Audit PDF report file
+  /**
+   * Export PDF report file.
+   */
   const handleDownloadAuditFile = async () => {
     try {
       setExportingSummaryPdf(true);
@@ -238,7 +205,7 @@ Verified & Certified by Reliance Accounting System
         currentFocus,
         dateRangeLabel: data.dateLabel,
       });
-      toast.success('Branded Financial Audit PDF exported successfully!');
+      toast.success('Financial Audit PDF exported successfully!');
     } catch (err: any) {
       toast.error(err.message || 'Failed to export Financial Audit PDF');
     } finally {
@@ -248,9 +215,9 @@ Verified & Certified by Reliance Accounting System
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="w-full max-w-lg sm:max-w-2xl lg:max-w-3xl max-h-[92vh] flex flex-col p-0 overflow-hidden rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 shadow-2xl">
+      <DialogContent className="w-full max-w-lg sm:max-w-2xl lg:max-w-3xl max-h-[90vh] overflow-y-auto p-0 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 shadow-2xl">
         {/* Header */}
-        <div className="p-3.5 sm:p-5 border-b border-slate-100 dark:border-zinc-800 bg-slate-50/80 dark:bg-zinc-900/80 shrink-0">
+        <div className="p-3.5 sm:p-5 border-b border-slate-100 dark:border-zinc-800 bg-slate-50/80 dark:bg-zinc-900/80">
           <DialogHeader>
             <div className="flex items-center gap-3 pr-8">
               <div className="p-2 sm:p-2.5 rounded-xl bg-emerald-600/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 shrink-0">
@@ -261,14 +228,14 @@ Verified & Certified by Reliance Accounting System
                   Financial Breakdown Audit &amp; Formula Transparency
                 </DialogTitle>
                 <DialogDescription className="text-[11px] sm:text-xs text-slate-500 dark:text-zinc-400 mt-0.5 break-words">
-                  Itemized mathematical reconciliation verifying every rupee across gross sales, deductions, and collections.
+                  Client-Mandated Standard: (Sales - Cost of Sale = Gross Profit) &amp; (Gross Profit - Expenses = Net Profit).
                 </DialogDescription>
               </div>
             </div>
           </DialogHeader>
 
-          {/* Interactive Metric Switcher Tabs */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1.5 mt-3 pt-3 border-t border-slate-200/60 dark:border-zinc-800">
+          {/* Interactive Metric Switcher Tabs (Strict 5-Step Mathematical Flow) */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1.5 mt-3 pt-3 border-t border-slate-200/60 dark:border-zinc-800">
             {METRIC_TABS.map((tab) => {
               const isSelected = tab.key === currentFocus;
               return (
@@ -285,10 +252,10 @@ Verified & Certified by Reliance Accounting System
                       : 'bg-transparent border-transparent hover:bg-white/60 dark:hover:bg-zinc-800/60'
                   }`}
                 >
-                  <span className="text-[10px] font-bold uppercase tracking-wider block text-slate-400">
+                  <span className="text-[10px] font-bold uppercase tracking-wider block text-slate-400 truncate">
                     {tab.label}
                   </span>
-                  <span className={`text-xs font-mono font-bold mt-0.5 block ${tab.color}`}>
+                  <span className={`text-xs font-mono font-bold mt-0.5 block truncate ${tab.color}`}>
                     {formatRs(tab.amount)}
                   </span>
                 </button>
@@ -297,14 +264,14 @@ Verified & Certified by Reliance Accounting System
           </div>
         </div>
 
-        {/* Scrollable Audit Body */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 text-xs">
+        {/* Modal Body - Single Unified Scrollable Container */}
+        <div className="p-4 sm:p-5 space-y-4 text-xs">
           {/* Formula Transparency Callout Banner */}
           <div className="p-3.5 rounded-2xl bg-emerald-500/10 dark:bg-emerald-950/20 border border-emerald-500/30 space-y-2">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
                 <CheckCircle2 className="size-3.5" />
-                <span>Exact Mathematical Formula Definition</span>
+                <span>Client-Mandated Accounting Formula</span>
               </span>
               <Badge variant="outline" className="text-[10px] font-bold border-emerald-500/40 text-emerald-700 dark:text-emerald-300">
                 {currentTab.badgeLabel}
@@ -320,222 +287,137 @@ Verified & Certified by Reliance Accounting System
             </p>
           </div>
 
-          {/* Itemized Financial Waterfall Table */}
-          <div className="rounded-2xl border border-slate-200 dark:border-zinc-800 overflow-hidden shadow-2xs">
-            <div className="px-4 py-3 bg-slate-50 dark:bg-zinc-800/70 border-b border-slate-200 dark:border-zinc-800 flex items-center justify-between">
-              <span className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Layers className="size-4 text-blue-500" />
-                <span>Line-Item Financial Ledger Waterfall</span>
-              </span>
-              <span className="text-[10px] text-slate-400 uppercase font-semibold">
-                Audit Trail Breakdown
-              </span>
-            </div>
-
-            <div className="divide-y divide-slate-100 dark:divide-zinc-800">
-              {/* Line 1: Gross Revenue */}
-              <div
-                className={`p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 transition-colors ${
-                  currentFocus === 'grossRevenue'
-                    ? 'bg-blue-50/50 dark:bg-blue-950/20'
-                    : 'bg-white dark:bg-zinc-900'
-                }`}
-              >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="p-1 rounded-md bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 shrink-0">
-                    <PlusCircle className="size-3.5" />
-                  </div>
-                  <div className="min-w-0">
-                    <span className="font-bold text-slate-900 dark:text-white block text-xs sm:text-sm break-words">
-                      Total Item List Value (Gross Volume)
-                    </span>
-                    <span className="text-[11px] text-slate-400 break-words block">
-                      Standard catalogue value across {orderCount} recorded sales
-                    </span>
-                  </div>
-                </div>
-                <span className="font-mono font-bold text-xs sm:text-sm text-slate-900 dark:text-white shrink-0 sm:text-right">
-                  + {formatRs(grossRevenue)}
-                </span>
-              </div>
-
-              {/* Line 2: Discounts */}
-              <div className="p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 bg-white dark:bg-zinc-900">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="p-1 rounded-md bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400 shrink-0">
-                    <MinusCircle className="size-3.5" />
-                  </div>
-                  <div className="min-w-0">
-                    <span className="font-bold text-slate-900 dark:text-white block text-xs sm:text-sm break-words">
-                      Less: Total Promotional Discounts Applied
-                    </span>
-                    <span className="text-[11px] text-slate-400 break-words block">
-                      Discounts granted during checkout and POS register
-                    </span>
-                  </div>
-                </div>
-                <span className="font-mono font-bold text-xs sm:text-sm text-amber-600 dark:text-amber-400 shrink-0 sm:text-right">
-                  - {formatRs(totalDiscount)}
-                </span>
-              </div>
-
-              {/* Line 3: Returns */}
-              <div className="p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 bg-white dark:bg-zinc-900">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="p-1 rounded-md bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-400 shrink-0">
-                    <RotateCcw className="size-3.5" />
-                  </div>
-                  <div className="min-w-0">
-                    <span className="font-bold text-slate-900 dark:text-white block text-xs sm:text-sm break-words">
-                      Less: Restocked Garment Returns &amp; Adjustments
-                    </span>
-                    <span className="text-[11px] text-slate-400 break-words block">
-                      Items returned to warehouse stock with customer credit reversals
-                    </span>
-                  </div>
-                </div>
-                <span className="font-mono font-bold text-xs sm:text-sm text-rose-600 dark:text-rose-400 shrink-0 sm:text-right">
-                  - {formatRs(totalReturns)}
-                </span>
-              </div>
-
-              {/* Line 4: Net Sales Equals */}
-              <div
-                className={`p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 transition-colors ${
-                  currentFocus === 'netSales'
-                    ? 'bg-emerald-500/15 dark:bg-emerald-950/40'
-                    : 'bg-emerald-50/50 dark:bg-emerald-950/20'
-                }`}
-              >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="p-1 rounded-md bg-emerald-600 text-white shrink-0">
-                    <Equal className="size-3.5" />
-                  </div>
-                  <div className="min-w-0">
-                    <span className="font-bold text-emerald-900 dark:text-emerald-100 text-xs sm:text-sm block break-words">
-                      EQUALS: Net Sales Revenue
-                    </span>
-                    <span className="text-[11px] text-emerald-700/80 dark:text-emerald-300/80 break-words block">
-                      True revenue credited to Reliance financial statements
-                    </span>
-                  </div>
-                </div>
-                <span className="font-mono font-bold text-sm sm:text-base text-emerald-700 dark:text-emerald-300 shrink-0 sm:text-right">
-                  = {formatRs(netSales)}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 2: Cashflow, Cheques & Collections Breakdown */}
-          <div className="rounded-2xl border border-slate-200 dark:border-zinc-800 p-4 bg-slate-50/50 dark:bg-zinc-950/40 space-y-3">
-            <div className="flex items-center justify-between">
-              <h4 className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Banknote className="size-4 text-emerald-600" />
-                <span>Collections &amp; Liquidity Settlement Breakdown</span>
-              </h4>
-              <Badge variant="outline" className="text-[10px] font-mono">
-                Actual Inflow vs Debt
-              </Badge>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {/* Cash Collections */}
-              <div className="p-3 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800">
-                <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
-                  <span className="font-semibold flex items-center gap-1.5">
-                    <Banknote className="size-3.5 text-emerald-500" />
-                    Cash Collections
-                  </span>
-                  <span className="font-mono">{cashCount} Invoices</span>
-                </div>
-                <span className="font-mono font-bold text-sm text-slate-900 dark:text-white block">
-                  {formatRs(cashAmount)}
-                </span>
-              </div>
-
-              {/* Card Collections */}
-              <div className="p-3 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800">
-                <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
-                  <span className="font-semibold flex items-center gap-1.5">
-                    <CreditCard className="size-3.5 text-purple-500" />
-                    Card &amp; Bank Digital
-                  </span>
-                  <span className="font-mono">{cardCount} Invoices</span>
-                </div>
-                <span className="font-mono font-bold text-sm text-slate-900 dark:text-white block">
-                  {formatRs(cardAmount)}
-                </span>
-              </div>
-
-              {/* Cheque Payments */}
-              <div className="p-3 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800">
-                <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
-                  <span className="font-semibold flex items-center gap-1.5">
-                    <FileText className="size-3.5 text-amber-500" />
-                    Cheque Payments
-                  </span>
-                  <span className="font-mono">{chequeCount} Invoices</span>
-                </div>
-                <span className="font-mono font-bold text-sm text-slate-900 dark:text-white block">
-                  {formatRs(chequeAmount)}
-                </span>
-              </div>
-
-              {/* Total Liquid Collected */}
-              <div
-                className={`p-3 rounded-xl border ${
-                  currentFocus === 'totalPaid'
-                    ? 'bg-blue-500/10 border-blue-500/40 ring-1 ring-blue-500/30'
-                    : 'bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800'
-                }`}
-              >
-                <div className="flex items-center justify-between text-[11px] text-blue-600 dark:text-blue-400 mb-1">
-                  <span className="font-bold flex items-center gap-1.5">
-                    <CheckCircle2 className="size-3.5" />
-                    Total Paid / Collected
-                  </span>
-                  <span className="font-mono font-semibold">Tendered Inflow</span>
-                </div>
-                <span className="font-mono font-bold text-sm text-blue-600 dark:text-blue-400 block">
-                  {formatRs(totalPaid)}
-                </span>
-              </div>
-            </div>
-
-            {/* Outstanding Debt Strip */}
+          {/* ── Strict Client-Mandated Financial Mathematical Flow ── */}
+          <div className="rounded-2xl border border-slate-200 dark:border-zinc-800 overflow-hidden shadow-2xs divide-y divide-slate-100 dark:divide-zinc-800">
+            {/* Step 1: TOTAL SALES */}
             <div
-              className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2 ${
-                currentFocus === 'totalDue'
-                  ? 'bg-rose-500/10 border-rose-500/40 ring-1 ring-rose-500/30'
-                  : 'bg-rose-500/5 dark:bg-rose-950/20 border-rose-500/20'
+              className={`p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 transition-colors ${
+                currentFocus === 'netSales' ? 'bg-blue-50/60 dark:bg-blue-950/30' : 'bg-white dark:bg-zinc-900'
               }`}
             >
-              <div className="flex items-center gap-2 min-w-0">
-                <AlertCircle className="size-4 text-rose-600 dark:text-rose-400 shrink-0" />
-                <div className="min-w-0">
-                  <span className="font-bold text-rose-900 dark:text-rose-200 block text-xs sm:text-sm break-words">
-                    Outstanding Customer Credit Debt (Unpaid)
+              <div className="flex items-center gap-3">
+                <div className="p-1.5 rounded-lg bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 shrink-0">
+                  <PlusCircle className="size-4" />
+                </div>
+                <div>
+                  <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white block uppercase tracking-wide">
+                    TOTAL SALES
                   </span>
-                  <span className="text-[10px] text-rose-700/80 dark:text-rose-300/80 break-words block">
-                    Accounts Receivable pending clearance or invoice settlement
+                  <span className="text-[11px] text-slate-500 dark:text-zinc-400 block">
+                    Billed sales revenue for selected period
                   </span>
                 </div>
               </div>
-              <span className="font-mono font-bold text-sm sm:text-base text-rose-600 dark:text-rose-400 shrink-0 sm:text-right">
-                {formatRs(totalDue)}
+              <span className="font-mono font-bold text-xs sm:text-sm text-blue-600 dark:text-blue-400">
+                + {formatRs(netSales)}
+              </span>
+            </div>
+
+            {/* Step 2: Less: Cost of Sale */}
+            <div
+              className={`p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 transition-colors ${
+                currentFocus === 'costOfGoodsSold' ? 'bg-amber-50/60 dark:bg-amber-950/30' : 'bg-white dark:bg-zinc-900'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-1.5 rounded-lg bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400 shrink-0">
+                  <MinusCircle className="size-4" />
+                </div>
+                <div>
+                  <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white block">
+                    Less: Cost of Sale
+                  </span>
+                  <span className="text-[11px] text-slate-500 dark:text-zinc-400 block">
+                    Direct product &amp; material cost of goods sold
+                  </span>
+                </div>
+              </div>
+              <span className="font-mono font-bold text-xs sm:text-sm text-amber-600 dark:text-amber-400">
+                - {formatRs(cogs)}
+              </span>
+            </div>
+
+            {/* Step 3: EQUALS: GROSS PROFIT */}
+            <div
+              className={`p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 transition-colors ${
+                currentFocus === 'grossProfit' ? 'bg-emerald-500/15 dark:bg-emerald-950/40' : 'bg-emerald-50/50 dark:bg-emerald-950/20'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-1.5 rounded-lg bg-emerald-600 text-white shrink-0">
+                  <Equal className="size-4" />
+                </div>
+                <div>
+                  <span className="font-bold text-xs sm:text-sm text-emerald-900 dark:text-emerald-100 block uppercase tracking-wide">
+                    EQUALS: GROSS PROFIT
+                  </span>
+                  <span className="text-[11px] text-emerald-700/80 dark:text-emerald-300/80 block">
+                    Total Sales - Cost of Sale
+                  </span>
+                </div>
+              </div>
+              <span className="font-mono font-bold text-sm sm:text-base text-emerald-700 dark:text-emerald-300">
+                = {formatRs(grossProfit)}
+              </span>
+            </div>
+
+            {/* Step 4: Less: Total Expenses */}
+            <div
+              className={`p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 transition-colors ${
+                currentFocus === 'totalExpenses' ? 'bg-rose-50/60 dark:bg-rose-950/30' : 'bg-white dark:bg-zinc-900'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-1.5 rounded-lg bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-400 shrink-0">
+                  <MinusCircle className="size-4" />
+                </div>
+                <div>
+                  <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white block">
+                    Less: Total Expenses
+                  </span>
+                  <span className="text-[11px] text-slate-500 dark:text-zinc-400 block">
+                    Operating expenditures from Expenses ledger
+                  </span>
+                </div>
+              </div>
+              <span className="font-mono font-bold text-xs sm:text-sm text-rose-600 dark:text-rose-400">
+                - {formatRs(totalExpenses)}
+              </span>
+            </div>
+
+            {/* Step 5: EQUALS: NET PROFIT */}
+            <div
+              className={`p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 transition-colors ${
+                currentFocus === 'netProfit' ? 'bg-purple-500/15 dark:bg-purple-950/40' : 'bg-purple-50/50 dark:bg-purple-950/20'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-1.5 rounded-lg bg-purple-600 text-white shrink-0">
+                  <Equal className="size-4" />
+                </div>
+                <div>
+                  <span className="font-bold text-xs sm:text-sm text-purple-900 dark:text-purple-100 block uppercase tracking-wide">
+                    EQUALS: NET PROFIT
+                  </span>
+                  <span className="text-[11px] text-purple-700/80 dark:text-purple-300/80 block">
+                    Gross Profit - Total Expenses
+                  </span>
+                </div>
+              </div>
+              <span className="font-mono font-bold text-sm sm:text-base text-purple-700 dark:text-purple-300">
+                = {formatRs(netProfit)}
               </span>
             </div>
           </div>
         </div>
 
-        {/* Sticky Action Footer: Stacked on Mobile, Flex Row on Desktop */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 p-3 sm:px-4 bg-slate-50 dark:bg-zinc-900 border-t border-slate-200 dark:border-zinc-800 shrink-0">
+        {/* Action Footer */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 p-3 sm:px-4 bg-slate-50 dark:bg-zinc-900 border-t border-slate-200 dark:border-zinc-800">
           <Button
             variant="outline"
             size="sm"
             onClick={onClose}
-            className="flex-1 sm:flex-initial h-10 min-h-[40px] sm:h-9 text-xs font-semibold border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 hover:text-slate-900 dark:hover:text-white shadow-2xs cursor-pointer"
+            className="flex-1 sm:flex-initial h-10 min-h-[40px] sm:h-9 text-xs font-semibold border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700"
           >
             Close Audit
           </Button>
@@ -544,9 +426,9 @@ Verified & Certified by Reliance Accounting System
             variant="outline"
             size="sm"
             onClick={handleCopySummary}
-            className="flex-1 sm:flex-initial h-10 min-h-[40px] sm:h-9 text-xs font-semibold gap-1.5 border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 hover:text-slate-900 dark:hover:text-white shadow-2xs cursor-pointer"
+            className="flex-1 sm:flex-initial h-10 min-h-[40px] sm:h-9 text-xs font-semibold gap-1.5 border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700"
           >
-            <Copy className="size-3.5 text-slate-500 dark:text-zinc-400" />
+            <Copy className="size-3.5 text-slate-500" />
             <span>Copy Audit Breakdown</span>
           </Button>
 
@@ -555,7 +437,7 @@ Verified & Certified by Reliance Accounting System
               size="sm"
               onClick={onDownloadMasterPdf}
               disabled={downloadingMasterPdf}
-              className="flex-1 sm:flex-initial h-10 min-h-[40px] sm:h-9 text-xs font-semibold gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs cursor-pointer disabled:opacity-50"
+              className="flex-1 sm:flex-initial h-10 min-h-[40px] sm:h-9 text-xs font-semibold gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs disabled:opacity-50"
             >
               {downloadingMasterPdf ? (
                 <Loader2 className="size-3.5 animate-spin" />
@@ -570,7 +452,7 @@ Verified & Certified by Reliance Accounting System
             size="sm"
             onClick={handleDownloadAuditFile}
             disabled={exportingSummaryPdf}
-            className="flex-1 sm:flex-initial h-10 min-h-[40px] sm:h-9 text-xs font-semibold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs cursor-pointer disabled:opacity-50"
+            className="flex-1 sm:flex-initial h-10 min-h-[40px] sm:h-9 text-xs font-semibold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs disabled:opacity-50"
           >
             {exportingSummaryPdf ? (
               <Loader2 className="size-3.5 animate-spin" />

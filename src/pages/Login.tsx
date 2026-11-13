@@ -19,12 +19,16 @@ export const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Post-Login Default Redirection:
-  // Automatically redirect authenticated staff/users to their first permitted route
-  // as the default system landing page across all devices (mobile and desktop).
+  // Post-Login & PWA Active Route Restoration:
+  // Automatically restore exact last active route or permitted default
   useEffect(() => {
     if (isAuthenticated) {
-      navigate(getFirstAllowedRoute(user), { replace: true });
+      const lastRoute = localStorage.getItem('reliance_last_active_route');
+      if (lastRoute && lastRoute.startsWith('/system')) {
+        navigate(lastRoute, { replace: true });
+      } else {
+        navigate(getFirstAllowedRoute(user), { replace: true });
+      }
     }
   }, [isAuthenticated, user, navigate]);
 
@@ -45,7 +49,12 @@ export const Login: React.FC = () => {
       await login(cleanEmail, cleanPassword);
       const cached = localStorage.getItem('auth_user');
       const parsedUser = cached ? JSON.parse(cached) : user;
-      navigate(getFirstAllowedRoute(parsedUser), { replace: true });
+      const lastRoute = localStorage.getItem('reliance_last_active_route');
+      if (lastRoute && lastRoute.startsWith('/system')) {
+        navigate(lastRoute, { replace: true });
+      } else {
+        navigate(getFirstAllowedRoute(parsedUser), { replace: true });
+      }
     } catch (err: any) {
       setError(err.message || 'Login failed. Please verify credentials.');
     } finally {

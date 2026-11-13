@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { startOfYear, endOfYear, startOfDay, endOfDay, format } from 'date-fns';
 import { get, downloadBlob } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -67,6 +68,8 @@ import {
   Droplets,
   PackageCheck,
   User,
+  ReceiptText,
+  DollarSign,
 } from 'lucide-react';
 import { CustomerPreviewModal } from '../components/customers/CustomerPreviewModal';
 import {
@@ -91,7 +94,8 @@ type ModuleKey =
   | 'production'
   | 'suppliers'
   | 'audit'
-  | 'cheques';
+  | 'cheques'
+  | 'expenses';
 
 type PresetKey = 'daily' | 'weekly' | 'monthly' | 'yearly' | 'next_year' | 'custom';
 
@@ -104,6 +108,7 @@ interface TabItem {
 
 const MODULE_TABS: TabItem[] = [
   { key: 'sales', label: 'Sales & Invoices', icon: Receipt, description: 'Revenue, payment splits, discounts, and customer credit accumulation' },
+  { key: 'expenses', label: 'Expenses & Operational Outflows', icon: ReceiptText, description: 'Period operational expenses, overheads, category breakdowns, and outflow ledger' },
   { key: 'cheques', label: 'Cheque Ledger & Forecast', icon: FileText, description: 'Received & realized cheques, upcoming maturities, realization alerts, and bounce rates' },
   { key: 'returns', label: 'Returns & Restock', icon: RotateCcw, description: 'Restocked quantities, refund reasons, cash vs credit adjustments' },
   { key: 'inventory', label: 'Inventory & Valuation', icon: Boxes, description: 'Warehouse stock levels, cost vs retail valuation, low-stock warnings' },
@@ -120,9 +125,32 @@ export const ReportsPage: React.FC = () => {
   const { resolvedTheme } = useTheme();
   const dark = resolvedTheme === 'dark';
 
-  const [activeModule, setActiveModule] = useState<ModuleKey>('sales');
-  const [activePreset, setActivePreset] = useState<PresetKey>('monthly');
-  const [customRange, setCustomRange] = useState<DateRange | undefined>(undefined);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Read initial query params from URL (or default)
+  const initialSection = (searchParams.get('section') || searchParams.get('module') || 'sales') as ModuleKey;
+  const initialPreset = (searchParams.get('preset') || 'monthly') as PresetKey;
+  const initialCategoryId = searchParams.get('categoryId') || 'all';
+  const initialUserId = searchParams.get('userId') || searchParams.get('repUserId') || 'all';
+  const initialStart = searchParams.get('startDate') || searchParams.get('from');
+  const initialEnd = searchParams.get('endDate') || searchParams.get('to');
+
+  const [activeModule, setActiveModule] = useState<ModuleKey>(() => {
+    const valid = MODULE_TABS.some(t => t.key === initialSection);
+    return valid ? initialSection : 'sales';
+  });
+  const [activePreset, setActivePreset] = useState<PresetKey>(() => {
+    const validPresets = ['daily', 'weekly', 'monthly', 'yearly', 'next_year', 'custom'];
+    return validPresets.includes(initialPreset) ? initialPreset : 'monthly';
+  });
+  const [customRange, setCustomRange] = useState<DateRange | undefined>(() => {
+    if (initialStart) {
+      const from = new Date(initialStart);
+      const to = initialEnd ? new Date(initialEnd) : from;
+      return { from, to };
+    }
+    return undefined;
+  });
   const [showCharts, setShowCharts] = useState<boolean>(true);
 
   const [reportData, setReportData] = useState<any>(null);
@@ -136,8 +164,12 @@ export const ReportsPage: React.FC = () => {
   const [activeChequeTab, setActiveChequeTab] = useState<'PENDING' | 'REALIZED' | 'BOUNCED' | 'ALL'>('PENDING');
 
   // User / Sales Rep Filter & Staff Directory
-  const [selectedUserId, setSelectedUserId] = useState<string>('all');
+  const [selectedUserId, setSelectedUserId] = useState<string>(initialUserId);
   const [staffUsers, setStaffUsers] = useState<Array<{ id: number; name: string; role?: string; email?: string }>>([]);
+
+  // Expense Category Filter & Master Categories
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>(initialCategoryId);
+  const [expenseCategories, setExpenseCategories] = useState<Array<{ id: number; name: string }>>([]);
 
   // Quick Customer Profile Preview Modal State
   const [previewCustomer, setPreviewCustomer] = useState<any>(null);
@@ -153,6 +185,41 @@ export const ReportsPage: React.FC = () => {
           .catch(() => {});
       });
   }, []);
+
+  // Fetch Expense Categories for category-wise report filtering
+  useEffect(() => {
+    get<any[]>('/expenses/categories')
+      .then((data) => setExpenseCategories(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, []);
+
+  const expenseCategoryOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: 'all', label: 'All Categories' },
+    ...expenseCategories.map((c) => ({
+      value: String(c.id),
+      label: c.name,
+    })),
+  ], [expenseCategories]);
+
+  // Synchronize state with URL query parameters for persistent URL routing
+  useEffect(() => {
+    const nextParams = new URLSearchParams();
+    nextParams.set('section', activeModule);
+    nextParams.set('preset', activePreset);
+    if (activeModule === 'expenses' && selectedCategoryId !== 'all') {
+      nextParams.set('categoryId', selectedCategoryId);
+    }
+    if (selectedUserId !== 'all') {
+      nextParams.set('userId', selectedUserId);
+    }
+    if (activePreset === 'custom' && customRange?.from) {
+      nextParams.set('startDate', format(customRange.from, 'yyyy-MM-dd'));
+      if (customRange.to) {
+        nextParams.set('endDate', format(customRange.to, 'yyyy-MM-dd'));
+      }
+    }
+    setSearchParams(nextParams, { replace: true });
+  }, [activeModule, activePreset, selectedCategoryId, selectedUserId, customRange, setSearchParams]);
 
   const userSelectOptions: SearchableSelectOption[] = useMemo(() => [
     { value: 'all', label: 'All Users / Reps' },
@@ -208,6 +275,10 @@ export const ReportsPage: React.FC = () => {
       params.set('userId', selectedUserId);
     }
 
+    if (activeModule === 'expenses' && selectedCategoryId !== 'all') {
+      params.set('categoryId', selectedCategoryId);
+    }
+
     if (activePreset === 'custom' && customRange?.from) {
       const startStr = format(customRange.from, 'yyyy-MM-dd');
       const endStr = format(customRange.to || customRange.from, 'yyyy-MM-dd');
@@ -261,7 +332,7 @@ export const ReportsPage: React.FC = () => {
     fetchReport();
     setSearchQuery('');
     setCurrentPage(1);
-  }, [activeModule, activePreset, selectedUserId, customFromTime, customToTime]);
+  }, [activeModule, activePreset, selectedUserId, selectedCategoryId, customFromTime, customToTime]);
 
   /**
    * Defensive Date Range Change Handler for Reports module.
@@ -315,7 +386,8 @@ export const ReportsPage: React.FC = () => {
   const moduleSelectOptions = useMemo<SearchableSelectOption[]>(() => {
     return visibleTabs.map((t) => {
       let emoji = '📊';
-      if (t.key === 'returns') emoji = '🔄';
+      if (t.key === 'expenses') emoji = '💸';
+      else if (t.key === 'returns') emoji = '🔄';
       else if (t.key === 'cheques') emoji = '📑';
       else if (t.key === 'inventory') emoji = '📦';
       else if (t.key === 'products') emoji = '🏷️';
@@ -742,6 +814,32 @@ export const ReportsPage: React.FC = () => {
     toast.success('Cheque ledger exported to CSV successfully!');
   };
 
+  const handleExportExpensesCsv = () => {
+    if (!reportData || !reportData.tableItems) return;
+    const items = reportData.tableItems || [];
+    const headers = ['Expense Code', 'Date', 'Category', 'Description', 'Recorded By', 'Role', 'Amount (Rs.)'];
+    const rows = items.map((r: any) => [
+      `"${r.code || ''}"`,
+      `"${r.date ? r.date.split('T')[0] : ''}"`,
+      `"${r.categoryName || ''}"`,
+      `"${(r.description || '').replace(/"/g, '""')}"`,
+      `"${r.createdByName || ''}"`,
+      `"${r.createdByRole || ''}"`,
+      r.amount || 0,
+    ]);
+    const csvContent = [headers.join(','), ...rows.map((row: any[]) => row.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `expenses-ledger-${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success('Expenses ledger exported to CSV successfully!');
+  };
+
   // Client-side search within table
   const filteredRows = useMemo(() => {
     if (!searchQuery.trim()) return allRows;
@@ -917,6 +1015,15 @@ export const ReportsPage: React.FC = () => {
         name: method,
         value: data.amount || 0,
         count: data.count || 0,
+      }));
+    }
+
+    if (activeModule === 'expenses') {
+      const breakdown = reportData?.categoryBreakdown || [];
+      return breakdown.slice(0, 8).map((cat: any) => ({
+        name: cat.name,
+        value: cat.total || 0,
+        count: cat.count || 0,
       }));
     }
 
@@ -1156,22 +1263,40 @@ export const ReportsPage: React.FC = () => {
                   <>
                     <Printer className="size-3.5 sm:size-4 text-blue-600 shrink-0" />
                     <span className="hidden sm:inline">Download {activeTabItem.label.split('&')[0].trim()} PDF</span>
-                    <span className="sm:hidden">{activeModule === 'sales' ? 'Sales' : activeModule === 'returns' ? 'Returns' : activeModule === 'inventory' ? 'Stock' : activeModule === 'products' ? 'Products' : activeModule === 'materials' ? 'Materials' : activeModule === 'production' ? 'Production' : activeModule === 'suppliers' ? 'Suppliers' : activeModule === 'audit' ? 'Audit' : activeModule === 'cheques' ? 'Cheques' : 'PDF'}</span>
+                    <span className="sm:hidden">{activeModule === 'sales' ? 'Sales' : activeModule === 'expenses' ? 'Expenses' : activeModule === 'returns' ? 'Returns' : activeModule === 'inventory' ? 'Stock' : activeModule === 'products' ? 'Products' : activeModule === 'materials' ? 'Materials' : activeModule === 'production' ? 'Production' : activeModule === 'suppliers' ? 'Suppliers' : activeModule === 'audit' ? 'Audit' : activeModule === 'cheques' ? 'Cheques' : 'PDF'}</span>
                   </>
                 )}
               </Button>
             </TooltipSimple>
 
+            {/* Expenses: Export Expenses CSV */}
+            {activeModule === 'expenses' && (
+              <TooltipSimple content="Export Expenses Ledger to CSV" side="top">
+                <Button
+                  onClick={handleExportExpensesCsv}
+                  disabled={loading || !reportData || (reportData?.tableItems?.length || 0) === 0}
+                  variant="outline"
+                  className="h-9 sm:h-10 px-2.5 sm:px-3.5 rounded-xl text-xs font-semibold border-emerald-500/80 dark:border-emerald-600/80 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 shadow-xs shrink-0 cursor-pointer flex items-center justify-center gap-1.5"
+                  title="Export Expenses CSV"
+                  aria-label="Export Expenses CSV"
+                >
+                  <FileSpreadsheet className="size-3.5 sm:size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <span className="hidden sm:inline">Export Expenses CSV</span>
+                  <span className="sm:hidden">CSV</span>
+                </Button>
+              </TooltipSimple>
+            )}
+
             {/* Sales: Dedicated Financial Audit Action (Duplicate Master Audit PDF removed to eliminate redundancy with top header) */}
             {activeModule === 'sales' && (
-              <TooltipSimple content="Financial Audit & Net Revenue Analytics" side="top">
+              <TooltipSimple content="Financial Audit & Net Profit Analytics" side="top">
                 <Button
-                  onClick={() => handleOpenAudit('netOperationalRevenue')}
+                  onClick={() => handleOpenAudit('netProfit')}
                   disabled={loading || !reportData}
                   variant="outline"
                   className="h-9 sm:h-10 px-2.5 sm:px-3.5 rounded-xl text-xs font-bold border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/70 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 shadow-xs shrink-0 cursor-pointer flex items-center justify-center gap-1.5"
-                  title="Financial Audit & Net Revenue Analytics"
-                  aria-label="Financial Audit & Net Revenue Analytics"
+                  title="Financial Audit & Net Profit Analytics"
+                  aria-label="Financial Audit & Net Profit Analytics"
                 >
                   <Calculator className="size-3.5 sm:size-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
                   <span className="hidden sm:inline">Financial Audit</span>
@@ -1415,6 +1540,21 @@ export const ReportsPage: React.FC = () => {
               </div>
             )}
 
+            {/* Expense Category Filter Dropdown */}
+            {activeModule === 'expenses' && (
+              <div className="w-full sm:w-48 lg:w-56 shrink-0">
+                <SearchableSelect
+                  value={selectedCategoryId}
+                  onValueChange={(val) => setSelectedCategoryId(val)}
+                  options={expenseCategoryOptions}
+                  placeholder="All Categories"
+                  searchPlaceholder="Filter expense category..."
+                  dark={dark}
+                  className="h-8 text-xs rounded-lg w-full font-semibold"
+                />
+              </div>
+            )}
+
             {/* Production Stage / Section Filter Dropdown */}
             {activeModule === 'production' && (
               <div className="w-full sm:w-48 lg:w-56 shrink-0">
@@ -1529,7 +1669,95 @@ export const ReportsPage: React.FC = () => {
                   <p className="text-[11px] text-slate-400 mt-1">Discounts: {formatRs(summary.totalDiscount)}</p>
                 </div>
 
-                {/* 3. COLLECTED / PAID KPI CARD */}
+                {/* 3. COST OF SALE (COGS) KPI CARD */}
+                <div
+                  onClick={() => handleOpenAudit('costOfGoodsSold')}
+                  className={`p-3 sm:p-4 rounded-2xl border cursor-pointer hover:border-amber-500/50 hover:shadow-md transition-all group/kpi select-none ${
+                    dark
+                      ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
+                      : 'bg-white border-slate-200 shadow-sm hover:bg-amber-50/20'
+                  }`}
+                  title="Click to view Cost of Sale (COGS) material and unit cost audit"
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Cost of Sale (COGS)</p>
+                    <span className="text-[10px] text-amber-600 dark:text-amber-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
+                      Audit ↗
+                    </span>
+                  </div>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-amber-700 dark:text-amber-400">
+                    {formatRs(summary.costOfSale ?? summary.cogs ?? 0)}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-1">Material &amp; Garment Cost</p>
+                </div>
+
+                {/* 4. GROSS PROFIT KPI CARD */}
+                <div
+                  onClick={() => handleOpenAudit('grossProfit')}
+                  className={`p-3 sm:p-4 rounded-2xl border cursor-pointer hover:border-emerald-500/50 hover:shadow-md transition-all group/kpi select-none ${
+                    dark
+                      ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
+                      : 'bg-white border-slate-200 shadow-sm hover:bg-emerald-50/20'
+                  }`}
+                  title="Click to view Gross Profit (Sales - Cost of Sale) formula breakdown"
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Gross Profit</p>
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
+                      Audit ↗
+                    </span>
+                  </div>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-emerald-700 dark:text-emerald-400">
+                    {formatRs(summary.grossProfit ?? ((summary.netSales || 0) - (summary.costOfSale ?? summary.cogs ?? 0)))}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-1">Sales - Cost of Sale</p>
+                </div>
+
+                {/* 5. OPERATIONAL EXPENSES KPI CARD */}
+                <div
+                  onClick={() => handleOpenAudit('totalExpenses')}
+                  className={`p-3 sm:p-4 rounded-2xl border cursor-pointer hover:border-rose-500/50 hover:shadow-md transition-all group/kpi select-none ${
+                    dark
+                      ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
+                      : 'bg-white border-slate-200 shadow-sm hover:bg-rose-50/20'
+                  }`}
+                  title="Click to view Operational Expenses itemized audit breakdown"
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Operational Expenses</p>
+                    <span className="text-[10px] text-rose-600 dark:text-rose-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
+                      Audit ↗
+                    </span>
+                  </div>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-rose-600 dark:text-rose-400">
+                    {formatRs(summary.totalExpenses || 0)}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-1">Recorded Outflows</p>
+                </div>
+
+                {/* 6. NET PROFIT KPI CARD */}
+                <div
+                  onClick={() => handleOpenAudit('netProfit')}
+                  className={`p-3 sm:p-4 rounded-2xl border cursor-pointer hover:border-indigo-500/50 hover:shadow-md transition-all group/kpi select-none ${
+                    dark
+                      ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
+                      : 'bg-white border-slate-200 shadow-sm hover:bg-indigo-50/20'
+                  }`}
+                  title="Click to view True Bottom-Line Net Profit (Gross Profit - Expenses)"
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Net Profit</p>
+                    <span className="text-[10px] text-indigo-600 dark:text-indigo-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
+                      Audit ↗
+                    </span>
+                  </div>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-indigo-600 dark:text-indigo-400">
+                    {formatRs(summary.netProfit ?? ((summary.grossProfit ?? ((summary.netSales || 0) - (summary.costOfSale ?? summary.cogs ?? 0))) - (summary.totalExpenses || 0)))}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-1">Gross Profit - Expenses</p>
+                </div>
+
+                {/* 7. COLLECTED / PAID KPI CARD */}
                 <div
                   onClick={() => handleOpenAudit('totalPaid')}
                   className={`p-3 sm:p-4 rounded-2xl border cursor-pointer hover:border-emerald-500/50 hover:shadow-md transition-all group/kpi select-none ${
@@ -1549,7 +1777,7 @@ export const ReportsPage: React.FC = () => {
                   <p className="text-[11px] text-slate-400 mt-1">Avg Order: {formatRs(summary.averageOrderValue)}</p>
                 </div>
 
-                {/* 4. OUTSTANDING CREDIT DUE KPI CARD */}
+                {/* 8. OUTSTANDING CREDIT DUE KPI CARD */}
                 <div
                   onClick={() => handleOpenAudit('totalDue')}
                   className={`p-3 sm:p-4 rounded-2xl border cursor-pointer hover:border-emerald-500/50 hover:shadow-md transition-all group/kpi select-none ${
@@ -1568,73 +1796,30 @@ export const ReportsPage: React.FC = () => {
                   <p className="text-lg md:text-xl font-bold mt-1 text-rose-600 dark:text-rose-400">{formatRs(summary.totalDue)}</p>
                   <p className="text-[11px] text-rose-500/80 mt-1">Pending Customer Debt</p>
                 </div>
+              </>
+            )}
 
-                {/* 5. NET OPERATIONAL REVENUE KPI CARD */}
-                <div
-                  onClick={() => handleOpenAudit('netOperationalRevenue')}
-                  className={`p-3 sm:p-4 rounded-2xl border cursor-pointer hover:border-emerald-500/50 hover:shadow-md transition-all group/kpi select-none ${
-                    dark
-                      ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
-                      : 'bg-white border-slate-200 shadow-sm hover:bg-emerald-50/20'
-                  }`}
-                  title="Click to view Net Operational Revenue formula & deductions audit"
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Net Operational Rev.</p>
-                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
-                      Audit ↗
-                    </span>
-                  </div>
-                  <p className="text-lg md:text-xl font-bold mt-1 text-emerald-700 dark:text-emerald-400">
-                    {formatRs(summary.netOperationalRevenue ?? ((summary.totalPaid || 0) - (summary.totalProductionCost || 0) - (summary.totalGrnExpenses || 0)))}
-                  </p>
-                  <p className="text-[11px] text-slate-400 mt-1">Paid - Production - GRN</p>
+            {activeModule === 'expenses' && (
+              <>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                  <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Total Expenses</p>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-rose-600 dark:text-rose-400">{formatRs(summary.totalExpenses || 0)}</p>
+                  <p className="text-[11px] text-slate-400 mt-1">Period Outflows</p>
                 </div>
-
-                {/* 6. OPERATIONAL PROFIT KPI CARD */}
-                <div
-                  onClick={() => handleOpenAudit('netOperationalProfit')}
-                  className={`p-3 sm:p-4 rounded-2xl border cursor-pointer hover:border-indigo-500/50 hover:shadow-md transition-all group/kpi select-none ${
-                    dark
-                      ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
-                      : 'bg-white border-slate-200 shadow-sm hover:bg-indigo-50/20'
-                  }`}
-                  title="Click to view Operational Profit formula & trading surplus"
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Operational Profit</p>
-                    <span className="text-[10px] text-indigo-600 dark:text-indigo-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
-                      Audit ↗
-                    </span>
-                  </div>
-                  <p className="text-lg md:text-xl font-bold mt-1 text-indigo-600 dark:text-indigo-400">
-                    {formatRs(summary.netOperationalProfit ?? ((summary.netSales || 0) - (summary.totalProductionCost || 0) - (summary.totalGrnExpenses || 0)))}
-                  </p>
-                  <p className="text-[11px] text-slate-400 mt-1">Net Sales - Costs &amp; GRN</p>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                  <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Transactions</p>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-slate-900 dark:text-zinc-100">{summary.transactionCount || 0}</p>
+                  <p className="text-[11px] text-slate-400 mt-1">Recorded Vouchers</p>
                 </div>
-
-                {/* 7. PRODUCTION COSTS KPI CARD */}
-                <div
-                  className={`p-3 sm:p-4 rounded-2xl border ${
-                    dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'
-                  }`}
-                  title="Total direct fabric and manufacturing costs in period"
-                >
-                  <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Production Costs</p>
-                  <p className="text-lg md:text-xl font-bold mt-1 text-amber-700 dark:text-amber-400">{formatRs(summary.totalProductionCost || 0)}</p>
-                  <p className="text-[11px] text-slate-400 mt-1">Fabric &amp; Cut Usages</p>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                  <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Active Categories</p>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-indigo-600 dark:text-indigo-400">{summary.categoryCount || 0}</p>
+                  <p className="text-[11px] text-slate-400 mt-1">Leading: {summary.topCategory || 'N/A'}</p>
                 </div>
-
-                {/* 8. GRN PURCHASES KPI CARD */}
-                <div
-                  className={`p-3 sm:p-4 rounded-2xl border ${
-                    dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'
-                  }`}
-                  title="Goods Received Notes raw materials procurement expenses"
-                >
-                  <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">GRN Purchases</p>
-                  <p className="text-lg md:text-xl font-bold mt-1 text-slate-900 dark:text-zinc-100">{formatRs(summary.totalGrnExpenses || 0)}</p>
-                  <p className="text-[11px] text-slate-400 mt-1">Payables Due: {formatRs(summary.totalGrnLiabilities || 0)}</p>
+                <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
+                  <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Average Outflow</p>
+                  <p className="text-lg md:text-xl font-bold mt-1 text-amber-600 dark:text-amber-400">{formatRs(summary.averageExpense || 0)}</p>
+                  <p className="text-[11px] text-slate-400 mt-1">Per Expense Entry</p>
                 </div>
               </>
             )}
@@ -1904,6 +2089,7 @@ export const ReportsPage: React.FC = () => {
                 <div>
                   <h3 className="text-sm font-bold tracking-tight">
                     {activeModule === 'sales' && 'Payment Method Breakdown (Rs.)'}
+                    {activeModule === 'expenses' && 'Operational Expenses by Category (Rs.)'}
                     {activeModule === 'cheques' && 'Cheque Portfolio Realization Status (Rs.)'}
                     {activeModule === 'returns' && 'Return Reasons Distribution (Refund Rs.)'}
                     {activeModule === 'products' && 'Top Performing SKUs by Revenue (Rs.)'}
@@ -2171,6 +2357,47 @@ export const ReportsPage: React.FC = () => {
                     );
                   }
 
+                  if (activeModule === 'expenses') {
+                    return (
+                      <div
+                        key={row.id || `${row.code}-${idx}`}
+                        className="p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 shadow-xs space-y-2.5 text-xs select-none"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="font-mono font-bold text-xs text-blue-600 dark:text-blue-400 truncate">
+                              {row.code}
+                            </span>
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-semibold border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300">
+                              {row.categoryName}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-1 text-[11px] text-slate-400 font-mono shrink-0">
+                            <Calendar className="size-3" />
+                            <span>{row.date ? row.date.split('T')[0] : '-'}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <span className="font-bold text-slate-900 dark:text-zinc-100 text-xs sm:text-sm truncate block">
+                              {row.description}
+                            </span>
+                            <span className="text-[10px] text-slate-400 dark:text-zinc-500 block truncate">
+                              Recorded by: {row.createdByName} ({row.createdByRole || 'STAFF'})
+                            </span>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="text-[10px] text-slate-400 dark:text-zinc-500 block">Outflow</span>
+                            <span className="font-mono font-bold text-rose-600 dark:text-rose-400 text-sm">
+                              {formatRs(row.amount)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+
                   // Unified card field resolution across all report modules
                   const recordId = row.invoiceNumber || (row.id ? `#${row.id}` : row.batchNumber || row.sku || `REC-${startIndex + idx + 1}`);
                   const recordDate = (row.date || row.createdAt || row.updatedAt || row.orderDate || '')?.split('T')[0] || '-';
@@ -2282,6 +2509,17 @@ export const ReportsPage: React.FC = () => {
                         <th className="py-2.5 px-3 font-semibold text-right w-28 min-w-[100px]">Paid</th>
                         <th className="py-2.5 px-3 font-semibold text-right w-28 min-w-[100px]">Due / Debt</th>
                         <th className="py-2.5 px-3 font-semibold w-28 min-w-[100px]">Method</th>
+                      </>
+                    )}
+
+                    {activeModule === 'expenses' && (
+                      <>
+                        <th className="py-2.5 px-3 font-semibold w-28 min-w-[100px]">Expense Code</th>
+                        <th className="py-2.5 px-3 font-semibold w-28 min-w-[100px]">Date</th>
+                        <th className="py-2.5 px-3 font-semibold w-36 min-w-[120px]">Category</th>
+                        <th className="py-2.5 px-3 font-semibold min-w-[200px]">Description</th>
+                        <th className="py-2.5 px-3 font-semibold w-28 min-w-[100px]">Recorded By</th>
+                        <th className="py-2.5 px-3 font-semibold text-right w-32 min-w-[110px]">Amount (Rs.)</th>
                       </>
                     )}
 
@@ -2468,6 +2706,24 @@ export const ReportsPage: React.FC = () => {
                                   {row.paymentMethod}
                                 </Badge>
                               </td>
+                            </>
+                          )}
+
+                          {activeModule === 'expenses' && (
+                            <>
+                              <td className="py-2.5 px-3 font-mono font-semibold text-blue-600 dark:text-blue-400 whitespace-nowrap">{row.code}</td>
+                              <td className="py-2.5 px-3 font-mono text-slate-600 dark:text-zinc-400 whitespace-nowrap">{row.date ? row.date.split('T')[0] : '-'}</td>
+                              <td className="py-2.5 px-3 whitespace-nowrap">
+                                <Badge variant="outline" className="text-[10px] bg-slate-50 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 border-slate-300 dark:border-zinc-700">
+                                  {row.categoryName}
+                                </Badge>
+                              </td>
+                              <td className="py-2.5 px-3 font-medium text-slate-800 dark:text-zinc-200 break-words whitespace-normal">{row.description}</td>
+                              <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">
+                                <span className="font-medium text-slate-700 dark:text-zinc-300">{row.createdByName}</span>
+                                <span className="text-[10px] text-slate-400 block">{row.createdByRole || 'STAFF'}</span>
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-bold font-mono text-rose-600 dark:text-rose-400 whitespace-nowrap">{formatRs(row.amount)}</td>
                             </>
                           )}
 
@@ -2865,6 +3121,14 @@ export const ReportsPage: React.FC = () => {
           totalDiscount: summary.totalDiscount || 0,
           totalReturns: summary.totalReturns || 0,
           netSales: summary.netSales || 0,
+          costOfGoodsSold: summary.costOfSale ?? summary.cogs ?? 0,
+          totalCostOfGoodsSold: summary.costOfSale ?? summary.cogs ?? 0,
+          grossProfit: summary.grossProfit ?? ((summary.netSales || 0) - (summary.costOfSale ?? summary.cogs ?? 0)),
+          grossProfitMargin: summary.grossProfitMargin,
+          totalExpenses: summary.totalExpenses ?? 0,
+          netProfit: summary.netProfit ?? ((summary.grossProfit ?? ((summary.netSales || 0) - (summary.costOfSale ?? summary.cogs ?? 0))) - (summary.totalExpenses ?? 0)),
+          netProfitMargin: summary.netProfitMargin,
+          expensesByCategory: summary.expensesByCategory || [],
           totalPaid: summary.totalPaid || 0,
           totalDue: summary.totalDue || 0,
           orderCount: summary.orderCount || 0,
@@ -2874,8 +3138,6 @@ export const ReportsPage: React.FC = () => {
           totalProductionCost: summary.totalProductionCost || 0,
           totalGrnExpenses: summary.totalGrnExpenses || 0,
           totalGrnLiabilities: summary.totalGrnLiabilities || 0,
-          netOperationalRevenue: summary.netOperationalRevenue,
-          netOperationalProfit: summary.netOperationalProfit,
         }}
         onSelectMetric={(m) => setAuditFocusMetric(m)}
         onDownloadMasterPdf={handleDownloadFinancialAuditPdf}

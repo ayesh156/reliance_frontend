@@ -309,10 +309,12 @@ export function drawStandardReportFooter(
 export type FinancialMetricFocus =
   | 'grossRevenue'
   | 'netSales'
+  | 'costOfGoodsSold'
+  | 'grossProfit'
+  | 'totalExpenses'
+  | 'netProfit'
   | 'totalPaid'
-  | 'totalDue'
-  | 'netOperationalRevenue'
-  | 'netOperationalProfit';
+  | 'totalDue';
 
 export interface FinancialAuditExportData {
   grossRevenue: number;
@@ -329,8 +331,13 @@ export interface FinancialAuditExportData {
   totalGrnExpenses?: number;
   totalGrnLiabilities?: number;
   costOfGoodsSold?: number;
+  totalCostOfGoodsSold?: number;
   grossProfit?: number;
   grossProfitMargin?: number;
+  totalExpenses?: number;
+  netProfit?: number;
+  netProfitMargin?: number;
+  expensesByCategory?: Array<{ name: string; total: number; count: number }>;
   netOperationalRevenue?: number;
   netOperationalProfit?: number;
 }
@@ -382,15 +389,11 @@ export async function generateFinancialAuditPdf(
   const totalGrnExpenses = Number(data.totalGrnExpenses) || 0;
   const totalGrnLiabilities = Number(data.totalGrnLiabilities) || 0;
 
-  const netOperationalRevenue =
-    data.netOperationalRevenue !== undefined
-      ? Number(data.netOperationalRevenue)
-      : Math.round((totalPaid - totalProductionCost - totalGrnExpenses) * 100) / 100;
-
-  const netOperationalProfit =
-    data.netOperationalProfit !== undefined
-      ? Number(data.netOperationalProfit)
-      : Math.round((netSales - totalProductionCost - totalGrnExpenses) * 100) / 100;
+  const cogs = Number(data.costOfGoodsSold ?? data.totalCostOfGoodsSold) || 0;
+  const grossProfit = Number(data.grossProfit ?? (netSales - cogs)) || 0;
+  const totalExpenses = Number(data.totalExpenses) || 0;
+  const netProfit = Number(data.netProfit ?? (grossProfit - totalExpenses)) || 0;
+  const expensesByCategory = data.expensesByCategory || [];
 
   const paymentSplit = data.paymentSplit || {};
   const cashAmount = paymentSplit['CASH']?.amount || 0;
@@ -402,42 +405,52 @@ export async function generateFinancialAuditPdf(
   const creditAmount = paymentSplit['CREDIT']?.amount || 0;
   const creditCount = paymentSplit['CREDIT']?.count || 0;
 
-  const currentFocus = options.currentFocus || 'netOperationalRevenue';
+  const currentFocus = (options.currentFocus || 'netProfit') as FinancialMetricFocus;
   const focusLabels: Record<FinancialMetricFocus, { label: string; formula: string; amount: number }> = {
-    grossRevenue: {
-      label: 'Gross Revenue',
-      formula: 'Gross Revenue = Total Item List Value before discounts or returns',
-      amount: grossRevenue,
-    },
     netSales: {
-      label: 'Net Sales',
-      formula: 'Net Sales = Gross Item Volume - Discounts Applied - Restocked Returns',
+      label: 'Total Sales (Revenue)',
+      formula: 'Sales = Billed Orders - Discounts - Returns',
       amount: netSales,
+    },
+    costOfGoodsSold: {
+      label: 'Cost of Sale (COGS)',
+      formula: 'Cost of Sale = Sum of (Item Unit Cost × Quantity Sold)',
+      amount: cogs,
+    },
+    grossProfit: {
+      label: 'Gross Profit',
+      formula: 'Gross Profit = Sales - Cost of Sale',
+      amount: grossProfit,
+    },
+    totalExpenses: {
+      label: 'Operational Expenses',
+      formula: 'Expenses = Category sum from Expenses Module',
+      amount: totalExpenses,
+    },
+    netProfit: {
+      label: 'Net Profit (Bottom Line)',
+      formula: 'Net Profit = Gross Profit - Expenses',
+      amount: netProfit,
+    },
+    grossRevenue: {
+      label: 'Gross Item Volume',
+      formula: 'Gross Revenue = Total Item Catalogue List Value',
+      amount: grossRevenue,
     },
     totalPaid: {
       label: 'Collected / Paid',
-      formula: 'Collected / Paid = Cash Tendered + Card Settled + Cleared Cheque Payments',
+      formula: 'Collected / Paid = Cash + Card + Cleared Cheque Payments',
       amount: totalPaid,
     },
     totalDue: {
       label: 'Outstanding Credit Due',
-      formula: 'Outstanding Due = Net Sales Total - Realized Payments Received',
+      formula: 'Outstanding Due = Accounts Receivable awaiting collection',
       amount: totalDue,
-    },
-    netOperationalRevenue: {
-      label: 'Net Operational Revenue',
-      formula: 'Net Operational Revenue = Realized Collections (Total Paid) - Production Costs - GRN Expenses',
-      amount: netOperationalRevenue,
-    },
-    netOperationalProfit: {
-      label: 'Operational Profit',
-      formula: 'Operational Profit = Net Billed Sales - Total Production Material Costs - GRN Purchases',
-      amount: netOperationalProfit,
     },
   };
 
-  const focusInfo = focusLabels[currentFocus] || focusLabels.netOperationalRevenue;
-  const reportTitle = 'FINANCIAL AUDIT & OPERATIONAL REVENUE SUMMARY';
+  const focusInfo = focusLabels[currentFocus] || focusLabels.netProfit;
+  const reportTitle = 'FINANCIAL AUDIT & PROFIT RECONCILIATION';
   const dateLabel = options.dateRangeLabel || data.dateLabel || 'Selected Range';
   const generatedTimestamp = formatReportTimestamp();
   const generatedBy = options.generatedBy || 'System Administrator';
@@ -483,24 +496,24 @@ export async function generateFinancialAuditPdf(
   // ── 2. Executive KPI Summary Cards (2 Rows of 4 Cards) ──
   const kpiRows: Array<Array<{ label: string; value: string; isAlert?: boolean }>> = [
     [
-      { label: 'GROSS ITEM VOLUME', value: formatCurrency(grossRevenue) },
-      { label: 'TOTAL DISCOUNTS', value: `- ${formatCurrency(totalDiscount)}` },
-      { label: 'NET BILLED SALES', value: formatCurrency(netSales) },
-      { label: 'REALIZED CASH INFLOW', value: formatCurrency(totalPaid) },
+      { label: 'NET SALES REVENUE', value: formatCurrency(netSales) },
+      { label: 'COST OF SALE (COGS)', value: `- ${formatCurrency(cogs)}` },
+      { label: 'GROSS PROFIT', value: formatCurrency(grossProfit) },
+      { label: 'OPERATIONAL EXPENSES', value: `- ${formatCurrency(totalExpenses)}` },
     ],
     [
-      { label: 'PRODUCTION COSTS', value: `- ${formatCurrency(totalProductionCost)}` },
-      { label: 'GRN PURCHASES', value: `- ${formatCurrency(totalGrnExpenses)}` },
       {
-        label: 'NET OPERATIONAL REV.',
-        value: formatCurrency(netOperationalRevenue),
-        isAlert: netOperationalRevenue < 0,
+        label: 'NET PROFIT (BOTTOM LINE)',
+        value: formatCurrency(netProfit),
+        isAlert: netProfit < 0,
       },
+      { label: 'REALIZED CASH INFLOW', value: formatCurrency(totalPaid) },
       {
         label: 'CUSTOMER DEBT DUE',
         value: formatCurrency(totalDue),
         isAlert: totalDue > 0,
       },
+      { label: 'GROSS ITEM VOLUME', value: formatCurrency(grossRevenue) },
     ],
   ];
 
@@ -530,37 +543,31 @@ export async function generateFinancialAuditPdf(
 
   curY += 6;
 
-  // ── 3. Line-Item Financial Ledger Waterfall Table ──
+  // ── 3. Section 1: Gross Profit Waterfall Table ──
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
   doc.setTextColor(0, 0, 0);
-  doc.text('1. LINE-ITEM FINANCIAL LEDGER WATERFALL', startX, curY);
+  doc.text('1. SECTION 1: GROSS PROFIT CALCULATION (SALES - COGS = GROSS PROFIT)', startX, curY);
   curY += 8;
 
   const waterfallRows = [
     [
       '+',
-      'Total Item List Value (Gross Volume)',
-      formatAmountNum(grossRevenue),
-      `Standard catalogue volume across ${orderCount} recorded sales`,
+      'Total Sales Revenue (Net Sales)',
+      formatAmountNum(netSales),
+      `Gross Item Volume (${formatCurrency(grossRevenue)}) less Discounts & Returns (${orderCount} Orders)`,
     ],
     [
       '-',
-      'Less: Promotional Discounts Applied',
-      formatAmountNum(totalDiscount),
-      'Discounts applied during POS checkout & register settlement',
-    ],
-    [
-      '-',
-      'Less: Restocked Garment Returns',
-      formatAmountNum(totalReturns),
-      'Items returned to warehouse stock with customer credit reversals',
+      'Less: Cost of Sale (Material & Product COGS)',
+      formatAmountNum(cogs),
+      'Direct garment production material unit cost or product cost price × sold quantity',
     ],
     [
       '=',
-      'EQUALS: Net Sales Revenue',
-      formatAmountNum(netSales),
-      'True accrual revenue recognized in Reliance financial accounts',
+      'EQUALS: Gross Profit (Trading Surplus)',
+      formatAmountNum(grossProfit),
+      'Trading margin generated before operational overheads and administrative expenses',
     ],
   ];
 
@@ -568,7 +575,7 @@ export async function generateFinancialAuditPdf(
     startY: curY,
     margin: { left: startX, right: pageWidth - rightMargin, top: 115, bottom: 45 },
     theme: 'plain',
-    head: [['OP', 'LEDGER COMPONENT / AUDIT ITEM', 'AMOUNT (RS.)', 'AUDIT NOTES & RECONCILIATION']],
+    head: [['OP', 'ACCOUNTING COMPONENT / AUDIT ITEM', 'AMOUNT (RS.)', 'AUDIT NOTES & RECONCILIATION']],
     body: waterfallRows,
     headStyles: {
       fillColor: [248, 250, 252],
@@ -600,11 +607,75 @@ export async function generateFinancialAuditPdf(
 
   curY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 12 : curY + 80;
 
-  // ── 4. Collections & Liquidity Settlement Breakdown Table ──
+  // ── 4. Section 2: Net Profit Waterfall Table ──
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
   doc.setTextColor(0, 0, 0);
-  doc.text('2. COLLECTIONS & LIQUIDITY SETTLEMENT BREAKDOWN', startX, curY);
+  doc.text('2. SECTION 2: NET PROFIT CALCULATION (GROSS PROFIT - EXPENSES = NET PROFIT)', startX, curY);
+  curY += 8;
+
+  const netProfitRows = [
+    [
+      '+',
+      'Gross Profit Brought Forward',
+      formatAmountNum(grossProfit),
+      'Direct trading surplus from Section 1',
+    ],
+    [
+      '-',
+      'Less: Operational Expenses',
+      formatAmountNum(totalExpenses),
+      'Category-itemized operational overheads from Expenses Module',
+    ],
+    [
+      '=',
+      'EQUALS: Net Profit (True Bottom-Line Profit)',
+      formatAmountNum(netProfit),
+      'True bottom-line company profit after all costs and operational expenses',
+    ],
+  ];
+
+  autoTable(doc, {
+    startY: curY,
+    margin: { left: startX, right: pageWidth - rightMargin, top: 115, bottom: 45 },
+    theme: 'plain',
+    head: [['OP', 'ACCOUNTING COMPONENT / AUDIT ITEM', 'AMOUNT (RS.)', 'AUDIT NOTES & RECONCILIATION']],
+    body: netProfitRows,
+    headStyles: {
+      fillColor: [248, 250, 252],
+      textColor: [0, 0, 0],
+      fontSize: 7,
+      fontStyle: 'bold',
+      lineColor: [0, 0, 0],
+      lineWidth: { top: 0.8, bottom: 0.8, left: 0, right: 0 },
+      cellPadding: { top: 4, bottom: 4, left: 4, right: 4 },
+    },
+    bodyStyles: {
+      fillColor: [255, 255, 255],
+      textColor: [0, 0, 0],
+      fontSize: 7,
+      lineColor: [226, 232, 240],
+      lineWidth: { bottom: 0.4, top: 0, left: 0, right: 0 },
+      cellPadding: { top: 3.5, bottom: 3.5, left: 4, right: 4 },
+    },
+    columnStyles: {
+      0: { cellWidth: 26, halign: 'center', fontStyle: 'bold' },
+      1: { cellWidth: 175, halign: 'left', fontStyle: 'bold' },
+      2: { cellWidth: 90, halign: 'right', fontStyle: 'bold' },
+      3: { cellWidth: 219.28, halign: 'left', textColor: [85, 85, 85] },
+    },
+    didDrawPage: () => {
+      renderHeader(32);
+    },
+  });
+
+  curY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 12 : curY + 80;
+
+  // ── 5. Section 3: Collections & Receivables Status (Cash-flow Context) ──
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(0, 0, 0);
+  doc.text('3. SECTION 3: COLLECTIONS & RECEIVABLES STATUS (CASH-FLOW CONTEXT)', startX, curY);
   curY += 8;
 
   const collectionsRows = [
@@ -643,82 +714,6 @@ export async function generateFinancialAuditPdf(
       1: { cellWidth: 80, halign: 'center' },
       2: { cellWidth: 95, halign: 'right', fontStyle: 'bold' },
       3: { cellWidth: 170.28, halign: 'left', textColor: [85, 85, 85] },
-    },
-    didDrawPage: () => {
-      renderHeader(32);
-    },
-  });
-
-  curY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 12 : curY + 80;
-
-  // ── 5. Net Operational Revenue & Manufacturing Outflows Breakdown Table ──
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.setTextColor(0, 0, 0);
-  doc.text('3. NET OPERATIONAL REVENUE & MANUFACTURING LIABILITIES', startX, curY);
-  curY += 8;
-
-  const operationalRows = [
-    [
-      '+',
-      'Realized Customer Collections (Total Paid)',
-      formatAmountNum(totalPaid),
-      'Direct liquid inflow realized across all payment methods',
-    ],
-    [
-      '-',
-      'Direct Production Batch Costs',
-      formatAmountNum(totalProductionCost),
-      'Cutting, fabric consumption & manufacturing labor costs',
-    ],
-    [
-      '-',
-      'GRN Supplier Procurement Expenses',
-      formatAmountNum(totalGrnExpenses),
-      `Raw materials procurement liabilities (Payables: Rs. ${formatAmountNum(totalGrnLiabilities)})`,
-    ],
-    [
-      '=',
-      'EQUALS: Net Operational Revenue (Cash Surplus)',
-      formatAmountNum(netOperationalRevenue),
-      'Net liquid operating surplus: Total Paid minus Production & GRN',
-    ],
-    [
-      '=',
-      'EQUALS: Net Operational Profit (Accrual)',
-      formatAmountNum(netOperationalProfit),
-      'Operating profitability: Net Sales minus Production & GRN',
-    ],
-  ];
-
-  autoTable(doc, {
-    startY: curY,
-    margin: { left: startX, right: pageWidth - rightMargin, top: 115, bottom: 45 },
-    theme: 'plain',
-    head: [['OP', 'OPERATIONAL COMPONENT', 'AMOUNT (RS.)', 'ACCOUNTING IMPACT & RECONCILIATION']],
-    body: operationalRows,
-    headStyles: {
-      fillColor: [248, 250, 252],
-      textColor: [0, 0, 0],
-      fontSize: 7,
-      fontStyle: 'bold',
-      lineColor: [0, 0, 0],
-      lineWidth: { top: 0.8, bottom: 0.8, left: 0, right: 0 },
-      cellPadding: { top: 4, bottom: 4, left: 4, right: 4 },
-    },
-    bodyStyles: {
-      fillColor: [255, 255, 255],
-      textColor: [0, 0, 0],
-      fontSize: 7,
-      lineColor: [226, 232, 240],
-      lineWidth: { bottom: 0.4, top: 0, left: 0, right: 0 },
-      cellPadding: { top: 3.5, bottom: 3.5, left: 4, right: 4 },
-    },
-    columnStyles: {
-      0: { cellWidth: 26, halign: 'center', fontStyle: 'bold' },
-      1: { cellWidth: 175, halign: 'left', fontStyle: 'bold' },
-      2: { cellWidth: 90, halign: 'right', fontStyle: 'bold' },
-      3: { cellWidth: 219.28, halign: 'left', textColor: [85, 85, 85] },
     },
     didDrawPage: () => {
       renderHeader(32);

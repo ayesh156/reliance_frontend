@@ -18,6 +18,7 @@ import {
   Scissors,
   Sparkles,
   ChevronDown,
+  ReceiptText,
 } from "lucide-react"
 import { useAuth } from "../contexts/AuthContext"
 
@@ -65,6 +66,7 @@ const productionSubItems: ProductionSubItem[] = [
 ];
 
 const bottomNavItems: NavItem[] = [
+  { label: "Expenses", path: "/system/expenses", icon: ReceiptText, permission: "expenses" },
   { label: "Reports & Analytics", path: "/system/reports", icon: BarChart3, permission: "reports" },
   { label: "Settings", path: "/system/settings", icon: Settings, permission: "settings" },
 ];

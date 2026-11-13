@@ -11,8 +11,8 @@ export interface AuthUser {
 }
 
 /** Default permissions strictly injected for Staff accounts */
-export const DEFAULT_STAFF_PERMISSIONS = ['production', 'line', 'wash', 'finishing', 'materials'];
-export const DEFAULT_REP_PERMISSIONS = ['pos', 'invoices', 'orders', 'products', 'customers', 'materials', 'reports'];
+export const DEFAULT_STAFF_PERMISSIONS = ['production', 'line', 'wash', 'finishing', 'materials', 'expenses'];
+export const DEFAULT_REP_PERMISSIONS = ['pos', 'invoices', 'orders', 'products', 'customers', 'materials', 'reports', 'expenses'];
 
 export const getDefaultPermissionsForRole = (role?: string): string[] => {
   if (role === 'STAFF') return DEFAULT_STAFF_PERMISSIONS;
@@ -180,15 +180,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
         setUser(verifiedUser);
         localStorage.setItem('auth_user', JSON.stringify(verifiedUser));
-      } else if (res.status === 401) {
-        // STRICT: Only clear session if explicitly 401 Unauthorized
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('auth_user');
-        setToken(null);
-        setUser(null);
-        if (typeof window !== 'undefined' && window.location.pathname.startsWith('/system')) {
-          window.location.href = '/login';
+        if (data.token) {
+          localStorage.setItem('auth_token', data.token);
+          setToken(data.token);
         }
+      } else if (res.status === 401) {
+        // Trusted-Device Persistence:
+        // Do NOT wipe localStorage auth tokens or kick users out on background hibernation or transient blips.
+        console.warn('[AuthContext] Background session check returned 401. Preserving cached session.');
       }
       // If 5xx or temporary network issue: keep cached session intact
     } catch {
@@ -247,6 +246,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     sseManager.disconnect();
     localStorage.removeItem('auth_token');
     localStorage.removeItem('auth_user');
+    localStorage.removeItem('reliance_last_active_route');
     setToken(null);
     setUser(null);
   }, []);

@@ -33,6 +33,7 @@ import { CuttingListPage } from './pages/CuttingListPage';
 import { LinePage } from './pages/LinePage';
 import { WashPage } from './pages/WashPage';
 import { FinishingPage } from './pages/FinishingPage';
+import { ExpensesPage } from './pages/ExpensesPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { Dashboard } from './pages/Dashboard';
 
@@ -83,7 +84,30 @@ function ScrollToTop() {
 
 function SystemLandingRedirect() {
   const { user } = useAuth();
+  const lastActiveRoute = typeof window !== 'undefined' ? localStorage.getItem('reliance_last_active_route') : null;
+  if (lastActiveRoute && lastActiveRoute.startsWith('/system') && lastActiveRoute !== '/system') {
+    return <Navigate to={lastActiveRoute} replace />;
+  }
   return <Navigate to={getFirstAllowedRoute(user)} replace />;
+}
+
+/**
+ * PWA Resilience & Route Restoration Sentinel:
+ * Tracks user's exact back-office location (pathname + query params) so reloads,
+ * app backgrounding, or device switches instantly restore where they left off.
+ */
+function RouteTracker() {
+  const location = useLocation();
+  const { isAuthenticated } = useAuth();
+
+  useEffect(() => {
+    if (isAuthenticated && location.pathname.startsWith('/system')) {
+      const fullPath = location.pathname + location.search;
+      localStorage.setItem('reliance_last_active_route', fullPath);
+    }
+  }, [location, isAuthenticated]);
+
+  return null;
 }
 
 function QuickInvoiceRouteWrapper() {
@@ -116,6 +140,7 @@ export function App() {
           <ThemedToastContainer />
           <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <ScrollToTop />
+            <RouteTracker />
             <ErrorBoundary>
               <React.Suspense fallback={<RouteLoadingFallback />}>
                 <Routes>
@@ -475,6 +500,19 @@ export function App() {
                   </ProtectedRoute>
                 }
               />
+
+              {/* Dedicated Expense & Payment Management Module */}
+              <Route
+                path="/system/expenses"
+                element={
+                  <ProtectedRoute requiredPermission="expenses" requiredRole={['ADMIN', 'STAFF']}>
+                    <AdminPage>
+                      <ExpensesPage />
+                    </AdminPage>
+                  </ProtectedRoute>
+                }
+              />
+              <Route path="/expenses" element={<Navigate to="/system/expenses" replace />} />
 
               {/* Enterprise Reports & Analytics Route */}
               <Route
