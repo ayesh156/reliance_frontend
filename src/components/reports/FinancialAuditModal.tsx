@@ -108,25 +108,25 @@ export const FinancialAuditModal: React.FC<FinancialAuditModalProps> = ({
   const formatRs = (val: number) =>
     `Rs. ${(val || 0).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  // Metric Tab Details strictly following Client-Mandated Formula
+  // Metric Tab Details strictly following Client-Mandated Formula & Accrual Accounting
   const METRIC_TABS = [
     {
       key: 'netSales' as FinancialMetricFocus,
-      label: '1. Total Sales',
-      badgeLabel: 'Total Sales',
+      label: '1. Net Sales',
+      badgeLabel: 'Net Sales Revenue',
       color: 'text-blue-600 dark:text-blue-400',
       amount: netSales,
-      formula: 'TOTAL SALES (+ Rs. X)',
-      description: 'Total billed sales revenue accrued for the selected period after deducting promotions and returns.',
+      formula: '1. Net Sales Revenue (+ Rs. X)',
+      description: 'Includes both Wholesale & Retail billed invoices, less customer returns.',
     },
     {
       key: 'costOfGoodsSold' as FinancialMetricFocus,
       label: '2. Cost of Sale',
-      badgeLabel: 'Cost of Sale',
+      badgeLabel: 'COGS',
       color: 'text-amber-600 dark:text-amber-400',
       amount: cogs,
-      formula: 'Less: Cost of Sale (- Rs. Y)',
-      description: 'Direct cost of goods sold based on production cost and item purchase prices.',
+      formula: '2. Less: Cost of Goods Sold (COGS) (- Rs. Y)',
+      description: 'Direct material (GRN) and production cost of the exact units sold. (Unsold inventory remains an asset).',
     },
     {
       key: 'grossProfit' as FinancialMetricFocus,
@@ -134,17 +134,17 @@ export const FinancialAuditModal: React.FC<FinancialAuditModalProps> = ({
       badgeLabel: 'Gross Profit',
       color: 'text-emerald-600 dark:text-emerald-400',
       amount: grossProfit,
-      formula: 'EQUALS: GROSS PROFIT (= Rs. X - Y)',
-      description: 'Trading surplus calculated strictly as Total Sales minus Cost of Sale.',
+      formula: '3. EQUALS: GROSS PROFIT (= Rs. X - Y)',
+      description: 'Trading surplus calculated as Net Sales Revenue minus Cost of Goods Sold (COGS).',
     },
     {
       key: 'totalExpenses' as FinancialMetricFocus,
-      label: '4. Total Expenses',
-      badgeLabel: 'Total Expenses',
+      label: '4. Expenses',
+      badgeLabel: 'Operational Expenses',
       color: 'text-rose-600 dark:text-rose-400',
       amount: totalExpenses,
-      formula: 'Less: Total Expenses (- Rs. Z)',
-      description: 'Total operational expenditures recorded in the Expenses module.',
+      formula: '4. Less: Operational Expenses (- Rs. Z)',
+      description: 'Total overheads and administrative outflows recorded in the Expenses module.',
     },
     {
       key: 'netProfit' as FinancialMetricFocus,
@@ -152,8 +152,8 @@ export const FinancialAuditModal: React.FC<FinancialAuditModalProps> = ({
       badgeLabel: 'Net Profit',
       color: 'text-purple-600 dark:text-purple-400',
       amount: netProfit,
-      formula: 'EQUALS: NET PROFIT (= Rs. Gross Profit - Z)',
-      description: 'True bottom-line net profit calculated strictly as Gross Profit minus Total Expenses.',
+      formula: '5. EQUALS: NET PROFIT (= Rs. Gross Profit - Z)',
+      description: 'True bottom-line net profit calculated strictly as Gross Profit minus Operational Expenses.',
     },
   ];
 
@@ -170,16 +170,22 @@ Accounting Engine: Sales - Cost of Sale = Gross Profit | Gross Profit - Expenses
 Generated At: ${new Date().toLocaleString()}
 =====================================================
 
-1. TOTAL SALES:                               + ${formatRs(netSales)}
-2. Less: Cost of Sale:                        - ${formatRs(cogs)}
+1. Net Sales Revenue:                         + ${formatRs(netSales)}
+   (Includes both Wholesale & Retail billed invoices, less customer returns)
+
+2. Less: Cost of Goods Sold (COGS):           - ${formatRs(cogs)}
+   (Direct material/GRN and production cost of exact units sold. Unsold inventory remains an asset)
 -----------------------------------------------------
 3. EQUALS: GROSS PROFIT:                      = ${formatRs(grossProfit)}
+   (Net Sales Revenue - Cost of Goods Sold)
 
-4. Less: Total Expenses:                      - ${formatRs(totalExpenses)}
+4. Less: Operational Expenses:                - ${formatRs(totalExpenses)}
+   (Total overheads and administrative outflows recorded in the Expenses module)
 -----------------------------------------------------
 5. EQUALS: NET PROFIT:                        = ${formatRs(netProfit)}
+   (Gross Profit - Operational Expenses)
 =====================================================
-Certified by Reliance Apparel Financial Accounting Engine
+Certified by Reliance Apparel Financial Accounting Engine (Accrual P&L Standard)
 =====================================================`;
   };
 
@@ -289,7 +295,7 @@ Certified by Reliance Apparel Financial Accounting Engine
 
           {/* ── Strict Client-Mandated Financial Mathematical Flow ── */}
           <div className="rounded-2xl border border-slate-200 dark:border-zinc-800 overflow-hidden shadow-2xs divide-y divide-slate-100 dark:divide-zinc-800">
-            {/* Step 1: TOTAL SALES */}
+            {/* Step 1: Net Sales Revenue */}
             <div
               className={`p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 transition-colors ${
                 currentFocus === 'netSales' ? 'bg-blue-50/60 dark:bg-blue-950/30' : 'bg-white dark:bg-zinc-900'
@@ -301,10 +307,10 @@ Certified by Reliance Apparel Financial Accounting Engine
                 </div>
                 <div>
                   <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white block uppercase tracking-wide">
-                    TOTAL SALES
+                    1. Net Sales Revenue
                   </span>
                   <span className="text-[11px] text-slate-500 dark:text-zinc-400 block">
-                    Billed sales revenue for selected period
+                    Includes both Wholesale &amp; Retail billed invoices, less customer returns.
                   </span>
                 </div>
               </div>
@@ -313,7 +319,7 @@ Certified by Reliance Apparel Financial Accounting Engine
               </span>
             </div>
 
-            {/* Step 2: Less: Cost of Sale */}
+            {/* Step 2: Less: Cost of Goods Sold (COGS) */}
             <div
               className={`p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 transition-colors ${
                 currentFocus === 'costOfGoodsSold' ? 'bg-amber-50/60 dark:bg-amber-950/30' : 'bg-white dark:bg-zinc-900'
@@ -325,10 +331,10 @@ Certified by Reliance Apparel Financial Accounting Engine
                 </div>
                 <div>
                   <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white block">
-                    Less: Cost of Sale
+                    2. Less: Cost of Goods Sold (COGS)
                   </span>
                   <span className="text-[11px] text-slate-500 dark:text-zinc-400 block">
-                    Direct product &amp; material cost of goods sold
+                    Direct material (GRN) and production cost of the exact units sold. (Unsold inventory remains an asset).
                   </span>
                 </div>
               </div>
@@ -349,10 +355,10 @@ Certified by Reliance Apparel Financial Accounting Engine
                 </div>
                 <div>
                   <span className="font-bold text-xs sm:text-sm text-emerald-900 dark:text-emerald-100 block uppercase tracking-wide">
-                    EQUALS: GROSS PROFIT
+                    3. EQUALS: GROSS PROFIT
                   </span>
                   <span className="text-[11px] text-emerald-700/80 dark:text-emerald-300/80 block">
-                    Total Sales - Cost of Sale
+                    Net Sales Revenue - Cost of Goods Sold (COGS)
                   </span>
                 </div>
               </div>
@@ -361,7 +367,7 @@ Certified by Reliance Apparel Financial Accounting Engine
               </span>
             </div>
 
-            {/* Step 4: Less: Total Expenses */}
+            {/* Step 4: Less: Operational Expenses */}
             <div
               className={`p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 transition-colors ${
                 currentFocus === 'totalExpenses' ? 'bg-rose-50/60 dark:bg-rose-950/30' : 'bg-white dark:bg-zinc-900'
@@ -373,10 +379,10 @@ Certified by Reliance Apparel Financial Accounting Engine
                 </div>
                 <div>
                   <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white block">
-                    Less: Total Expenses
+                    4. Less: Operational Expenses
                   </span>
                   <span className="text-[11px] text-slate-500 dark:text-zinc-400 block">
-                    Operating expenditures from Expenses ledger
+                    Total overheads and administrative outflows recorded in the Expenses module.
                   </span>
                 </div>
               </div>
@@ -397,10 +403,10 @@ Certified by Reliance Apparel Financial Accounting Engine
                 </div>
                 <div>
                   <span className="font-bold text-xs sm:text-sm text-purple-900 dark:text-purple-100 block uppercase tracking-wide">
-                    EQUALS: NET PROFIT
+                    5. EQUALS: NET PROFIT
                   </span>
                   <span className="text-[11px] text-purple-700/80 dark:text-purple-300/80 block">
-                    Gross Profit - Total Expenses
+                    Gross Profit - Operational Expenses
                   </span>
                 </div>
               </div>
