@@ -10,7 +10,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '../components/ui/dialog';
-import { Building2, Receipt, Palette, Lock, Save, Printer } from 'lucide-react';
+import { Building2, Receipt, Palette, Lock, Save, Printer, Wallet } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { get, post, patch, put } from '../lib/api';
@@ -118,6 +118,12 @@ const AVAILABLE_MODULES: ModulePermissionDef[] = [
     label: 'Raw Materials & Stock',
     description: 'Fabric rolls, button inventory, suppliers, purchase orders',
     icon: Boxes,
+  },
+  {
+    id: 'expenses',
+    label: 'Expenses & Operational Payments',
+    description: 'Record overheads, manage dynamic expense categories, and monitor company outflows',
+    icon: Wallet,
   },
   {
     id: 'reports',
