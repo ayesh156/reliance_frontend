@@ -557,9 +557,9 @@ export const LinePage: React.FC = () => {
     const washLogs = getWashDispatchLogs(batch, true);
     const sewnLogs = getSewnLogs(batch, true);
 
-    const periodIntake = intakeLogs.reduce((sum, l) => sum + (Number(l.quantity) || 0), 0);
-    const periodWash = washLogs.reduce((sum, l) => sum + (Number(l.quantity) || 0), 0);
-    const periodSewn = sewnLogs.reduce((sum, l) => sum + (Number(l.quantity) || 0), 0);
+    const periodIntake = intakeLogs.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
+    const periodWash = washLogs.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
+    const periodSewn = sewnLogs.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
 
     const pTime = new Date(batch.productionDate).getTime();
     const pInRange = !isNaN(pTime) && pTime >= localBoundaries.startTime && pTime <= localBoundaries.endTime;
