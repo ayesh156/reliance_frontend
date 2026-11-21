@@ -29,6 +29,7 @@ import {
   DropdownMenuSeparator,
 } from '../components/ui/dropdown-menu';
 import { TooltipSimple } from '../components/ui/tooltip';
+import { TablePagination } from '../components/common/TablePagination';
 import {
   Search,
   Plus,
@@ -1184,35 +1185,16 @@ export const OrdersPage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── 7. Pagination Controls ── */}
-      {pagination.totalPages > 1 && (
-        <div className="flex items-center justify-between pt-3 text-xs text-slate-500">
-          <span>
-            Page {pagination.page} of {pagination.totalPages} ({pagination.total} total orders)
-          </span>
-
-          <div className="flex items-center gap-1">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={pagination.page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className="size-8 p-0"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={pagination.page >= pagination.totalPages}
-              onClick={() => setPage((p) => Math.min(pagination.totalPages, p + 1))}
-              className="size-8 p-0"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
+      {/* ── 7. Standardized Table Pagination ── */}
+      {pagination.total > 0 && (
+        <div className="pt-3">
+          <TablePagination
+            currentPage={pagination.page}
+            totalPages={pagination.totalPages}
+            totalCount={pagination.total}
+            pageSize={pagination.limit || 12}
+            onPageChange={(newPage) => setPage(newPage)}
+          />
         </div>
       )}
 

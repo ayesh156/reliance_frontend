@@ -32,6 +32,7 @@ import { FinishingModal, type FinishingProductItem } from '../components/product
 import { get, del } from '../lib/api';
 import { getProductImageUrl } from '../lib/utils';
 import { formatSriLankaDateTime } from '../components/production/CuttingDetailModal';
+import { TablePagination } from '../components/common/TablePagination';
 import { toast } from 'react-toastify';
 import {
   Shirt,
@@ -289,6 +290,20 @@ export const FinishingPage: React.FC = () => {
       pack: packQty,
     };
   }, [filteredLogs]);
+
+  // Pagination state (12 items per page)
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const pageSize = 12;
+  const totalPages = Math.ceil(filteredLogs.length / pageSize) || 1;
+  const paginatedLogs = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredLogs.slice(start, start + pageSize);
+  }, [filteredLogs, currentPage, pageSize]);
+
+  // UX Integrity: Reset pagination to page 1 whenever any filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, actionFilter, selectedProductFilter, dateRange]);
 
   // Modal Action Handlers
   const handleOpenAddIroned = () => {
@@ -779,7 +794,7 @@ export const FinishingPage: React.FC = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredLogs.map((log) => {
+                  {paginatedLogs.map((log) => {
                     const isIronAction = log.actionType === 'IRON';
                     const rawImg = log.product?.images?.[0]?.imageUrl;
                     const resolvedImg = rawImg ? getProductImageUrl(rawImg) : null;
@@ -892,7 +907,7 @@ export const FinishingPage: React.FC = () => {
 
           {/* 2. Mobile Clean Modern Card View (< md: 768px) */}
           <div className="block md:hidden space-y-3">
-            {filteredLogs.map((log) => {
+            {paginatedLogs.map((log) => {
               const isIronAction = log.actionType === 'IRON';
               const rawImg = log.product?.images?.[0]?.imageUrl;
               const resolvedImg = rawImg ? getProductImageUrl(rawImg) : null;
@@ -1015,6 +1030,19 @@ export const FinishingPage: React.FC = () => {
               );
             })}
           </div>
+
+          {/* Standardized Table Pagination */}
+          {filteredLogs.length > 0 && (
+            <div className="pt-2">
+              <TablePagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalCount={filteredLogs.length}
+                pageSize={pageSize}
+                onPageChange={setCurrentPage}
+              />
+            </div>
+          )}
         </>
       )}
 

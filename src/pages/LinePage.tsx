@@ -58,6 +58,7 @@ import {
 } from 'lucide-react';
 import { SearchableSelect, type SearchableSelectOption } from '../components/ui/searchable-select';
 import { DateRangePicker, type DateRange } from '../components/ui/date-range-picker';
+import { TablePagination } from '../components/common/TablePagination';
 import CuttingDetailModal, {
   formatSriLankaDateTime,
 } from '../components/production/CuttingDetailModal';
@@ -184,6 +185,7 @@ export const LinePage: React.FC = () => {
   const [batches, setBatches] = useState<LineBatchItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProductFilter, setSelectedProductFilter] = useState('all');
+  const [selectedActivity, setSelectedActivity] = useState('all');
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [sortBy, setSortBy] = useState('newest');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
@@ -214,6 +216,15 @@ export const LinePage: React.FC = () => {
       label: p.name,
     })),
   ], [productsList]);
+
+  // Activity Stage / Metric Selector Options
+  const activityOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: 'all', label: 'All Activities' },
+    { value: 'intake', label: 'Line Intake' },
+    { value: 'sewn', label: 'Sewn (Daily Output)' },
+    { value: 'wash', label: 'Sent to Wash' },
+    { value: 'pending', label: 'Remaining / Pending' },
+  ], []);
 
   const sortOptions: SearchableSelectOption[] = useMemo(() => [
     { value: 'newest', label: 'Newest Dispatches First' },
@@ -284,15 +295,18 @@ export const LinePage: React.FC = () => {
   // Active filter count for mobile badge
   const activeFilterCount = useMemo(() => {
     let count = 0;
+    if (searchQuery.trim()) count++;
     if (selectedProductFilter !== 'all') count++;
+    if (selectedActivity !== 'all') count++;
     if (dateRange?.from || dateRange?.to) count++;
     if (sortBy !== 'newest') count++;
     return count;
-  }, [selectedProductFilter, dateRange, sortBy]);
+  }, [searchQuery, selectedProductFilter, selectedActivity, dateRange, sortBy]);
 
   const hasActiveFilters = Boolean(
     searchQuery.trim() ||
     selectedProductFilter !== 'all' ||
+    selectedActivity !== 'all' ||
     dateRange !== undefined ||
     sortBy !== 'newest'
   );
@@ -300,9 +314,51 @@ export const LinePage: React.FC = () => {
   const handleResetFilters = () => {
     setSearchQuery('');
     setSelectedProductFilter('all');
+    setSelectedActivity('all');
     setDateRange(undefined);
     setSortBy('newest');
+    setCurrentPage(1);
   };
+
+  // Local Asia/Colombo (+05:30) Calendar Day Boundaries
+  const localBoundaries = useMemo(() => {
+    if (!dateRange?.from) return null;
+    const from = new Date(dateRange.from);
+    const to = dateRange.to ? new Date(dateRange.to) : new Date(dateRange.from);
+    const startTime = new Date(from.getFullYear(), from.getMonth(), from.getDate(), 0, 0, 0, 0).getTime();
+    const endTime = new Date(to.getFullYear(), to.getMonth(), to.getDate(), 23, 59, 59, 999).getTime();
+    return { startTime, endTime };
+  }, [dateRange]);
+
+  const isLogWithinRange = useCallback((ts: string | Date | undefined) => {
+    if (!ts || !localBoundaries) return false;
+    const t = new Date(ts).getTime();
+    return !isNaN(t) && t >= localBoundaries.startTime && t <= localBoundaries.endTime;
+  }, [localBoundaries]);
+
+  const getSewnLogs = useCallback((b: any, filterRange = false) => {
+    return (b.activityLogs || []).filter((log: any) => {
+      const isSewn = log.action === 'LOG_SEWN' || log.action === 'SEWN' || (log.stage === 'LINE' && String(log.action || '').includes('SEWN'));
+      if (!isSewn) return false;
+      return !filterRange || isLogWithinRange(log.timestamp);
+    });
+  }, [isLogWithinRange]);
+
+  const getIntakeLogs = useCallback((b: any, filterRange = false) => {
+    return (b.activityLogs || []).filter((log: any) => {
+      const isIntake = log.action === 'SEND_TO_LINE' || log.action === 'LINE_INTAKE' || (log.stage === 'LINE' && log.action === 'SEND_TO_LINE');
+      if (!isIntake) return false;
+      return !filterRange || isLogWithinRange(log.timestamp);
+    });
+  }, [isLogWithinRange]);
+
+  const getWashDispatchLogs = useCallback((b: any, filterRange = false) => {
+    return (b.activityLogs || []).filter((log: any) => {
+      const isWash = log.action === 'SEND_TO_WASH' || (log.stage === 'WASHING' && String(log.action || '').includes('SEND'));
+      if (!isWash) return false;
+      return !filterRange || isLogWithinRange(log.timestamp);
+    });
+  }, [isLogWithinRange]);
 
   // Comprehensive multi-factor filtering & sorting
   const filteredBatches = useMemo(() => {
@@ -334,22 +390,59 @@ export const LinePage: React.FC = () => {
       });
     }
 
-    if (dateRange?.from) {
-      const fromTime = new Date(dateRange.from).setHours(0, 0, 0, 0);
-      const toTime = dateRange.to
-        ? new Date(dateRange.to).setHours(23, 59, 59, 999)
-        : new Date(dateRange.from).setHours(23, 59, 59, 999);
-
+    // Connect Date-Range Filtering directly to Selected Activity Type
+    if (selectedActivity === 'intake') {
       list = list.filter((b: any) => {
-        // Strictly evaluate stage-specific event logs or production date, eradicating root createdAt pollution
-        const hasLogInRange = (b.activityLogs || []).some((log: any) => {
-          const t = new Date(log.timestamp).getTime();
-          return t >= fromTime && t <= toTime;
-        });
-        if (hasLogInRange) return true;
-        const pDate = new Date(b.productionDate).getTime();
-        return !isNaN(pDate) && pDate >= fromTime && pDate <= toTime;
+        if (localBoundaries) {
+          const logs = getIntakeLogs(b, true);
+          if (logs.length > 0) return true;
+          const pTime = new Date(b.productionDate).getTime();
+          return !isNaN(pTime) && pTime >= localBoundaries.startTime && pTime <= localBoundaries.endTime && (Number(b.lineSentQty || 0) > 0 || Number(b.cutQty || 0) > 0);
+        }
+        return Number(b.lineSentQty || b.targetQuantity || b.cutQty || 0) > 0;
       });
+    } else if (selectedActivity === 'sewn') {
+      list = list.filter((b: any) => {
+        if (localBoundaries) {
+          const logs = getSewnLogs(b, true);
+          return logs.length > 0;
+        }
+        return Number(b.sewnQty || 0) > 0 || getSewnLogs(b, false).length > 0;
+      });
+    } else if (selectedActivity === 'wash') {
+      list = list.filter((b: any) => {
+        if (localBoundaries) {
+          const logs = getWashDispatchLogs(b, true);
+          return logs.length > 0;
+        }
+        return Number(b.sentToWashQty || 0) > 0 || getWashDispatchLogs(b, false).length > 0;
+      });
+    } else if (selectedActivity === 'pending') {
+      list = list.filter((b: any) => {
+        const prods = getBatchProducts(b, productsList);
+        const sentTotal = prods.reduce((sum, p) => sum + p.sentToLineQty, 0) || Number(b.lineSentQty || b.targetQuantity || 0);
+        const washTotal = prods.reduce((sum, p) => sum + p.sentToWashQty, 0) || Number(b.sentToWashQty || 0);
+        const sewnTotal = prods.reduce((sum, p) => sum + p.sewnQty, 0) || Number(b.sewnQty || 0);
+        const isPending = (sentTotal > washTotal) || (sentTotal > sewnTotal);
+        if (!isPending) return false;
+        if (localBoundaries) {
+          const hasLog = (b.activityLogs || []).some((l: any) => isLogWithinRange(l.timestamp));
+          const pTime = new Date(b.productionDate).getTime();
+          const pInRange = !isNaN(pTime) && pTime >= localBoundaries.startTime && pTime <= localBoundaries.endTime;
+          return hasLog || pInRange;
+        }
+        return true;
+      });
+    } else {
+      // 'all' Activities
+      if (localBoundaries) {
+        list = list.filter((b: any) => {
+          const hasLogInRange = (b.activityLogs || []).some((log: any) => isLogWithinRange(log.timestamp));
+          if (hasLogInRange) return true;
+          const pDate = new Date(b.productionDate).getTime();
+          return !isNaN(pDate) && pDate >= localBoundaries.startTime && pDate <= localBoundaries.endTime;
+        });
+      }
     }
 
     switch (sortBy) {
@@ -374,12 +467,23 @@ export const LinePage: React.FC = () => {
     }
 
     return list;
-  }, [batches, searchQuery, selectedProductFilter, dateRange, sortBy, productsList]);
+  }, [
+    batches,
+    searchQuery,
+    selectedProductFilter,
+    selectedActivity,
+    localBoundaries,
+    sortBy,
+    productsList,
+    getIntakeLogs,
+    getSewnLogs,
+    getWashDispatchLogs,
+    isLogWithinRange,
+  ]);
 
   /**
    * Dynamically aggregated KPI metrics for Top Summary Cards.
-   * Strictly sums event-specific activity logs matching the active dateRange filter,
-   * eradicating root batch createdAt contamination and guaranteeing parity with reports.
+   * Strictly sums event-specific activity logs matching the active activity type and dateRange filter.
    */
   const metrics = useMemo(() => {
     const totalBatches = filteredBatches.length;
@@ -387,47 +491,28 @@ export const LinePage: React.FC = () => {
     let totalForwardedToWash = 0;
     let totalSewnQty = 0;
 
-    const isWithinRange = (ts: string | Date | undefined) => {
-      if (!ts) return false;
-      const t = new Date(ts).getTime();
-      if (isNaN(t)) return false;
-      if (!dateRange?.from) return true;
-      const fromTime = new Date(dateRange.from).setHours(0, 0, 0, 0);
-      const toTime = dateRange.to
-        ? new Date(dateRange.to).setHours(23, 59, 59, 999)
-        : new Date(dateRange.from).setHours(23, 59, 59, 999);
-      return t >= fromTime && t <= toTime;
-    };
-
     filteredBatches.forEach((b: any) => {
-      // 1. Sewn Output: strictly aggregate activity logs within dateRange
-      const sewnLogs = (b.activityLogs || []).filter(
-        (log: any) =>
-          (log.action === 'LOG_SEWN' || log.action === 'SEWN' || (log.stage === 'LINE' && String(log.action || '').includes('SEWN'))) &&
-          isWithinRange(log.timestamp)
-      );
-      const logSewn = sewnLogs.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
+      const sewnLogsInRange = getSewnLogs(b, Boolean(localBoundaries));
+      const washLogsInRange = getWashDispatchLogs(b, Boolean(localBoundaries));
+      const intakeLogsInRange = getIntakeLogs(b, Boolean(localBoundaries));
 
-      // 2. Wash Forwarding: strictly aggregate activity logs within dateRange
-      const washLogs = (b.activityLogs || []).filter(
-        (log: any) =>
-          (log.action === 'SEND_TO_WASH' || log.stage === 'WASHING') &&
-          isWithinRange(log.timestamp)
-      );
-      const logWash = washLogs.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
+      const logSewn = sewnLogsInRange.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
+      const logWash = washLogsInRange.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
+      const logIntake = intakeLogsInRange.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
 
-      // 3. Line Intake: strictly aggregate activity logs within dateRange
-      const lineLogs = (b.activityLogs || []).filter(
-        (log: any) =>
-          (log.action === 'SEND_TO_LINE' || log.action === 'LINE_INTAKE' || (log.stage === 'LINE' && log.action === 'SEND_TO_LINE')) &&
-          isWithinRange(log.timestamp)
-      );
-      const logLine = lineLogs.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
-
-      if (dateRange?.from) {
+      if (localBoundaries) {
         totalSewnQty += logSewn;
         totalForwardedToWash += logWash;
-        totalLineIntake += logLine;
+        if (logIntake > 0) {
+          totalLineIntake += logIntake;
+        } else {
+          const pTime = new Date(b.productionDate).getTime();
+          if (!isNaN(pTime) && pTime >= localBoundaries.startTime && pTime <= localBoundaries.endTime) {
+            const prods = getBatchProducts(b, productsList);
+            const pSent = prods.reduce((sum, p) => sum + p.sentToLineQty, 0);
+            totalLineIntake += pSent > 0 ? pSent : Number(b.lineSentQty || b.targetQuantity || 0);
+          }
+        }
       } else {
         const prods = getBatchProducts(b, productsList);
         const batchSentTotal = prods.reduce((sum, p) => sum + p.sentToLineQty, 0);
@@ -446,7 +531,49 @@ export const LinePage: React.FC = () => {
       totalSewnQty,
       pendingSewing,
     };
-  }, [filteredBatches, productsList, dateRange]);
+  }, [filteredBatches, productsList, localBoundaries, getSewnLogs, getWashDispatchLogs, getIntakeLogs]);
+
+  // Helper to resolve row display quantities dynamically
+  const getBatchRowDisplay = useCallback((batch: LineBatchItem) => {
+    const prods = getBatchProducts(batch, productsList);
+    const prodsTotalSent = prods.reduce((sum, p) => sum + p.sentToLineQty, 0);
+    const prodsTotalWash = prods.reduce((sum, p) => sum + p.sentToWashQty, 0);
+    const prodsTotalSewn = prods.reduce((sum, p) => sum + p.sewnQty, 0);
+
+    const baseLine = prodsTotalSent > 0 ? prodsTotalSent : (batch.lineSentQty || batch.targetQuantity || batch.completedQty || 0);
+    const baseWash = prodsTotalWash > 0 ? prodsTotalWash : (batch.sentToWashQty || 0);
+    const baseSewn = prodsTotalSewn > 0 ? prodsTotalSewn : Number(batch.sewnQty || 0);
+
+    if (!localBoundaries) {
+      return {
+        lineQty: baseLine,
+        washQty: baseWash,
+        batchTotalSewn: baseSewn,
+        isFilteredPeriod: false,
+      };
+    }
+
+    const intakeLogs = getIntakeLogs(batch, true);
+    const washLogs = getWashDispatchLogs(batch, true);
+    const sewnLogs = getSewnLogs(batch, true);
+
+    const periodIntake = intakeLogs.reduce((sum, l) => sum + (Number(l.quantity) || 0), 0);
+    const periodWash = washLogs.reduce((sum, l) => sum + (Number(l.quantity) || 0), 0);
+    const periodSewn = sewnLogs.reduce((sum, l) => sum + (Number(l.quantity) || 0), 0);
+
+    const pTime = new Date(batch.productionDate).getTime();
+    const pInRange = !isNaN(pTime) && pTime >= localBoundaries.startTime && pTime <= localBoundaries.endTime;
+
+    return {
+      lineQty: selectedActivity === 'intake' || periodIntake > 0 ? (periodIntake > 0 ? periodIntake : (pInRange ? baseLine : 0)) : baseLine,
+      washQty: selectedActivity === 'wash' ? periodWash : (periodWash > 0 ? periodWash : baseWash),
+      batchTotalSewn: selectedActivity === 'sewn' ? periodSewn : (periodSewn > 0 ? periodSewn : baseSewn),
+      isFilteredPeriod: true,
+      periodSewn,
+      periodWash,
+      periodIntake,
+    };
+  }, [localBoundaries, productsList, selectedActivity, getIntakeLogs, getWashDispatchLogs, getSewnLogs]);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -666,12 +793,30 @@ export const LinePage: React.FC = () => {
           <div className="pt-2.5 border-t border-slate-100 dark:border-zinc-800 space-y-2 animate-in fade-in-50 duration-150">
             <div className="w-full">
               <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 block">
+                Activity / Metric
+              </label>
+              <SearchableSelect
+                options={activityOptions}
+                value={selectedActivity}
+                onValueChange={(val) => {
+                  setSelectedActivity(val || 'all');
+                  setCurrentPage(1);
+                }}
+                placeholder="All Activities"
+                searchPlaceholder="Filter activity..."
+                dark={isDark}
+              />
+            </div>
+
+            <div className="w-full">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 block">
                 Date Range
               </label>
               <DateRangePicker
                 date={dateRange}
                 onDateChange={(range) => {
                   setDateRange(range);
+                  setCurrentPage(1);
                 }}
                 placeholder="Filter by date..."
               />
@@ -686,6 +831,7 @@ export const LinePage: React.FC = () => {
                 value={selectedProductFilter}
                 onValueChange={(val) => {
                   setSelectedProductFilter(val);
+                  setCurrentPage(1);
                 }}
                 placeholder="All Garments"
                 searchPlaceholder="Search style..."
@@ -702,6 +848,7 @@ export const LinePage: React.FC = () => {
                 value={sortBy}
                 onValueChange={(val) => {
                   setSortBy(val);
+                  setCurrentPage(1);
                 }}
                 placeholder="Sort batches..."
                 dark={isDark}
@@ -733,6 +880,7 @@ export const LinePage: React.FC = () => {
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value);
+              setCurrentPage(1);
             }}
             placeholder="Search by cutting number, garment style, SKU, or notes..."
             className="bg-transparent outline-none w-full text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400"
@@ -742,6 +890,7 @@ export const LinePage: React.FC = () => {
               type="button"
               onClick={() => {
                 setSearchQuery('');
+                setCurrentPage(1);
               }}
               className="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
             >
@@ -750,11 +899,26 @@ export const LinePage: React.FC = () => {
           )}
         </div>
 
+        <div className="w-52 shrink-0">
+          <SearchableSelect
+            options={activityOptions}
+            value={selectedActivity}
+            onValueChange={(val) => {
+              setSelectedActivity(val || 'all');
+              setCurrentPage(1);
+            }}
+            placeholder="All Activities"
+            searchPlaceholder="Filter activity..."
+            dark={isDark}
+          />
+        </div>
+
         <div className="w-56 shrink-0">
           <DateRangePicker
             date={dateRange}
             onDateChange={(range) => {
               setDateRange(range);
+              setCurrentPage(1);
             }}
             placeholder="Filter date..."
           />
@@ -766,6 +930,7 @@ export const LinePage: React.FC = () => {
             value={selectedProductFilter}
             onValueChange={(val) => {
               setSelectedProductFilter(val);
+              setCurrentPage(1);
             }}
             placeholder="All Garments"
             searchPlaceholder="Filter style..."
@@ -779,6 +944,7 @@ export const LinePage: React.FC = () => {
             value={sortBy}
             onValueChange={(val) => {
               setSortBy(val);
+              setCurrentPage(1);
             }}
             placeholder="Sort order..."
             dark={isDark}
@@ -865,11 +1031,10 @@ export const LinePage: React.FC = () => {
               <TableBody>
                 {paginatedBatches.map((batch) => {
                   const prods = getBatchProducts(batch, productsList);
-                  const batchTotalDispatched = prods.reduce((sum, p) => sum + p.sentToLineQty, 0);
-                  const batchTotalWash = prods.reduce((sum, p) => sum + p.sentToWashQty, 0);
-                  const batchTotalSewn = prods.reduce((sum, p) => sum + p.sewnQty, 0) || Number(batch.sewnQty || 0);
-                  const lineQty = batchTotalDispatched > 0 ? batchTotalDispatched : (batch.lineSentQty || batch.targetQuantity || batch.completedQty || 0);
-                  const washQty = batchTotalWash > 0 ? batchTotalWash : (batch.sentToWashQty || 0);
+                  const rowData = getBatchRowDisplay(batch);
+                  const lineQty = rowData.lineQty;
+                  const washQty = rowData.washQty;
+                  const batchTotalSewn = rowData.batchTotalSewn;
                   const remainingOnLine = Math.max(0, lineQty - washQty);
                   const overallPercent = lineQty > 0 ? Math.min(100, Math.round((washQty / lineQty) * 100)) : 0;
                   const sewnPercent = lineQty > 0 ? Math.min(100, Math.round((batchTotalSewn / lineQty) * 100)) : 0;
@@ -1118,10 +1283,9 @@ export const LinePage: React.FC = () => {
           <div className="block lg:hidden space-y-3.5">
             {paginatedBatches.map((batch) => {
               const prods = getBatchProducts(batch, productsList);
-              const batchTotalDispatched = prods.reduce((sum, p) => sum + p.sentToLineQty, 0);
-              const batchTotalWash = prods.reduce((sum, p) => sum + p.sentToWashQty, 0);
-              const lineQty = batchTotalDispatched > 0 ? batchTotalDispatched : (batch.lineSentQty || batch.targetQuantity || batch.completedQty || 0);
-              const washQty = batchTotalWash > 0 ? batchTotalWash : (batch.sentToWashQty || 0);
+              const rowData = getBatchRowDisplay(batch);
+              const lineQty = rowData.lineQty;
+              const washQty = rowData.washQty;
               const remainingOnLine = Math.max(0, lineQty - washQty);
               const overallPercent = lineQty > 0 ? Math.min(100, Math.round((washQty / lineQty) * 100)) : 0;
 
@@ -1276,34 +1440,15 @@ export const LinePage: React.FC = () => {
             })}
           </div>
 
-          {/* Pagination Controls */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between pt-2">
-              <span className="text-xs text-slate-500">
-                Page {currentPage} of {totalPages} ({filteredBatches.length} batches)
-              </span>
-              <div className="flex items-center gap-1">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={currentPage <= 1}
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  className="h-8 w-8 p-0"
-                >
-                  <ChevronLeft className="size-4" />
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={currentPage >= totalPages}
-                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  className="h-8 w-8 p-0"
-                >
-                  <ChevronRight className="size-4" />
-                </Button>
-              </div>
-            </div>
-          )}
+          {/* Unified Standardized Table Pagination */}
+          <TablePagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalCount={filteredBatches.length}
+            visibleCount={paginatedBatches.length}
+            onPageChange={setCurrentPage}
+            itemNoun="batches"
+          />
         </>
       )}
 

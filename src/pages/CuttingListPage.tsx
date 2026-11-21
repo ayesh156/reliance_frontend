@@ -56,6 +56,7 @@ import SendToWashModal from '../components/production/SendToWashModal';
 import { SendToLineModal } from '../components/production/SendToLineModal';
 import CuttingEditModal from '../components/production/CuttingEditModal';
 import { BatchStatusBadge } from '../components/production/BatchStatusBadge';
+import { TablePagination } from '../components/common/TablePagination';
 import {
   Factory,
   Plus,
@@ -2279,35 +2280,15 @@ export const CuttingListPage: React.FC = () => {
               })}
             </div>
 
-            {/* Pagination Controls */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 mt-2 border-t border-slate-100 dark:border-zinc-800 text-xs">
-              <span className="text-zinc-400 text-center sm:text-left">
-                Showing {paginatedRecords.length} of {filteredRecords.length} batches
-              </span>
-              <div className="flex items-center gap-1.5 w-full sm:w-auto justify-between sm:justify-end">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={currentPage === 1}
-                  onClick={() => setCurrentPage((p) => p - 1)}
-                  className="h-8 px-2.5 text-xs rounded-xl cursor-pointer"
-                >
-                  <ChevronLeft className="size-3.5 mr-1" /> Prev
-                </Button>
-                <span className="px-3 py-1 font-mono font-semibold bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-lg text-slate-700 dark:text-zinc-300">
-                  {currentPage} / {totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={currentPage === totalPages}
-                  onClick={() => setCurrentPage((p) => p + 1)}
-                  className="h-8 px-2.5 text-xs rounded-xl cursor-pointer"
-                >
-                  Next <ChevronRight className="size-3.5 ml-1" />
-                </Button>
-              </div>
-            </div>
+            {/* Unified Standardized Table Pagination */}
+            <TablePagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalCount={filteredRecords.length}
+              visibleCount={paginatedRecords.length}
+              onPageChange={setCurrentPage}
+              itemNoun="batches"
+            />
           </>
         )}
       </div>

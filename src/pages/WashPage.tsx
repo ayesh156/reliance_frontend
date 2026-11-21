@@ -68,6 +68,7 @@ import {
 } from 'lucide-react';
 import { SearchableSelect, type SearchableSelectOption } from '../components/ui/searchable-select';
 import { DateRangePicker, type DateRange } from '../components/ui/date-range-picker';
+import { TablePagination } from '../components/common/TablePagination';
 import CuttingDetailModal, {
   formatSriLankaDateTime,
 } from '../components/production/CuttingDetailModal';
@@ -298,11 +299,15 @@ export const WashPage: React.FC = () => {
     sortBy !== 'newest'
   );
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 12;
+
   const handleResetFilters = () => {
     setSearchQuery('');
     setSelectedProductFilter('all');
     setDateRange(undefined);
     setSortBy('newest');
+    setCurrentPage(1);
   };
 
   // Filtered batches by search query, product, dateRange and sort
@@ -370,6 +375,12 @@ export const WashPage: React.FC = () => {
 
     return list;
   }, [batches, searchQuery, selectedProductFilter, dateRange, sortBy]);
+
+  const totalPages = Math.ceil(filteredBatches.length / pageSize) || 1;
+  const paginatedBatches = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredBatches.slice(start, start + pageSize);
+  }, [filteredBatches, currentPage]);
 
   /**
    * Dynamically aggregated KPI metrics for Wash Summary Cards.
@@ -679,6 +690,7 @@ export const WashPage: React.FC = () => {
                 date={dateRange}
                 onDateChange={(range) => {
                   setDateRange(range);
+                  setCurrentPage(1);
                 }}
                 placeholder="Filter by date..."
               />
@@ -693,6 +705,7 @@ export const WashPage: React.FC = () => {
                 value={selectedProductFilter}
                 onValueChange={(val) => {
                   setSelectedProductFilter(val);
+                  setCurrentPage(1);
                 }}
                 placeholder="All Garments"
                 searchPlaceholder="Search style..."
@@ -709,6 +722,7 @@ export const WashPage: React.FC = () => {
                 value={sortBy}
                 onValueChange={(val) => {
                   setSortBy(val);
+                  setCurrentPage(1);
                 }}
                 placeholder="Sort batches..."
                 dark={isDark}
@@ -740,6 +754,7 @@ export const WashPage: React.FC = () => {
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value);
+              setCurrentPage(1);
             }}
             placeholder="Search by cutting number, garment name, or notes..."
             className="bg-transparent outline-none w-full text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400"
@@ -749,6 +764,7 @@ export const WashPage: React.FC = () => {
               type="button"
               onClick={() => {
                 setSearchQuery('');
+                setCurrentPage(1);
               }}
               className="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
             >
@@ -762,6 +778,7 @@ export const WashPage: React.FC = () => {
             date={dateRange}
             onDateChange={(range) => {
               setDateRange(range);
+              setCurrentPage(1);
             }}
             placeholder="Filter date..."
           />
@@ -773,6 +790,7 @@ export const WashPage: React.FC = () => {
             value={selectedProductFilter}
             onValueChange={(val) => {
               setSelectedProductFilter(val);
+              setCurrentPage(1);
             }}
             placeholder="All Garments"
             searchPlaceholder="Filter style..."
@@ -786,6 +804,7 @@ export const WashPage: React.FC = () => {
             value={sortBy}
             onValueChange={(val) => {
               setSortBy(val);
+              setCurrentPage(1);
             }}
             placeholder="Sort order..."
             dark={isDark}
@@ -868,7 +887,7 @@ export const WashPage: React.FC = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredBatches.map((batch) => {
+                {paginatedBatches.map((batch) => {
                   const prods = getBatchProducts(batch);
                   const prodsTotalSent = prods.reduce((sum, p) => sum + p.totalSent, 0);
                   const prodsTotalWashed = prods.reduce((sum, p) => sum + p.alreadyWashed, 0);
@@ -1076,7 +1095,7 @@ export const WashPage: React.FC = () => {
 
           {/* Mobile Cards (< 1024px) */}
           <div className="block lg:hidden space-y-3">
-            {filteredBatches.map((batch) => {
+            {paginatedBatches.map((batch) => {
               const prods = getBatchProducts(batch);
               const prodsTotalSent = prods.reduce((sum, p) => sum + p.totalSent, 0);
               const prodsTotalWashed = prods.reduce((sum, p) => sum + p.alreadyWashed, 0);
@@ -1239,6 +1258,16 @@ export const WashPage: React.FC = () => {
               );
             })}
           </div>
+
+          {/* Unified Standardized Table Pagination */}
+          <TablePagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalCount={filteredBatches.length}
+            visibleCount={paginatedBatches.length}
+            onPageChange={setCurrentPage}
+            itemNoun="batches"
+          />
         </>
       )}
 

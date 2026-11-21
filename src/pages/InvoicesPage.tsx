@@ -31,6 +31,7 @@ import {
   DropdownMenuSeparator,
 } from '../components/ui/dropdown-menu';
 import { TooltipSimple } from '../components/ui/tooltip';
+import { TablePagination } from '../components/common/TablePagination';
 import {
   Search,
   Printer,
@@ -1868,32 +1869,19 @@ export const InvoicesPage: React.FC = () => {
           </table>
         </div>
 
-        {/* Pagination Bar */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between p-3 border-t border-slate-100 dark:border-zinc-800 text-xs">
-            <span className="text-slate-400">
-              Page {page} of {totalPages} ({totalCount} invoices total)
-            </span>
-            <div className="flex items-center gap-1">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="h-7 px-2 text-xs"
-              >
-                <ChevronLeft className="size-3.5 mr-1" /> Prev
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                className="h-7 px-2 text-xs"
-              >
-                Next <ChevronRight className="size-3.5 ml-1" />
-              </Button>
-            </div>
+        {/* Standardized Table Pagination */}
+        {totalCount > 0 && (
+          <div className="p-3 border-t border-slate-100 dark:border-zinc-800">
+            <TablePagination
+              currentPage={page}
+              totalPages={totalPages}
+              totalCount={totalCount}
+              pageSize={12}
+              onPageChange={(newPage) => {
+                setPage(newPage);
+                fetchInvoices(newPage);
+              }}
+            />
           </div>
         )}
       </div>

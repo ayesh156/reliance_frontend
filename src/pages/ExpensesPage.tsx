@@ -33,6 +33,7 @@ import {
   AlertDialogTitle,
 } from '../components/ui/alert-dialog';
 import { get, post, put, del } from '../lib/api';
+import { TablePagination } from '../components/common/TablePagination';
 import { toast } from 'react-toastify';
 import {
   ReceiptText,
@@ -149,6 +150,11 @@ export const ExpensesPage: React.FC = () => {
   const [filterEndDate, setFilterEndDate] = useState<string>('');
   const [currentPage, setCurrentPage] = useState<number>(1);
   const PAGE_SIZE = 15;
+
+  // UX Integrity: Reset pagination to page 1 whenever any filter or search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filterCategory, filterStartDate, filterEndDate]);
 
   // Add Category Modal States
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState<boolean>(false);
@@ -861,36 +867,16 @@ export const ExpensesPage: React.FC = () => {
             </Table>
           </div>
 
-          {/* Table Pagination */}
-          {expenses.length > PAGE_SIZE && (
-            <div className="p-3 border-t border-slate-200 dark:border-zinc-800 flex items-center justify-between text-xs text-slate-500">
-              <span>
-                Showing {(currentPage - 1) * PAGE_SIZE + 1} to{' '}
-                {Math.min(currentPage * PAGE_SIZE, expenses.length)} of {expenses.length} records
-              </span>
-              <div className="flex items-center gap-1.5">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={currentPage <= 1}
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  className="h-8 px-2.5 text-xs"
-                >
-                  Previous
-                </Button>
-                <span className="font-semibold text-slate-700 dark:text-zinc-300">
-                  {currentPage} / {totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={currentPage >= totalPages}
-                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  className="h-8 px-2.5 text-xs"
-                >
-                  Next
-                </Button>
-              </div>
+          {/* Standardized Table Pagination */}
+          {expenses.length > 0 && (
+            <div className="p-3 border-t border-slate-200 dark:border-zinc-800">
+              <TablePagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalCount={expenses.length}
+                pageSize={PAGE_SIZE}
+                onPageChange={setCurrentPage}
+              />
             </div>
           )}
         </div>

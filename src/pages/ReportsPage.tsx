@@ -33,6 +33,7 @@ import {
 } from '../components/ui/table';
 import { getProductImageUrl } from '../lib/utils';
 import { BatchActivityTimeline } from './CuttingListPage';
+import { TablePagination } from '../components/common/TablePagination';
 import {
   Download,
   Loader2,
@@ -3078,35 +3079,18 @@ export const ReportsPage: React.FC = () => {
               </table>
             </div>
 
-            {/* Standardized Table Pagination Bar */}
-            <div className="flex flex-col sm:flex-row items-center justify-between p-3.5 border-t border-slate-200 dark:border-zinc-800 text-xs bg-slate-50/50 dark:bg-zinc-950/30 gap-2">
-              <span className="text-slate-500 dark:text-zinc-400">
-                Showing {filteredRows.length > 0 ? startIndex + 1 : 0} – {Math.min(startIndex + PAGE_SIZE, filteredRows.length)} of {filteredRows.length} records (Page {currentPage} of {totalPages})
-              </span>
-              <div className="flex items-center gap-1.5">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={currentPage <= 1}
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  className="h-7 px-2.5 text-xs font-medium border-slate-300 dark:border-zinc-700"
-                >
-                  <ChevronLeft className="size-3.5 mr-1" /> Prev
-                </Button>
-                <div className="px-2 text-xs font-semibold text-slate-700 dark:text-zinc-300">
-                  {currentPage} / {totalPages}
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={currentPage >= totalPages}
-                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  className="h-7 px-2.5 text-xs font-medium border-slate-300 dark:border-zinc-700"
-                >
-                  Next <ChevronRight className="size-3.5 ml-1" />
-                </Button>
+            {/* Standardized Table Pagination */}
+            {filteredRows.length > 0 && (
+              <div className="p-3.5 border-t border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-950/30">
+                <TablePagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  totalCount={filteredRows.length}
+                  pageSize={PAGE_SIZE}
+                  onPageChange={setCurrentPage}
+                />
               </div>
-            </div>
+            )}
           </div>
         </div>
       )}

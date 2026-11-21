@@ -44,8 +44,8 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
   const updatePosition = useCallback(() => {
     if (triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
-      const calendarHeight = 360;
-      const calendarWidth = 320;
+      const calendarHeight = 370;
+      const calendarWidth = 330;
       const spaceBelow = window.innerHeight - rect.bottom;
 
       let top = rect.bottom + 6;
@@ -188,7 +188,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
     }
   };
 
-  const setPreset = (preset: 'today' | 'yesterday' | 'this_week' | 'this_month' | 'last_30_days' | 'clear') => {
+  const setPreset = (preset: 'today' | 'yesterday' | 'this_week' | 'this_month' | 'last_30_days' | 'this_year' | 'clear') => {
     const now = new Date();
     if (preset === 'clear') {
       onDateChange(undefined);
@@ -215,8 +215,29 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
     } else if (preset === 'last_30_days') {
       const past = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30);
       onDateChange({ from: past, to: now });
+    } else if (preset === 'this_year') {
+      const startOfYear = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+      const endOfYear = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      onDateChange({ from: startOfYear, to: endOfYear });
     }
     setIsOpen(false);
+  };
+
+  const isPresetActive = (preset: string) => {
+    if (!date?.from) return false;
+    const now = new Date();
+    if (preset === 'today') {
+      return isSameDay(date.from, now) && (date.to ? isSameDay(date.to, now) : true);
+    }
+    if (preset === 'this_year') {
+      const startOfYear = new Date(now.getFullYear(), 0, 1);
+      const endOfYear = new Date(now.getFullYear(), 11, 31);
+      return (
+        isSameDay(date.from, startOfYear) &&
+        (date.to ? isSameDay(date.to, endOfYear) || isSameDay(date.to, now) : false)
+      );
+    }
+    return false;
   };
 
   const formatDateStr = (d?: Date) => {
@@ -277,14 +298,19 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
               zIndex: 99999,
               pointerEvents: 'auto',
             }}
-            className="w-[320px] rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xl p-3 animate-in fade-in-0 zoom-in-95 duration-100 ring-1 ring-black/5 dark:ring-white/10"
+            className="w-[320px] sm:w-[330px] rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xl p-3 animate-in fade-in-0 zoom-in-95 duration-100 ring-1 ring-black/5 dark:ring-white/10"
           >
-            {/* Quick Presets Row */}
-            <div className="flex items-center gap-1 pb-2.5 mb-2 border-b border-slate-100 dark:border-zinc-800/80 overflow-x-auto">
+            {/* Quick Presets Row: Wrap layout for immediate accessibility without horizontal scrolling */}
+            <div className="flex flex-wrap items-center gap-1.5 pb-2.5 mb-2 border-b border-slate-100 dark:border-zinc-800/80">
               <button
                 type="button"
                 onClick={() => setPreset('today')}
-                className="px-2 py-1 rounded-md text-[11px] font-medium bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300 transition-colors cursor-pointer shrink-0"
+                className={cn(
+                  "px-2 py-1 rounded-md text-[11px] font-medium transition-colors cursor-pointer shrink-0",
+                  isPresetActive('today')
+                    ? "bg-indigo-600 text-white font-semibold shadow-xs"
+                    : "bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300"
+                )}
               >
                 Today
               </button>
@@ -308,6 +334,18 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
                 className="px-2 py-1 rounded-md text-[11px] font-medium bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300 transition-colors cursor-pointer shrink-0"
               >
                 Last 30 Days
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreset('this_year')}
+                className={cn(
+                  "px-2 py-1 rounded-md text-[11px] font-medium transition-colors cursor-pointer shrink-0",
+                  isPresetActive('this_year')
+                    ? "bg-indigo-600 text-white font-semibold shadow-xs"
+                    : "bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300"
+                )}
+              >
+                This Year
               </button>
               <button
                 type="button"

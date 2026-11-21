@@ -41,6 +41,7 @@ import {
   DropdownMenuItem,
 } from '../components/ui/dropdown-menu';
 import { get, post, del } from '../lib/api';
+import { TablePagination } from '../components/common/TablePagination';
 import { toast } from 'react-toastify';
 import {
   ShoppingCart,
@@ -247,6 +248,7 @@ export const BuyRawMaterialsPage: React.FC = () => {
     setDateRange(undefined);
     setSortBy('newest');
     setSearchQuery('');
+    setCurrentPage(1);
   };
 
   // Modal States
@@ -476,6 +478,20 @@ export const BuyRawMaterialsPage: React.FC = () => {
         );
       });
   }, [purchases, searchQuery, selectedSupplierId, paymentStatusFilter, dateRange, sortBy]);
+
+  // Standardized Table Pagination State (12 items per page)
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const pageSize = 12;
+  const totalPages = Math.ceil(filteredPurchases.length / pageSize) || 1;
+  const paginatedPurchases = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredPurchases.slice(start, start + pageSize);
+  }, [filteredPurchases, currentPage, pageSize]);
+
+  // UX Integrity: Reset pagination to page 1 whenever any filter or search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedSupplierId, paymentStatusFilter, dateRange, sortBy]);
 
   const [generatingInvoice, setGeneratingInvoice] = useState<boolean>(false);
 
@@ -969,7 +985,7 @@ export const BuyRawMaterialsPage: React.FC = () => {
                 </TableCell>
               </TableRow>
             ) : (
-              filteredPurchases.map((purchase) => {
+              paginatedPurchases.map((purchase) => {
                 const due = purchase.totalAmount - purchase.paidAmount;
                 return (
                   <TableRow key={purchase.id}>
@@ -1153,7 +1169,7 @@ export const BuyRawMaterialsPage: React.FC = () => {
             No stock purchase records found.
           </div>
         ) : (
-          filteredPurchases.map((purchase) => {
+          paginatedPurchases.map((purchase) => {
             const due = purchase.totalAmount - purchase.paidAmount;
             const formattedDate = (() => {
               const d = new Date(purchase.purchaseDate);
@@ -1384,6 +1400,19 @@ export const BuyRawMaterialsPage: React.FC = () => {
           })
         )}
       </div>
+
+      {/* Standardized Table Pagination */}
+      {filteredPurchases.length > 0 && (
+        <div className="pt-2">
+          <TablePagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalCount={filteredPurchases.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+          />
+        </div>
+      )}
 
       {/* New Stock Purchase Dialog */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>

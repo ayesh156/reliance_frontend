@@ -41,6 +41,7 @@ import {
   DropdownMenuSeparator,
 } from '../components/ui/dropdown-menu';
 import { TooltipSimple } from '../components/ui/tooltip';
+import { TablePagination } from '../components/common/TablePagination';
 import {
   Search,
   Plus,
@@ -141,6 +142,7 @@ export const CustomersPage: React.FC = () => {
     setDebtFilter('ALL');
     setSortBy('NEWEST');
     setSearchQuery('');
+    setCurrentPage(1);
   };
 
   // Modal and Form States
@@ -403,6 +405,20 @@ export const CustomersPage: React.FC = () => {
         return b.id - a.id; // Default NEWEST
       });
   }, [customers, searchQuery, selectedType, debtFilter, sortBy]);
+
+  // Standardized Table Pagination State (12 items per page)
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const pageSize = 12;
+  const totalPages = Math.ceil(filteredCustomers.length / pageSize) || 1;
+  const paginatedCustomers = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredCustomers.slice(start, start + pageSize);
+  }, [filteredCustomers, currentPage, pageSize]);
+
+  // UX Integrity: Reset pagination to page 1 whenever any filter or search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedType, debtFilter, sortBy]);
 
   const totalOutstanding = useMemo(() => {
     return customers.reduce((acc, curr) => acc + (curr.outstandingBalance || 0), 0);
@@ -684,7 +700,7 @@ export const CustomersPage: React.FC = () => {
           ) : (
             <div className="grid grid-cols-1 xs:grid-cols-2 gap-2.5 sm:gap-3 w-full">
               {/* Customer Cards: Fluid 2 columns on tablet portrait ~534px to eliminate excessive vertical scrolling */}
-              {filteredCustomers.map((cust) => {
+              {paginatedCustomers.map((cust) => {
                 const hasDebt = Number(cust.outstandingBalance || 0) > 0;
                 return (
                   <div
@@ -873,7 +889,7 @@ export const CustomersPage: React.FC = () => {
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredCustomers.map(cust => (
+                paginatedCustomers.map(cust => (
                   <TableRow key={cust.id}>
                     <TableCell>
                       {/* Interactive Clickable Target: Opens Unified Customer Bill History & Profile Modal */}
@@ -1008,6 +1024,19 @@ export const CustomersPage: React.FC = () => {
             </TableBody>
           </Table>
         </div>
+
+        {/* Standardized Table Pagination */}
+        {filteredCustomers.length > 0 && (
+          <div className="p-3 border-t border-slate-200 dark:border-zinc-800">
+            <TablePagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalCount={filteredCustomers.length}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+            />
+          </div>
+        )}
       </div>
 
       {/* Customer Create / Edit Dialog Modal */}

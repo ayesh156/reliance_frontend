@@ -10,6 +10,7 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '.
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
+import { TablePagination } from '../components/common/TablePagination';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -974,18 +975,13 @@ export const Products: React.FC = () => {
               </Table>
             </div>
 
-            <div className="flex items-center justify-between pt-4 mt-2 border-t border-slate-100 dark:border-zinc-800 text-xs">
-              <span className="text-zinc-400">Showing {paginated.length} of {filteredProducts.length}</span>
-              <div className="flex items-center gap-1.5">
-                <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)}>
-                  <ChevronLeft className="size-3.5" /> Prev
-                </Button>
-                <span className="px-2 font-semibold">{currentPage} / {totalPages}</span>
-                <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)}>
-                  Next <ChevronRight className="size-3.5" />
-                </Button>
-              </div>
-            </div>
+            <TablePagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalCount={filteredProducts.length}
+              visibleCount={paginated.length}
+              onPageChange={setCurrentPage}
+            />
           </>
         )}
       </div>
