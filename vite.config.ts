@@ -87,6 +87,8 @@ export default defineConfig({
         assetFileNames: 'assets/[name]-[hash].[ext]',
         manualChunks(id) {
           const normalized = id.replace(/\\/g, '/');
+
+          // PDF generation suite (heavy export engines: jspdf, autotable, html2canvas)
           if (
             normalized.includes('/node_modules/jspdf/') ||
             normalized.includes('/node_modules/jspdf-autotable/') ||
@@ -95,9 +97,52 @@ export default defineConfig({
           ) {
             return 'vendor-pdf';
           }
+
+          // Data visualization (Recharts, D3, Victory vendor)
+          if (
+            normalized.includes('/node_modules/recharts/') ||
+            normalized.includes('/node_modules/d3-') ||
+            normalized.includes('/node_modules/victory-vendor/')
+          ) {
+            return 'vendor-charts';
+          }
+
+          // React & Routing Core runtime
+          if (
+            normalized.includes('/node_modules/react/') ||
+            normalized.includes('/node_modules/react-dom/') ||
+            normalized.includes('/node_modules/react-router-dom/') ||
+            normalized.includes('/node_modules/scheduler/') ||
+            normalized.includes('/node_modules/use-sync-external-store/')
+          ) {
+            return 'vendor-react';
+          }
+
+          // Lucide icons suite
+          if (normalized.includes('/node_modules/lucide-react/')) {
+            return 'vendor-icons';
+          }
+
+          // UI primitives & notification toasts
+          if (
+            normalized.includes('/node_modules/@radix-ui/') ||
+            normalized.includes('/node_modules/react-toastify/') ||
+            normalized.includes('/node_modules/sonner/')
+          ) {
+            return 'vendor-ui';
+          }
+
+          // Utilities & Media processing
+          if (
+            normalized.includes('/node_modules/date-fns/') ||
+            normalized.includes('/node_modules/browser-image-compression/') ||
+            normalized.includes('/node_modules/jsbarcode/')
+          ) {
+            return 'vendor-utils';
+          }
         },
       },
     },
-    chunkSizeWarningLimit: 2500,
+    chunkSizeWarningLimit: 2000,
   },
 })
