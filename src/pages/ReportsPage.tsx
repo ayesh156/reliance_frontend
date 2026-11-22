@@ -132,6 +132,7 @@ export const ReportsPage: React.FC = () => {
   const initialSection = (searchParams.get('section') || searchParams.get('module') || 'sales') as ModuleKey;
   const initialPreset = (searchParams.get('preset') || 'monthly') as PresetKey;
   const initialCategoryId = searchParams.get('categoryId') || 'all';
+  const initialSubCategoryId = searchParams.get('subCategoryId') || 'all';
   const initialUserId = searchParams.get('userId') || searchParams.get('repUserId') || 'all';
   const initialStart = searchParams.get('startDate') || searchParams.get('from');
   const initialEnd = searchParams.get('endDate') || searchParams.get('to');
@@ -168,9 +169,15 @@ export const ReportsPage: React.FC = () => {
   const [selectedUserId, setSelectedUserId] = useState<string>(initialUserId);
   const [staffUsers, setStaffUsers] = useState<Array<{ id: number; name: string; role?: string; email?: string }>>([]);
 
-  // Expense Category Filter & Master Categories
+  // Expense Primary & Sub-Category Filters & Master Categories
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>(initialCategoryId);
-  const [expenseCategories, setExpenseCategories] = useState<Array<{ id: number; name: string }>>([]);
+  const [selectedSubCategoryId, setSelectedSubCategoryId] = useState<string>(initialSubCategoryId);
+  const [expenseCategories, setExpenseCategories] = useState<Array<{
+    id: number;
+    name: string;
+    parentId?: number | null;
+    subCategories?: Array<{ id: number; name: string }>;
+  }>>([]);
 
   // Quick Customer Profile Preview Modal State
   const [previewCustomer, setPreviewCustomer] = useState<any>(null);
@@ -194,21 +201,51 @@ export const ReportsPage: React.FC = () => {
       .catch(() => {});
   }, []);
 
-  const expenseCategoryOptions: SearchableSelectOption[] = useMemo(() => [
-    { value: 'all', label: 'All Categories' },
-    ...expenseCategories.map((c) => ({
-      value: String(c.id),
-      label: c.name,
-    })),
+  const expensePrimaryCategoryOptions: SearchableSelectOption[] = useMemo(() => [
+    { value: 'all', label: 'All Primary Categories' },
+    ...expenseCategories
+      .filter((c) => !c.parentId)
+      .map((c) => ({
+        value: String(c.id),
+        label: c.name,
+      })),
   ], [expenseCategories]);
+
+  const expenseSubCategoryOptions: SearchableSelectOption[] = useMemo(() => {
+    if (selectedCategoryId !== 'all') {
+      const primary = expenseCategories.find((c) => String(c.id) === selectedCategoryId);
+      return [
+        { value: 'all', label: 'All Sub-Categories' },
+        ...(primary?.subCategories || []).map((s) => ({
+          value: String(s.id),
+          label: s.name,
+        })),
+      ];
+    }
+    const allSubs = expenseCategories.flatMap((c) =>
+      (c.subCategories || []).map((s) => ({
+        value: String(s.id),
+        label: `${c.name} › ${s.name}`,
+      }))
+    );
+    return [
+      { value: 'all', label: 'All Sub-Categories' },
+      ...allSubs,
+    ];
+  }, [expenseCategories, selectedCategoryId]);
 
   // Synchronize state with URL query parameters for persistent URL routing
   useEffect(() => {
     const nextParams = new URLSearchParams();
     nextParams.set('section', activeModule);
     nextParams.set('preset', activePreset);
-    if (activeModule === 'expenses' && selectedCategoryId !== 'all') {
-      nextParams.set('categoryId', selectedCategoryId);
+    if (activeModule === 'expenses') {
+      if (selectedCategoryId !== 'all') {
+        nextParams.set('categoryId', selectedCategoryId);
+      }
+      if (selectedSubCategoryId !== 'all') {
+        nextParams.set('subCategoryId', selectedSubCategoryId);
+      }
     }
     if (selectedUserId !== 'all') {
       nextParams.set('userId', selectedUserId);
@@ -220,7 +257,7 @@ export const ReportsPage: React.FC = () => {
       }
     }
     setSearchParams(nextParams, { replace: true });
-  }, [activeModule, activePreset, selectedCategoryId, selectedUserId, customRange, setSearchParams]);
+  }, [activeModule, activePreset, selectedCategoryId, selectedSubCategoryId, selectedUserId, customRange, setSearchParams]);
 
   const userSelectOptions: SearchableSelectOption[] = useMemo(() => [
     { value: 'all', label: 'All Users / Reps' },
@@ -276,8 +313,13 @@ export const ReportsPage: React.FC = () => {
       params.set('userId', selectedUserId);
     }
 
-    if (activeModule === 'expenses' && selectedCategoryId !== 'all') {
-      params.set('categoryId', selectedCategoryId);
+    if (activeModule === 'expenses') {
+      if (selectedCategoryId !== 'all') {
+        params.set('categoryId', selectedCategoryId);
+      }
+      if (selectedSubCategoryId !== 'all') {
+        params.set('subCategoryId', selectedSubCategoryId);
+      }
     }
 
     if (activePreset === 'custom' && customRange?.from) {
@@ -328,12 +370,12 @@ export const ReportsPage: React.FC = () => {
   const customFromTime = customRange?.from ? customRange.from.getTime() : null;
   const customToTime = customRange?.to ? customRange.to.getTime() : null;
 
-  // Auto-reset pagination state to Page 1 whenever switching domain tabs, presets, custom date range, or rep/user filters
+  // Auto-reset pagination state to Page 1 whenever switching domain tabs, presets, custom date range, or rep/user/category filters
   useEffect(() => {
     fetchReport();
     setSearchQuery('');
     setCurrentPage(1);
-  }, [activeModule, activePreset, selectedUserId, selectedCategoryId, customFromTime, customToTime]);
+  }, [activeModule, activePreset, selectedUserId, selectedCategoryId, selectedSubCategoryId, customFromTime, customToTime]);
 
   /**
    * Defensive Date Range Change Handler for Reports module.
@@ -818,12 +860,13 @@ export const ReportsPage: React.FC = () => {
   const handleExportExpensesCsv = () => {
     if (!reportData || !reportData.tableItems) return;
     const items = reportData.tableItems || [];
-    const headers = ['Expense Code', 'Date', 'Category', 'Description', 'Recorded By', 'Role', 'Amount (Rs.)'];
+    const headers = ['Expense Code', 'Date', 'Primary Category', 'Sub-Category', 'Description', 'Recorded By', 'Role', 'Amount (Rs.)'];
     const rows = items.map((r: any) => [
       `"${r.code || ''}"`,
       `"${r.date ? r.date.split('T')[0] : ''}"`,
       `"${r.categoryName || ''}"`,
-      `"${(r.description || '').replace(/"/g, '""')}"`,
+      `"${r.subCategoryName && r.subCategoryName !== '-' ? r.subCategoryName : '-'}"`,
+      `"${(r.description || '-').replace(/"/g, '""')}"`,
       `"${r.createdByName || ''}"`,
       `"${r.createdByRole || ''}"`,
       r.amount || 0,
@@ -1020,8 +1063,12 @@ export const ReportsPage: React.FC = () => {
     }
 
     if (activeModule === 'expenses') {
-      const breakdown = reportData?.categoryBreakdown || [];
-      return breakdown.slice(0, 8).map((cat: any) => ({
+      const isScoped = selectedCategoryId !== 'all';
+      const breakdown =
+        isScoped && reportData?.summary?.subCategoryBreakdown?.length > 0
+          ? reportData.summary.subCategoryBreakdown
+          : (reportData?.summary?.categoryBreakdown || reportData?.categoryBreakdown || []);
+      return breakdown.slice(0, 10).map((cat: any) => ({
         name: cat.name,
         value: cat.total || 0,
         count: cat.count || 0,
@@ -1541,19 +1588,49 @@ export const ReportsPage: React.FC = () => {
               </div>
             )}
 
-            {/* Expense Category Filter Dropdown */}
+            {/* Expense Primary & Sub-Category Cascading Filter Dropdowns */}
             {activeModule === 'expenses' && (
-              <div className="w-full sm:w-48 lg:w-56 shrink-0">
-                <SearchableSelect
-                  value={selectedCategoryId}
-                  onValueChange={(val) => setSelectedCategoryId(val)}
-                  options={expenseCategoryOptions}
-                  placeholder="All Categories"
-                  searchPlaceholder="Filter expense category..."
-                  dark={dark}
-                  className="h-8 text-xs rounded-lg w-full font-semibold"
-                />
-              </div>
+              <>
+                <div className="w-full sm:w-44 lg:w-48 shrink-0">
+                  <SearchableSelect
+                    value={selectedCategoryId}
+                    onChange={(val) => {
+                      setSelectedCategoryId(val);
+                      setSelectedSubCategoryId('all');
+                      setCurrentPage(1);
+                    }}
+                    onValueChange={(val) => {
+                      setSelectedCategoryId(val);
+                      setSelectedSubCategoryId('all');
+                      setCurrentPage(1);
+                    }}
+                    options={expensePrimaryCategoryOptions}
+                    placeholder="All Primary Categories"
+                    searchPlaceholder="Filter primary category..."
+                    dark={dark}
+                    className="h-8 text-xs rounded-lg w-full font-semibold"
+                  />
+                </div>
+
+                <div className="w-full sm:w-44 lg:w-48 shrink-0">
+                  <SearchableSelect
+                    value={selectedSubCategoryId}
+                    onChange={(val) => {
+                      setSelectedSubCategoryId(val);
+                      setCurrentPage(1);
+                    }}
+                    onValueChange={(val) => {
+                      setSelectedSubCategoryId(val);
+                      setCurrentPage(1);
+                    }}
+                    options={expenseSubCategoryOptions}
+                    placeholder="All Sub-Categories"
+                    searchPlaceholder="Filter sub-category..."
+                    dark={dark}
+                    className="h-8 text-xs rounded-lg w-full font-semibold"
+                  />
+                </div>
+              </>
             )}
 
             {/* Production Stage / Section Filter Dropdown */}
@@ -2365,13 +2442,18 @@ export const ReportsPage: React.FC = () => {
                         className="p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 shadow-xs space-y-2.5 text-xs select-none"
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1.5 min-w-0">
+                          <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                             <span className="font-mono font-bold text-xs text-blue-600 dark:text-blue-400 truncate">
                               {row.code}
                             </span>
                             <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-semibold border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300">
                               {row.categoryName}
                             </Badge>
+                            {row.subCategoryName && row.subCategoryName !== '-' && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-semibold border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300">
+                                {row.subCategoryName}
+                              </Badge>
+                            )}
                           </div>
                           <div className="flex items-center gap-1 text-[11px] text-slate-400 font-mono shrink-0">
                             <Calendar className="size-3" />
@@ -2381,8 +2463,8 @@ export const ReportsPage: React.FC = () => {
 
                         <div className="flex items-center justify-between gap-2">
                           <div className="min-w-0">
-                            <span className="font-bold text-slate-900 dark:text-zinc-100 text-xs sm:text-sm truncate block">
-                              {row.description}
+                            <span className="font-medium text-slate-900 dark:text-zinc-100 text-xs sm:text-sm truncate block">
+                              {row.description || '-'}
                             </span>
                             <span className="text-[10px] text-slate-400 dark:text-zinc-500 block truncate">
                               Recorded by: {row.createdByName} ({row.createdByRole || 'STAFF'})
@@ -2515,10 +2597,11 @@ export const ReportsPage: React.FC = () => {
 
                     {activeModule === 'expenses' && (
                       <>
-                        <th className="py-2.5 px-3 font-semibold w-28 min-w-[100px]">Expense Code</th>
-                        <th className="py-2.5 px-3 font-semibold w-28 min-w-[100px]">Date</th>
-                        <th className="py-2.5 px-3 font-semibold w-36 min-w-[120px]">Category</th>
-                        <th className="py-2.5 px-3 font-semibold min-w-[200px]">Description</th>
+                        <th className="py-2.5 px-3 font-semibold w-24 min-w-[90px]">Expense Code</th>
+                        <th className="py-2.5 px-3 font-semibold w-24 min-w-[90px]">Date</th>
+                        <th className="py-2.5 px-3 font-semibold w-32 min-w-[110px]">Primary Category</th>
+                        <th className="py-2.5 px-3 font-semibold w-32 min-w-[110px]">Sub-Category</th>
+                        <th className="py-2.5 px-3 font-semibold min-w-[180px]">Description</th>
                         <th className="py-2.5 px-3 font-semibold w-28 min-w-[100px]">Recorded By</th>
                         <th className="py-2.5 px-3 font-semibold text-right w-32 min-w-[110px]">Amount (Rs.)</th>
                       </>
@@ -2719,7 +2802,16 @@ export const ReportsPage: React.FC = () => {
                                   {row.categoryName}
                                 </Badge>
                               </td>
-                              <td className="py-2.5 px-3 font-medium text-slate-800 dark:text-zinc-200 break-words whitespace-normal">{row.description}</td>
+                              <td className="py-2.5 px-3 whitespace-nowrap">
+                                {row.subCategoryName && row.subCategoryName !== '-' ? (
+                                  <Badge variant="outline" className="text-[10px] bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800">
+                                    {row.subCategoryName}
+                                  </Badge>
+                                ) : (
+                                  <span className="text-slate-400 text-xs">-</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 font-medium text-slate-800 dark:text-zinc-200 break-words whitespace-normal">{row.description || '-'}</td>
                               <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">
                                 <span className="font-medium text-slate-700 dark:text-zinc-300">{row.createdByName}</span>
                                 <span className="text-[10px] text-slate-400 block">{row.createdByRole || 'STAFF'}</span>
