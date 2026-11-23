@@ -199,17 +199,70 @@ export const CuttingModal: React.FC<CuttingModalProps> = ({
         );
         setNotes(editingOrder.notes || '');
 
-        // Hydrate materials
-        if (editingOrder.materialUsages && editingOrder.materialUsages.length > 0) {
+        // Hydrate materials with robust fallback lookups for quantity (yards) & rolls count
+        let usages = editingOrder.materialUsages || editingOrder.materials;
+        if (!usages || usages.length === 0) {
+          if (editingOrder.cutLogs && editingOrder.cutLogs.length > 0) {
+            usages = editingOrder.cutLogs.map((cl: any) => ({
+              rawMaterialId: cl.rawMaterialId,
+              issuedQty: cl.quantityCut,
+              piecesCount: editingOrder.rolls || editingOrder.rollCount || 1,
+            }));
+          } else if (editingOrder.allocatedYards || editingOrder.yaraAllocated || editingOrder.rolls || editingOrder.rollCount) {
+            let auditRolls = editingOrder.rolls || editingOrder.rollCount || 1;
+            let auditYards = editingOrder.allocatedYards || editingOrder.yaraAllocated || '';
+            if (Array.isArray(editingOrder.activityLogs)) {
+              for (const log of editingOrder.activityLogs) {
+                if (log.notes) {
+                  const rm = log.notes.match(/(\d+(?:\.\d+)?)\s*Rolls?/i);
+                  if (rm) auditRolls = Number(rm[1]);
+                  const ym = log.notes.match(/Cut\s+([\d.]+)\s*(?:YARDS|Meters|units|yds)?/i);
+                  if (ym && !auditYards) auditYards = Number(ym[1]);
+                }
+              }
+            }
+            usages = [{
+              rawMaterialId: editingOrder.rawMaterialId || '',
+              issuedQty: auditYards,
+              piecesCount: auditRolls,
+            }];
+          }
+        }
+
+        if (usages && usages.length > 0) {
           setMaterials(
-            editingOrder.materialUsages.map((usage: any, idx: number) => ({
-              rowId: `mat-${idx}-${usage.id || Date.now()}`,
-              rawMaterialId: String(usage.rawMaterialId || usage.materialId || ''),
-              piecesCount: usage.piecesCount !== undefined ? usage.piecesCount : (usage.pieces || 1),
-              issuedQty: usage.issuedQty !== undefined ? usage.issuedQty : (usage.cuttingQty || ''),
-              priorPiecesCount: usage.piecesCount !== undefined ? usage.piecesCount : usage.pieces,
-              priorIssuedQty: usage.issuedQty !== undefined ? usage.issuedQty : usage.cuttingQty,
-            }))
+            usages.map((usage: any, idx: number) => {
+              const pieces =
+                usage.piecesCount !== undefined && usage.piecesCount !== null && usage.piecesCount !== ''
+                  ? Number(usage.piecesCount)
+                  : usage.pieces !== undefined && usage.pieces !== null && usage.pieces !== ''
+                  ? Number(usage.pieces)
+                  : usage.rolls !== undefined && usage.rolls !== null && usage.rolls !== ''
+                  ? Number(usage.rolls)
+                  : usage.rollCount !== undefined && usage.rollCount !== null && usage.rollCount !== ''
+                  ? Number(usage.rollCount)
+                  : (editingOrder.rolls || editingOrder.rollCount || 1);
+
+              const issued =
+                usage.issuedQty !== undefined && usage.issuedQty !== null && usage.issuedQty !== ''
+                  ? usage.issuedQty
+                  : usage.cuttingQty !== undefined && usage.cuttingQty !== null && usage.cuttingQty !== ''
+                  ? usage.cuttingQty
+                  : usage.qty !== undefined && usage.qty !== null && usage.qty !== ''
+                  ? usage.qty
+                  : usage.quantity !== undefined && usage.quantity !== null && usage.quantity !== ''
+                  ? usage.quantity
+                  : (usage.allocatedYards ?? editingOrder.allocatedYards ?? editingOrder.yaraAllocated ?? '');
+
+              return {
+                rowId: `mat-${idx}-${usage.id || Date.now()}`,
+                rawMaterialId: String(usage.rawMaterialId || usage.materialId || ''),
+                piecesCount: pieces,
+                issuedQty: issued,
+                priorPiecesCount: pieces,
+                priorIssuedQty: issued !== '' ? Number(issued) : undefined,
+              };
+            })
           );
         } else {
           setMaterials([

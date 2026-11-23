@@ -1375,7 +1375,7 @@ export const CuttingListPage: React.FC = () => {
   const handleOpenEditCuttingModal = async (order: ProductionOrder) => {
     setEditingOrderForCutting(order);
     setSelectedOrder(order);
-    setIsCutBatchModalOpen(true);
+    setIsEditBatchModalOpen(true);
     try {
       const res = await get<any>(`/production/${order.id}`);
       const freshOrder = res?.data || res;

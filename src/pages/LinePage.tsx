@@ -88,6 +88,7 @@ interface LineBatchItem {
   targetQuantity: number;
   completedQty: number;
   lineSentQty?: number;
+  lineIntakeAt?: string | null;
   sentToWashQty: number;
   washedQty: number;
   sewnQty?: number;
@@ -112,6 +113,7 @@ interface LineBatchItem {
     stock?: number;
   } | null;
   materialUsages?: any[];
+  activityLogs?: any[];
 }
 
 interface ParsedBatchProduct {
@@ -175,6 +177,150 @@ const getBatchProducts = (batch: LineBatchItem, productsList: any[] = []): Parse
   ];
 };
 
+/**
+ * Resolves the exact timestamp when the batch entered the Sewing Line Floor:
+ * 1. Uses batch.lineIntakeAt if provided by the backend.
+ * 2. Or finds the SEND_TO_LINE / LINE_INTAKE log in batch.activityLogs.
+ * 3. Falls back to earliest LINE stage log.
+ * 4. Falls back to productionDate only if no line log exists.
+ */
+export const getLineIntakeTimestamp = (batch: any): string | Date => {
+  if (batch?.lineIntakeAt) return batch.lineIntakeAt;
+  const logs = batch?.activityLogs || [];
+  const intakeLog = logs.find((l: any) => {
+    const act = String(l?.action || '').toUpperCase();
+    const stg = String(l?.stage || '').toUpperCase();
+    return act === 'SEND_TO_LINE' || act === 'LINE_INTAKE' || (stg === 'LINE' && act === 'SEND_TO_LINE');
+  });
+  if (intakeLog?.timestamp) return intakeLog.timestamp;
+  const lineLog = logs.find((l: any) => String(l?.stage || '').toUpperCase() === 'LINE');
+  if (lineLog?.timestamp) return lineLog.timestamp;
+  return batch?.productionDate || batch?.createdAt || '';
+};
+
+export const getLineIntakeTimestampMs = (batch: any): number => {
+  const ts = getLineIntakeTimestamp(batch);
+  if (!ts) return 0;
+  const t = new Date(ts).getTime();
+  return isNaN(t) ? 0 : t;
+};
+
+/**
+ * Resolves the real cumulative sewn quantity of a batch.
+ * Sums sewnQty from targetProducts or batch.sewnQty, or falls back to
+ * the sum of LOG_SEWN / SEWN activity logs, or full line intake for completed/washed batches.
+ */
+export const getBatchSewnQty = (batch: any, productsList: any[] = []): number => {
+  const prods = getBatchProducts(batch, productsList);
+  const prodsSewn = prods.reduce((sum, p) => sum + (Number(p.sewnQty) || 0), 0);
+  if (prodsSewn > 0) return prodsSewn;
+
+  if (batch.sewnQty !== undefined && Number(batch.sewnQty) > 0) {
+    return Number(batch.sewnQty);
+  }
+
+  const logs = batch.activityLogs || [];
+  const sewnFromLogs = logs
+    .filter((l: any) => {
+      const act = String(l?.action || '').toUpperCase();
+      const stg = String(l?.stage || '').toUpperCase();
+      return act === 'LOG_SEWN' || act === 'SEWN' || (stg === 'LINE' && act.includes('SEWN'));
+    })
+    .reduce((sum: number, l: any) => sum + Number(l?.quantity || 0), 0);
+
+  if (sewnFromLogs > 0) return sewnFromLogs;
+
+  const st = String(batch.status || '').toUpperCase();
+  if (['WASHING', 'FINISHING', 'COMPLETED'].includes(st)) {
+    const intake = prods.reduce((sum, p) => sum + (Number(p.sentToLineQty) || 0), 0) || Number(batch.lineSentQty || batch.targetQuantity || 0);
+    if (intake > 0) return intake;
+  }
+
+  return 0;
+};
+
+/**
+ * Resolves the real cumulative wash quantity of a batch.
+ */
+export const getBatchWashQty = (batch: any, productsList: any[] = []): number => {
+  const prods = getBatchProducts(batch, productsList);
+  const prodsWash = prods.reduce((sum, p) => sum + (Number(p.sentToWashQty) || 0), 0);
+  if (prodsWash > 0) return prodsWash;
+
+  if (batch.sentToWashQty !== undefined && Number(batch.sentToWashQty) > 0) {
+    return Number(batch.sentToWashQty);
+  }
+
+  const logs = batch.activityLogs || [];
+  const washFromLogs = logs
+    .filter((l: any) => {
+      const act = String(l?.action || '').toUpperCase();
+      const stg = String(l?.stage || '').toUpperCase();
+      const notes = String(l?.notes || '');
+      return act === 'SEND_TO_WASH' || act === 'WASH_DISPATCH' || (stg === 'WASHING' && (act.includes('SEND') || notes.includes('Wash Plant')));
+    })
+    .reduce((sum: number, l: any) => sum + Number(l?.quantity || 0), 0);
+
+  if (washFromLogs > 0) return washFromLogs;
+
+  const st = String(batch.status || '').toUpperCase();
+  if (['WASHING', 'FINISHING', 'COMPLETED'].includes(st)) {
+    const intake = prods.reduce((sum, p) => sum + (Number(p.sentToLineQty) || 0), 0) || Number(batch.lineSentQty || batch.targetQuantity || 0);
+    if (intake > 0) return intake;
+  }
+
+  return 0;
+};
+
+/**
+ * Resolves the real cumulative line intake quantity of a batch.
+ */
+export const getBatchLineIntakeQty = (batch: any, productsList: any[] = []): number => {
+  const prods = getBatchProducts(batch, productsList);
+  const prodsIntake = prods.reduce((sum, p) => sum + (Number(p.sentToLineQty) || 0), 0);
+  if (prodsIntake > 0) return prodsIntake;
+
+  if (batch.lineSentQty !== undefined && Number(batch.lineSentQty) > 0) {
+    return Number(batch.lineSentQty);
+  }
+  return Number(batch.targetQuantity || batch.completedQty || 0);
+};
+
+/**
+ * Strictly sums activity logs of a specific type within [startTime, endTime] for a batch.
+ */
+export const getPeriodLogSum = (
+  batch: any,
+  type: 'intake' | 'sewn' | 'wash',
+  startTime: number,
+  endTime: number,
+  getLogQtyFn?: (log: any) => number
+): number => {
+  const logs = batch.activityLogs || [];
+  const qtyGetter = getLogQtyFn || ((l: any) => Number(l?.quantity ?? l?.qty ?? 0));
+  return logs
+    .filter((l: any) => {
+      const ts = l?.timestamp || l?.date || l?.createdAt;
+      if (!ts) return false;
+      const t = new Date(ts).getTime();
+      if (isNaN(t) || t < startTime || t > endTime) return false;
+      const act = String(l?.action || '').toUpperCase();
+      const stg = String(l?.stage || '').toUpperCase();
+      const notes = String(l?.notes || '');
+      if (type === 'intake') {
+        return act === 'SEND_TO_LINE' || act === 'LINE_INTAKE' || (stg === 'LINE' && act === 'SEND_TO_LINE');
+      }
+      if (type === 'sewn') {
+        return act === 'LOG_SEWN' || act === 'SEWN' || (stg === 'LINE' && act.includes('SEWN'));
+      }
+      if (type === 'wash') {
+        return act === 'SEND_TO_WASH' || act === 'WASH_DISPATCH' || (stg === 'WASHING' && (act.includes('SEND') || notes.includes('Wash Plant')));
+      }
+      return false;
+    })
+    .reduce((sum: number, l: any) => sum + qtyGetter(l), 0);
+};
+
 export const LinePage: React.FC = () => {
   const navigate = useNavigate();
   const { resolvedTheme } = useTheme();
@@ -232,31 +378,63 @@ export const LinePage: React.FC = () => {
     { value: 'highest_qty', label: 'Highest Quantity' },
   ], []);
 
-  // Fetch all batches currently in 'LINE' status or ongoing 'WASHING' dispatches
+  // Helper to format Date to YYYY-MM-DD
+  const formatDateToYMD = (d: Date | string) => {
+    const dateObj = typeof d === 'string' ? new Date(d) : d;
+    const year = dateObj.getFullYear();
+    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  // Fetch all batches that have entered the Sewing Line stage (LINE, WASHING, FINISHING, COMPLETED)
   const fetchLineBatches = useCallback(async () => {
     setLoading(true);
     try {
-      const res: any = await get('/production?status=LINE,WASHING&limit=100');
+      const params = new URLSearchParams();
+      params.append('stage', 'line');
+      params.append('limit', '500');
+
+      if (dateRange?.from) {
+        const fromYmd = formatDateToYMD(dateRange.from);
+        const toYmd = dateRange.to ? formatDateToYMD(dateRange.to) : fromYmd;
+        params.append('startDate', `${fromYmd}T00:00:00.000+05:30`);
+        params.append('endDate', `${toYmd}T23:59:59.999+05:30`);
+      }
+      if (selectedActivity && selectedActivity !== 'all') {
+        params.append('activityType', selectedActivity);
+      }
+      if (selectedProductFilter && selectedProductFilter !== 'all') {
+        params.append('productId', selectedProductFilter);
+      }
+      if (searchQuery.trim()) {
+        params.append('search', searchQuery.trim());
+      }
+
+      const res: any = await get(`/production?${params.toString()}`);
       const data = res?.data || res;
       const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
-      // Include batches in LINE, plus WASHING batches that still have garments remaining on the sewing line or are active
-      const activeBatches = items.filter((b: any) => {
-        if (b.status === 'LINE') return true;
-        if (b.status === 'WASHING') {
-          const prods = getBatchProducts(b, []);
-          const hasRemaining = prods.some((p) => p.sentToLineQty > p.sentToWashQty);
-          return hasRemaining || !b.isStockSynced;
-        }
-        return false;
+
+      // Retain all batches that have entered the sewing line (LINE, WASHING, FINISHING, COMPLETED)
+      const lineBatches = items.filter((b: any) => {
+        const prods = getBatchProducts(b, []);
+        const totalSentToLine = prods.reduce((sum, p) => sum + (p.sentToLineQty || 0), 0) || Number(b.lineSentQty || 0);
+        const hasLineActivity = (b.activityLogs || []).some((log: any) =>
+          log.stage === 'LINE' ||
+          ['SEND_TO_LINE', 'LINE_INTAKE', 'LOG_SEWN', 'SEWN'].includes(log.action) ||
+          (log.stage === 'WASHING' && log.action === 'SEND_TO_WASH')
+        );
+        return totalSentToLine > 0 || hasLineActivity || b.status === 'LINE';
       });
-      setBatches(activeBatches);
+
+      setBatches(lineBatches);
     } catch (err: any) {
       console.error('Failed to fetch line batches:', err);
       toast.error('Failed to load batches in Sewing Line stage');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [dateRange, selectedActivity, selectedProductFilter, searchQuery]);
 
   // Fetch product catalog for thumbnail lookups
   useEffect(() => {
@@ -323,40 +501,122 @@ export const LinePage: React.FC = () => {
   // Local Asia/Colombo (+05:30) Calendar Day Boundaries
   const localBoundaries = useMemo(() => {
     if (!dateRange?.from) return null;
-    const from = new Date(dateRange.from);
-    const to = dateRange.to ? new Date(dateRange.to) : new Date(dateRange.from);
-    const startTime = new Date(from.getFullYear(), from.getMonth(), from.getDate(), 0, 0, 0, 0).getTime();
-    const endTime = new Date(to.getFullYear(), to.getMonth(), to.getDate(), 23, 59, 59, 999).getTime();
-    return { startTime, endTime };
+    const fromYmd = formatDateToYMD(dateRange.from);
+    const toYmd = dateRange.to ? formatDateToYMD(dateRange.to) : fromYmd;
+    const startTime = new Date(`${fromYmd}T00:00:00.000+05:30`).getTime();
+    const endTime = new Date(`${toYmd}T23:59:59.999+05:30`).getTime();
+    return { startTime, endTime, fromYmd, toYmd };
   }, [dateRange]);
 
-  const isLogWithinRange = useCallback((ts: string | Date | undefined) => {
-    if (!ts || !localBoundaries) return false;
-    const t = new Date(ts).getTime();
-    return !isNaN(t) && t >= localBoundaries.startTime && t <= localBoundaries.endTime;
-  }, [localBoundaries]);
+  /**
+   * Today's calendar day boundaries in Asia/Colombo (+05:30).
+   */
+  const todayBoundaries = useMemo(() => {
+    const lkNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+    const yr = lkNow.getUTCFullYear();
+    const mo = String(lkNow.getUTCMonth() + 1).padStart(2, '0');
+    const dy = String(lkNow.getUTCDate()).padStart(2, '0');
+    const todayYmd = `${yr}-${mo}-${dy}`;
+    const startTime = new Date(`${todayYmd}T00:00:00.000+05:30`).getTime();
+    const endTime = new Date(`${todayYmd}T23:59:59.999+05:30`).getTime();
+    return { todayYmd, startTime, endTime };
+  }, []);
 
+  const hasDateFilter = Boolean(dateRange?.from);
+  const isTodayOnly = useMemo(() => {
+    if (!hasDateFilter || !localBoundaries) return false;
+    return localBoundaries.fromYmd === todayBoundaries.todayYmd && localBoundaries.toYmd === todayBoundaries.todayYmd;
+  }, [hasDateFilter, localBoundaries, todayBoundaries]);
+
+  /**
+   * Safely extracts milliseconds timestamp from a BatchActivityLog object or string,
+   * checking timestamp, date, or createdAt properties.
+   */
+  const getLogTimestampMs = useCallback((logOrTs: any): number => {
+    if (!logOrTs) return 0;
+    if (typeof logOrTs === 'string' || logOrTs instanceof Date) {
+      const t = new Date(logOrTs).getTime();
+      return isNaN(t) ? 0 : t;
+    }
+    const ts = logOrTs?.timestamp || logOrTs?.date || logOrTs?.createdAt;
+    if (!ts) return 0;
+    const t = new Date(ts).getTime();
+    return isNaN(t) ? 0 : t;
+  }, []);
+
+  /**
+   * Extracts the numeric quantity from a BatchActivityLog object.
+   * Checks quantity, qty, or pieces first. If 0 or null, falls back to parsing
+   * +N Pcs / Qty: N from notes.
+   */
+  const getLogQty = useCallback((log: any): number => {
+    const direct = Number(log?.quantity ?? log?.qty ?? 0);
+    if (!isNaN(direct) && direct > 0) return direct;
+    if (log?.notes && typeof log.notes === 'string') {
+      const match = log.notes.match(/(?:\+|Qty:\s*|Quantity:\s*|\b)(\d+(?:\.\d+)?)\s*(?:Pcs|Units|Pieces)?/i);
+      if (match) {
+        const parsed = parseFloat(match[1]);
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+    }
+    return 0;
+  }, []);
+
+  /**
+   * Checks whether an activity log or timestamp falls strictly inside the active date range.
+   */
+  const isLogWithinRange = useCallback((logOrTs: any) => {
+    if (!logOrTs || !localBoundaries) return false;
+    const t = getLogTimestampMs(logOrTs);
+    return !isNaN(t) && t >= localBoundaries.startTime && t <= localBoundaries.endTime;
+  }, [localBoundaries, getLogTimestampMs]);
+
+  /**
+   * Filters Sewn activity logs for a batch, optionally restricting to the active date range.
+   */
   const getSewnLogs = useCallback((b: any, filterRange = false) => {
     return (b.activityLogs || []).filter((log: any) => {
-      const isSewn = log.action === 'LOG_SEWN' || log.action === 'SEWN' || (log.stage === 'LINE' && String(log.action || '').includes('SEWN'));
+      const actionStr = String(log?.action || '').toUpperCase();
+      const stageStr = String(log?.stage || '').toUpperCase();
+      const isSewn =
+        actionStr === 'LOG_SEWN' ||
+        actionStr === 'SEWN' ||
+        (stageStr === 'LINE' && actionStr.includes('SEWN'));
       if (!isSewn) return false;
-      return !filterRange || isLogWithinRange(log.timestamp);
+      return !filterRange || isLogWithinRange(log);
     });
   }, [isLogWithinRange]);
 
+  /**
+   * Filters Line Intake activity logs for a batch, optionally restricting to the active date range.
+   */
   const getIntakeLogs = useCallback((b: any, filterRange = false) => {
     return (b.activityLogs || []).filter((log: any) => {
-      const isIntake = log.action === 'SEND_TO_LINE' || log.action === 'LINE_INTAKE' || (log.stage === 'LINE' && log.action === 'SEND_TO_LINE');
+      const actionStr = String(log?.action || '').toUpperCase();
+      const stageStr = String(log?.stage || '').toUpperCase();
+      const isIntake =
+        actionStr === 'SEND_TO_LINE' ||
+        actionStr === 'LINE_INTAKE' ||
+        (stageStr === 'LINE' && actionStr === 'SEND_TO_LINE');
       if (!isIntake) return false;
-      return !filterRange || isLogWithinRange(log.timestamp);
+      return !filterRange || isLogWithinRange(log);
     });
   }, [isLogWithinRange]);
 
+  /**
+   * Filters Wash Dispatch activity logs for a batch, optionally restricting to the active date range.
+   */
   const getWashDispatchLogs = useCallback((b: any, filterRange = false) => {
     return (b.activityLogs || []).filter((log: any) => {
-      const isWash = log.action === 'SEND_TO_WASH' || (log.stage === 'WASHING' && String(log.action || '').includes('SEND'));
+      const actionStr = String(log?.action || '').toUpperCase();
+      const stageStr = String(log?.stage || '').toUpperCase();
+      const notesStr = String(log?.notes || '');
+      const isWash =
+        actionStr === 'SEND_TO_WASH' ||
+        actionStr === 'WASH_DISPATCH' ||
+        (stageStr === 'WASHING' && (actionStr.includes('SEND') || notesStr.includes('Wash Plant')));
       if (!isWash) return false;
-      return !filterRange || isLogWithinRange(log.timestamp);
+      return !filterRange || isLogWithinRange(log);
     });
   }, [isLogWithinRange]);
 
@@ -394,42 +654,44 @@ export const LinePage: React.FC = () => {
     if (selectedActivity === 'intake') {
       list = list.filter((b: any) => {
         if (localBoundaries) {
-          const logs = getIntakeLogs(b, true);
-          if (logs.length > 0) return true;
-          const pTime = new Date(b.productionDate).getTime();
-          return !isNaN(pTime) && pTime >= localBoundaries.startTime && pTime <= localBoundaries.endTime && (Number(b.lineSentQty || 0) > 0 || Number(b.cutQty || 0) > 0);
+          const pIntake = getPeriodLogSum(b, 'intake', localBoundaries.startTime, localBoundaries.endTime, getLogQty);
+          if (pIntake > 0) return true;
+          const intakeTime = getLineIntakeTimestampMs(b);
+          const hasIntakeLogs = (b.activityLogs || []).some((l: any) =>
+            ['SEND_TO_LINE', 'LINE_INTAKE'].includes(String(l?.action || '').toUpperCase())
+          );
+          return !hasIntakeLogs && intakeTime >= localBoundaries.startTime && intakeTime <= localBoundaries.endTime && getBatchLineIntakeQty(b, productsList) > 0;
         }
-        return Number(b.lineSentQty || b.targetQuantity || b.cutQty || 0) > 0;
+        return getBatchLineIntakeQty(b, productsList) > 0;
       });
     } else if (selectedActivity === 'sewn') {
       list = list.filter((b: any) => {
         if (localBoundaries) {
-          const logs = getSewnLogs(b, true);
-          return logs.length > 0;
+          const pSewn = getPeriodLogSum(b, 'sewn', localBoundaries.startTime, localBoundaries.endTime, getLogQty);
+          return pSewn > 0;
         }
-        return Number(b.sewnQty || 0) > 0 || getSewnLogs(b, false).length > 0;
+        return getBatchSewnQty(b, productsList) > 0;
       });
     } else if (selectedActivity === 'wash') {
       list = list.filter((b: any) => {
         if (localBoundaries) {
-          const logs = getWashDispatchLogs(b, true);
-          return logs.length > 0;
+          const pWash = getPeriodLogSum(b, 'wash', localBoundaries.startTime, localBoundaries.endTime, getLogQty);
+          return pWash > 0;
         }
-        return Number(b.sentToWashQty || 0) > 0 || getWashDispatchLogs(b, false).length > 0;
+        return getBatchWashQty(b, productsList) > 0;
       });
     } else if (selectedActivity === 'pending') {
       list = list.filter((b: any) => {
-        const prods = getBatchProducts(b, productsList);
-        const sentTotal = prods.reduce((sum, p) => sum + p.sentToLineQty, 0) || Number(b.lineSentQty || b.targetQuantity || 0);
-        const washTotal = prods.reduce((sum, p) => sum + p.sentToWashQty, 0) || Number(b.sentToWashQty || 0);
-        const sewnTotal = prods.reduce((sum, p) => sum + p.sewnQty, 0) || Number(b.sewnQty || 0);
+        const sentTotal = getBatchLineIntakeQty(b, productsList);
+        const washTotal = getBatchWashQty(b, productsList);
+        const sewnTotal = getBatchSewnQty(b, productsList);
         const isPending = (sentTotal > washTotal) || (sentTotal > sewnTotal);
         if (!isPending) return false;
         if (localBoundaries) {
-          const hasLog = (b.activityLogs || []).some((l: any) => isLogWithinRange(l.timestamp));
-          const pTime = new Date(b.productionDate).getTime();
-          const pInRange = !isNaN(pTime) && pTime >= localBoundaries.startTime && pTime <= localBoundaries.endTime;
-          return hasLog || pInRange;
+          const hasLog = (b.activityLogs || []).some((l: any) => isLogWithinRange(l));
+          const intakeTime = getLineIntakeTimestampMs(b);
+          const inRange = intakeTime >= localBoundaries.startTime && intakeTime <= localBoundaries.endTime;
+          return hasLog || inRange;
         }
         return true;
       });
@@ -437,10 +699,16 @@ export const LinePage: React.FC = () => {
       // 'all' Activities
       if (localBoundaries) {
         list = list.filter((b: any) => {
-          const hasLogInRange = (b.activityLogs || []).some((log: any) => isLogWithinRange(log.timestamp));
+          const hasLogInRange = (b.activityLogs || []).some((log: any) => isLogWithinRange(log));
           if (hasLogInRange) return true;
-          const pDate = new Date(b.productionDate).getTime();
-          return !isNaN(pDate) && pDate >= localBoundaries.startTime && pDate <= localBoundaries.endTime;
+          const hasIntakeLogs = (b.activityLogs || []).some((l: any) =>
+            ['SEND_TO_LINE', 'LINE_INTAKE'].includes(String(l?.action || '').toUpperCase())
+          );
+          if (!hasIntakeLogs) {
+            const intakeTime = getLineIntakeTimestampMs(b);
+            return intakeTime >= localBoundaries.startTime && intakeTime <= localBoundaries.endTime;
+          }
+          return false;
         });
       }
     }
@@ -448,21 +716,25 @@ export const LinePage: React.FC = () => {
     switch (sortBy) {
       case 'oldest':
         list.sort((a, b) => {
-          const dateA = new Date(a.productionDate || a.createdAt).getTime();
-          const dateB = new Date(b.productionDate || b.createdAt).getTime();
+          const dateA = getLineIntakeTimestampMs(a);
+          const dateB = getLineIntakeTimestampMs(b);
           return dateA - dateB || a.id - b.id;
         });
         break;
       case 'highest_qty':
         list.sort((a, b) => {
-          const qA = a.lineSentQty || a.targetQuantity || a.completedQty || 0;
-          const qB = b.lineSentQty || b.targetQuantity || b.completedQty || 0;
+          const qA = getBatchLineIntakeQty(a, productsList);
+          const qB = getBatchLineIntakeQty(b, productsList);
           return qB - qA || b.id - a.id;
         });
         break;
       case 'newest':
       default:
-        // Preserves the backend sorted order (createdAt: desc)
+        list.sort((a, b) => {
+          const dateA = getLineIntakeTimestampMs(a);
+          const dateB = getLineIntakeTimestampMs(b);
+          return dateB - dateA || b.id - a.id;
+        });
         break;
     }
 
@@ -475,15 +747,15 @@ export const LinePage: React.FC = () => {
     localBoundaries,
     sortBy,
     productsList,
-    getIntakeLogs,
-    getSewnLogs,
-    getWashDispatchLogs,
     isLogWithinRange,
+    getLogQty,
   ]);
 
   /**
    * Dynamically aggregated KPI metrics for Top Summary Cards.
-   * Strictly sums event-specific activity logs matching the active activity type and dateRange filter.
+   * Displays full cumulative batch quantities for normal filters,
+   * with period activity indicators (+X in range) when a date range is active,
+   * or activity-specific logged outputs when filtering specifically by sewn, wash, or intake.
    */
   const metrics = useMemo(() => {
     const totalBatches = filteredBatches.length;
@@ -491,58 +763,86 @@ export const LinePage: React.FC = () => {
     let totalForwardedToWash = 0;
     let totalSewnQty = 0;
 
-    filteredBatches.forEach((b: any) => {
-      const sewnLogsInRange = getSewnLogs(b, Boolean(localBoundaries));
-      const washLogsInRange = getWashDispatchLogs(b, Boolean(localBoundaries));
-      const intakeLogsInRange = getIntakeLogs(b, Boolean(localBoundaries));
+    let periodLineIntake = 0;
+    let periodForwardedToWash = 0;
+    let periodSewnQty = 0;
+    let todaySewnQty = 0;
 
-      const logSewn = sewnLogsInRange.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
-      const logWash = washLogsInRange.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
-      const logIntake = intakeLogsInRange.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
+    filteredBatches.forEach((b: any) => {
+      const bIntake = getBatchLineIntakeQty(b, productsList);
+      const bWash = getBatchWashQty(b, productsList);
+      const bSewn = getBatchSewnQty(b, productsList);
+
+      totalLineIntake += bIntake;
+      totalForwardedToWash += bWash;
+      totalSewnQty += bSewn;
+
+      // Always calculate today's logged sewn output for Case A
+      const bTodaySewn = getPeriodLogSum(b, 'sewn', todayBoundaries.startTime, todayBoundaries.endTime, getLogQty);
+      todaySewnQty += bTodaySewn;
 
       if (localBoundaries) {
-        totalSewnQty += logSewn;
-        totalForwardedToWash += logWash;
-        if (logIntake > 0) {
-          totalLineIntake += logIntake;
-        } else {
-          const pTime = new Date(b.productionDate).getTime();
-          if (!isNaN(pTime) && pTime >= localBoundaries.startTime && pTime <= localBoundaries.endTime) {
-            const prods = getBatchProducts(b, productsList);
-            const pSent = prods.reduce((sum, p) => sum + p.sentToLineQty, 0);
-            totalLineIntake += pSent > 0 ? pSent : Number(b.lineSentQty || b.targetQuantity || 0);
+        let pIntake = getPeriodLogSum(b, 'intake', localBoundaries.startTime, localBoundaries.endTime, getLogQty);
+        const pWash = getPeriodLogSum(b, 'wash', localBoundaries.startTime, localBoundaries.endTime, getLogQty);
+        const pSewn = getPeriodLogSum(b, 'sewn', localBoundaries.startTime, localBoundaries.endTime, getLogQty);
+
+        if (pIntake === 0) {
+          const intakeTime = getLineIntakeTimestampMs(b);
+          const hasIntakeLogs = (b.activityLogs || []).some((l: any) =>
+            ['SEND_TO_LINE', 'LINE_INTAKE'].includes(String(l?.action || '').toUpperCase())
+          );
+          if (!hasIntakeLogs && intakeTime >= localBoundaries.startTime && intakeTime <= localBoundaries.endTime) {
+            pIntake = bIntake;
           }
         }
-      } else {
-        const prods = getBatchProducts(b, productsList);
-        const batchSentTotal = prods.reduce((sum, p) => sum + p.sentToLineQty, 0);
-        totalLineIntake += batchSentTotal > 0 ? batchSentTotal : (b.lineSentQty || b.targetQuantity || b.completedQty || 0);
-        totalForwardedToWash += logWash > 0 ? logWash : (b.sentToWashQty || 0);
-        totalSewnQty += logSewn > 0 ? logSewn : Number(b.sewnQty || 0);
+
+        periodLineIntake += pIntake;
+        periodForwardedToWash += pWash;
+        periodSewnQty += pSewn;
       }
     });
+
+    const isSewnActive = selectedActivity === 'sewn' && Boolean(localBoundaries);
+    const isWashActive = selectedActivity === 'wash' && Boolean(localBoundaries);
+    const isIntakeActive = selectedActivity === 'intake' && Boolean(localBoundaries);
+
+    // Determine Sewn Card State: Case A (Today / Unfiltered) vs Case B (Period Filtered)
+    const isPeriodRangeActive = hasDateFilter && !isTodayOnly;
+    const sewnCardTitle = isPeriodRangeActive ? 'Sewing Qty' : 'Daily Sewn Qty';
+    const sewnCardSubtitle = isPeriodRangeActive
+      ? 'Total sewn output in selected period'
+      : 'Completed sewn output logged today';
+    const sewnCardValue = isPeriodRangeActive ? periodSewnQty : todaySewnQty;
 
     const pendingSewing = Math.max(0, totalLineIntake - totalForwardedToWash);
 
     return {
       totalBatches,
+      displayLineIntake: isIntakeActive ? periodLineIntake : totalLineIntake,
+      displayForwardedToWash: isWashActive ? periodForwardedToWash : totalForwardedToWash,
+      displaySewnQty: sewnCardValue,
+      sewnCardTitle,
+      sewnCardSubtitle,
       totalLineIntake,
       totalForwardedToWash,
       totalSewnQty,
+      periodLineIntake,
+      periodForwardedToWash,
+      periodSewnQty,
+      todaySewnQty,
       pendingSewing,
+      isSewnActive,
+      isWashActive,
+      isIntakeActive,
+      isPeriodRangeActive,
     };
-  }, [filteredBatches, productsList, localBoundaries, getSewnLogs, getWashDispatchLogs, getIntakeLogs]);
+  }, [filteredBatches, productsList, localBoundaries, selectedActivity, getLogQty, todayBoundaries, hasDateFilter, isTodayOnly]);
 
   // Helper to resolve row display quantities dynamically
   const getBatchRowDisplay = useCallback((batch: LineBatchItem) => {
-    const prods = getBatchProducts(batch, productsList);
-    const prodsTotalSent = prods.reduce((sum, p) => sum + p.sentToLineQty, 0);
-    const prodsTotalWash = prods.reduce((sum, p) => sum + p.sentToWashQty, 0);
-    const prodsTotalSewn = prods.reduce((sum, p) => sum + p.sewnQty, 0);
-
-    const baseLine = prodsTotalSent > 0 ? prodsTotalSent : (batch.lineSentQty || batch.targetQuantity || batch.completedQty || 0);
-    const baseWash = prodsTotalWash > 0 ? prodsTotalWash : (batch.sentToWashQty || 0);
-    const baseSewn = prodsTotalSewn > 0 ? prodsTotalSewn : Number(batch.sewnQty || 0);
+    const baseLine = getBatchLineIntakeQty(batch, productsList);
+    const baseWash = getBatchWashQty(batch, productsList);
+    const baseSewn = getBatchSewnQty(batch, productsList);
 
     if (!localBoundaries) {
       return {
@@ -550,30 +850,33 @@ export const LinePage: React.FC = () => {
         washQty: baseWash,
         batchTotalSewn: baseSewn,
         isFilteredPeriod: false,
+        periodSewn: 0,
+        periodWash: 0,
+        periodIntake: 0,
       };
     }
 
-    const intakeLogs = getIntakeLogs(batch, true);
-    const washLogs = getWashDispatchLogs(batch, true);
-    const sewnLogs = getSewnLogs(batch, true);
+    const periodIntakeFromLogs = getPeriodLogSum(batch, 'intake', localBoundaries.startTime, localBoundaries.endTime, getLogQty);
+    const periodWash = getPeriodLogSum(batch, 'wash', localBoundaries.startTime, localBoundaries.endTime, getLogQty);
+    const periodSewn = getPeriodLogSum(batch, 'sewn', localBoundaries.startTime, localBoundaries.endTime, getLogQty);
 
-    const periodIntake = intakeLogs.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
-    const periodWash = washLogs.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
-    const periodSewn = sewnLogs.reduce((sum: number, l: any) => sum + (Number(l.quantity) || 0), 0);
-
-    const pTime = new Date(batch.productionDate).getTime();
-    const pInRange = !isNaN(pTime) && pTime >= localBoundaries.startTime && pTime <= localBoundaries.endTime;
+    const intakeTime = getLineIntakeTimestampMs(batch);
+    const hasIntakeLogs = (batch.activityLogs || []).some((l: any) =>
+      ['SEND_TO_LINE', 'LINE_INTAKE'].includes(String(l?.action || '').toUpperCase())
+    );
+    const pInRange = !hasIntakeLogs && intakeTime >= localBoundaries.startTime && intakeTime <= localBoundaries.endTime;
+    const periodIntake = periodIntakeFromLogs > 0 ? periodIntakeFromLogs : (pInRange ? baseLine : 0);
 
     return {
-      lineQty: selectedActivity === 'intake' || periodIntake > 0 ? (periodIntake > 0 ? periodIntake : (pInRange ? baseLine : 0)) : baseLine,
-      washQty: selectedActivity === 'wash' ? periodWash : (periodWash > 0 ? periodWash : baseWash),
-      batchTotalSewn: selectedActivity === 'sewn' ? periodSewn : (periodSewn > 0 ? periodSewn : baseSewn),
+      lineQty: selectedActivity === 'intake' ? (periodIntake > 0 ? periodIntake : baseLine) : baseLine,
+      washQty: selectedActivity === 'wash' ? (periodWash > 0 ? periodWash : baseWash) : baseWash,
+      batchTotalSewn: selectedActivity === 'sewn' ? (periodSewn > 0 ? periodSewn : baseSewn) : baseSewn,
       isFilteredPeriod: true,
       periodSewn,
       periodWash,
       periodIntake,
     };
-  }, [localBoundaries, productsList, selectedActivity, getIntakeLogs, getWashDispatchLogs, getSewnLogs]);
+  }, [localBoundaries, productsList, selectedActivity, getLogQty]);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -660,7 +963,7 @@ export const LinePage: React.FC = () => {
           <div className="flex justify-between items-start">
             <div>
               <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
-                Active Sewing Batches
+                {localBoundaries ? 'Filtered Batches' : 'Active Sewing Batches'}
               </span>
               <h3 className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 mt-1 font-mono">
                 {metrics.totalBatches}{' '}
@@ -672,7 +975,7 @@ export const LinePage: React.FC = () => {
             </div>
           </div>
           <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-2">
-            Currently active on factory sewing tables
+            {localBoundaries ? 'Batches active or with logs in selected period' : 'Currently active on factory sewing tables'}
           </p>
         </div>
 
@@ -681,10 +984,10 @@ export const LinePage: React.FC = () => {
           <div className="flex justify-between items-start">
             <div>
               <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
-                Total Line Intake
+                {metrics.isIntakeActive ? 'Period Line Intake' : 'Total Line Intake'}
               </span>
               <h3 className="text-2xl font-bold text-slate-900 dark:text-white mt-1 font-mono">
-                {metrics.totalLineIntake.toLocaleString()}{' '}
+                {metrics.displayLineIntake.toLocaleString()}{' '}
                 <span className="text-xs font-medium text-slate-500">Units</span>
               </h3>
             </div>
@@ -693,7 +996,15 @@ export const LinePage: React.FC = () => {
             </div>
           </div>
           <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-2">
-            Cut garment pieces received from Cutting
+            {metrics.isIntakeActive ? (
+              'Received on line in selected period'
+            ) : localBoundaries ? (
+              <span className="font-semibold text-indigo-600 dark:text-indigo-400">
+                Received in range: +{metrics.periodLineIntake.toLocaleString()} Units
+              </span>
+            ) : (
+              'Cut garment pieces received from Cutting'
+            )}
           </p>
         </div>
 
@@ -705,7 +1016,7 @@ export const LinePage: React.FC = () => {
                 Forwarded to Wash
               </span>
               <h3 className="text-2xl font-bold text-cyan-600 dark:text-cyan-400 mt-1 font-mono">
-                {metrics.totalForwardedToWash.toLocaleString()}{' '}
+                {metrics.displayForwardedToWash.toLocaleString()}{' '}
                 <span className="text-xs font-medium text-slate-500">Units</span>
               </h3>
             </div>
@@ -714,19 +1025,27 @@ export const LinePage: React.FC = () => {
             </div>
           </div>
           <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-2">
-            Sewn bundles forwarded to Wash Plant
+            {metrics.isWashActive ? (
+              'Forwarded to wash in selected period'
+            ) : localBoundaries ? (
+              <span className="font-semibold text-cyan-600 dark:text-cyan-400">
+                Forwarded in range: +{metrics.periodForwardedToWash.toLocaleString()} Units
+              </span>
+            ) : (
+              'Sewn bundles forwarded to Wash Plant'
+            )}
           </p>
         </div>
 
-        {/* Metric 4: Daily Sewn Qty (Filtered Sewn Output) */}
+        {/* Metric 4: Daily Sewn Qty / Sewing Qty */}
         <div className="rounded-2xl border p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex flex-col justify-between min-h-[110px]">
           <div className="flex justify-between items-start">
             <div>
               <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
-                Daily Sewn Qty
+                {metrics.sewnCardTitle}
               </span>
               <h3 className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-1 font-mono">
-                {formatQty(metrics.totalSewnQty)}{' '}
+                {metrics.displaySewnQty.toLocaleString()}{' '}
                 <span className="text-xs font-medium text-slate-500">Pcs</span>
               </h3>
             </div>
@@ -735,7 +1054,7 @@ export const LinePage: React.FC = () => {
             </div>
           </div>
           <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-2">
-            Filtered completed sewn output across active lines
+            {metrics.sewnCardSubtitle}
           </p>
         </div>
       </div>
@@ -1075,7 +1394,7 @@ export const LinePage: React.FC = () => {
 
                       {/* 2. Date & Time (Clean 2-line break) */}
                       <TableCell className="align-middle text-xs font-mono w-28">
-                        {renderSriLankaDateTime(batch.productionDate || batch.createdAt)}
+                        {renderSriLankaDateTime(getLineIntakeTimestamp(batch))}
                       </TableCell>
 
                       {/* 3. PRODUCT (Maximized width & single line fallback) */}
@@ -1166,6 +1485,11 @@ export const LinePage: React.FC = () => {
                         <span className="text-xs font-mono font-bold text-slate-800 dark:text-zinc-200">
                           {lineQty} Pcs
                         </span>
+                        {rowData.isFilteredPeriod && (rowData.periodIntake > 0 || selectedActivity === 'intake') && (
+                          <span className="block text-[10px] font-mono font-semibold text-indigo-600 dark:text-indigo-400">
+                            Range: +{rowData.periodIntake}
+                          </span>
+                        )}
                       </TableCell>
 
                       {/* 6. Sent to Wash */}
@@ -1173,11 +1497,39 @@ export const LinePage: React.FC = () => {
                         <span className="text-xs font-mono font-bold text-cyan-600 dark:text-cyan-400">
                           {washQty} Pcs
                         </span>
+                        {rowData.isFilteredPeriod && (rowData.periodWash > 0 || selectedActivity === 'wash') && (
+                          <span className="block text-[10px] font-mono font-semibold text-cyan-600 dark:text-cyan-400">
+                            Range: +{rowData.periodWash}
+                          </span>
+                        )}
                       </TableCell>
 
                       {/* 7. Progress: Daily Sewn & Wash Forwarding */}
                       <TableCell className="align-middle w-48 min-w-[170px]">
                         <div className="space-y-1.5">
+                          {/* In-Period Activity Breakdown Badge when date range is active */}
+                          {rowData.isFilteredPeriod && (rowData.periodSewn > 0 || rowData.periodWash > 0 || ['sewn', 'wash'].includes(selectedActivity)) && (
+                            <div className="flex items-center gap-1.5 flex-wrap pb-1 border-b border-dashed border-slate-200 dark:border-zinc-800 text-[10px] font-mono">
+                              <span className="font-bold uppercase tracking-wider text-slate-400">Range:</span>
+                              {(rowData.periodSewn > 0 || selectedActivity === 'sewn') && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] px-1.5 py-0 font-mono font-bold bg-purple-50 text-purple-700 border-purple-300 dark:bg-purple-950/60 dark:text-purple-300"
+                                >
+                                  Sewn: +{rowData.periodSewn}
+                                </Badge>
+                              )}
+                              {(rowData.periodWash > 0 || selectedActivity === 'wash') && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] px-1.5 py-0 font-mono font-bold bg-cyan-50 text-cyan-700 border-cyan-300 dark:bg-cyan-950/60 dark:text-cyan-300"
+                                >
+                                  Wash: +{rowData.periodWash}
+                                </Badge>
+                              )}
+                            </div>
+                          )}
+
                           {/* Daily Sewn Progress */}
                           <div className="space-y-0.5">
                             <div className="flex items-center justify-between text-[10px] font-mono leading-tight">
@@ -1312,7 +1664,7 @@ export const LinePage: React.FC = () => {
                   </div>
 
                   <p className="text-[10px] text-slate-400 font-mono">
-                    {formatSriLankaDateTime(batch.productionDate || batch.createdAt)}
+                    {formatSriLankaDateTime(getLineIntakeTimestamp(batch))}
                   </p>
 
                   {/* Target Garment Products List */}
@@ -1346,6 +1698,36 @@ export const LinePage: React.FC = () => {
                     ))}
                   </div>
 
+                  {/* In-Period Activity Summary Badge when date range is active */}
+                  {rowData.isFilteredPeriod && (rowData.periodIntake > 0 || rowData.periodSewn > 0 || rowData.periodWash > 0) && (
+                    <div className="flex items-center gap-1.5 flex-wrap p-2 rounded-xl bg-purple-50/50 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-900/40 text-[10px] font-mono">
+                      <span className="font-bold uppercase tracking-wider text-purple-700 dark:text-purple-300">
+                        Period Activity:
+                      </span>
+                      {rowData.periodIntake > 0 && (
+                        <span className="font-semibold text-slate-700 dark:text-zinc-300">
+                          Intake: +{rowData.periodIntake}
+                        </span>
+                      )}
+                      {rowData.periodSewn > 0 && (
+                        <>
+                          {rowData.periodIntake > 0 && <span className="text-slate-400">·</span>}
+                          <span className="font-semibold text-purple-700 dark:text-purple-300">
+                            Sewn: +{rowData.periodSewn}
+                          </span>
+                        </>
+                      )}
+                      {rowData.periodWash > 0 && (
+                        <>
+                          {(rowData.periodIntake > 0 || rowData.periodSewn > 0) && <span className="text-slate-400">·</span>}
+                          <span className="font-semibold text-cyan-700 dark:text-cyan-300">
+                            Wash: +{rowData.periodWash}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  )}
+
                   {/* Metrics Row */}
                   <div className="grid grid-cols-3 gap-2 text-center p-2 rounded-xl bg-slate-50 dark:bg-zinc-900 border border-slate-200/60 dark:border-zinc-800 text-xs">
                     <div>
@@ -1353,18 +1735,33 @@ export const LinePage: React.FC = () => {
                       <span className="font-mono font-bold text-slate-800 dark:text-zinc-200">
                         {lineQty} Pcs
                       </span>
+                      {rowData.isFilteredPeriod && (rowData.periodIntake > 0 || selectedActivity === 'intake') && (
+                        <span className="block text-[9px] font-mono font-semibold text-indigo-600 dark:text-indigo-400">
+                          Range: +{rowData.periodIntake}
+                        </span>
+                      )}
                     </div>
                     <div>
                       <span className="text-[9px] uppercase font-bold text-cyan-600 block">Sent to Wash</span>
                       <span className="font-mono font-bold text-cyan-600 dark:text-cyan-400">
                         {washQty} Pcs
                       </span>
+                      {rowData.isFilteredPeriod && (rowData.periodWash > 0 || selectedActivity === 'wash') && (
+                        <span className="block text-[9px] font-mono font-semibold text-cyan-600 dark:text-cyan-400">
+                          Range: +{rowData.periodWash}
+                        </span>
+                      )}
                     </div>
                     <div>
                       <span className="text-[9px] uppercase font-bold text-amber-600 block">Remaining</span>
                       <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
                         {remainingOnLine} Pcs
                       </span>
+                      {rowData.isFilteredPeriod && (rowData.periodSewn > 0 || selectedActivity === 'sewn') && (
+                        <span className="block text-[9px] font-mono font-semibold text-purple-600 dark:text-purple-400">
+                          Sewn: +{rowData.periodSewn}
+                        </span>
+                      )}
                     </div>
                   </div>
 

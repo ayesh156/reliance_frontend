@@ -78,23 +78,60 @@ export const CuttingEditModal: React.FC<CuttingEditModalProps> = ({
       setProductionDateTime(formatToLocalInputDateTime(order.productionDate || order.createdAt));
       setNotes(order.notes || '');
 
-      // 1. Raw Materials hydration
-      if (order.materialUsages && order.materialUsages.length > 0) {
-        const loadedMaterials: EditMaterialRow[] = order.materialUsages.map(
+      // 1. Raw Materials hydration with robust fallback lookups for quantity (yards) & rolls count
+      let usages = order.materialUsages || order.materials;
+      if (!usages || usages.length === 0) {
+        if (order.cutLogs && order.cutLogs.length > 0) {
+          usages = order.cutLogs.map((cl: any) => ({
+            rawMaterialId: cl.rawMaterialId,
+            issuedQty: cl.quantityCut,
+            piecesCount: order.rolls || order.rollCount || 1,
+          }));
+        } else if (order.allocatedYards || order.yaraAllocated || order.rolls || order.rollCount) {
+          let auditRolls = order.rolls || order.rollCount || 1;
+          let auditYards = order.allocatedYards || order.yaraAllocated || '';
+          if (Array.isArray(order.activityLogs)) {
+            for (const log of order.activityLogs) {
+              if (log.notes) {
+                const rm = log.notes.match(/(\d+(?:\.\d+)?)\s*Rolls?/i);
+                if (rm) auditRolls = Number(rm[1]);
+                const ym = log.notes.match(/Cut\s+([\d.]+)\s*(?:YARDS|Meters|units|yds)?/i);
+                if (ym && !auditYards) auditYards = Number(ym[1]);
+              }
+            }
+          }
+          usages = [{
+            rawMaterialId: order.rawMaterialId || '',
+            issuedQty: auditYards,
+            piecesCount: auditRolls,
+          }];
+        }
+      }
+
+      if (usages && usages.length > 0) {
+        const loadedMaterials: EditMaterialRow[] = usages.map(
           (usage: any, idx: number) => {
             const pieces =
-              usage.piecesCount !== undefined && usage.piecesCount !== null
+              usage.piecesCount !== undefined && usage.piecesCount !== null && usage.piecesCount !== ''
                 ? Number(usage.piecesCount)
-                : usage.pieces !== undefined && usage.pieces !== null
+                : usage.pieces !== undefined && usage.pieces !== null && usage.pieces !== ''
                 ? Number(usage.pieces)
-                : 1;
+                : usage.rolls !== undefined && usage.rolls !== null && usage.rolls !== ''
+                ? Number(usage.rolls)
+                : usage.rollCount !== undefined && usage.rollCount !== null && usage.rollCount !== ''
+                ? Number(usage.rollCount)
+                : (order.rolls || order.rollCount || 1);
 
             const issued =
-              usage.issuedQty !== undefined && usage.issuedQty !== null
+              usage.issuedQty !== undefined && usage.issuedQty !== null && usage.issuedQty !== ''
                 ? usage.issuedQty
-                : usage.cuttingQty !== undefined && usage.cuttingQty !== null
+                : usage.cuttingQty !== undefined && usage.cuttingQty !== null && usage.cuttingQty !== ''
                 ? usage.cuttingQty
-                : '';
+                : usage.qty !== undefined && usage.qty !== null && usage.qty !== ''
+                ? usage.qty
+                : usage.quantity !== undefined && usage.quantity !== null && usage.quantity !== ''
+                ? usage.quantity
+                : (usage.allocatedYards ?? order.allocatedYards ?? order.yaraAllocated ?? '');
 
             return {
               rowId: `mat-${idx}-${usage.id || Date.now()}`,
@@ -108,7 +145,14 @@ export const CuttingEditModal: React.FC<CuttingEditModalProps> = ({
         );
         setMaterials(loadedMaterials);
       } else {
-        setMaterials([]);
+        setMaterials([
+          {
+            rowId: `mat-0-${Date.now()}`,
+            rawMaterialId: '',
+            piecesCount: 1,
+            issuedQty: '',
+          },
+        ]);
       }
 
       // 2. Target Products hydration with per-product Cut Qty
