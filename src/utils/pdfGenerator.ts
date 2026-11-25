@@ -207,7 +207,13 @@ export function drawStandardReportHeader(
     { label: 'PRINTED BY:', value: options.generatedBy || 'System Administrator', isBold: false },
   ];
 
-  const metaLabelX = rightMargin - 165;
+  // Dynamic label offset ensures PRINTED BY: never overlaps long user names/roles
+  const maxValWidth = metaRows.reduce((maxW, r) => {
+    doc.setFont('helvetica', r.isBold ? 'bold' : 'normal');
+    doc.setFontSize(7.5);
+    return Math.max(maxW, doc.getTextWidth(String(r.value || '')));
+  }, 0);
+  const metaLabelX = Math.min(rightMargin - 175, rightMargin - maxValWidth - 65);
   let metaY = headerTop + 24;
 
   metaRows.forEach((row) => {
@@ -278,8 +284,16 @@ export function drawStandardReportFooter(
 ): void {
   const contentWidth = rightMargin - startX;
   const totalPages = doc.getNumberOfPages();
+  // Single-draw guard prevents overprinted/double-bolded footer text if called across multi-pass hooks
+  const docAny = doc as any;
+  if (!docAny.__relianceFooterDrawnPages) {
+    docAny.__relianceFooterDrawnPages = new Set<number>();
+  }
+  const drawnPages: Set<number> = docAny.__relianceFooterDrawnPages;
 
   for (let i = 1; i <= totalPages; i++) {
+    if (drawnPages.has(i)) continue;
+    drawnPages.add(i);
     doc.setPage(i);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(6.5);
@@ -328,6 +342,7 @@ export interface FinancialAuditExportData {
   paymentSplit?: Record<string, { count: number; amount: number }>;
   dateLabel?: string;
   totalProductionCost?: number;
+  totalGrnPurchases?: number;
   totalGrnExpenses?: number;
   totalGrnLiabilities?: number;
   costOfGoodsSold?: number;
@@ -347,6 +362,7 @@ export interface GenerateFinancialAuditPdfOptions {
   dateRangeLabel?: string;
   generatedBy?: string;
   filename?: string;
+  includeGrn?: boolean;
 }
 
 /**
@@ -392,7 +408,12 @@ export async function generateFinancialAuditPdf(
   const cogs = Number(data.costOfGoodsSold ?? data.totalCostOfGoodsSold) || 0;
   const grossProfit = Number(data.grossProfit ?? (netSales - cogs)) || 0;
   const totalExpenses = Number(data.totalExpenses) || 0;
-  const netProfit = Number(data.netProfit ?? (grossProfit - totalExpenses)) || 0;
+  const includeGrn = Boolean(options.includeGrn);
+  const totalGrnPurchases = Number(data.totalGrnPurchases ?? totalGrnExpenses) || 0;
+  const baseNetProfit = Number(data.netProfit ?? (grossProfit - totalExpenses)) || 0;
+  const netProfit = includeGrn
+    ? Math.round((baseNetProfit - totalGrnPurchases) * 100) / 100
+    : baseNetProfit;
   const expensesByCategory = data.expensesByCategory || [];
 
   const paymentSplit = data.paymentSplit || {};
@@ -493,27 +514,23 @@ export async function generateFinancialAuditPdf(
 
   curY += 40;
 
-  // ── 2. Executive KPI Summary Cards (2 Rows of 4 Cards) ──
+  // ── 2. Executive KPI Summary Cards (Pure Product-Cost P&L) ──
   const kpiRows: Array<Array<{ label: string; value: string; isAlert?: boolean }>> = [
     [
-      { label: 'NET SALES REVENUE', value: formatCurrency(netSales) },
-      { label: 'COST OF SALE (COGS)', value: `- ${formatCurrency(cogs)}` },
+      { label: 'TOTAL SALES', value: formatCurrency(netSales) },
+      { label: 'COST OF SALES', value: `- ${formatCurrency(cogs)}` },
       { label: 'GROSS PROFIT', value: formatCurrency(grossProfit) },
-      { label: 'OPERATIONAL EXPENSES', value: `- ${formatCurrency(totalExpenses)}` },
+      { label: 'TOTAL EXPENSES', value: `- ${formatCurrency(totalExpenses)}` },
     ],
     [
       {
-        label: 'NET PROFIT (BOTTOM LINE)',
+        label: includeGrn ? 'NET PROFIT (GRN ADJUSTED)' : 'NET PROFIT (BOTTOM LINE)',
         value: formatCurrency(netProfit),
         isAlert: netProfit < 0,
       },
-      { label: 'REALIZED CASH INFLOW', value: formatCurrency(totalPaid) },
-      {
-        label: 'CUSTOMER DEBT DUE',
-        value: formatCurrency(totalDue),
-        isAlert: totalDue > 0,
-      },
-      { label: 'GROSS ITEM VOLUME', value: formatCurrency(grossRevenue) },
+      { label: 'GRN PURCHASES (PERIOD)', value: formatCurrency(totalGrnPurchases) },
+      { label: 'INVOICED ORDERS', value: String(orderCount) },
+      { label: 'GROSS MARGIN %', value: `${netSales > 0 ? ((grossProfit / netSales) * 100).toFixed(1) : '0.0'}%` },
     ],
   ];
 
@@ -573,7 +590,7 @@ export async function generateFinancialAuditPdf(
 
   autoTable(doc, {
     startY: curY,
-    margin: { left: startX, right: pageWidth - rightMargin, top: 115, bottom: 45 },
+    margin: { left: startX, right: pageWidth - rightMargin, top: 36, bottom: 45 },
     theme: 'plain',
     head: [['OP', 'ACCOUNTING COMPONENT / AUDIT ITEM', 'AMOUNT (RS.)', 'AUDIT NOTES & RECONCILIATION']],
     body: waterfallRows,
@@ -600,9 +617,7 @@ export async function generateFinancialAuditPdf(
       2: { cellWidth: 90, halign: 'right', fontStyle: 'bold' },
       3: { cellWidth: 219.28, halign: 'left', textColor: [85, 85, 85] },
     },
-    didDrawPage: () => {
-      renderHeader(32);
-    },
+    showHead: 'everyPage',
   });
 
   curY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 12 : curY + 80;
@@ -614,7 +629,7 @@ export async function generateFinancialAuditPdf(
   doc.text('2. SECTION 2: NET PROFIT CALCULATION (GROSS PROFIT - EXPENSES = NET PROFIT)', startX, curY);
   curY += 8;
 
-  const netProfitRows = [
+  const netProfitRows: string[][] = [
     [
       '+',
       'Gross Profit Brought Forward',
@@ -623,21 +638,31 @@ export async function generateFinancialAuditPdf(
     ],
     [
       '-',
-      'Less: Operational Expenses',
+      'Less: Total Expenses',
       formatAmountNum(totalExpenses),
-      'Category-itemized operational overheads from Expenses Module',
-    ],
-    [
-      '=',
-      'EQUALS: Net Profit (True Bottom-Line Profit)',
-      formatAmountNum(netProfit),
-      'True bottom-line company profit after all costs and operational expenses',
+      'Recorded operational expenses in the selected period',
     ],
   ];
+  if (includeGrn) {
+    netProfitRows.push([
+      '-',
+      'Less: GRN / Raw Material Purchases',
+      formatAmountNum(totalGrnPurchases),
+      'Optional deduction of period raw material purchases (GRN)',
+    ]);
+  }
+  netProfitRows.push([
+    '=',
+    includeGrn ? 'EQUALS: Net Profit (GRN Adjusted)' : 'EQUALS: Net Profit (Bottom Line)',
+    formatAmountNum(netProfit),
+    includeGrn
+      ? 'Net Profit after operational expenses and GRN purchases'
+      : 'Pure bottom-line company profit after product cost and operational expenses',
+  ]);
 
   autoTable(doc, {
     startY: curY,
-    margin: { left: startX, right: pageWidth - rightMargin, top: 115, bottom: 45 },
+    margin: { left: startX, right: pageWidth - rightMargin, top: 36, bottom: 45 },
     theme: 'plain',
     head: [['OP', 'ACCOUNTING COMPONENT / AUDIT ITEM', 'AMOUNT (RS.)', 'AUDIT NOTES & RECONCILIATION']],
     body: netProfitRows,
@@ -664,60 +689,7 @@ export async function generateFinancialAuditPdf(
       2: { cellWidth: 90, halign: 'right', fontStyle: 'bold' },
       3: { cellWidth: 219.28, halign: 'left', textColor: [85, 85, 85] },
     },
-    didDrawPage: () => {
-      renderHeader(32);
-    },
-  });
-
-  curY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 12 : curY + 80;
-
-  // ── 5. Section 3: Collections & Receivables Status (Cash-flow Context) ──
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.setTextColor(0, 0, 0);
-  doc.text('3. SECTION 3: COLLECTIONS & RECEIVABLES STATUS (CASH-FLOW CONTEXT)', startX, curY);
-  curY += 8;
-
-  const collectionsRows = [
-    ['Cash Tendered Inflow', `${cashCount} Orders`, formatAmountNum(cashAmount), 'Liquid Cash Realized & Deposited'],
-    ['Card & Digital Bank Payments', `${cardCount} Orders`, formatAmountNum(cardAmount), 'Digital Merchant Settled'],
-    ['Cheque Payments Registered', `${chequeCount} Orders`, formatAmountNum(chequeAmount), 'Cheque Inflow (Realized/Registered)'],
-    ['(=) Total Liquid Collected / Paid', `${orderCount} Orders`, formatAmountNum(totalPaid), 'Realized Liquid Capital Inflow'],
-    ['(!) Outstanding Customer Credit Debt', `${creditCount} Orders`, formatAmountNum(totalDue), 'Open Accounts Receivable Debt'],
-  ];
-
-  autoTable(doc, {
-    startY: curY,
-    margin: { left: startX, right: pageWidth - rightMargin, top: 115, bottom: 45 },
-    theme: 'plain',
-    head: [['PAYMENT METHOD / CHANNEL', 'INVOICE COUNT', 'REALIZED AMOUNT (RS.)', 'SETTLEMENT STATUS']],
-    body: collectionsRows,
-    headStyles: {
-      fillColor: [248, 250, 252],
-      textColor: [0, 0, 0],
-      fontSize: 7,
-      fontStyle: 'bold',
-      lineColor: [0, 0, 0],
-      lineWidth: { top: 0.8, bottom: 0.8, left: 0, right: 0 },
-      cellPadding: { top: 4, bottom: 4, left: 4, right: 4 },
-    },
-    bodyStyles: {
-      fillColor: [255, 255, 255],
-      textColor: [0, 0, 0],
-      fontSize: 7,
-      lineColor: [226, 232, 240],
-      lineWidth: { bottom: 0.4, top: 0, left: 0, right: 0 },
-      cellPadding: { top: 3.5, bottom: 3.5, left: 4, right: 4 },
-    },
-    columnStyles: {
-      0: { cellWidth: 165, halign: 'left', fontStyle: 'bold' },
-      1: { cellWidth: 80, halign: 'center' },
-      2: { cellWidth: 95, halign: 'right', fontStyle: 'bold' },
-      3: { cellWidth: 170.28, halign: 'left', textColor: [85, 85, 85] },
-    },
-    didDrawPage: () => {
-      renderHeader(32);
-    },
+    showHead: 'everyPage',
   });
 
   const finalTableY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 12 : curY + 80;
@@ -726,8 +698,7 @@ export async function generateFinancialAuditPdf(
   let signY = finalTableY;
   if (signY + 55 > 745) {
     doc.addPage();
-    renderHeader(32);
-    signY = 120;
+    signY = 40;
   }
 
   drawStandardReportSignatures(doc, signY, startX, rightMargin);

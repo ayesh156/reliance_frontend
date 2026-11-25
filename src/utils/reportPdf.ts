@@ -198,7 +198,7 @@ export async function generateChequeLedgerPdf(
 
   autoTable(doc, {
     startY: curY,
-    margin: { left: startX, right: pageWidth - rightMargin, top: 115, bottom: 45 },
+    margin: { left: startX, right: pageWidth - rightMargin, top: 36, bottom: 45 },
     theme: 'plain',
     head: [['CHQ #', 'BANK', 'CHQ DATE', 'INV #', 'CUSTOMER', 'AMOUNT (RS.)', 'STATUS', 'ALERT']],
     body: tableData,
@@ -246,9 +246,8 @@ export async function generateChequeLedgerPdf(
       7: { cellWidth: 40.28, halign: 'center' },
     },
     pageBreak: 'auto',
-    didDrawPage: () => {
-      drawMasterHeader(32);
-    },
+    showHead: 'everyPage',
+    showFoot: 'lastPage',
   });
 
   const lastTableFinalY = (doc as any).lastAutoTable?.finalY || curY + 50;
@@ -256,8 +255,7 @@ export async function generateChequeLedgerPdf(
 
   if (signY + 65 > 750) {
     doc.addPage();
-    drawMasterHeader(32);
-    signY = 120;
+    signY = 40;
   }
 
   const signColWidth = (contentWidth - 30) / 3;
@@ -416,7 +414,7 @@ export async function generateMaterialProductionPdf(
 
   autoTable(doc, {
     startY: curY,
-    margin: { left: startX, right: pageWidth - rightMargin, top: 115, bottom: 45 },
+    margin: { left: startX, right: pageWidth - rightMargin, top: 36, bottom: 45 },
     theme: 'plain',
     head: [['CODE', 'MATERIAL NAME', 'UNIT', 'CUT QTY', 'REMAINING', 'WASTE/SCRAP', 'AVG COST', 'VALUATION (RS.)', 'STATUS']],
     body: tableData,
@@ -457,9 +455,8 @@ export async function generateMaterialProductionPdf(
       cellPadding: { top: 5, bottom: 5, left: 4, right: 4 },
     },
     pageBreak: 'auto',
-    didDrawPage: () => {
-      drawMasterHeader(32);
-    },
+    showHead: 'everyPage',
+    showFoot: 'lastPage',
   });
 
   const finalY = (doc as any).lastAutoTable?.finalY || curY + 100;
@@ -515,39 +512,574 @@ export interface GarmentProductionPdfOptions {
   generatedBy?: string;
   filename?: string;
   stageFilter?: string;
+  viewMode?: 'active' | 'all';
+}
+
+export interface ProductionStageColumnDef {
+  key: string;
+  header: string;
+  pdfHeader: string;
+  unit?: 'Yard' | 'Pcs' | 'Rolls' | '';
+  align?: 'left' | 'center' | 'right';
+  isNumeric?: boolean;
+  pdfWidth: number;
+  getValue: (row: any) => string | number;
+  getNumericValue?: (row: any) => number;
+}
+
+const fmtDateYmd = (d: any): string => {
+  if (!d) return '-';
+  return String(d).split('T')[0];
+};
+
+const resolveCutYards = (r: any): number => {
+  if (r.cutQtyYards !== undefined && Number(r.cutQtyYards) > 0) return Number(r.cutQtyYards);
+  if (r.yaraAllocated !== undefined && Number(r.yaraAllocated) > 0) return Number(r.yaraAllocated);
+  if (Array.isArray(r.materialUsages) && r.materialUsages.length > 0) {
+    const uSum = r.materialUsages.reduce((s: number, u: any) => s + Number(u.issuedQty || 0), 0);
+    if (uSum > 0) return Math.round(uSum * 100) / 100;
+  }
+  if (Array.isArray(r.cutLogs) && r.cutLogs.length > 0) {
+    const cSum = r.cutLogs.reduce((s: number, c: any) => s + Number(c.quantityCut || 0), 0);
+    if (cSum > 0) return Math.round(cSum * 100) / 100;
+  }
+  return Number(r.cutQty ?? r.totalCutUnits ?? 0);
+};
+
+const resolveRollsCount = (r: any): number => {
+  if (r.rolls !== undefined && Number(r.rolls) > 0) return Number(r.rolls);
+  if (Array.isArray(r.materialUsages) && r.materialUsages.length > 0) {
+    const sum = r.materialUsages.reduce((s: number, u: any) => s + Number(u.piecesCount ?? u.rolls ?? 0), 0);
+    if (sum > 0) return sum;
+  }
+  return 0;
+};
+
+const resolveRawMaterialName = (r: any): string => {
+  if (r.rawMaterialName && r.rawMaterialName !== '-') return r.rawMaterialName;
+  const names = new Set<string>();
+  (r.materialUsages || []).forEach((u: any) => {
+    if (u.rawMaterial?.name) names.add(u.rawMaterial.name);
+  });
+  (r.cutLogs || []).forEach((c: any) => {
+    if (c.rawMaterial?.name) names.add(c.rawMaterial.name);
+  });
+  return names.size > 0 ? Array.from(names).join(', ') : '-';
+};
+
+const resolveFinishedQty = (r: any): number => {
+  if (r.finishedQty !== undefined && Number(r.finishedQty) > 0) return Number(r.finishedQty);
+  const logged = Array.isArray(r.finishLogs) && r.finishLogs.length > 0
+    ? r.finishLogs.reduce((acc: number, f: any) => acc + (Number(f.quantityFinished) || 0), 0)
+    : 0;
+  if (logged > 0) return logged;
+  return Number(r.completedQty || 0) > 0 ? Number(r.completedQty) : Number(r.washedQty || 0);
+};
+
+const resolveStatusLabel = (r: any): string => {
+  if (r.isStockSynced) return 'IN STOCK';
+  if (r.status === 'FINISHED_PENDING_STOCK') return 'AWAIT SYNC';
+  return r.status || 'CUTTING';
+};
+
+/**
+ * Shared stage-wise column configuration used across Production Report Table UI,
+ * Mobile Cards, Footer Totals, CSV Exports, and PDF Templates.
+ * Every stage's `pdfWidth` values sum cleanly to 510.28pt (printable A4 width).
+ */
+export function getProductionStageConfig(stageFilter?: string): {
+  stageKey: string;
+  stageLabel: string;
+  columns: ProductionStageColumnDef[];
+} {
+  const norm = String(stageFilter || 'ALL STAGES').toUpperCase();
+
+  const colCuttingNo: ProductionStageColumnDef = {
+    key: 'cuttingNo',
+    header: 'Cutting No',
+    pdfHeader: 'CUTTING NO',
+    pdfWidth: 55,
+    getValue: (r) => r.cuttingNo || r.productionNo || '-',
+  };
+
+  const colStyle: ProductionStageColumnDef = {
+    key: 'productName',
+    header: 'Garment / Style',
+    pdfHeader: 'GARMENT / STYLE',
+    pdfWidth: 113.28,
+    getValue: (r) => r.productName || 'Garment',
+  };
+
+  const colStatus: ProductionStageColumnDef = {
+    key: 'status',
+    header: 'Status',
+    pdfHeader: 'STATUS',
+    align: 'center',
+    pdfWidth: 50,
+    getValue: (r) => resolveStatusLabel(r),
+  };
+
+  if (norm === 'CUTTING') {
+    return {
+      stageKey: 'CUTTING',
+      stageLabel: 'Cutting',
+      columns: [
+        { ...colCuttingNo, pdfWidth: 60 },
+        {
+          key: 'cutDate',
+          header: 'Cut Date',
+          pdfHeader: 'CUT DATE',
+          pdfWidth: 55,
+          getValue: (r) => fmtDateYmd(r.lastCutDate || r.stageDate || r.productionDate || r.date),
+        },
+        { ...colStyle, pdfWidth: 120.28 },
+        {
+          key: 'rawMaterialName',
+          header: 'Raw Material / Fabric',
+          pdfHeader: 'RAW MATERIAL',
+          pdfWidth: 95,
+          getValue: (r) => resolveRawMaterialName(r),
+        },
+        {
+          key: 'rolls',
+          header: 'Rolls',
+          pdfHeader: 'ROLLS',
+          unit: 'Rolls',
+          align: 'center',
+          isNumeric: true,
+          pdfWidth: 35,
+          getValue: (r) => formatAmountNum(resolveRollsCount(r)),
+          getNumericValue: (r) => resolveRollsCount(r),
+        },
+        {
+          key: 'cutQtyYards',
+          header: 'Cut Qty (Yard)',
+          pdfHeader: 'CUT (YARD)',
+          unit: 'Yard',
+          align: 'center',
+          isNumeric: true,
+          pdfWidth: 50,
+          getValue: (r) => formatAmountNum(resolveCutYards(r)),
+          getNumericValue: (r) => resolveCutYards(r),
+        },
+        {
+          key: 'lineIntakeQty',
+          header: 'Sent to Line (Pcs)',
+          pdfHeader: 'SENT LINE',
+          unit: 'Pcs',
+          align: 'center',
+          isNumeric: true,
+          pdfWidth: 45,
+          getValue: (r) => formatAmountNum(Number(r.lineIntakeQty ?? r.lineSentQty ?? 0)),
+          getNumericValue: (r) => Number(r.lineIntakeQty ?? r.lineSentQty ?? 0),
+        },
+        colStatus,
+      ],
+    };
+  }
+
+  if (norm === 'SEWING LINE' || norm === 'SEWING' || norm === 'LINE') {
+    return {
+      stageKey: 'SEWING LINE',
+      stageLabel: 'Sewing Line',
+      columns: [
+        { ...colCuttingNo, pdfWidth: 60 },
+        {
+          key: 'activityDate',
+          header: 'Activity Date',
+          pdfHeader: 'ACT DATE',
+          pdfWidth: 55,
+          getValue: (r) => fmtDateYmd(r.lineActivityDate || r.stageDate || r.productionDate || r.date),
+        },
+        { ...colStyle, pdfWidth: 140.28 },
+        {
+          key: 'lineIntakeQty',
+          header: 'Line Intake (Pcs)',
+          pdfHeader: 'LINE INTAKE',
+          unit: 'Pcs',
+          align: 'center',
+          isNumeric: true,
+          pdfWidth: 52,
+          getValue: (r) => formatAmountNum(Number(r.lineIntakeQty ?? r.lineSentQty ?? 0)),
+          getNumericValue: (r) => Number(r.lineIntakeQty ?? r.lineSentQty ?? 0),
+        },
+        {
+          key: 'sewnQty',
+          header: 'Sewn Output (Pcs)',
+          pdfHeader: 'SEWN OUT',
+          unit: 'Pcs',
+          align: 'center',
+          isNumeric: true,
+          pdfWidth: 52,
+          getValue: (r) => formatAmountNum(Number(r.sewnQty || 0)),
+          getNumericValue: (r) => Number(r.sewnQty || 0),
+        },
+        {
+          key: 'sentToWashQty',
+          header: 'Sent to Wash (Pcs)',
+          pdfHeader: 'SENT WASH',
+          unit: 'Pcs',
+          align: 'center',
+          isNumeric: true,
+          pdfWidth: 50,
+          getValue: (r) => formatAmountNum(Number(r.sentToWashQty || 0)),
+          getNumericValue: (r) => Number(r.sentToWashQty || 0),
+        },
+        {
+          key: 'remainingToSew',
+          header: 'Remaining to Sew (Pcs)',
+          pdfHeader: 'REM SEW',
+          unit: 'Pcs',
+          align: 'center',
+          isNumeric: true,
+          pdfWidth: 51,
+          getValue: (r) => {
+            const intake = Number(r.lineIntakeQty ?? r.lineSentQty ?? 0);
+            const sewn = Number(r.sewnQty || 0);
+            const rem = r.remainingToSew !== undefined ? Number(r.remainingToSew) : Math.max(0, intake - sewn);
+            return formatAmountNum(rem);
+          },
+          getNumericValue: (r) => {
+            const intake = Number(r.lineIntakeQty ?? r.lineSentQty ?? 0);
+            const sewn = Number(r.sewnQty || 0);
+            return r.remainingToSew !== undefined ? Number(r.remainingToSew) : Math.max(0, intake - sewn);
+          },
+        },
+        colStatus,
+      ],
+    };
+  }
+
+  if (norm === 'WASHING' || norm === 'WASH') {
+    return {
+      stageKey: 'WASHING',
+      stageLabel: 'Washing',
+      columns: [
+        { ...colCuttingNo, pdfWidth: 65 },
+        {
+          key: 'washDate',
+          header: 'Wash Date',
+          pdfHeader: 'WASH DATE',
+          pdfWidth: 60,
+          getValue: (r) => fmtDateYmd(r.washDate || r.stageDate || r.productionDate || r.date),
+        },
+        { ...colStyle, pdfWidth: 165.28 },
+        {
+          key: 'sentToWashQty',
+          header: 'Sent to Wash (Pcs)',
+          pdfHeader: 'SENT WASH',
+          unit: 'Pcs',
+          align: 'center',
+          isNumeric: true,
+          pdfWidth: 58,
+          getValue: (r) => formatAmountNum(Number(r.sentToWashQty || 0)),
+          getNumericValue: (r) => Number(r.sentToWashQty || 0),
+        },
+        {
+          key: 'washedQty',
+          header: 'Washed / Returned (Pcs)',
+          pdfHeader: 'WASHED',
+          unit: 'Pcs',
+          align: 'center',
+          isNumeric: true,
+          pdfWidth: 56,
+          getValue: (r) => formatAmountNum(Number(r.washedQty || 0)),
+          getNumericValue: (r) => Number(r.washedQty || 0),
+        },
+        {
+          key: 'pendingAtWash',
+          header: 'Pending at Wash (Pcs)',
+          pdfHeader: 'PENDING',
+          unit: 'Pcs',
+          align: 'center',
+          isNumeric: true,
+          pdfWidth: 56,
+          getValue: (r) => {
+            const sent = Number(r.sentToWashQty || 0);
+            const washed = Number(r.washedQty || 0);
+            return formatAmountNum(r.pendingAtWash !== undefined ? Number(r.pendingAtWash) : Math.max(0, sent - washed));
+          },
+          getNumericValue: (r) => {
+            const sent = Number(r.sentToWashQty || 0);
+            const washed = Number(r.washedQty || 0);
+            return r.pendingAtWash !== undefined ? Number(r.pendingAtWash) : Math.max(0, sent - washed);
+          },
+        },
+        colStatus,
+      ],
+    };
+  }
+
+  if (norm === 'FINISHING / PACKING' || norm === 'FINISHING' || norm === 'PACKING') {
+    return {
+      stageKey: 'FINISHING / PACKING',
+      stageLabel: 'Finishing / Packing',
+      columns: [
+        { ...colCuttingNo, pdfWidth: 60 },
+        {
+          key: 'finishingDate',
+          header: 'Finishing Date',
+          pdfHeader: 'FIN DATE',
+          pdfWidth: 55,
+          getValue: (r) => fmtDateYmd(r.finishingDate || r.lastFinishDate || r.stageDate || r.productionDate || r.date),
+        },
+        { ...colStyle, pdfWidth: 140.28 },
+        {
+          key: 'receivedForFinishingQty',
+          header: 'Received (Pcs)',
+          pdfHeader: 'RECEIVED',
+          unit: 'Pcs',
+          align: 'center',
+          isNumeric: true,
+          pdfWidth: 52,
+          getValue: (r) => formatAmountNum(Number(r.receivedForFinishingQty ?? (Number(r.washedQty || 0) > 0 ? r.washedQty : r.sentToWashQty) ?? 0)),
+          getNumericValue: (r) => Number(r.receivedForFinishingQty ?? (Number(r.washedQty || 0) > 0 ? r.washedQty : r.sentToWashQty) ?? 0),
+        },
+        {
+          key: 'finishedQty',
+          header: 'Ironed / Packed (Pcs)',
+          pdfHeader: 'PACKED',
+          unit: 'Pcs',
+          align: 'center',
+          isNumeric: true,
+          pdfWidth: 52,
+          getValue: (r) => formatAmountNum(resolveFinishedQty(r)),
+          getNumericValue: (r) => resolveFinishedQty(r),
+        },
+        {
+          key: 'syncedToStockQty',
+          header: 'Synced to Stock (Pcs)',
+          pdfHeader: 'SYNCED',
+          unit: 'Pcs',
+          align: 'center',
+          isNumeric: true,
+          pdfWidth: 50,
+          getValue: (r) => formatAmountNum(r.syncedToStockQty !== undefined ? Number(r.syncedToStockQty) : (r.isStockSynced ? resolveFinishedQty(r) : 0)),
+          getNumericValue: (r) => (r.syncedToStockQty !== undefined ? Number(r.syncedToStockQty) : (r.isStockSynced ? resolveFinishedQty(r) : 0)),
+        },
+        {
+          key: 'pendingSyncQty',
+          header: 'Pending Sync (Pcs)',
+          pdfHeader: 'PEND SYNC',
+          unit: 'Pcs',
+          align: 'center',
+          isNumeric: true,
+          pdfWidth: 51,
+          getValue: (r) => formatAmountNum(r.pendingSyncQty !== undefined ? Number(r.pendingSyncQty) : (!r.isStockSynced && r.status !== 'CANCELLED' ? resolveFinishedQty(r) : 0)),
+          getNumericValue: (r) => (r.pendingSyncQty !== undefined ? Number(r.pendingSyncQty) : (!r.isStockSynced && r.status !== 'CANCELLED' ? resolveFinishedQty(r) : 0)),
+        },
+        colStatus,
+      ],
+    };
+  }
+
+  if (norm === 'IN STOCK / COMPLETED' || norm === 'COMPLETED' || norm === 'IN STOCK') {
+    return {
+      stageKey: 'IN STOCK / COMPLETED',
+      stageLabel: 'In Stock / Completed',
+      columns: [
+        { ...colCuttingNo, pdfWidth: 65 },
+        {
+          key: 'completionDate',
+          header: 'Completion Date',
+          pdfHeader: 'COMP DATE',
+          pdfWidth: 60,
+          getValue: (r) => fmtDateYmd(r.completionDate || r.stockSyncedAt || r.lastFinishDate || r.stageDate || r.productionDate || r.date),
+        },
+        { ...colStyle, pdfWidth: 165.28 },
+        {
+          key: 'cutQtyYards',
+          header: 'Cut Qty (Yard)',
+          pdfHeader: 'CUT (YARD)',
+          unit: 'Yard',
+          align: 'center',
+          isNumeric: true,
+          pdfWidth: 58,
+          getValue: (r) => formatAmountNum(resolveCutYards(r)),
+          getNumericValue: (r) => resolveCutYards(r),
+        },
+        {
+          key: 'finishedQty',
+          header: 'Finished Qty (Pcs)',
+          pdfHeader: 'FINISHED',
+          unit: 'Pcs',
+          align: 'center',
+          isNumeric: true,
+          pdfWidth: 56,
+          getValue: (r) => formatAmountNum(resolveFinishedQty(r)),
+          getNumericValue: (r) => resolveFinishedQty(r),
+        },
+        {
+          key: 'syncedToStockQty',
+          header: 'Synced to Stock (Pcs)',
+          pdfHeader: 'SYNCED',
+          unit: 'Pcs',
+          align: 'center',
+          isNumeric: true,
+          pdfWidth: 56,
+          getValue: (r) => formatAmountNum(r.syncedToStockQty !== undefined ? Number(r.syncedToStockQty) : (r.isStockSynced ? resolveFinishedQty(r) : 0)),
+          getNumericValue: (r) => (r.syncedToStockQty !== undefined ? Number(r.syncedToStockQty) : (r.isStockSynced ? resolveFinishedQty(r) : 0)),
+        },
+        colStatus,
+      ],
+    };
+  }
+
+  // Default: ALL STAGES
+  return {
+    stageKey: 'ALL STAGES',
+    stageLabel: 'All Stages',
+    columns: [
+      colCuttingNo,
+      {
+        key: 'date',
+        header: 'Date',
+        pdfHeader: 'DATE',
+        pdfWidth: 52,
+        getValue: (r) => fmtDateYmd(r.stageDate || r.productionDate || r.date),
+      },
+      colStyle,
+      {
+        key: 'cutQtyYards',
+        header: 'Cut Qty (Yard)',
+        pdfHeader: 'CUT (YARD)',
+        unit: 'Yard',
+        align: 'center',
+        isNumeric: true,
+        pdfWidth: 48,
+        getValue: (r) => formatAmountNum(resolveCutYards(r)),
+        getNumericValue: (r) => resolveCutYards(r),
+      },
+      {
+        key: 'lineIntakeQty',
+        header: 'Line Intake (Pcs)',
+        pdfHeader: 'LINE IN',
+        unit: 'Pcs',
+        align: 'center',
+        isNumeric: true,
+        pdfWidth: 48,
+        getValue: (r) => formatAmountNum(Number(r.lineIntakeQty ?? r.lineSentQty ?? 0)),
+        getNumericValue: (r) => Number(r.lineIntakeQty ?? r.lineSentQty ?? 0),
+      },
+      {
+        key: 'sewnQty',
+        header: 'Sewn Output (Pcs)',
+        pdfHeader: 'SEWN',
+        unit: 'Pcs',
+        align: 'center',
+        isNumeric: true,
+        pdfWidth: 46,
+        getValue: (r) => formatAmountNum(Number(r.sewnQty || 0)),
+        getNumericValue: (r) => Number(r.sewnQty || 0),
+      },
+      {
+        key: 'washedQty',
+        header: 'Washed (Pcs)',
+        pdfHeader: 'WASHED',
+        unit: 'Pcs',
+        align: 'center',
+        isNumeric: true,
+        pdfWidth: 46,
+        getValue: (r) => formatAmountNum(Number(r.washedQty || 0)),
+        getNumericValue: (r) => Number(r.washedQty || 0),
+      },
+      {
+        key: 'finishedQty',
+        header: 'Finished / Synced (Pcs)',
+        pdfHeader: 'FIN / SYNC',
+        unit: 'Pcs',
+        align: 'center',
+        isNumeric: true,
+        pdfWidth: 52,
+        getValue: (r) => formatAmountNum(resolveFinishedQty(r)),
+        getNumericValue: (r) => resolveFinishedQty(r),
+      },
+      colStatus,
+    ],
+  };
 }
 
 /**
  * Stage filter helper to match production batches across the 6 pipeline stages.
+ * - 'all' (Historical Audit Mode, default): matches ALL batches that performed work in the stage,
+ *   including progressed and COMPLETED batches.
+ * - 'active' (Active Only Mode): matches ONLY batches currently pending/in-progress in that stage.
  */
-export function matchProductionStage(row: any, stage?: string): boolean {
-  if (!stage || stage === 'ALL' || stage === 'ALL STAGES') return true;
+export function matchProductionStage(row: any, stage?: string, viewMode: 'active' | 'all' = 'all'): boolean {
   const status = String(row.status || '').toUpperCase();
   const isStockSynced = Boolean(row.isStockSynced);
-  const cut = Number(row.cutQty || row.totalCutUnits || 0);
+  const cutYards = resolveCutYards(row);
+  const lineIntake = Number(row.lineIntakeQty ?? row.lineSentQty ?? 0);
   const sewn = Number(row.sewnQty || 0);
   const sentWash = Number(row.sentToWashQty || 0);
   const washed = Number(row.washedQty || 0);
-  const finished = Number(row.completedQty || 0) > 0
-    ? Number(row.completedQty)
-    : (Array.isArray(row.finishLogs) && row.finishLogs.length > 0
-      ? row.finishLogs.reduce((s: number, f: any) => s + (Number(f.quantityFinished) || 0), 0)
-      : 0);
+  const finished = resolveFinishedQty(row);
+  const logs: any[] = Array.isArray(row.activityLogs) ? row.activityLogs : [];
 
-  switch (stage) {
+  const hasLineLog = logs.some((l) => {
+    const act = String(l?.action || '').toUpperCase();
+    const stg = String(l?.stage || '').toUpperCase();
+    return stg === 'LINE' || ['SEND_TO_LINE', 'LINE_INTAKE', 'LOG_SEWN', 'SEWN', 'SEND_TO_WASH'].includes(act);
+  });
+  const hasWashLog = logs.some((l) => {
+    const act = String(l?.action || '').toUpperCase();
+    const stg = String(l?.stage || '').toUpperCase();
+    return stg === 'WASHING' || act.includes('WASH');
+  });
+  const hasFinishLog =
+    (Array.isArray(row.finishLogs) && row.finishLogs.length > 0) ||
+    logs.some((l) => {
+      const act = String(l?.action || '').toUpperCase();
+      const stg = String(l?.stage || '').toUpperCase();
+      return stg === 'FINISHING' || act.includes('FINISH') || act === 'STOCK_SYNC' || act === 'FINALIZED';
+    });
+
+  const normStage = String(stage || 'ALL STAGES').toUpperCase();
+
+  if (viewMode === 'active') {
+    if (normStage === 'ALL' || normStage === 'ALL STAGES') {
+      return status !== 'COMPLETED' && !isStockSynced;
+    }
+    switch (normStage) {
+      case 'CUTTING':
+        return (status === 'CUTTING' || (cutYards > 0 && lineIntake === 0 && sewn === 0)) && !isStockSynced && status !== 'COMPLETED';
+      case 'SEWING LINE':
+      case 'SEWING':
+      case 'LINE':
+        return (status === 'SEWING' || status === 'LINE' || (lineIntake > sentWash) || (lineIntake > sewn)) && !isStockSynced && status !== 'COMPLETED';
+      case 'WASHING':
+      case 'WASH':
+        return (status === 'WASHING' || sentWash > washed) && finished === 0 && !isStockSynced && status !== 'COMPLETED';
+      case 'FINISHING / PACKING':
+      case 'FINISHING':
+      case 'PACKING':
+        return status === 'FINISHING' || status === 'FINISHED_PENDING_STOCK' || (finished > 0 && !isStockSynced && status !== 'COMPLETED');
+      case 'IN STOCK / COMPLETED':
+      case 'COMPLETED':
+      case 'IN STOCK':
+        return isStockSynced || status === 'COMPLETED';
+      default:
+        return status !== 'COMPLETED' && !isStockSynced;
+    }
+  }
+
+  // Default: 'all' (Historical Stage-Activity Audit Mode — includes COMPLETED & progressed batches)
+  if (!stage || normStage === 'ALL' || normStage === 'ALL STAGES') return true;
+
+  switch (normStage) {
     case 'CUTTING':
-      return status === 'CUTTING' || (cut > 0 && sewn === 0 && !isStockSynced && status !== 'COMPLETED');
+      return cutYards > 0 || Number(row.cutQty || 0) > 0 || (Array.isArray(row.cutLogs) && row.cutLogs.length > 0) || status === 'CUTTING';
     case 'SEWING LINE':
     case 'SEWING':
     case 'LINE':
-      return status === 'SEWING' || status === 'LINE' || (cut > sewn && !isStockSynced && status !== 'COMPLETED');
+      return lineIntake > 0 || sewn > 0 || hasLineLog || status === 'SEWING' || status === 'LINE';
     case 'WASHING':
     case 'WASH':
-      return status === 'WASHING' || ((sentWash > 0 || washed > 0) && finished === 0 && !isStockSynced && status !== 'COMPLETED');
+      return sentWash > 0 || washed > 0 || hasWashLog || status === 'WASHING';
     case 'FINISHING / PACKING':
     case 'FINISHING':
     case 'PACKING':
-      return status === 'FINISHING' || status === 'FINISHED_PENDING_STOCK' || (finished > 0 && !isStockSynced && status !== 'COMPLETED');
+      return finished > 0 || hasFinishLog || isStockSynced || status === 'FINISHING' || status === 'FINISHED_PENDING_STOCK' || status === 'COMPLETED';
     case 'IN STOCK / COMPLETED':
     case 'COMPLETED':
     case 'IN STOCK':
@@ -574,10 +1106,9 @@ export async function generateGarmentProductionPdf(
   options: GarmentProductionPdfOptions = {}
 ): Promise<jsPDF> {
   const stageFilter = options.stageFilter;
+  const viewMode = options.viewMode || 'all';
   const initialRows = reportData.tableItems || [];
-  const rawRows = (stageFilter && stageFilter !== 'ALL' && stageFilter !== 'ALL STAGES')
-    ? initialRows.filter((r) => matchProductionStage(r, stageFilter))
-    : initialRows;
+  const rawRows = initialRows.filter((r) => matchProductionStage(r, stageFilter, viewMode));
   const logoData = await loadLogoAsDataUrl();
 
   const doc = new jsPDF({
@@ -664,7 +1195,7 @@ export async function generateGarmentProductionPdf(
 
   // 6-Stage Production Funnel KPI Cards (rendered in 2 rows of 3)
   const kpiCards = [
-    { label: '1. TOTAL CUT PIECES', value: `${formatAmountNum(totalCutPieces)} Units` },
+    { label: '1. TOTAL CUT QTY (YARD)', value: `${formatAmountNum(totalCutPieces)} Yards` },
     { label: '2. IN SEWING LINE (WIP)', value: `${formatAmountNum(inSewingWip)} Pcs` },
     { label: '3. TOTAL SEWN OUTPUT', value: `${formatAmountNum(totalSewnOutput)} Pcs` },
     { label: '4. IN WASH / WASHED', value: `${formatAmountNum(inWashTotal)} Pcs` },
@@ -702,50 +1233,41 @@ export async function generateGarmentProductionPdf(
 
   curY += 8;
 
-  const tableData = rawRows.map((r) => {
-    const cut = Number(r.cutQty ?? r.totalCutUnits ?? r.targetQuantity ?? 0);
-    const sewn = Number(r.sewnQty || 0);
-    const washed = Number(r.washedQty || 0);
-    const loggedFinish = Array.isArray(r.finishLogs) && r.finishLogs.length > 0
-      ? r.finishLogs.reduce((acc: number, f: any) => acc + (Number(f.quantityFinished) || 0), 0)
-      : 0;
-    const finished = loggedFinish > 0
-      ? loggedFinish
-      : (Number(r.completedQty || 0) > 0 ? Number(r.completedQty) : Number(r.washedQty || 0));
-    const statusText = r.isStockSynced
-      ? 'IN STOCK'
-      : r.status === 'FINISHED_PENDING_STOCK'
-      ? 'AWAIT SYNC'
-      : r.status || 'CUTTING';
+  // Resolve dynamic stage-wise columns for the selected stage
+  const stageConfig = getProductionStageConfig(stageFilter);
+  const stageCols = stageConfig.columns;
 
-    return [
-      r.productionNo || '-',
-      r.productName || 'Garment',
-      r.variant || 'Standard',
-      formatAmountNum(cut),
-      formatAmountNum(sewn),
-      formatAmountNum(washed),
-      formatAmountNum(finished),
-      statusText,
-    ];
+  const tableData = rawRows.map((r) => stageCols.map((col) => String(col.getValue(r))));
+
+  const footRow = stageCols.map((col, idx) => {
+    if (idx === 0) {
+      return { content: 'TOTAL', styles: { halign: 'left' as const, fontStyle: 'bold' as const } };
+    }
+    if (col.isNumeric && col.getNumericValue) {
+      const colSum = rawRows.reduce((acc, r) => acc + col.getNumericValue!(r), 0);
+      return { content: formatAmountNum(colSum), styles: { halign: (col.align || 'center') as any, fontStyle: 'bold' as const } };
+    }
+    if (col.key === 'status') {
+      return { content: `${rawRows.length} Batches`, styles: { halign: 'center' as const, fontStyle: 'bold' as const } };
+    }
+    return { content: '', styles: { halign: 'center' as const, fontStyle: 'bold' as const } };
+  });
+
+  const dynamicColumnStyles: Record<number, any> = {};
+  stageCols.forEach((col, idx) => {
+    dynamicColumnStyles[idx] = {
+      cellWidth: col.pdfWidth,
+      ...(col.align ? { halign: col.align } : {}),
+    };
   });
 
   autoTable(doc, {
     startY: curY,
-    margin: { left: startX, right: pageWidth - rightMargin, top: 115, bottom: 45 },
+    margin: { left: startX, right: pageWidth - rightMargin, top: 36, bottom: 45 },
     theme: 'plain',
-    head: [['BATCH NO', 'GARMENT STYLE', 'VARIANT', 'CUT QTY', 'SEWN', 'WASHED', 'FINISHED', 'STATUS']],
+    head: [stageCols.map((c) => c.pdfHeader)],
     body: tableData,
-    foot: [
-      [
-        { content: `TOTAL (${rawRows.length} BATCHES)`, colSpan: 3, styles: { halign: 'right', fontStyle: 'bold' } },
-        { content: formatAmountNum(totalCutPieces), styles: { halign: 'center', fontStyle: 'bold' } },
-        { content: formatAmountNum(totalSewnOutput), styles: { halign: 'center', fontStyle: 'bold' } },
-        { content: formatAmountNum(rawRows.reduce((s, r) => s + (Number(r.washedQty) || 0), 0)), styles: { halign: 'center', fontStyle: 'bold' } },
-        { content: formatAmountNum(ironedAndPacked), styles: { halign: 'center', fontStyle: 'bold' } },
-        { content: `${formatAmountNum(fullyFinishedSynced)} Synced`, styles: { halign: 'center', fontStyle: 'bold' } },
-      ],
-    ],
+    foot: [footRow],
     headStyles: {
       fillColor: [248, 250, 252],
       textColor: [0, 0, 0],
@@ -772,20 +1294,13 @@ export async function generateGarmentProductionPdf(
       lineWidth: { top: 0.8, bottom: 0.8, left: 0, right: 0 },
       cellPadding: { top: 4, bottom: 4, left: 3, right: 3 },
     },
-    columnStyles: {
-      0: { cellWidth: 65 },
-      1: { cellWidth: 125 },
-      2: { cellWidth: 65 },
-      3: { halign: 'center', cellWidth: 50 },
-      4: { halign: 'center', cellWidth: 50 },
-      5: { halign: 'center', cellWidth: 50 },
-      6: { halign: 'center', cellWidth: 50 },
-      7: { halign: 'center', cellWidth: 55.28 },
-    },
-    didDrawPage: () => {
-      drawStandardReportFooter(doc, 'Garment Production Report', startX, rightMargin);
-    },
+    columnStyles: dynamicColumnStyles,
+    showHead: 'everyPage',
+    showFoot: 'lastPage',
   });
+
+  // Render page footers strictly once after table pagination completes
+  drawStandardReportFooter(doc, `Garment Production Report (${stageConfig.stageLabel})`, startX, rightMargin);
 
   const dateTag = new Date().toISOString().split('T')[0];
   const filename = options.filename || `reliance-garment-production-${dateTag}.pdf`;
@@ -884,7 +1399,7 @@ export async function generateSalesPdf(
 
   autoTable(doc, {
     startY: curY,
-    margin: { left: startX, right: pageWidth - rightMargin },
+    margin: { left: startX, right: pageWidth - rightMargin, top: 36, bottom: 45 },
     theme: 'plain',
     head: [['INV #', 'DATE', 'CUSTOMER', 'ROLE', 'SUBTOTAL', 'DISC', 'NET TOTAL', 'PAID', 'DUE', 'METHOD']],
     body: rows,
@@ -917,10 +1432,11 @@ export async function generateSalesPdf(
       8: { cellWidth: 50, halign: 'right' },
       9: { cellWidth: 42, halign: 'center' },
     },
-    didDrawPage: () => {
-      drawStandardReportFooter(doc, 'Sales & Invoices Report', startX, rightMargin);
-    },
+    showHead: 'everyPage',
   });
+
+  // Render page footers strictly once after table pagination completes
+  drawStandardReportFooter(doc, 'Sales & Invoices Report', startX, rightMargin);
 
   const filename = options.filename || `reliance-sales-report-${formatReportTimestamp(new Date()).replace(/[: ]/g, '-')}.pdf`;
   doc.save(filename);

@@ -402,7 +402,7 @@ export const CuttingDetailModal: React.FC<CuttingDetailModalProps> = ({
                         </div>
                       </div>
                       <span className="font-mono font-bold text-amber-700 dark:text-amber-400">
-                        {formatQty(usage.netConsumedQty ?? usage.issuedQty)} {usage.rawMaterial?.unit || 'Units'}
+                        {formatQty(usage.netConsumedQty ?? usage.issuedQty)} {usage.rawMaterial?.unit || 'Yards'}
                       </span>
                     </div>
                   ))}

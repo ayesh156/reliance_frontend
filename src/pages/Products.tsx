@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { useUrlFilterSync } from '../hooks/useUrlFilterSync';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { formatCurrency, getProductImageUrl, handleImageError } from '../lib/utils';
@@ -122,19 +123,32 @@ export interface ReturnInventoryItemRecord {
 
 export const Products: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { resolvedTheme } = useTheme();
   const { isAdmin, isRep } = useAuth();
   const dark = Boolean(resolvedTheme === 'dark');
 
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [selectedStockStatus, setSelectedStockStatus] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<string>('newest');
+  const [selectedCategory, setSelectedCategory] = useState<string>(() => searchParams.get('categoryId') || 'all');
+  const [selectedStockStatus, setSelectedStockStatus] = useState<string>(() => searchParams.get('stock') || 'all');
+  const [sortBy, setSortBy] = useState<string>(() => searchParams.get('sort') || 'newest');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '');
+  const [currentPage, setCurrentPage] = useState(() => {
+    const p = Number(searchParams.get('page'));
+    return Number.isFinite(p) && p > 1 ? p : 1;
+  });
+
+  // Sync active Product filters to URL query parameters for browser refresh persistence
+  useUrlFilterSync({
+    search: searchQuery.trim() || undefined,
+    categoryId: selectedCategory !== 'all' ? selectedCategory : undefined,
+    stock: selectedStockStatus !== 'all' ? selectedStockStatus : undefined,
+    sort: sortBy !== 'newest' ? sortBy : undefined,
+    page: currentPage > 1 ? currentPage : undefined,
+  });
   const itemsPerPage = 8;
 
   // Read-Only Product Inspection Modal State for Sales Rep & Touch View
@@ -646,9 +660,10 @@ export const Products: React.FC = () => {
       </div>
 
       {/* ── Desktop View (≥ 1024px): Inline Executive Filter Matrix ── */}
-      <div className="hidden lg:flex items-center gap-2.5 bg-white dark:bg-zinc-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800">
+      {/* flex-wrap + min-w-0 prevents horizontal overflow on 1024px–1440px viewports */}
+      <div className="hidden lg:flex flex-wrap items-center gap-2 bg-white dark:bg-zinc-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 min-w-0">
         {/* Search Bar */}
-        <div className="relative flex-1 min-w-[240px]">
+        <div className="relative flex-1 min-w-[180px]">
           <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
           <Input
             value={searchQuery}
@@ -674,7 +689,7 @@ export const Products: React.FC = () => {
         </div>
 
         {/* Category Selector */}
-        <div className="w-48 xl:w-52 shrink-0">
+        <div className="w-40 xl:w-44 shrink-0 min-w-0">
           <SearchableSelect
             options={categoryOptions}
             value={selectedCategory}
@@ -689,7 +704,7 @@ export const Products: React.FC = () => {
         </div>
 
         {/* Stock Level Selector */}
-        <div className="w-44 xl:w-48 shrink-0">
+        <div className="w-40 xl:w-44 shrink-0 min-w-0">
           <SearchableSelect
             options={STOCK_OPTIONS}
             value={selectedStockStatus}
@@ -704,7 +719,7 @@ export const Products: React.FC = () => {
         </div>
 
         {/* Sort Selector & Clear All Shortcut */}
-        <div className="w-44 xl:w-48 shrink-0 flex items-center gap-1.5">
+        <div className="w-40 xl:w-44 shrink-0 flex items-center gap-1.5 min-w-0">
           <div className="flex-1 min-w-0">
             <SearchableSelect
               options={SORT_OPTIONS}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useUrlFilterSync, getInitialDateFromUrl, formatDateForUrl } from '../hooks/useUrlFilterSync';
 import { get, del, post, patch } from '../lib/api';
 import { DateTimePicker } from '../components/ui/date-time-picker';
 import { DatePicker } from '../components/ui/date-picker';
@@ -270,10 +271,12 @@ export const InvoicesPage: React.FC = () => {
   const [customers, setCustomers] = useState<{ id: number; name: string; phone: string; address?: string; city?: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Filter States
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCustomerId, setSelectedCustomerId] = useState('all');
-  const [selectedUserId, setSelectedUserId] = useState('all');
+  const [searchParams] = useSearchParams();
+
+  // Filter States (hydrated from URL query params)
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '');
+  const [selectedCustomerId, setSelectedCustomerId] = useState(() => searchParams.get('customerId') || 'all');
+  const [selectedUserId, setSelectedUserId] = useState(() => searchParams.get('userId') || 'all');
   const [staffUsers, setStaffUsers] = useState<Array<{ id: number; name: string; role?: string; email?: string }>>([]);
   const [serverSummary, setServerSummary] = useState<{
     totalRevenue: number;
@@ -281,10 +284,10 @@ export const InvoicesPage: React.FC = () => {
     totalDue: number;
     totalInvoices: number;
   } | null>(null);
-  const [selectedMethod, setSelectedMethod] = useState('ALL');
-  const [startDate, setStartDate] = useState<Date | undefined>(undefined);
-  const [endDate, setEndDate] = useState<Date | undefined>(undefined);
-  const [sortBy, setSortBy] = useState<string>('newest');
+  const [selectedMethod, setSelectedMethod] = useState(() => searchParams.get('method') || 'ALL');
+  const [startDate, setStartDate] = useState<Date | undefined>(() => getInitialDateFromUrl(searchParams, 'startDate'));
+  const [endDate, setEndDate] = useState<Date | undefined>(() => getInitialDateFromUrl(searchParams, 'endDate'));
+  const [sortBy, setSortBy] = useState<string>(() => searchParams.get('sort') || 'newest');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   // Quick Customer Preview Modal State
@@ -292,7 +295,22 @@ export const InvoicesPage: React.FC = () => {
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
 
   // Pagination
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(() => {
+    const p = Number(searchParams.get('page'));
+    return Number.isFinite(p) && p > 1 ? p : 1;
+  });
+
+  // Sync active Invoice filters to URL query parameters for browser refresh persistence
+  useUrlFilterSync({
+    search: searchQuery.trim() || undefined,
+    customerId: selectedCustomerId !== 'all' ? selectedCustomerId : undefined,
+    userId: selectedUserId !== 'all' ? selectedUserId : undefined,
+    method: selectedMethod !== 'ALL' ? selectedMethod : undefined,
+    startDate: formatDateForUrl(startDate),
+    endDate: formatDateForUrl(endDate),
+    sort: sortBy !== 'newest' ? sortBy : undefined,
+    page: page > 1 ? page : undefined,
+  });
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
 
@@ -1119,9 +1137,10 @@ export const InvoicesPage: React.FC = () => {
       </div>
 
       {/* ── Desktop View (≥ 1024px): Inline Executive Filter Matrix with Primary Search Bar ── */}
-      <div className="hidden lg:flex items-center gap-2.5 bg-white dark:bg-zinc-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800">
-        {/* Search Bar (Priority flex-1 min-w-[260px]) */}
-        <div className="relative flex-1 min-w-[260px]">
+      {/* flex-wrap + min-w-0 keeps all 6 filter controls inside the card across 1024px–1440px viewports */}
+      <div className="hidden lg:flex flex-wrap items-center gap-2 bg-white dark:bg-zinc-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 min-w-0">
+        {/* Search Bar */}
+        <div className="relative flex-1 min-w-[180px]">
           <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
           <Input
             value={searchQuery}
@@ -1134,8 +1153,8 @@ export const InvoicesPage: React.FC = () => {
           />
         </div>
 
-        {/* Customer Select (w-44 xl:w-48) */}
-        <div className="w-44 xl:w-48 shrink-0">
+        {/* Customer Select */}
+        <div className="w-40 xl:w-44 shrink-0 min-w-0">
           <SearchableSelect
             value={selectedCustomerId}
             onValueChange={(val) => {
@@ -1155,8 +1174,8 @@ export const InvoicesPage: React.FC = () => {
           />
         </div>
 
-        {/* User / Rep Selector (w-40 xl:w-44) */}
-        <div className="w-40 xl:w-44 shrink-0">
+        {/* User / Rep Selector */}
+        <div className="w-36 xl:w-40 shrink-0 min-w-0">
           <SearchableSelect
             value={selectedUserId}
             onValueChange={(val) => {
@@ -1170,8 +1189,8 @@ export const InvoicesPage: React.FC = () => {
           />
         </div>
 
-        {/* Payment Method Selector (w-36 xl:w-40) */}
-        <div className="w-36 xl:w-40 shrink-0">
+        {/* Payment Method Selector */}
+        <div className="w-36 xl:w-40 shrink-0 min-w-0">
           <SearchableSelect
             value={selectedMethod}
             onValueChange={(val) => {
@@ -1185,7 +1204,7 @@ export const InvoicesPage: React.FC = () => {
           />
         </div>
 
-        {/* Unified Date Range Picker (w-44 xl:w-48) */}
+        {/* Unified Date Range Picker */}
         <div className="w-44 xl:w-48 shrink-0">
           <DateRangePicker
             date={{ from: startDate, to: endDate }}
@@ -1199,8 +1218,8 @@ export const InvoicesPage: React.FC = () => {
           />
         </div>
 
-        {/* Sort Selector & Clear All Shortcut (w-40 xl:w-44) */}
-        <div className="w-40 xl:w-44 shrink-0 flex items-center gap-1.5">
+        {/* Sort Selector & Clear All Shortcut */}
+        <div className="w-36 xl:w-40 shrink-0 flex items-center gap-1.5 min-w-0">
           <div className="flex-1 min-w-0">
             <SearchableSelect
               value={sortBy}

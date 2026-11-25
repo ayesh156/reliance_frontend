@@ -12,7 +12,8 @@ import { SearchableSelect, type SearchableSelectOption } from '../components/ui/
 import { TooltipSimple } from '../components/ui/tooltip';
 import { toast } from 'react-toastify';
 import { generateCustomerDuesPdf } from '../utils/customerDuesPdf';
-import { generateMaterialProductionPdf, generateGarmentProductionPdf, matchProductionStage } from '../utils/reportPdf';
+import { generateMaterialProductionPdf, generateGarmentProductionPdf, matchProductionStage, getProductionStageConfig } from '../utils/reportPdf';
+import { StageViewToggle, type StageViewMode } from '../components/production/StageViewToggle';
 import { getRoleBadgeStyle } from './InvoicesPage';
 import { formatQty } from '../lib/utils';
 import { FinancialAuditModal, type FinancialMetricFocus } from '../components/reports/FinancialAuditModal';
@@ -162,8 +163,11 @@ export const ReportsPage: React.FC = () => {
   const [downloadingFinancialAuditPdf, setDownloadingFinancialAuditPdf] = useState<boolean>(false);
   const [downloadingCustomerDuesPdf, setDownloadingCustomerDuesPdf] = useState<boolean>(false);
   const [downloadingMaterialPdf, setDownloadingMaterialPdf] = useState<boolean>(false);
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [activeChequeTab, setActiveChequeTab] = useState<'PENDING' | 'REALIZED' | 'BOUNCED' | 'ALL'>('PENDING');
+  const [searchQuery, setSearchQuery] = useState<string>(() => searchParams.get('search') || '');
+  const [activeChequeTab, setActiveChequeTab] = useState<'PENDING' | 'REALIZED' | 'BOUNCED' | 'ALL'>(() => {
+    const t = (searchParams.get('chequeTab') || '').toUpperCase();
+    return (t === 'PENDING' || t === 'REALIZED' || t === 'BOUNCED' || t === 'ALL') ? t : 'PENDING';
+  });
 
   // User / Sales Rep Filter & Staff Directory
   const [selectedUserId, setSelectedUserId] = useState<string>(initialUserId);
@@ -234,30 +238,7 @@ export const ReportsPage: React.FC = () => {
     ];
   }, [expenseCategories, selectedCategoryId]);
 
-  // Synchronize state with URL query parameters for persistent URL routing
-  useEffect(() => {
-    const nextParams = new URLSearchParams();
-    nextParams.set('section', activeModule);
-    nextParams.set('preset', activePreset);
-    if (activeModule === 'expenses') {
-      if (selectedCategoryId !== 'all') {
-        nextParams.set('categoryId', selectedCategoryId);
-      }
-      if (selectedSubCategoryId !== 'all') {
-        nextParams.set('subCategoryId', selectedSubCategoryId);
-      }
-    }
-    if (selectedUserId !== 'all') {
-      nextParams.set('userId', selectedUserId);
-    }
-    if (activePreset === 'custom' && customRange?.from) {
-      nextParams.set('startDate', format(customRange.from, 'yyyy-MM-dd'));
-      if (customRange.to) {
-        nextParams.set('endDate', format(customRange.to, 'yyyy-MM-dd'));
-      }
-    }
-    setSearchParams(nextParams, { replace: true });
-  }, [activeModule, activePreset, selectedCategoryId, selectedSubCategoryId, selectedUserId, customRange, setSearchParams]);
+  // Note: URL query synchronization is handled by the single authoritative useEffect below.
 
   const userSelectOptions: SearchableSelectOption[] = useMemo(() => [
     { value: 'all', label: 'All Users / Reps' },
@@ -276,7 +257,80 @@ export const ReportsPage: React.FC = () => {
   // ⭐ Interactive Production Batch Summary Modal State
   const [selectedProductionBatch, setSelectedProductionBatch] = useState<any | null>(null);
   const [isProductionBatchModalOpen, setIsProductionBatchModalOpen] = useState<boolean>(false);
-  const [productionStageFilter, setProductionStageFilter] = useState<string>('ALL STAGES');
+  const [productionStageFilter, setProductionStageFilter] = useState<string>(() => searchParams.get('stage') || 'ALL STAGES');
+  const [productionViewMode, setProductionViewMode] = useState<StageViewMode>(() =>
+    searchParams.get('viewMode') === 'active' ? 'active' : 'all'
+  );
+
+  // Single authoritative URL query parameter sync across all report modules & filters.
+  // Compares serialized strings before calling setSearchParams to prevent redundant history updates or param stripping.
+  useEffect(() => {
+    const nextParams = new URLSearchParams();
+    nextParams.set('section', activeModule);
+    nextParams.set('preset', activePreset);
+    if (activeModule === 'expenses') {
+      if (selectedCategoryId !== 'all') {
+        nextParams.set('categoryId', selectedCategoryId);
+      }
+      if (selectedSubCategoryId !== 'all') {
+        nextParams.set('subCategoryId', selectedSubCategoryId);
+      }
+    }
+    if (activeModule === 'production') {
+      if (productionStageFilter && productionStageFilter !== 'ALL STAGES') {
+        nextParams.set('stage', productionStageFilter);
+      }
+      if (productionViewMode === 'active') {
+        nextParams.set('viewMode', 'active');
+      }
+    }
+    if (activeModule === 'cheques' && activeChequeTab !== 'PENDING') {
+      nextParams.set('chequeTab', activeChequeTab);
+    }
+    if (selectedUserId !== 'all') {
+      nextParams.set('userId', selectedUserId);
+    }
+    if (activePreset === 'custom' && customRange?.from) {
+      nextParams.set('startDate', format(customRange.from, 'yyyy-MM-dd'));
+      if (customRange.to) {
+        nextParams.set('endDate', format(customRange.to, 'yyyy-MM-dd'));
+      }
+    }
+    if (searchQuery.trim()) {
+      nextParams.set('search', searchQuery.trim());
+    }
+    if (nextParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [
+    activeModule,
+    activePreset,
+    selectedCategoryId,
+    selectedSubCategoryId,
+    selectedUserId,
+    customRange,
+    productionStageFilter,
+    productionViewMode,
+    activeChequeTab,
+    searchQuery,
+    searchParams,
+    setSearchParams,
+  ]);
+
+  const productionStageConfig = useMemo(
+    () => getProductionStageConfig(productionStageFilter),
+    [productionStageFilter]
+  );
+
+  const handleProductionStageChange = (stage: string) => {
+    setProductionStageFilter(stage);
+    setCurrentPage(1);
+  };
+
+  const handleProductionViewModeChange = (mode: StageViewMode) => {
+    setProductionViewMode(mode);
+    setCurrentPage(1);
+  };
 
   const handleOpenAudit = (metric: FinancialMetricFocus) => {
     setAuditFocusMetric(metric);
@@ -320,6 +374,12 @@ export const ReportsPage: React.FC = () => {
       if (selectedSubCategoryId !== 'all') {
         params.set('subCategoryId', selectedSubCategoryId);
       }
+    }
+    if (activeModule === 'production') {
+      if (productionStageFilter && productionStageFilter !== 'ALL STAGES') {
+        params.set('stage', productionStageFilter);
+      }
+      params.set('viewMode', productionViewMode);
     }
 
     if (activePreset === 'custom' && customRange?.from) {
@@ -370,12 +430,12 @@ export const ReportsPage: React.FC = () => {
   const customFromTime = customRange?.from ? customRange.from.getTime() : null;
   const customToTime = customRange?.to ? customRange.to.getTime() : null;
 
-  // Auto-reset pagination state to Page 1 whenever switching domain tabs, presets, custom date range, or rep/user/category filters
+  // Auto-reset pagination state to Page 1 whenever switching domain tabs, presets, custom date range, or stage/viewMode filters
   useEffect(() => {
     fetchReport();
     setSearchQuery('');
     setCurrentPage(1);
-  }, [activeModule, activePreset, selectedUserId, selectedCategoryId, selectedSubCategoryId, customFromTime, customToTime]);
+  }, [activeModule, activePreset, selectedUserId, selectedCategoryId, selectedSubCategoryId, customFromTime, customToTime, productionStageFilter, productionViewMode]);
 
   /**
    * Defensive Date Range Change Handler for Reports module.
@@ -453,6 +513,14 @@ export const ReportsPage: React.FC = () => {
     try {
       setDownloadingActivePdf(true);
       const params = buildDateFilterParams();
+      if (activeModule === 'production') {
+        if (productionStageFilter && productionStageFilter !== 'ALL STAGES') {
+          params.set('stage', productionStageFilter);
+        }
+        if (productionViewMode === 'active') {
+          params.set('viewMode', 'active');
+        }
+      }
       const dateTag = reportData?.dateFilter?.startDate
         ? new Date(reportData.dateFilter.startDate).toISOString().split('T')[0]
         : new Date().toISOString().split('T')[0];
@@ -678,6 +746,7 @@ export const ReportsPage: React.FC = () => {
             dateRangeLabel: formattedSelectedBadge,
             generatedBy: user?.name ? `${user.name} (${user.role || 'Staff'})` : undefined,
             stageFilter: productionStageFilter,
+            viewMode: productionViewMode,
           }
         );
         toast.success('Garment Production PDF generated and downloaded successfully!');
@@ -804,13 +873,56 @@ export const ReportsPage: React.FC = () => {
       return reportData.tableItems || [];
     }
     if (activeModule === 'production' && reportData?.tableItems) {
-      if (productionStageFilter && productionStageFilter !== 'ALL STAGES' && productionStageFilter !== 'ALL') {
-        return (reportData.tableItems || []).filter((row: any) => matchProductionStage(row, productionStageFilter));
-      }
       return reportData.tableItems || [];
     }
     return reportData?.tableItems || [];
-  }, [reportData, activeModule, activeChequeTab, productionStageFilter]);
+  }, [reportData, activeModule, activeChequeTab, productionStageFilter, productionViewMode]);
+
+  /**
+   * Exports Garment Production Report to CSV using the active stage's dynamic columns
+   * and totals summary row (excluding Yield % and Scrap Returned).
+   */
+  const handleExportProductionCsv = () => {
+    try {
+      const items = filteredRows || [];
+      if (!items.length) {
+        toast.error('No production records found to export for the selected date range');
+        return;
+      }
+      const cols = productionStageConfig.columns;
+      const headers = cols.map((c) => `"${c.header}"`);
+      const csvRows = items.map((row: any) =>
+        cols.map((col) => {
+          const val = String(col.getValue(row) ?? '').replace(/"/g, '""');
+          return `"${val}"`;
+        }).join(',')
+      );
+      const totalsRow = cols.map((col, idx) => {
+        if (idx === 0) return '"TOTAL"';
+        if (col.isNumeric && col.getNumericValue) {
+          const sum = items.reduce((acc: number, r: any) => acc + col.getNumericValue!(r), 0);
+          return `"${formatQty(sum)} ${col.unit || ''}".trim()`;
+        }
+        if (col.key === 'status') return `"${items.length} Batches"`;
+        return '""';
+      }).join(',');
+
+      const csvContent = '\uFEFF' + [headers.join(','), ...csvRows, totalsRow].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const dateTag = new Date().toISOString().split('T')[0];
+      link.href = url;
+      link.setAttribute('download', `reliance-production-${productionStageConfig.stageKey.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${dateTag}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success(`Production Report (${productionStageConfig.stageLabel}) exported to CSV!`);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to export Production CSV');
+    }
+  };
 
   const handleExportChequesCsv = () => {
     if (!reportData) return;
@@ -914,34 +1026,37 @@ export const ReportsPage: React.FC = () => {
     if (activeModule !== 'production') return null;
 
     const rows = filteredRows;
-    const totalBatches = summary.totalBatches ?? rows.length;
+    const isSubsetFiltered =
+      productionViewMode === 'active' ||
+      (productionStageFilter && productionStageFilter !== 'ALL STAGES' && productionStageFilter !== 'ALL') ||
+      Boolean(searchQuery.trim());
 
-    // Strictly prioritize backend summary's stage-specific event-logging sums over batch row aggregations
-    const totalCutPieces = summary.totalCutPieces !== undefined
+    const totalBatches = isSubsetFiltered ? rows.length : (summary.totalBatches ?? rows.length);
+
+    // Compute from filteredRows when stage/viewMode/search filtered so KPIs reconcile 1-to-1 with table & totals footer
+    const totalCutPieces = (!isSubsetFiltered && summary.totalCutPieces !== undefined)
       ? Number(summary.totalCutPieces)
       : rows.reduce((sum, row) => {
-          const cut = Number(row.cutQty > 0 ? row.cutQty : (row.totalCutUnits ?? (Array.isArray(row.cutLogs) && row.cutLogs.length > 0
-            ? row.cutLogs.reduce((acc: number, c: any) => acc + (c.quantityCut || 0), 0)
-            : (row.completedQty || row.targetQuantity || 0))));
+          const cut = Number(row.cutQtyYards ?? row.cutQty ?? row.totalCutUnits ?? 0);
           return sum + cut;
         }, 0);
 
-    const inSewingWip = summary.inSewingWip !== undefined
+    const inSewingWip = (!isSubsetFiltered && summary.inSewingWip !== undefined)
       ? Number(summary.inSewingWip)
       : rows.reduce((sum, row) => {
           if (row.status !== 'CANCELLED' && row.status !== 'COMPLETED') {
-            const cut = Number(row.cutQty > 0 ? row.cutQty : (row.lineSentQty > 0 ? row.lineSentQty : (row.totalCutUnits ?? row.targetQuantity ?? 0)));
+            const intake = Number(row.lineIntakeQty ?? row.lineSentQty ?? 0);
             const sewn = Number(row.sewnQty || 0);
-            return sum + Math.max(0, cut - sewn);
+            return sum + Math.max(0, intake - sewn);
           }
           return sum;
         }, 0);
 
-    const totalSewnOutput = summary.totalSewnOutput !== undefined
+    const totalSewnOutput = (!isSubsetFiltered && summary.totalSewnOutput !== undefined)
       ? Number(summary.totalSewnOutput)
       : rows.reduce((sum, row) => sum + Number(row.sewnQty || 0), 0);
 
-    const inWashTotal = summary.inWashTotal !== undefined
+    const inWashTotal = (!isSubsetFiltered && summary.inWashTotal !== undefined)
       ? Number(summary.inWashTotal)
       : rows.reduce((sum, row) => {
           const sentWash = Number(row.sentToWashQty || 0);
@@ -987,27 +1102,6 @@ export const ReportsPage: React.FC = () => {
       return (!row.isStockSynced && isCompleted) ? sum + finished : sum;
     }, 0);
 
-    const totalScrapReturned = rows.reduce((sum, row) => {
-      const scrap = Number(
-        row.scrapReturned !== undefined && Number(row.scrapReturned) > 0
-          ? row.scrapReturned
-          : (Array.isArray(row.materialUsages) && row.materialUsages.length > 0
-            ? row.materialUsages.reduce((acc: number, u: any) => acc + (Number(u.returnedScrap ?? u.returnedQty) || 0), 0)
-            : (Array.isArray(row.activityLogs)
-              ? row.activityLogs
-                  .filter((a: any) => a.action === 'RETURNED_SCRAP' || a.action === 'RETURNED')
-                  .reduce((acc: number, a: any) => acc + (Number(a.quantity) || 0), 0)
-              : 0))
-      );
-      return sum + scrap;
-    }, 0);
-
-    const targetQuantity = rows.reduce((sum, row) => sum + Number(row.targetQuantity || 0), 0);
-    const overallYieldDivisor = totalCutPieces > 0 ? totalCutPieces : targetQuantity;
-    const overallYieldPercentage = overallYieldDivisor > 0
-      ? Math.round((ironedAndPacked / overallYieldDivisor) * 10000) / 100
-      : (summary.overallYieldPercentage || 0);
-
     return {
       totalBatches,
       // 6-Stage Funnel Metrics
@@ -1019,12 +1113,10 @@ export const ReportsPage: React.FC = () => {
       fullyFinishedSynced: Math.round(fullyFinishedSynced * 100) / 100,
       // Backwards-compatibility properties
       totalMaterialsCut: Math.round(totalCutPieces * 100) / 100,
-      totalScrapReturned: Math.round(totalScrapReturned * 100) / 100,
       completedQuantity,
       pendingStockSync,
       syncedToInventory: Math.round(fullyFinishedSynced * 100) / 100,
       currentWip: Math.round(inSewingWip * 100) / 100,
-      overallYieldPercentage,
     };
   }, [activeModule, filteredRows, summary]);
 
@@ -1429,18 +1521,18 @@ export const ReportsPage: React.FC = () => {
                   </Button>
                 </TooltipSimple>
 
-                <TooltipSimple content="Export Raw Material and Cutting yield to Excel" side="top">
+                <TooltipSimple content={activeModule === 'production' ? 'Export Garment Production Report to CSV' : 'Export Raw Material & Cutting ledger to Excel'} side="top">
                   <Button
-                    onClick={handleExportMaterialsExcel}
-                    disabled={loading || !reportData || (reportData?.tableItems?.length || 0) === 0}
+                    onClick={activeModule === 'production' ? handleExportProductionCsv : handleExportMaterialsExcel}
+                    disabled={loading || !reportData || (filteredRows?.length || 0) === 0}
                     variant="outline"
                     className="h-9 sm:h-10 px-2.5 sm:px-3.5 rounded-xl text-xs font-semibold border-emerald-500/80 dark:border-emerald-600/80 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 shadow-xs shrink-0 cursor-pointer flex items-center justify-center gap-1.5"
-                    title="Export Material Excel"
-                    aria-label="Export Material Excel"
+                    title={activeModule === 'production' ? 'Export Production CSV' : 'Export Material Excel'}
+                    aria-label={activeModule === 'production' ? 'Export Production CSV' : 'Export Material Excel'}
                   >
                     <FileSpreadsheet className="size-3.5 sm:size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                    <span className="hidden sm:inline">Export Material Excel</span>
-                    <span className="sm:hidden">Mat Excel</span>
+                    <span className="hidden sm:inline">{activeModule === 'production' ? 'Export Production CSV' : 'Export Material Excel'}</span>
+                    <span className="sm:hidden">{activeModule === 'production' ? 'Prod CSV' : 'Mat Excel'}</span>
                   </Button>
                 </TooltipSimple>
               </>
@@ -1468,12 +1560,12 @@ export const ReportsPage: React.FC = () => {
       </div>
 
       {/* ── Period Filter Bar ── */}
-      <div className={`p-3 sm:p-4 rounded-2xl border transition-all ${
+      <div className={`w-full min-w-0 overflow-visible p-3 sm:p-4 rounded-2xl border transition-all ${
         dark ? 'bg-zinc-900/60 border-zinc-800/80' : 'bg-white border-slate-200 shadow-xs'
       }`}>
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2.5 w-full min-w-0">
           {/* Left: Presets Segmented Control & Date Selector */}
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-2.5">
+          <div className="flex flex-wrap items-center gap-2 min-w-0 flex-1">
             {/* Segmented Preset Control Bar */}
             <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide py-0.5 shrink-0 max-w-full">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 mr-0.5 flex items-center gap-1 shrink-0">
@@ -1564,18 +1656,18 @@ export const ReportsPage: React.FC = () => {
             <div className="h-5 w-px bg-slate-300 dark:bg-zinc-800 mx-0.5 hidden sm:block shrink-0" />
 
             {/* Custom Date Range Picker */}
-            <div className="w-full sm:w-52 lg:w-60">
+            <div className="w-full sm:w-48 lg:w-52 shrink-0">
               <DateRangePicker
                 date={customRange}
                 onDateChange={handleRangeChange}
                 placeholder="Date Selector..."
-                className="h-8 text-xs rounded-lg w-full"
+                className="h-8 px-2.5 text-xs rounded-lg w-full whitespace-nowrap"
               />
             </div>
 
             {/* Rep / User Filter Dropdown */}
             {!isRep && (
-              <div className="w-full sm:w-48 lg:w-56 shrink-0">
+              <div className="w-full sm:w-36 lg:w-40 min-w-0 shrink-0">
                 <SearchableSelect
                   value={selectedUserId}
                   onValueChange={(val) => setSelectedUserId(val)}
@@ -1591,7 +1683,7 @@ export const ReportsPage: React.FC = () => {
             {/* Expense Primary & Sub-Category Cascading Filter Dropdowns */}
             {activeModule === 'expenses' && (
               <>
-                <div className="w-full sm:w-44 lg:w-48 shrink-0">
+                <div className="w-full sm:w-36 lg:w-44 min-w-0 shrink-0">
                   <SearchableSelect
                     value={selectedCategoryId}
                     onChange={(val) => {
@@ -1612,7 +1704,7 @@ export const ReportsPage: React.FC = () => {
                   />
                 </div>
 
-                <div className="w-full sm:w-44 lg:w-48 shrink-0">
+                <div className="w-full sm:w-36 lg:w-44 min-w-0 shrink-0">
                   <SearchableSelect
                     value={selectedSubCategoryId}
                     onChange={(val) => {
@@ -1635,10 +1727,10 @@ export const ReportsPage: React.FC = () => {
 
             {/* Production Stage / Section Filter Dropdown */}
             {activeModule === 'production' && (
-              <div className="w-full sm:w-48 lg:w-56 shrink-0">
+              <div className="w-full sm:w-36 lg:w-40 min-w-0 shrink-0">
                 <SearchableSelect
                   value={productionStageFilter}
-                  onValueChange={(val) => setProductionStageFilter(val)}
+                  onValueChange={handleProductionStageChange}
                   options={[
                     { value: 'ALL STAGES', label: 'All Stages' },
                     { value: 'CUTTING', label: 'Cutting' },
@@ -1656,14 +1748,22 @@ export const ReportsPage: React.FC = () => {
             )}
           </div>
 
-          {/* Right Corner: Selected Badge & Chart Toggle Button */}
-          <div className="flex items-center gap-2.5 justify-between lg:justify-end shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-100 dark:border-zinc-800/60">
-            <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-zinc-400">
-              <span className="font-semibold text-slate-600 dark:text-zinc-300 text-[11px]">Selected:</span>
-              <Badge variant="outline" className="font-mono text-[11px] font-semibold px-2 py-0.5 border-blue-200 dark:border-blue-900/60 text-blue-600 dark:text-blue-400 bg-blue-50/80 dark:bg-blue-950/40 shadow-2xs">
-                {formattedSelectedBadge}
-              </Badge>
-            </div>
+          {/* Right Corner: Stage View Toggle, Selected Badge & Chart Toggle Button */}
+          <div className="flex items-center gap-2 flex-wrap justify-between lg:justify-end shrink-0 max-w-full pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-100 dark:border-zinc-800/60">
+            {activeModule === 'production' && (
+              <StageViewToggle
+                value={productionViewMode}
+                onChange={handleProductionViewModeChange}
+                className="shrink-0 whitespace-nowrap"
+              />
+            )}
+            {activePreset !== 'custom' && (
+              <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-zinc-400">
+                <Badge variant="outline" className="font-mono text-[11px] font-semibold px-2 py-0.5 border-blue-200 dark:border-blue-900/60 text-blue-600 dark:text-blue-400 bg-blue-50/80 dark:bg-blue-950/40 shadow-2xs whitespace-nowrap">
+                  {formattedSelectedBadge}
+                </Badge>
+              </div>
+            )}
 
             {chartData.length > 0 && (
               <Button
@@ -1702,180 +1802,121 @@ export const ReportsPage: React.FC = () => {
       ) : (
         <div className="space-y-6">
           {/* Quick Summary Metric Cards */}
-          <div className={`grid gap-2.5 sm:gap-3.5 md:gap-4 ${
-            activeModule === 'production' ? 'grid-cols-2 md:grid-cols-3 lg:grid-cols-6' : 'grid-cols-2 md:grid-cols-4'
+          <div className={`grid ${
+            activeModule === 'production'
+              ? 'gap-2.5 sm:gap-3.5 md:gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-6'
+              : activeModule === 'sales'
+                ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4'
+                : 'gap-2.5 sm:gap-3.5 md:gap-4 grid-cols-2 md:grid-cols-4'
           }`}>
-            {activeModule === 'sales' && (
-              <>
-                {/* 1. GROSS REVENUE KPI CARD */}
-                <div
-                  onClick={() => handleOpenAudit('grossRevenue')}
-                  className={`p-3 sm:p-4 rounded-2xl border cursor-pointer hover:border-emerald-500/50 hover:shadow-md transition-all group/kpi select-none ${
-                    dark
-                      ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
-                      : 'bg-white border-slate-200 shadow-sm hover:bg-emerald-50/20'
-                  }`}
-                  title="Click to view Gross Revenue mathematical formula & audit breakdown"
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Gross Revenue</p>
-                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
-                      Audit ↗
-                    </span>
-                  </div>
-                  <p className="text-lg md:text-xl font-bold mt-1 text-slate-900 dark:text-zinc-100">{formatRs(summary.grossRevenue)}</p>
-                  <p className="text-[11px] text-slate-400 mt-1">{summary.orderCount || 0} Orders Recorded</p>
-                </div>
+            {activeModule === 'sales' && (() => {
+              const totalSalesVal = Number(summary.netSales || 0);
+              const costOfSalesVal = Number(summary.costOfSale ?? summary.cogs ?? 0);
+              const grossProfitVal = Number(summary.grossProfit ?? (totalSalesVal - costOfSalesVal));
+              const totalExpensesVal = Number(summary.totalExpenses || 0);
+              const netProfitVal = Number(summary.netProfit ?? (grossProfitVal - totalExpensesVal));
+              const isProfitPositive = netProfitVal >= 0;
 
-                {/* 2. NET SALES KPI CARD */}
-                <div
-                  onClick={() => handleOpenAudit('netSales')}
-                  className={`p-3 sm:p-4 rounded-2xl border cursor-pointer hover:border-emerald-500/50 hover:shadow-md transition-all group/kpi select-none ${
-                    dark
-                      ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
-                      : 'bg-white border-slate-200 shadow-sm hover:bg-emerald-50/20'
-                  }`}
-                  title="Click to view Net Sales formula & deductions audit"
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Net Sales</p>
-                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
-                      Audit ↗
-                    </span>
+              return (
+                <>
+                  {/* 1. TOTAL SALES KPI CARD (All Cash, Cheque, Credit & Card Invoices) */}
+                  <div
+                    onClick={() => handleOpenAudit('netSales')}
+                    className={`p-3.5 sm:p-4 rounded-2xl border cursor-pointer hover:border-emerald-500/50 hover:shadow-md transition-all group/kpi select-none ${
+                      dark
+                        ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
+                        : 'bg-white border-slate-200 shadow-sm hover:bg-emerald-50/20'
+                    }`}
+                    title="Click to open Financial Profit Audit"
+                  >
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Total Sales</p>
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
+                        Audit ↗
+                      </span>
+                    </div>
+                    <p className="text-lg md:text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400 font-mono tabular-nums">
+                      {formatRs(totalSalesVal)}
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      {summary.orderCount || 0} Orders • Discounts: {formatRs(summary.totalDiscount)}
+                    </p>
                   </div>
-                  <p className="text-lg md:text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400">{formatRs(summary.netSales)}</p>
-                  <p className="text-[11px] text-slate-400 mt-1">Discounts: {formatRs(summary.totalDiscount)}</p>
-                </div>
 
-                {/* 3. COST OF SALE (COGS) KPI CARD */}
-                <div
-                  onClick={() => handleOpenAudit('costOfGoodsSold')}
-                  className={`p-3 sm:p-4 rounded-2xl border cursor-pointer hover:border-amber-500/50 hover:shadow-md transition-all group/kpi select-none ${
-                    dark
-                      ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
-                      : 'bg-white border-slate-200 shadow-sm hover:bg-amber-50/20'
-                  }`}
-                  title="Click to view Cost of Sale (COGS) material and unit cost audit"
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Cost of Sale (COGS)</p>
-                    <span className="text-[10px] text-amber-600 dark:text-amber-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
-                      Audit ↗
-                    </span>
+                  {/* 2. COST OF SALES KPI CARD (Product COGS — Zero GRN Double-Deduction) */}
+                  <div
+                    onClick={() => handleOpenAudit('costOfGoodsSold')}
+                    className={`p-3.5 sm:p-4 rounded-2xl border cursor-pointer hover:border-amber-500/50 hover:shadow-md transition-all group/kpi select-none ${
+                      dark
+                        ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
+                        : 'bg-white border-slate-200 shadow-sm hover:bg-amber-50/20'
+                    }`}
+                    title="Click to open Financial Profit Audit"
+                  >
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Cost of Sales</p>
+                      <span className="text-[10px] text-amber-600 dark:text-amber-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
+                        Audit ↗
+                      </span>
+                    </div>
+                    <p className="text-lg md:text-xl font-bold mt-1 text-amber-700 dark:text-amber-400 font-mono tabular-nums">
+                      {formatRs(costOfSalesVal)}
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-1">Product Cost (COGS)</p>
                   </div>
-                  <p className="text-lg md:text-xl font-bold mt-1 text-amber-700 dark:text-amber-400">
-                    {formatRs(summary.costOfSale ?? summary.cogs ?? 0)}
-                  </p>
-                  <p className="text-[11px] text-slate-400 mt-1">Material &amp; Garment Cost</p>
-                </div>
 
-                {/* 4. GROSS PROFIT KPI CARD */}
-                <div
-                  onClick={() => handleOpenAudit('grossProfit')}
-                  className={`p-3 sm:p-4 rounded-2xl border cursor-pointer hover:border-emerald-500/50 hover:shadow-md transition-all group/kpi select-none ${
-                    dark
-                      ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
-                      : 'bg-white border-slate-200 shadow-sm hover:bg-emerald-50/20'
-                  }`}
-                  title="Click to view Gross Profit (Sales - Cost of Sale) formula breakdown"
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Gross Profit</p>
-                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
-                      Audit ↗
-                    </span>
+                  {/* 3. TOTAL EXPENSES KPI CARD */}
+                  <div
+                    onClick={() => handleOpenAudit('totalExpenses')}
+                    className={`p-3.5 sm:p-4 rounded-2xl border cursor-pointer hover:border-rose-500/50 hover:shadow-md transition-all group/kpi select-none ${
+                      dark
+                        ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
+                        : 'bg-white border-slate-200 shadow-sm hover:bg-rose-50/20'
+                    }`}
+                    title="Click to open Financial Profit Audit"
+                  >
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Total Expenses</p>
+                      <span className="text-[10px] text-rose-600 dark:text-rose-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
+                        Audit ↗
+                      </span>
+                    </div>
+                    <p className="text-lg md:text-xl font-bold mt-1 text-rose-600 dark:text-rose-400 font-mono tabular-nums">
+                      {formatRs(totalExpensesVal)}
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-1">Recorded Operational Expenses</p>
                   </div>
-                  <p className="text-lg md:text-xl font-bold mt-1 text-emerald-700 dark:text-emerald-400">
-                    {formatRs(summary.grossProfit ?? ((summary.netSales || 0) - (summary.costOfSale ?? summary.cogs ?? 0)))}
-                  </p>
-                  <p className="text-[11px] text-slate-400 mt-1">Sales - Cost of Sale</p>
-                </div>
 
-                {/* 5. OPERATIONAL EXPENSES KPI CARD */}
-                <div
-                  onClick={() => handleOpenAudit('totalExpenses')}
-                  className={`p-3 sm:p-4 rounded-2xl border cursor-pointer hover:border-rose-500/50 hover:shadow-md transition-all group/kpi select-none ${
-                    dark
-                      ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
-                      : 'bg-white border-slate-200 shadow-sm hover:bg-rose-50/20'
-                  }`}
-                  title="Click to view Operational Expenses itemized audit breakdown"
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Operational Expenses</p>
-                    <span className="text-[10px] text-rose-600 dark:text-rose-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
-                      Audit ↗
-                    </span>
+                  {/* 4. NET PROFIT KPI CARD (Gross Profit - Total Expenses) */}
+                  <div
+                    onClick={() => handleOpenAudit('netProfit')}
+                    className={`p-3.5 sm:p-4 rounded-2xl border cursor-pointer hover:border-indigo-500/50 hover:shadow-md transition-all group/kpi select-none ${
+                      dark
+                        ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
+                        : 'bg-white border-slate-200 shadow-sm hover:bg-indigo-50/20'
+                    }`}
+                    title="Click to open Financial Profit Audit"
+                  >
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Net Profit</p>
+                      <span className="text-[10px] text-indigo-600 dark:text-indigo-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
+                        Audit ↗
+                      </span>
+                    </div>
+                    <p
+                      className={`text-lg md:text-xl font-bold mt-1 font-mono tabular-nums ${
+                        isProfitPositive
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : 'text-rose-600 dark:text-rose-400'
+                      }`}
+                    >
+                      {formatRs(netProfitVal)}
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-1">Gross Profit: {formatRs(grossProfitVal)}</p>
                   </div>
-                  <p className="text-lg md:text-xl font-bold mt-1 text-rose-600 dark:text-rose-400">
-                    {formatRs(summary.totalExpenses || 0)}
-                  </p>
-                  <p className="text-[11px] text-slate-400 mt-1">Recorded Outflows</p>
-                </div>
-
-                {/* 6. NET PROFIT KPI CARD */}
-                <div
-                  onClick={() => handleOpenAudit('netProfit')}
-                  className={`p-3 sm:p-4 rounded-2xl border cursor-pointer hover:border-indigo-500/50 hover:shadow-md transition-all group/kpi select-none ${
-                    dark
-                      ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
-                      : 'bg-white border-slate-200 shadow-sm hover:bg-indigo-50/20'
-                  }`}
-                  title="Click to view True Bottom-Line Net Profit (Gross Profit - Expenses)"
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Net Profit</p>
-                    <span className="text-[10px] text-indigo-600 dark:text-indigo-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
-                      Audit ↗
-                    </span>
-                  </div>
-                  <p className="text-lg md:text-xl font-bold mt-1 text-indigo-600 dark:text-indigo-400">
-                    {formatRs(summary.netProfit ?? ((summary.grossProfit ?? ((summary.netSales || 0) - (summary.costOfSale ?? summary.cogs ?? 0))) - (summary.totalExpenses || 0)))}
-                  </p>
-                  <p className="text-[11px] text-slate-400 mt-1">Gross Profit - Expenses</p>
-                </div>
-
-                {/* 7. COLLECTED / PAID KPI CARD */}
-                <div
-                  onClick={() => handleOpenAudit('totalPaid')}
-                  className={`p-3 sm:p-4 rounded-2xl border cursor-pointer hover:border-emerald-500/50 hover:shadow-md transition-all group/kpi select-none ${
-                    dark
-                      ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
-                      : 'bg-white border-slate-200 shadow-sm hover:bg-emerald-50/20'
-                  }`}
-                  title="Click to view Collections, Cash & Cheque liquidity audit"
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Collected / Paid</p>
-                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
-                      Audit ↗
-                    </span>
-                  </div>
-                  <p className="text-lg md:text-xl font-bold mt-1 text-blue-600 dark:text-blue-400">{formatRs(summary.totalPaid)}</p>
-                  <p className="text-[11px] text-slate-400 mt-1">Avg Order: {formatRs(summary.averageOrderValue)}</p>
-                </div>
-
-                {/* 8. OUTSTANDING CREDIT DUE KPI CARD */}
-                <div
-                  onClick={() => handleOpenAudit('totalDue')}
-                  className={`p-3 sm:p-4 rounded-2xl border cursor-pointer hover:border-emerald-500/50 hover:shadow-md transition-all group/kpi select-none ${
-                    dark
-                      ? 'bg-zinc-900/70 border-zinc-800/80 hover:bg-zinc-800/80'
-                      : 'bg-white border-slate-200 shadow-sm hover:bg-rose-50/20'
-                  }`}
-                  title="Click to view Outstanding Customer Credit Debt audit"
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Outstanding Credit Due</p>
-                    <span className="text-[10px] text-rose-600 dark:text-rose-400 opacity-0 group-hover/kpi:opacity-100 font-bold transition-opacity">
-                      Audit ↗
-                    </span>
-                  </div>
-                  <p className="text-lg md:text-xl font-bold mt-1 text-rose-600 dark:text-rose-400">{formatRs(summary.totalDue)}</p>
-                  <p className="text-[11px] text-rose-500/80 mt-1">Pending Customer Debt</p>
-                </div>
-              </>
-            )}
+                </>
+              );
+            })()}
 
             {activeModule === 'expenses' && (
               <>
@@ -2006,14 +2047,14 @@ export const ReportsPage: React.FC = () => {
 
             {activeModule === 'production' && (
               <>
-                {/* Stage 1: Cutting - Total Cut Pieces */}
+                {/* Stage 1: Cutting - Total Cut Qty (Yard) */}
                 <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Total Cut Pieces</p>
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Total Cut Qty (Yard)</p>
                     <Scissors className="w-3.5 h-3.5 text-amber-500" />
                   </div>
                   <p className="text-lg md:text-xl font-bold mt-1 text-amber-600 dark:text-amber-400 font-mono">
-                    {formatQty(productionKPIs?.totalCutPieces ?? summary.totalCutPieces ?? summary.totalMaterialsCut ?? 0)} <span className="text-xs font-medium text-slate-500">Units</span>
+                    {formatQty(productionKPIs?.totalCutPieces ?? summary.totalCutQtyYards ?? summary.totalCutPieces ?? summary.totalMaterialsCut ?? 0)} <span className="text-xs font-medium text-slate-500">Yards</span>
                   </p>
                   <p className="text-[11px] text-slate-400 mt-1">{productionKPIs?.totalBatches ?? summary.totalBatches ?? 0} Batches Started</p>
                 </div>
@@ -2063,7 +2104,7 @@ export const ReportsPage: React.FC = () => {
                   <p className="text-lg md:text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400 font-mono">
                     {formatQty(productionKPIs?.ironedAndPacked ?? summary.ironedAndPacked ?? summary.completedQuantity ?? 0)} <span className="text-xs font-medium text-slate-500">Pcs</span>
                   </p>
-                  <p className="text-[11px] text-slate-400 mt-1">Yield: {formatQty(productionKPIs?.overallYieldPercentage ?? summary.overallYieldPercentage ?? 0)}%</p>
+                  <p className="text-[11px] text-slate-400 mt-1">Quality checked &amp; packed</p>
                 </div>
 
                 {/* Stage 6: Finished Inventory - Fully Finished / Synced */}
@@ -2204,7 +2245,7 @@ export const ReportsPage: React.FC = () => {
                       <YAxis stroke={dark ? '#71717a' : '#94a3b8'} fontSize={11} />
                       <RechartsTooltip />
                       <Legend wrapperStyle={{ fontSize: 11, paddingTop: 6 }} />
-                      <Bar dataKey="cutQty" name="1. Cut Pieces" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="cutQty" name="1. Cut Qty (Yard)" fill="#f59e0b" radius={[4, 4, 0, 0]} />
                       <Bar dataKey="sewnQty" name="2. Sewn Output" fill="#6366f1" radius={[4, 4, 0, 0]} />
                       <Bar dataKey="washedQty" name="3. In Wash / Washed" fill="#06b6d4" radius={[4, 4, 0, 0]} />
                       <Bar dataKey="finishedQty" name="4. Finished / Packed" fill="#10b981" radius={[4, 4, 0, 0]} />
@@ -2481,6 +2522,61 @@ export const ReportsPage: React.FC = () => {
                     );
                   }
 
+                  if (activeModule === 'production') {
+                    const numericCols = productionStageConfig.columns.filter((c) => c.isNumeric);
+                    const statusText = productionStageConfig.columns.find((c) => c.key === 'status')?.getValue(row) || row.status || 'CUTTING';
+                    const dateCol = productionStageConfig.columns.find((c) => c.key.toLowerCase().includes('date'));
+                    const dateText = dateCol ? String(dateCol.getValue(row)) : (row.productionDate ? row.productionDate.split('T')[0] : '-');
+
+                    return (
+                      <div
+                        key={row.id || `${row.productionNo}-${idx}`}
+                        onClick={() => {
+                          setSelectedProductionBatch(row);
+                          setIsProductionBatchModalOpen(true);
+                        }}
+                        className="p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 shadow-xs space-y-2.5 text-xs select-none cursor-pointer hover:border-indigo-400 dark:hover:border-indigo-600 hover:bg-slate-50/80 dark:hover:bg-zinc-800/80 hover:shadow-sm transition-all"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="font-mono font-bold text-xs text-blue-600 dark:text-blue-400 truncate">
+                              {row.cuttingNo || row.productionNo}
+                            </span>
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-semibold border-slate-300 dark:border-zinc-700">
+                              {statusText}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-1 text-[11px] text-slate-400 font-mono shrink-0">
+                            <Calendar className="size-3" />
+                            <span>{dateText}</span>
+                          </div>
+                        </div>
+
+                        <div>
+                          <span className="font-bold text-slate-900 dark:text-zinc-100 text-xs sm:text-sm truncate block">
+                            {row.productName || 'Garment'}
+                          </span>
+                          {row.rawMaterialName && row.rawMaterialName !== '-' && (
+                            <span className="text-[10px] text-slate-400 dark:text-zinc-500 block truncate">
+                              Fabric: {row.rawMaterialName}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800/80 text-[11px]">
+                          {numericCols.map((col) => (
+                            <div key={col.key} className="flex flex-col">
+                              <span className="text-[10px] text-slate-400 dark:text-zinc-500 truncate">{col.header}</span>
+                              <span className={`font-mono font-bold ${col.key === 'cutQtyYards' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-800 dark:text-zinc-200'}`}>
+                                {col.getValue(row)} {col.unit || ''}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
+
                   // Unified card field resolution across all report modules
                   const recordId = row.invoiceNumber || (row.id ? `#${row.id}` : row.batchNumber || row.sku || `REC-${startIndex + idx + 1}`);
                   const recordDate = (row.date || row.createdAt || row.updatedAt || row.orderDate || '')?.split('T')[0] || '-';
@@ -2496,17 +2592,7 @@ export const ReportsPage: React.FC = () => {
                   return (
                     <div
                       key={row.id || `${recordId}-${idx}`}
-                      onClick={() => {
-                        if (activeModule === 'production') {
-                          setSelectedProductionBatch(row);
-                          setIsProductionBatchModalOpen(true);
-                        }
-                      }}
-                      className={`p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 shadow-xs space-y-2.5 text-xs select-none transition-all ${
-                        activeModule === 'production'
-                          ? 'cursor-pointer hover:border-indigo-400 dark:hover:border-indigo-600 hover:bg-slate-50/80 dark:hover:bg-zinc-850 hover:shadow-sm'
-                          : ''
-                      }`}
+                      className="p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/80 shadow-xs space-y-2.5 text-xs select-none transition-all"
                     >
                       {/* Top Row: Transaction/Batch ID, Status, Date */}
                       <div className="flex items-center justify-between gap-2">
@@ -2666,16 +2752,16 @@ export const ReportsPage: React.FC = () => {
 
                     {activeModule === 'production' && (
                       <>
-                        <th className="py-2.5 px-3 font-semibold w-28 min-w-[100px]">Batch No</th>
-                        <th className="py-2.5 px-3 font-semibold min-w-[180px]">Garment Style</th>
-                        <th className="py-2.5 px-3 font-semibold w-28 min-w-[90px]">Size / Color</th>
-                        <th className="py-2.5 px-3 font-semibold text-center w-24 min-w-[70px]">Cut Units</th>
-                        <th className="py-2.5 px-3 font-semibold text-center w-24 min-w-[70px]">Finished</th>
-                        <th className="py-2.5 px-3 font-semibold text-center w-24 min-w-[70px]">WIP Units</th>
-                        <th className="py-2.5 px-3 font-semibold text-center w-20 min-w-[60px]">Yield %</th>
-                        <th className="py-2.5 px-3 font-semibold text-right w-28 min-w-[100px]">Material Cost</th>
-                        <th className="py-2.5 px-3 font-semibold text-right w-28 min-w-[90px]">Scrap Returned</th>
-                        <th className="py-2.5 px-3 font-semibold text-center w-24 min-w-[80px]">Status</th>
+                        {productionStageConfig.columns.map((col) => (
+                          <th
+                            key={col.key}
+                            className={`py-2.5 px-3 font-semibold whitespace-nowrap ${
+                              col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left'
+                            }`}
+                          >
+                            {col.header}
+                          </th>
+                        ))}
                       </>
                     )}
 
@@ -2920,151 +3006,71 @@ export const ReportsPage: React.FC = () => {
 
                           {activeModule === 'production' && (
                             <>
-                              <td className="py-2.5 px-3 font-mono font-medium text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                                <div className="flex items-center gap-1.5">
-                                  <span>{row.productionNo}</span>
-                                  <span className="text-[10px] text-slate-400 opacity-60 group-hover/prod:opacity-100 group-hover/prod:text-blue-600 transition-opacity">↗</span>
-                                </div>
-                              </td>
-                              <td className="py-2.5 px-3 font-medium text-slate-800 dark:text-zinc-200 break-words whitespace-normal">
-                                <div className="flex items-center gap-2">
-                                  {row.productImage ? (
-                                    <img
-                                      src={getProductImageUrl(row.productImage)}
-                                      alt=""
-                                      className="size-7 rounded-md object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
-                                    />
-                                  ) : (
-                                    <div className="size-7 rounded-md bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 flex items-center justify-center text-slate-400 shrink-0">
-                                      <Package className="size-3.5" />
-                                    </div>
-                                  )}
-                                  <span className="font-semibold text-slate-900 dark:text-white">{row.productName}</span>
-                                </div>
-                              </td>
-                              <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">{row.variant}</td>
-                              <td className="py-2.5 px-3 text-center font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">
-                                {(() => {
-                                  const cut = Number(
-                                    row.cutQty > 0
-                                      ? row.cutQty
-                                      : (row.totalCutUnits ?? (Array.isArray(row.cutLogs) && row.cutLogs.length > 0
-                                        ? row.cutLogs.reduce((acc: number, c: any) => acc + (Number(c.quantityCut) || 0), 0)
-                                        : (row.completedQty || row.targetQuantity || 0)))
-                                  );
+                              {productionStageConfig.columns.map((col) => {
+                                const val = col.getValue(row);
+                                if (col.key === 'cuttingNo') {
                                   return (
-                                    <>
-                                      {formatQty(cut)}
-                                      {row.cutLogsCount > 0 && (
-                                        <span className="text-[10px] text-slate-400 block font-normal">({row.cutLogsCount} cuts)</span>
-                                      )}
-                                    </>
+                                    <td key={col.key} className="py-2.5 px-3 font-mono font-medium text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                                      <div className="flex items-center gap-1.5">
+                                        <span>{val}</span>
+                                        <span className="text-[10px] text-slate-400 opacity-60 group-hover/prod:opacity-100 group-hover/prod:text-blue-600 transition-opacity">↗</span>
+                                      </div>
+                                    </td>
                                   );
-                                })()}
-                              </td>
-                              <td className="py-2.5 px-3 text-center font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                                {(() => {
-                                  const loggedFinish = Array.isArray(row.finishLogs) && row.finishLogs.length > 0
-                                    ? row.finishLogs.reduce((acc: number, f: any) => acc + (Number(f.quantityFinished) || 0), 0)
-                                    : 0;
-                                  const finished = loggedFinish > 0
-                                    ? loggedFinish
-                                    : (Number(row.completedQty || 0) > 0
-                                      ? Number(row.completedQty)
-                                      : (Number(row.washedQty || 0) > 0 ? Number(row.washedQty) : (Number(row.totalFinishedUnits) || 0)));
+                                }
+                                if (col.key === 'productName') {
                                   return (
-                                    <>
-                                      {formatQty(finished)}
-                                      {row.finishLogsCount > 0 && (
-                                        <span className="text-[10px] text-slate-400 block font-normal">({row.finishLogsCount} logs)</span>
-                                      )}
-                                    </>
+                                    <td key={col.key} className="py-2.5 px-3 font-medium text-slate-800 dark:text-zinc-200 break-words whitespace-normal">
+                                      <div className="flex items-center gap-2">
+                                        {row.productImage ? (
+                                          <img
+                                            src={getProductImageUrl(row.productImage)}
+                                            alt=""
+                                            className="size-7 rounded-md object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
+                                          />
+                                        ) : (
+                                          <div className="size-7 rounded-md bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 flex items-center justify-center text-slate-400 shrink-0">
+                                            <Package className="size-3.5" />
+                                          </div>
+                                        )}
+                                        <span className="font-semibold text-slate-900 dark:text-white">{val}</span>
+                                      </div>
+                                    </td>
                                   );
-                                })()}
-                              </td>
-                              <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                                {(() => {
-                                  const cut = Number(
-                                    row.cutQty > 0
-                                      ? row.cutQty
-                                      : (row.totalCutUnits ?? (Array.isArray(row.cutLogs) && row.cutLogs.length > 0
-                                        ? row.cutLogs.reduce((acc: number, c: any) => acc + (Number(c.quantityCut) || 0), 0)
-                                        : (row.targetQuantity || 0)))
+                                }
+                                if (col.key === 'status') {
+                                  return (
+                                    <td key={col.key} className="py-2.5 px-3 text-center whitespace-nowrap">
+                                      <Badge
+                                        variant="outline"
+                                        className={`text-[10px] font-semibold ${
+                                          row.status === 'COMPLETED' && row.isStockSynced
+                                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                                            : row.status === 'FINISHED_PENDING_STOCK' || (!row.isStockSynced && row.completedQty > 0)
+                                            ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border-purple-300 dark:border-purple-800'
+                                            : row.status === 'CUTTING'
+                                            ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                                            : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800'
+                                        }`}
+                                      >
+                                        {val}
+                                      </Badge>
+                                    </td>
                                   );
-                                  const loggedFinish = Array.isArray(row.finishLogs) && row.finishLogs.length > 0
-                                    ? row.finishLogs.reduce((acc: number, f: any) => acc + (Number(f.quantityFinished) || 0), 0)
-                                    : 0;
-                                  const finished = loggedFinish > 0
-                                    ? loggedFinish
-                                    : (Number(row.completedQty || 0) > 0
-                                      ? Number(row.completedQty)
-                                      : (Number(row.washedQty || 0) > 0 ? Number(row.washedQty) : (Number(row.totalFinishedUnits) || 0)));
-                                  const wip = row.wipUnits !== undefined && Number(row.wipUnits) >= 0
-                                    ? Number(row.wipUnits)
-                                    : (row.status !== 'CANCELLED' && row.status !== 'COMPLETED' ? Math.max(0, cut - finished) : 0);
-                                  return wip > 0 ? (
-                                    <Badge variant="outline" className="text-[10px] bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800 font-mono">
-                                      {formatQty(wip)} WIP
-                                    </Badge>
-                                  ) : (
-                                    <span className="text-slate-400 font-mono text-[11px]">-</span>
-                                  );
-                                })()}
-                              </td>
-                              <td className="py-2.5 px-3 text-center font-semibold text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                                {(() => {
-                                  const cut = Number(
-                                    row.cutQty > 0
-                                      ? row.cutQty
-                                      : (row.totalCutUnits ?? (Array.isArray(row.cutLogs) && row.cutLogs.length > 0
-                                        ? row.cutLogs.reduce((acc: number, c: any) => acc + (Number(c.quantityCut) || 0), 0)
-                                        : (row.targetQuantity || 0)))
-                                  );
-                                  const loggedFinish = Array.isArray(row.finishLogs) && row.finishLogs.length > 0
-                                    ? row.finishLogs.reduce((acc: number, f: any) => acc + (Number(f.quantityFinished) || 0), 0)
-                                    : 0;
-                                  const finished = loggedFinish > 0
-                                    ? loggedFinish
-                                    : (Number(row.completedQty || 0) > 0
-                                      ? Number(row.completedQty)
-                                      : (Number(row.washedQty || 0) > 0 ? Number(row.washedQty) : (Number(row.totalFinishedUnits) || 0)));
-                                  const yieldDivisor = cut > 0 ? cut : Number(row.targetQuantity || 0);
-                                  const yieldVal = row.yieldPercentage !== undefined && Number(row.yieldPercentage) > 0
-                                    ? Number(row.yieldPercentage)
-                                    : (yieldDivisor > 0 ? Math.round((finished / yieldDivisor) * 10000) / 100 : 0);
-                                  return `${formatQty(yieldVal)}%`;
-                                })()}
-                              </td>
-                              <td className="py-2.5 px-3 text-right whitespace-nowrap font-mono">{formatRs(row.materialCost)}</td>
-                              <td className="py-2.5 px-3 text-right text-slate-400 whitespace-nowrap font-mono">
-                                {formatQty(
-                                  row.scrapReturned !== undefined && Number(row.scrapReturned) > 0
-                                    ? row.scrapReturned
-                                    : (Array.isArray(row.materialUsages) && row.materialUsages.length > 0
-                                      ? row.materialUsages.reduce((s: number, u: any) => s + Number(u.returnedScrap ?? u.returnedQty ?? 0), 0)
-                                      : (Array.isArray(row.activityLogs)
-                                        ? row.activityLogs
-                                            .filter((a: any) => a.action === 'RETURNED_SCRAP' || a.action === 'RETURNED')
-                                            .reduce((s: number, a: any) => s + Number(a.quantity || 0), 0)
-                                        : 0))
-                                )}
-                              </td>
-                              <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                                <Badge
-                                  variant="outline"
-                                  className={`text-[10px] font-semibold ${
-                                    row.status === 'COMPLETED' && row.isStockSynced
-                                      ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
-                                      : row.status === 'FINISHED_PENDING_STOCK' || (!row.isStockSynced && row.completedQty > 0)
-                                      ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border-purple-300 dark:border-purple-800'
-                                      : row.status === 'CUTTING'
-                                      ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-300 dark:border-amber-800'
-                                      : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800'
-                                  }`}
-                                >
-                                  {row.status === 'COMPLETED' && row.isStockSynced ? 'IN STOCK' : row.status === 'FINISHED_PENDING_STOCK' ? 'AWAITING SYNC' : row.status}
-                                </Badge>
-                              </td>
+                                }
+                                return (
+                                  <td
+                                    key={col.key}
+                                    className={`py-2.5 px-3 whitespace-nowrap ${
+                                      col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left'
+                                    } ${col.isNumeric ? 'font-mono font-bold' : 'text-slate-600 dark:text-zinc-300'} ${
+                                      col.key === 'cutQtyYards' ? 'text-amber-600 dark:text-amber-400' : ''
+                                    }`}
+                                  >
+                                    {val}
+                                  </td>
+                                );
+                              })}
                             </>
                           )}
 
@@ -3168,6 +3174,42 @@ export const ReportsPage: React.FC = () => {
                     })
                   )}
                 </tbody>
+                {activeModule === 'production' && filteredRows.length > 0 && (
+                  <tfoot>
+                    <tr className={`border-t-2 font-bold text-xs ${dark ? 'border-zinc-700 bg-zinc-900/90 text-zinc-100' : 'border-slate-300 bg-slate-50 text-slate-900'}`}>
+                      {productionStageConfig.columns.map((col, idx) => {
+                        if (idx === 0) {
+                          return (
+                            <td key={col.key} className="py-2.5 px-3 font-bold uppercase tracking-wider">
+                              Total
+                            </td>
+                          );
+                        }
+                        if (col.isNumeric && col.getNumericValue) {
+                          const colSum = filteredRows.reduce((acc: number, r: any) => acc + col.getNumericValue!(r), 0);
+                          return (
+                            <td
+                              key={col.key}
+                              className={`py-2.5 px-3 font-mono font-bold whitespace-nowrap ${
+                                col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left'
+                              }`}
+                            >
+                              {formatQty(colSum)} {col.unit || ''}
+                            </td>
+                          );
+                        }
+                        if (col.key === 'status') {
+                          return (
+                            <td key={col.key} className="py-2.5 px-3 text-center font-mono">
+                              {filteredRows.length} Batches
+                            </td>
+                          );
+                        }
+                        return <td key={col.key} className="py-2.5 px-3" />;
+                      })}
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
 
@@ -3212,6 +3254,7 @@ export const ReportsPage: React.FC = () => {
           paymentSplit: summary.paymentSplit || {},
           dateLabel: formattedSelectedBadge,
           totalProductionCost: summary.totalProductionCost || 0,
+          totalGrnPurchases: summary.totalGrnPurchases ?? summary.totalGrnExpenses ?? 0,
           totalGrnExpenses: summary.totalGrnExpenses || 0,
           totalGrnLiabilities: summary.totalGrnLiabilities || 0,
         }}
@@ -3266,7 +3309,7 @@ export const ReportsPage: React.FC = () => {
           {selectedProductionBatch && (
             <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 text-xs">
               {/* Batch Metrics Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800 text-center">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800 text-center">
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 uppercase block">Planned Target</span>
                   <span className="font-mono font-bold text-slate-700 dark:text-zinc-300 text-sm">
@@ -3274,42 +3317,30 @@ export const ReportsPage: React.FC = () => {
                   </span>
                 </div>
                 <div>
-                  <span className="text-[10px] font-bold text-amber-600 block">Materials Cut</span>
+                  <span className="text-[10px] font-bold text-amber-600 block">Cut Qty (Yard)</span>
                   <span className="font-mono font-bold text-amber-600 dark:text-amber-400 text-sm">
-                    {formatQty(selectedProductionBatch.cutQty ?? selectedProductionBatch.totalCutUnits ?? selectedProductionBatch.completedQty ?? 0)} Units
+                    {formatQty(selectedProductionBatch.cutQtyYards ?? selectedProductionBatch.cutQty ?? selectedProductionBatch.totalCutUnits ?? 0)} Yards
                   </span>
                 </div>
                 <div>
                   <span className="text-[10px] font-bold text-emerald-600 block">Garments Finished</span>
                   <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-sm">
-                    {formatQty(selectedProductionBatch.washedQty ?? selectedProductionBatch.completedQty ?? 0)} Pcs
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[10px] font-bold text-indigo-600 block">Yield / Efficiency</span>
-                  <span className="font-mono font-extrabold text-indigo-600 dark:text-indigo-400 text-sm">
-                    {selectedProductionBatch.yieldPercentage !== undefined && selectedProductionBatch.yieldPercentage > 0
-                      ? `${formatQty(selectedProductionBatch.yieldPercentage)}%`
-                      : (() => {
-                          const cut = Number(selectedProductionBatch.cutQty ?? selectedProductionBatch.totalCutUnits ?? selectedProductionBatch.targetQuantity ?? 0);
-                          const finished = Number(selectedProductionBatch.washedQty ?? selectedProductionBatch.completedQty ?? 0);
-                          return cut > 0 ? `${formatQty(Math.round((finished / cut) * 1000) / 10)}%` : '0%';
-                        })()}
+                    {formatQty(selectedProductionBatch.finishedQty ?? selectedProductionBatch.washedQty ?? selectedProductionBatch.completedQty ?? 0)} Pcs
                   </span>
                 </div>
               </div>
 
-              {/* Second Row Metrics: WIP, Cost, Scrap, Stock Sync */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800 text-center">
+              {/* Second Row Metrics: WIP, Cost, Stock Sync */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 p-3 rounded-xl bg-slate-50 dark:bg-zinc-900/60 border border-slate-200/80 dark:border-zinc-800 text-center">
                 <div>
                   <span className="text-[10px] font-bold text-amber-600 uppercase block">Remaining WIP</span>
                   <span className="font-mono font-bold text-slate-900 dark:text-white">
                     {formatQty(selectedProductionBatch.wipUnits !== undefined
                       ? selectedProductionBatch.wipUnits
                       : (() => {
-                          const cut = Number(selectedProductionBatch.cutQty ?? selectedProductionBatch.totalCutUnits ?? selectedProductionBatch.targetQuantity ?? 0);
-                          const finished = Number(selectedProductionBatch.washedQty ?? selectedProductionBatch.completedQty ?? 0);
-                          return Math.max(0, cut - finished);
+                          const intake = Number(selectedProductionBatch.lineIntakeQty ?? selectedProductionBatch.lineSentQty ?? selectedProductionBatch.targetQuantity ?? 0);
+                          const finished = Number(selectedProductionBatch.finishedQty ?? selectedProductionBatch.washedQty ?? selectedProductionBatch.completedQty ?? 0);
+                          return Math.max(0, intake - finished);
                         })())} Pcs
                   </span>
                 </div>
@@ -3317,12 +3348,6 @@ export const ReportsPage: React.FC = () => {
                   <span className="text-[10px] font-bold text-slate-400 uppercase block">Total Material Cost</span>
                   <span className="font-mono font-bold text-slate-900 dark:text-white">
                     {formatRs(selectedProductionBatch.materialCost || 0)}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[10px] font-bold text-teal-600 uppercase block">Scrap Returned</span>
-                  <span className="font-mono font-bold text-teal-600 dark:text-teal-400">
-                    {formatQty(selectedProductionBatch.scrapReturned ?? (Array.isArray(selectedProductionBatch.materialUsages) ? selectedProductionBatch.materialUsages.reduce((s: number, u: any) => s + Number(u.returnedScrap ?? u.returnedQty ?? 0), 0) : 0))} Units
                   </span>
                 </div>
                 <div>

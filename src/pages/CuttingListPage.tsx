@@ -1,5 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  useUrlFilterSync,
+  getInitialDateRangeFromUrl,
+  formatDateForUrl,
+  getColomboTodayDateRange,
+  isColomboTodayRange,
+} from '../hooks/useUrlFilterSync';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
@@ -33,6 +40,7 @@ import {
 } from '../components/ui/alert-dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 import { SearchableSelect, type SearchableSelectOption } from '../components/ui/searchable-select';
+import { StageViewToggle, type StageViewMode } from '../components/production/StageViewToggle';
 import { DateRangePicker, type DateRange } from '../components/ui/date-range-picker';
 import {
   DropdownMenu,
@@ -844,19 +852,34 @@ export const BatchActivityTimeline: React.FC<{
 
 export const CuttingListPage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { resolvedTheme } = useTheme();
   const { user, isAdmin } = useAuth();
   const dark = resolvedTheme === 'dark';
 
-  // Unified Date Range Filter (Defaults to undefined / all-time view)
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  // Unified Date Range Filter (hydrated from URL query params)
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(() => getInitialDateRangeFromUrl(searchParams));
 
-  // Search & Context-Specific Filter States
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedProductFilter, setSelectedProductFilter] = useState<string>('all');
-  const [batchStatus, setBatchStatus] = useState<string>('ALL');
-  const [sortBy, setSortBy] = useState<string>('newest');
+  // Search & Context-Specific Filter States (hydrated from URL query params)
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '');
+  const [viewMode, setViewMode] = useState<StageViewMode>(() =>
+    searchParams.get('viewMode') === 'active' ? 'active' : 'all'
+  );
+  const [selectedProductFilter, setSelectedProductFilter] = useState<string>(() => searchParams.get('productId') || 'all');
+  const [batchStatus, setBatchStatus] = useState<string>(() => searchParams.get('status') || 'ALL');
+  const [sortBy, setSortBy] = useState<string>(() => searchParams.get('sort') || 'newest');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+
+  // Sync active Cutting filters to URL query parameters for browser refresh persistence
+  useUrlFilterSync({
+    search: searchQuery.trim() || undefined,
+    startDate: formatDateForUrl(dateRange?.from),
+    endDate: formatDateForUrl(dateRange?.to),
+    productId: selectedProductFilter !== 'all' ? selectedProductFilter : undefined,
+    status: batchStatus !== 'ALL' ? batchStatus : undefined,
+    viewMode: viewMode === 'active' ? 'active' : undefined,
+    sort: sortBy !== 'newest' ? sortBy : undefined,
+  });
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -1107,6 +1130,16 @@ export const CuttingListPage: React.FC = () => {
       list = list.filter((r) => r.status?.toUpperCase() === batchStatus);
     }
 
+    // View mode filter (Active Only vs All Incl. Completed)
+    if (viewMode === 'active') {
+      list = list.filter((r) => {
+        const st = r.status?.toUpperCase();
+        const m = computeCuttingMetrics(r);
+        const sentToLine = Number((r as any).lineSentQty || 0);
+        return st === 'CUTTING' || (m.pieces > sentToLine && st !== 'COMPLETED' && !r.isStockSynced);
+      });
+    }
+
     // Sort order
     const sorted = [...list];
     switch (sortBy) {
@@ -1138,7 +1171,7 @@ export const CuttingListPage: React.FC = () => {
     }
 
     return sorted;
-  }, [summaryData, searchQuery, batchStatus, sortBy]);
+  }, [summaryData, searchQuery, batchStatus, sortBy, viewMode]);
 
   // Product-wise live output breakdown summary for widget & modal
   const productWiseBreakdown = useMemo(() => {
@@ -1484,13 +1517,13 @@ export const CuttingListPage: React.FC = () => {
 
       {/* ── KPI Metrics Cards: Fluid 2-column grid on tablet portrait (~534px) instead of vertical stacking ── */}
       <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 w-full">
-        {/* Metric 1: Total Materials Cut (Today/Week) */}
+        {/* Metric 1: Total Cut Qty (Yard) */}
         <div className="rounded-2xl border p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex flex-col justify-between min-h-[125px]">
           <div className="flex justify-between items-start">
             <div>
-              <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Materials Cut</span>
+              <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Total Cut Qty (Yard)</span>
               <h3 className="text-2xl font-bold text-sky-600 dark:text-sky-400 mt-1 font-mono">
-                {liveMetrics.totalMaterialsCut.toLocaleString()} <span className="text-xs font-medium text-slate-500">Units</span>
+                {liveMetrics.totalMaterialsCut.toLocaleString()} <span className="text-xs font-medium text-slate-500">Yards</span>
               </h3>
             </div>
             <div className="p-2.5 bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 rounded-xl shrink-0">
@@ -1498,7 +1531,7 @@ export const CuttingListPage: React.FC = () => {
             </div>
           </div>
           <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-2">
-            Net Consumed: <strong className="font-mono text-slate-700 dark:text-zinc-300">{liveMetrics.netMaterialConsumed.toLocaleString()}</strong> Units • {liveMetrics.activeBatches} Batches
+            Net Consumed: <strong className="font-mono text-slate-700 dark:text-zinc-300">{liveMetrics.netMaterialConsumed.toLocaleString()}</strong> Yards • {liveMetrics.activeBatches} Batches
           </p>
         </div>
 
@@ -1516,7 +1549,7 @@ export const CuttingListPage: React.FC = () => {
             </div>
           </div>
           <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-2">
-            Yield Output: <strong className="font-mono text-slate-700 dark:text-zinc-300">{liveMetrics.totalOutput.toLocaleString()}</strong> Pcs produced
+            Finished Output: <strong className="font-mono text-slate-700 dark:text-zinc-300">{liveMetrics.totalOutput.toLocaleString()}</strong> Pcs produced
           </p>
         </div>
 
@@ -1732,9 +1765,9 @@ export const CuttingListPage: React.FC = () => {
       </div>
 
       {/* 2. Desktop Inline Executive Filter Bar (>= 1024px) */}
-      <div className="hidden lg:flex items-center gap-2.5 p-3 rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs">
-        {/* Search Input (flex-1 expands) */}
-        <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border bg-slate-50 dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 focus-within:border-indigo-500 dark:focus-within:border-indigo-500 transition-colors">
+      <div className="hidden lg:flex flex-wrap items-center gap-2 p-3 rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs w-full min-w-0">
+        {/* Search Input (flex-1 expands, shrinks gracefully to min 180px) */}
+        <div className="flex-1 min-w-[180px] flex items-center gap-2 px-3 py-2 rounded-xl border bg-slate-50 dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 focus-within:border-indigo-500 dark:focus-within:border-indigo-500 transition-colors">
           <Search className="size-4 text-slate-400 shrink-0" />
           <input
             type="text"
@@ -1761,17 +1794,33 @@ export const CuttingListPage: React.FC = () => {
           )}
         </div>
 
-        {/* Date Range Picker */}
-        <div className="w-56 shrink-0">
-          <DateRangePicker
-            date={dateRange}
-            onDateChange={handleDateRangeChange}
-            placeholder="Production date..."
-          />
+        {/* Date Range Picker + Dedicated Today Quick-Filter */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <div className="w-44 shrink-0">
+            <DateRangePicker
+              date={dateRange}
+              onDateChange={handleDateRangeChange}
+              placeholder="Production date..."
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              handleDateRangeChange(isColomboTodayRange(dateRange) ? undefined : getColomboTodayDateRange());
+            }}
+            className={`h-9 px-3 rounded-xl text-xs font-semibold border transition-all shrink-0 whitespace-nowrap cursor-pointer ${
+              isColomboTodayRange(dateRange)
+                ? 'bg-amber-600 border-amber-600 text-white shadow-xs'
+                : 'bg-slate-50 dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800'
+            }`}
+            title="Filter strictly to today's Cutting activity (+05:30)"
+          >
+            Today
+          </button>
         </div>
 
         {/* Product Combobox */}
-        <div className="w-48 shrink-0">
+        <div className="w-40 min-w-0 shrink-0">
           <SearchableSelect
             options={productFilterOptions}
             value={selectedProductFilter}
@@ -1786,7 +1835,7 @@ export const CuttingListPage: React.FC = () => {
         </div>
 
         {/* Batch Status */}
-        <div className="w-40 shrink-0">
+        <div className="w-36 min-w-0 shrink-0">
           <SearchableSelect
             options={BATCH_STATUS_OPTIONS}
             value={batchStatus}
@@ -1801,7 +1850,7 @@ export const CuttingListPage: React.FC = () => {
         </div>
 
         {/* Sort Order */}
-        <div className="w-48 shrink-0">
+        <div className="w-36 lg:w-40 min-w-0 shrink-0">
           <SearchableSelect
             options={PRODUCTION_SORT_OPTIONS}
             value={sortBy}
@@ -1825,6 +1874,15 @@ export const CuttingListPage: React.FC = () => {
             <X className="size-4" />
           </button>
         )}
+
+        {/* Dual-Mode View Toggle (Active Only vs All Incl. Completed) */}
+        <StageViewToggle
+          value={viewMode}
+          onChange={(mode) => {
+            setViewMode(mode);
+            setCurrentPage(1);
+          }}
+        />
       </div>
 
       {/* ── Production Ledger Table ── */}
@@ -1886,7 +1944,7 @@ export const CuttingListPage: React.FC = () => {
                       Yards / Pc
                     </TableHead>
                     <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-center w-36">
-                      Total Allocated Yards
+                      Total Allocated (Yard)
                     </TableHead>
                     <TableHead className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-zinc-400 text-center w-24">
                       Status
@@ -2216,7 +2274,7 @@ export const CuttingListPage: React.FC = () => {
                             <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">{m.yardsPerPiece > 0 ? `${formatQty(m.yardsPerPiece)} ${m.unit}` : '—'}</span>
                           </div>
                           <div>
-                            <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-sans font-bold">Allocated Yards</span>
+                            <span className="text-[9px] uppercase tracking-wider text-slate-400 block font-sans font-bold">Allocated (Yard)</span>
                             <span className="text-xs font-bold text-amber-700 dark:text-amber-400">{formatQty(m.totalAllocatedYards)} {m.unit}</span>
                           </div>
                         </div>

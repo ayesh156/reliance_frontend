@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { useUrlFilterSync } from '../hooks/useUrlFilterSync';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
@@ -109,19 +111,37 @@ interface CustomerItem {
 }
 
 export const CustomersPage: React.FC = () => {
+  const [searchParams] = useSearchParams();
   const { resolvedTheme } = useTheme();
   const { isAdmin, isRep } = useAuth();
   const dark = resolvedTheme === 'dark';
 
   const [customers, setCustomers] = useState<CustomerItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedType, setSelectedType] = useState<'ALL' | 'RETAIL' | 'WHOLESALE'>('ALL');
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '');
+  const [selectedType, setSelectedType] = useState<'ALL' | 'RETAIL' | 'WHOLESALE'>(() => {
+    const t = searchParams.get('type');
+    return (t === 'RETAIL' || t === 'WHOLESALE') ? t : 'ALL';
+  });
   // Secondary filter for tracking active debtors vs debt-free accounts
-  const [debtFilter, setDebtFilter] = useState<'ALL' | 'HAS_DEBT' | 'CLEAR'>('ALL');
+  const [debtFilter, setDebtFilter] = useState<'ALL' | 'HAS_DEBT' | 'CLEAR'>(() => {
+    const d = searchParams.get('debt');
+    return (d === 'HAS_DEBT' || d === 'CLEAR') ? d : 'ALL';
+  });
   // Sorting preference state
-  const [sortBy, setSortBy] = useState<'NEWEST' | 'DEBT_DESC' | 'NAME_ASC'>('NEWEST');
+  const [sortBy, setSortBy] = useState<'NEWEST' | 'DEBT_DESC' | 'NAME_ASC'>(() => {
+    const s = searchParams.get('sort');
+    return (s === 'DEBT_DESC' || s === 'NAME_ASC') ? s : 'NEWEST';
+  });
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState<boolean>(false);
+
+  // Sync active Customers filters to URL query parameters for browser refresh persistence
+  useUrlFilterSync({
+    search: searchQuery.trim() || undefined,
+    type: selectedType !== 'ALL' ? selectedType : undefined,
+    debt: debtFilter !== 'ALL' ? debtFilter : undefined,
+    sort: sortBy !== 'NEWEST' ? sortBy : undefined,
+  });
 
   /**
    * Count of active non-default secondary filters for badge indicator
@@ -614,9 +634,10 @@ export const CustomersPage: React.FC = () => {
       </div>
 
       {/* ── Desktop View (≥ 1024px): Inline Executive Filter Matrix ── */}
-      <div className="hidden lg:flex items-center gap-2.5 bg-white dark:bg-zinc-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800">
+      {/* flex-wrap + min-w-0 prevents horizontal overflow on 1024px–1440px viewports */}
+      <div className="hidden lg:flex flex-wrap items-center gap-2 bg-white dark:bg-zinc-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 min-w-0">
         {/* Search Bar */}
-        <div className="relative flex-1 min-w-[240px]">
+        <div className="relative flex-1 min-w-[180px]">
           <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
           <Input
             value={searchQuery}
@@ -636,7 +657,7 @@ export const CustomersPage: React.FC = () => {
         </div>
 
         {/* Account Type Selector */}
-        <div className="w-44 xl:w-48 shrink-0">
+        <div className="w-40 xl:w-44 shrink-0 min-w-0">
           <SearchableSelect
             options={ACCOUNT_TYPE_OPTIONS}
             value={selectedType}
@@ -648,7 +669,7 @@ export const CustomersPage: React.FC = () => {
         </div>
 
         {/* Balance Status Selector */}
-        <div className="w-48 xl:w-52 shrink-0">
+        <div className="w-40 xl:w-44 shrink-0 min-w-0">
           <SearchableSelect
             options={BALANCE_STATUS_OPTIONS}
             value={debtFilter}
@@ -660,7 +681,7 @@ export const CustomersPage: React.FC = () => {
         </div>
 
         {/* Sort Selector & Clear All Shortcut */}
-        <div className="w-48 xl:w-52 shrink-0 flex items-center gap-1.5">
+        <div className="w-40 xl:w-44 shrink-0 flex items-center gap-1.5 min-w-0">
           <div className="flex-1 min-w-0">
             <SearchableSelect
               options={CUSTOMER_SORT_OPTIONS}

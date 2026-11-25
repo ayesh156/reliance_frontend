@@ -1,5 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  useUrlFilterSync,
+  getInitialDateRangeFromUrl,
+  formatDateForUrl,
+  getColomboTodayDateRange,
+  isColomboTodayRange,
+} from '../hooks/useUrlFilterSync';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
@@ -25,6 +32,7 @@ import { get, post, del } from '../lib/api';
 import { getProductImageUrl, getCurrentLocalDateTime } from '../lib/utils';
 import { toast } from 'react-toastify';
 import { BatchStatusBadge } from '../components/production/BatchStatusBadge';
+import { StageViewToggle, type StageViewMode } from '../components/production/StageViewToggle';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -195,9 +203,10 @@ export const WashPage: React.FC = () => {
   const { user } = useAuth();
   const isDark = resolvedTheme === 'dark';
 
+  const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [batches, setBatches] = useState<WashBatchItem[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '');
 
   // Selected batch for logging wash output
   const [selectedBatch, setSelectedBatch] = useState<WashBatchItem | null>(null);
@@ -236,10 +245,23 @@ export const WashPage: React.FC = () => {
 
   const [rawMaterialsList, setRawMaterialsList] = useState<any[]>([]);
   const [productsList, setProductsList] = useState<any[]>([]);
-  const [selectedProductFilter, setSelectedProductFilter] = useState('all');
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
-  const [sortBy, setSortBy] = useState('newest');
+  const [selectedProductFilter, setSelectedProductFilter] = useState(() => searchParams.get('productId') || 'all');
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(() => getInitialDateRangeFromUrl(searchParams));
+  const [sortBy, setSortBy] = useState(() => searchParams.get('sort') || 'newest');
+  const [viewMode, setViewMode] = useState<StageViewMode>(() =>
+    searchParams.get('viewMode') === 'all' ? 'all' : 'active'
+  );
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+
+  // Sync active Washing filters to URL query parameters for browser refresh persistence
+  useUrlFilterSync({
+    search: searchQuery.trim() || undefined,
+    startDate: formatDateForUrl(dateRange?.from),
+    endDate: formatDateForUrl(dateRange?.to),
+    productId: selectedProductFilter !== 'all' ? selectedProductFilter : undefined,
+    viewMode: viewMode === 'all' ? 'all' : undefined,
+    sort: sortBy !== 'newest' ? sortBy : undefined,
+  });
 
   // Product Options
   const productFilterOptions: SearchableSelectOption[] = useMemo(() => [
@@ -256,11 +278,11 @@ export const WashPage: React.FC = () => {
     { value: 'highest_qty', label: 'Highest Wash Quantity' },
   ], []);
 
-  // Fetch all batches currently in 'WASHING' status
+  // Fetch all batches that have entered the Wash stage (supports Active Only & All Incl. Completed)
   const fetchWashBatches = useCallback(async () => {
     setLoading(true);
     try {
-      const res: any = await get('/production?status=WASHING&limit=100');
+      const res: any = await get('/production?stage=washing&limit=500');
       const data = res?.data || res;
       const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
       setBatches(items);
@@ -341,14 +363,27 @@ export const WashPage: React.FC = () => {
         : new Date(dateRange.from).setHours(23, 59, 59, 999);
 
       list = list.filter((b: any) => {
-        // Strictly evaluate stage-specific event logs or production date, eradicating root createdAt pollution
-        const hasLogInRange = (b.activityLogs || []).some((log: any) => {
+        // Strictly evaluate Washing-stage event logs within [fromTime, toTime]
+        const hasWashLogInRange = (b.activityLogs || []).some((log: any) => {
+          const act = String(log.action || '').toUpperCase();
+          const stg = String(log.stage || '').toUpperCase();
+          const isWashEvent = stg === 'WASHING' || act.includes('WASH');
+          if (!isWashEvent) return false;
           const t = new Date(log.timestamp).getTime();
           return t >= fromTime && t <= toTime;
         });
-        if (hasLogInRange) return true;
-        const pDate = new Date(b.productionDate).getTime();
-        return !isNaN(pDate) && pDate >= fromTime && pDate <= toTime;
+        return hasWashLogInRange;
+      });
+    }
+
+    // Dual-Mode View Filter (Active Only vs All Incl. Completed)
+    if (viewMode === 'active') {
+      list = list.filter((b: any) => {
+        const st = String(b.status || '').toUpperCase();
+        if (st === 'COMPLETED' || b.isStockSynced) return false;
+        const sent = Number(b.sentToWashQty || 0);
+        const washed = Number(b.washedQty || 0);
+        return st === 'WASHING' || sent > washed;
       });
     }
 
@@ -374,7 +409,7 @@ export const WashPage: React.FC = () => {
     }
 
     return list;
-  }, [batches, searchQuery, selectedProductFilter, dateRange, sortBy]);
+  }, [batches, searchQuery, selectedProductFilter, dateRange, sortBy, viewMode]);
 
   const totalPages = Math.ceil(filteredBatches.length / pageSize) || 1;
   const paginatedBatches = useMemo(() => {
@@ -746,8 +781,8 @@ export const WashPage: React.FC = () => {
       </div>
 
       {/* 2. Desktop Inline Filter Bar (>= 1024px) */}
-      <div className="hidden lg:flex items-center gap-2.5 p-3 rounded-2xl border bg-white dark:bg-zinc-950 border-slate-200/80 dark:border-zinc-800 shadow-xs">
-        <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border bg-slate-50 dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 focus-within:border-cyan-500">
+      <div className="hidden lg:flex flex-wrap items-center gap-2 p-3 rounded-2xl border bg-white dark:bg-zinc-950 border-slate-200/80 dark:border-zinc-800 shadow-xs w-full min-w-0">
+        <div className="flex-1 min-w-[180px] flex items-center gap-2 px-3 py-2 rounded-xl border bg-slate-50 dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 focus-within:border-cyan-500">
           <Search className="size-4 text-slate-400 shrink-0" />
           <input
             type="text"
@@ -773,18 +808,35 @@ export const WashPage: React.FC = () => {
           )}
         </div>
 
-        <div className="w-56 shrink-0">
-          <DateRangePicker
-            date={dateRange}
-            onDateChange={(range) => {
-              setDateRange(range);
+        <div className="flex items-center gap-1.5 shrink-0">
+          <div className="w-44 shrink-0">
+            <DateRangePicker
+              date={dateRange}
+              onDateChange={(range) => {
+                setDateRange(range);
+                setCurrentPage(1);
+              }}
+              placeholder="Filter date..."
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setDateRange(isColomboTodayRange(dateRange) ? undefined : getColomboTodayDateRange());
               setCurrentPage(1);
             }}
-            placeholder="Filter date..."
-          />
+            className={`h-9 px-3 rounded-xl text-xs font-semibold border transition-all shrink-0 whitespace-nowrap cursor-pointer ${
+              isColomboTodayRange(dateRange)
+                ? 'bg-cyan-600 border-cyan-600 text-white shadow-xs'
+                : 'bg-slate-50 dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800'
+            }`}
+            title="Filter strictly to today's Washing activity (+05:30)"
+          >
+            Today
+          </button>
         </div>
 
-        <div className="w-48 shrink-0">
+        <div className="w-40 min-w-0 shrink-0">
           <SearchableSelect
             options={productFilterOptions}
             value={selectedProductFilter}
@@ -798,7 +850,7 @@ export const WashPage: React.FC = () => {
           />
         </div>
 
-        <div className="w-44 shrink-0">
+        <div className="w-36 lg:w-40 min-w-0 shrink-0">
           <SearchableSelect
             options={sortOptions}
             value={sortBy}
@@ -822,6 +874,15 @@ export const WashPage: React.FC = () => {
             <span>Reset</span>
           </button>
         )}
+
+        {/* Dual-Mode View Toggle (Active Only vs All Incl. Completed) */}
+        <StageViewToggle
+          value={viewMode}
+          onChange={(mode) => {
+            setViewMode(mode);
+            setCurrentPage(1);
+          }}
+        />
       </div>
 
       {/* ── Main Content: Desktop Table & Mobile Cards ── */}

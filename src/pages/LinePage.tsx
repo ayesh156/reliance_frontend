@@ -1,5 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  useUrlFilterSync,
+  getInitialDateRangeFromUrl,
+  formatDateForUrl,
+  getColomboTodayDateRange,
+  isColomboTodayRange,
+} from '../hooks/useUrlFilterSync';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
@@ -17,6 +24,7 @@ import { get, del } from '../lib/api';
 import { getProductImageUrl, formatQty } from '../lib/utils';
 import { toast } from 'react-toastify';
 import { BatchStatusBadge } from '../components/production/BatchStatusBadge';
+import { StageViewToggle, type StageViewMode } from '../components/production/StageViewToggle';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -323,18 +331,33 @@ export const getPeriodLogSum = (
 
 export const LinePage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { resolvedTheme } = useTheme();
   const { user } = useAuth();
   const isDark = resolvedTheme === 'dark';
 
   const [loading, setLoading] = useState(true);
   const [batches, setBatches] = useState<LineBatchItem[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedProductFilter, setSelectedProductFilter] = useState('all');
-  const [selectedActivity, setSelectedActivity] = useState('all');
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
-  const [sortBy, setSortBy] = useState('newest');
+  const [searchQuery, setSearchQuery] = useState(() => searchParams.get('search') || '');
+  const [selectedProductFilter, setSelectedProductFilter] = useState(() => searchParams.get('productId') || 'all');
+  const [selectedActivity, setSelectedActivity] = useState(() => searchParams.get('activity') || 'all');
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(() => getInitialDateRangeFromUrl(searchParams));
+  const [sortBy, setSortBy] = useState(() => searchParams.get('sort') || 'newest');
+  const [viewMode, setViewMode] = useState<StageViewMode>(() =>
+    searchParams.get('viewMode') === 'active' ? 'active' : 'all'
+  );
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+
+  // Sync active Sewing Line filters to URL query parameters for browser refresh persistence
+  useUrlFilterSync({
+    search: searchQuery.trim() || undefined,
+    activity: selectedActivity !== 'all' ? selectedActivity : undefined,
+    startDate: formatDateForUrl(dateRange?.from),
+    endDate: formatDateForUrl(dateRange?.to),
+    productId: selectedProductFilter !== 'all' ? selectedProductFilter : undefined,
+    viewMode: viewMode === 'active' ? 'active' : undefined,
+    sort: sortBy !== 'newest' ? sortBy : undefined,
+  });
 
   // Selected batch for Send to Wash Modal
   const [selectedBatchForWash, setSelectedBatchForWash] = useState<LineBatchItem | null>(null);
@@ -713,6 +736,18 @@ export const LinePage: React.FC = () => {
       }
     }
 
+    // Dual-Mode View Filter (Active Only vs All Incl. Completed)
+    if (viewMode === 'active') {
+      list = list.filter((b: any) => {
+        const st = String(b.status || '').toUpperCase();
+        if (st === 'COMPLETED' || b.isStockSynced) return false;
+        const intake = getBatchLineIntakeQty(b, productsList);
+        const wash = getBatchWashQty(b, productsList);
+        const sewn = getBatchSewnQty(b, productsList);
+        return st === 'LINE' || intake > wash || intake > sewn;
+      });
+    }
+
     switch (sortBy) {
       case 'oldest':
         list.sort((a, b) => {
@@ -749,6 +784,7 @@ export const LinePage: React.FC = () => {
     productsList,
     isLogWithinRange,
     getLogQty,
+    viewMode,
   ]);
 
   /**
@@ -818,8 +854,8 @@ export const LinePage: React.FC = () => {
 
     return {
       totalBatches,
-      displayLineIntake: isIntakeActive ? periodLineIntake : totalLineIntake,
-      displayForwardedToWash: isWashActive ? periodForwardedToWash : totalForwardedToWash,
+      displayLineIntake: (isIntakeActive || isTodayOnly) ? periodLineIntake : totalLineIntake,
+      displayForwardedToWash: (isWashActive || isTodayOnly) ? periodForwardedToWash : totalForwardedToWash,
       displaySewnQty: sewnCardValue,
       sewnCardTitle,
       sewnCardSubtitle,
@@ -1191,8 +1227,8 @@ export const LinePage: React.FC = () => {
       </div>
 
       {/* 2. Desktop Inline Filter Bar (>= 1024px) */}
-      <div className="hidden lg:flex items-center gap-2.5 p-3 rounded-2xl border bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 shadow-xs">
-        <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border bg-slate-50 dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 focus-within:border-indigo-500">
+      <div className="hidden lg:flex flex-wrap items-center gap-2 p-3 rounded-2xl border bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 shadow-xs w-full min-w-0">
+        <div className="flex-1 min-w-[180px] flex items-center gap-2 px-3 py-2 rounded-xl border bg-slate-50 dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 focus-within:border-indigo-500">
           <Search className="size-4 text-slate-400 shrink-0" />
           <input
             type="text"
@@ -1218,7 +1254,7 @@ export const LinePage: React.FC = () => {
           )}
         </div>
 
-        <div className="w-52 shrink-0">
+        <div className="w-36 lg:w-40 min-w-0 shrink-0">
           <SearchableSelect
             options={activityOptions}
             value={selectedActivity}
@@ -1232,18 +1268,35 @@ export const LinePage: React.FC = () => {
           />
         </div>
 
-        <div className="w-56 shrink-0">
-          <DateRangePicker
-            date={dateRange}
-            onDateChange={(range) => {
-              setDateRange(range);
+        <div className="flex items-center gap-1.5 shrink-0">
+          <div className="w-44 shrink-0">
+            <DateRangePicker
+              date={dateRange}
+              onDateChange={(range) => {
+                setDateRange(range);
+                setCurrentPage(1);
+              }}
+              placeholder="Filter date..."
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setDateRange(isColomboTodayRange(dateRange) ? undefined : getColomboTodayDateRange());
               setCurrentPage(1);
             }}
-            placeholder="Filter date..."
-          />
+            className={`h-9 px-3 rounded-xl text-xs font-semibold border transition-all shrink-0 whitespace-nowrap cursor-pointer ${
+              isColomboTodayRange(dateRange)
+                ? 'bg-indigo-600 border-indigo-600 text-white shadow-xs'
+                : 'bg-slate-50 dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800'
+            }`}
+            title="Filter strictly to today's Sewing Line activity (+05:30)"
+          >
+            Today
+          </button>
         </div>
 
-        <div className="w-48 shrink-0">
+        <div className="w-40 min-w-0 shrink-0">
           <SearchableSelect
             options={productFilterOptions}
             value={selectedProductFilter}
@@ -1257,7 +1310,7 @@ export const LinePage: React.FC = () => {
           />
         </div>
 
-        <div className="w-44 shrink-0">
+        <div className="w-36 lg:w-40 min-w-0 shrink-0">
           <SearchableSelect
             options={sortOptions}
             value={sortBy}
@@ -1281,6 +1334,15 @@ export const LinePage: React.FC = () => {
             <span>Reset</span>
           </button>
         )}
+
+        {/* Dual-Mode View Toggle (Active Only vs All Incl. Completed) */}
+        <StageViewToggle
+          value={viewMode}
+          onChange={(mode) => {
+            setViewMode(mode);
+            setCurrentPage(1);
+          }}
+        />
       </div>
 
       {/* ── Content View (Desktop Table & Mobile Cards) ── */}

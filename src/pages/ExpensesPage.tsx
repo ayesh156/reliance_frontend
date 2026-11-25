@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { useUrlFilterSync } from '../hooks/useUrlFilterSync';
 import { format } from 'date-fns';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -160,14 +162,25 @@ export const ExpensesPage: React.FC = () => {
     setDate(`${yyyy}-${mm}-${dd}`);
   };
 
-  // Table filters & Search
-  const [search, setSearch] = useState<string>('');
-  const [filterCategory, setFilterCategory] = useState<string>('all');
-  const [filterSubCategory, setFilterSubCategory] = useState<string>('all');
-  const [filterStartDate, setFilterStartDate] = useState<string>('');
-  const [filterEndDate, setFilterEndDate] = useState<string>('');
+  const [searchParams] = useSearchParams();
+
+  // Table filters & Search (hydrated from URL query params)
+  const [search, setSearch] = useState<string>(() => searchParams.get('search') || '');
+  const [filterCategory, setFilterCategory] = useState<string>(() => searchParams.get('categoryId') || 'all');
+  const [filterSubCategory, setFilterSubCategory] = useState<string>(() => searchParams.get('subCategoryId') || 'all');
+  const [filterStartDate, setFilterStartDate] = useState<string>(() => searchParams.get('startDate') || '');
+  const [filterEndDate, setFilterEndDate] = useState<string>(() => searchParams.get('endDate') || '');
   const [currentPage, setCurrentPage] = useState<number>(1);
   const PAGE_SIZE = 15;
+
+  // Sync active Expenses filters to URL query parameters for browser refresh persistence
+  useUrlFilterSync({
+    search: search.trim() || undefined,
+    categoryId: filterCategory !== 'all' ? filterCategory : undefined,
+    subCategoryId: filterSubCategory !== 'all' ? filterSubCategory : undefined,
+    startDate: filterStartDate || undefined,
+    endDate: filterEndDate || undefined,
+  });
 
   // UX Integrity: Reset pagination to page 1 whenever any filter or search changes
   useEffect(() => {
@@ -840,8 +853,8 @@ export const ExpensesPage: React.FC = () => {
 
         {/* Right Ledger Table: Filterable Expense List */}
         <div className="lg:col-span-8 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden shadow-xs">
-          {/* Table Toolbar */}
-          <div className="p-3.5 sm:p-4 border-b border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
+          {/* Table Toolbar — flex-wrap + min-w-0 ensures filters never overflow the 8-col ledger card */}
+          <div className="p-3.5 sm:p-4 border-b border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 flex flex-col sm:flex-row sm:flex-wrap gap-2.5 items-stretch sm:items-center justify-between min-w-0">
             {/* Search Input */}
             <div className="relative flex-1 min-w-[180px]">
               <Search className="size-3.5 text-slate-400 absolute left-2.5 top-3 pointer-events-none" />
@@ -864,9 +877,9 @@ export const ExpensesPage: React.FC = () => {
             </div>
 
             {/* Cascading Category Filters & Compact Inline Refresh Container */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+            <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 w-full sm:w-auto min-w-0">
               {/* Primary Category Filter */}
-              <div className="w-full sm:w-40">
+              <div className="w-full sm:w-36 lg:w-40 min-w-0">
                 <SearchableSelect
                   value={filterCategory}
                   onChange={(val) => {
@@ -886,7 +899,7 @@ export const ExpensesPage: React.FC = () => {
               </div>
 
               {/* Sub-Category Filter */}
-              <div className="w-full sm:w-40">
+              <div className="w-full sm:w-36 lg:w-40 min-w-0">
                 <SearchableSelect
                   value={filterSubCategory}
                   onChange={(val) => {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useUrlFilterSync, getInitialDateRangeFromUrl, formatDateForUrl } from '../hooks/useUrlFilterSync';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
@@ -214,12 +215,22 @@ export const BuyRawMaterialsPage: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>(() => searchParams.get('search') || '');
 
-  // Filter States matching unified standard
-  const [selectedSupplierId, setSelectedSupplierId] = useState<string>('all');
-  const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>('ALL');
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
-  const [sortBy, setSortBy] = useState<string>('newest');
+  // Filter States matching unified standard (hydrated from URL query params)
+  const [selectedSupplierId, setSelectedSupplierId] = useState<string>(() => searchParams.get('supplierId') || 'all');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>(() => searchParams.get('status') || 'ALL');
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(() => getInitialDateRangeFromUrl(searchParams));
+  const [sortBy, setSortBy] = useState<string>(() => searchParams.get('sort') || 'newest');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState<boolean>(false);
+
+  // Sync active Purchase filters to URL query parameters for browser refresh persistence
+  useUrlFilterSync({
+    search: searchQuery.trim() || undefined,
+    supplierId: selectedSupplierId !== 'all' ? selectedSupplierId : undefined,
+    status: paymentStatusFilter !== 'ALL' ? paymentStatusFilter : undefined,
+    startDate: formatDateForUrl(dateRange?.from),
+    endDate: formatDateForUrl(dateRange?.to),
+    sort: sortBy !== 'newest' ? sortBy : undefined,
+  });
 
   // Supplier options for SearchableSelect
   const supplierOptions: SearchableSelectOption[] = useMemo(() => [
@@ -876,9 +887,10 @@ export const BuyRawMaterialsPage: React.FC = () => {
       </div>
 
       {/* ── Desktop View (≥ 1024px): Inline Executive Filter Matrix ── */}
-      <div className="hidden lg:flex items-center gap-2.5 bg-white dark:bg-zinc-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800">
+      {/* flex-wrap + min-w-0 prevents horizontal overflow on 1024px–1440px viewports */}
+      <div className="hidden lg:flex flex-wrap items-center gap-2 bg-white dark:bg-zinc-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 min-w-0">
         {/* Search Bar */}
-        <div className="relative flex-1 min-w-[200px]">
+        <div className="relative flex-1 min-w-[180px]">
           <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
           <Input
             value={searchQuery}
@@ -898,7 +910,7 @@ export const BuyRawMaterialsPage: React.FC = () => {
         </div>
 
         {/* Supplier Shop Selector */}
-        <div className="w-44 xl:w-48 shrink-0">
+        <div className="w-40 xl:w-44 shrink-0 min-w-0">
           <SearchableSelect
             options={supplierOptions}
             value={selectedSupplierId}
@@ -910,7 +922,7 @@ export const BuyRawMaterialsPage: React.FC = () => {
         </div>
 
         {/* Payment Status Selector */}
-        <div className="w-36 xl:w-40 shrink-0">
+        <div className="w-36 xl:w-40 shrink-0 min-w-0">
           <SearchableSelect
             options={PURCHASE_PAYMENT_STATUS_OPTIONS}
             value={paymentStatusFilter}
@@ -932,7 +944,7 @@ export const BuyRawMaterialsPage: React.FC = () => {
         </div>
 
         {/* Sort Selector & Clear All Shortcut */}
-        <div className="w-40 xl:w-44 shrink-0 flex items-center gap-1.5">
+        <div className="w-36 xl:w-40 shrink-0 flex items-center gap-1.5 min-w-0">
           <div className="flex-1 min-w-0">
             <SearchableSelect
               options={PURCHASE_SORT_OPTIONS}

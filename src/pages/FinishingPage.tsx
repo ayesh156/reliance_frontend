@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { useUrlFilterSync, getInitialDateRangeFromUrl, formatDateForUrl } from '../hooks/useUrlFilterSync';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import {
@@ -28,6 +30,7 @@ import {
 } from '../components/ui/dropdown-menu';
 import { SearchableSelect, type SearchableSelectOption } from '../components/ui/searchable-select';
 import { DateRangePicker, type DateRange } from '../components/ui/date-range-picker';
+import { StageViewToggle, type StageViewMode } from '../components/production/StageViewToggle';
 import { FinishingModal, type FinishingProductItem } from '../components/production/FinishingModal';
 import { get, del } from '../lib/api';
 import { getProductImageUrl } from '../lib/utils';
@@ -104,13 +107,30 @@ export const FinishingPage: React.FC = () => {
   const [logToDelete, setLogToDelete] = useState<FinishingLogItem | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
-  // Filter States
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [actionFilter, setActionFilter] = useState<string>('ALL');
-  const [selectedProductFilter, setSelectedProductFilter] = useState<string>('ALL');
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
-  const [activeDatePreset, setActiveDatePreset] = useState<'all' | 'today' | 'yesterday' | 'week' | 'month' | 'custom'>('all');
+  const [searchParams] = useSearchParams();
+
+  // Filter States (hydrated from URL query params)
+  const [searchQuery, setSearchQuery] = useState<string>(() => searchParams.get('search') || '');
+  const [actionFilter, setActionFilter] = useState<string>(() => searchParams.get('action') || 'ALL');
+  const [selectedProductFilter, setSelectedProductFilter] = useState<string>(() => searchParams.get('productId') || 'ALL');
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(() => getInitialDateRangeFromUrl(searchParams));
+  const [activeDatePreset, setActiveDatePreset] = useState<'all' | 'today' | 'yesterday' | 'week' | 'month' | 'custom'>(() =>
+    searchParams.get('startDate') ? 'custom' : 'all'
+  );
+  const [viewMode, setViewMode] = useState<StageViewMode>(() =>
+    searchParams.get('viewMode') === 'active' ? 'active' : 'all'
+  );
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState<boolean>(false);
+
+  // Sync active Finishing filters to URL query parameters for browser refresh persistence
+  useUrlFilterSync({
+    search: searchQuery.trim() || undefined,
+    action: actionFilter !== 'ALL' ? actionFilter : undefined,
+    productId: selectedProductFilter !== 'ALL' ? selectedProductFilter : undefined,
+    startDate: formatDateForUrl(dateRange?.from),
+    endDate: formatDateForUrl(dateRange?.to),
+    viewMode: viewMode === 'active' ? 'active' : undefined,
+  });
 
   // Fetch Master Products List
   const fetchProducts = useCallback(async () => {
@@ -273,8 +293,13 @@ export const FinishingPage: React.FC = () => {
       });
     }
 
+    // 1b. View Mode Filter (Active Only = pending IRON items vs All Incl. Completed = IRON & PACK)
+    if (viewMode === 'active') {
+      list = list.filter((item) => item.actionType === 'IRON');
+    }
+
     return list;
-  }, [logs, actionFilter, selectedProductFilter, searchQuery, dateRange]);
+  }, [logs, actionFilter, selectedProductFilter, searchQuery, dateRange, viewMode]);
 
   // Totals for filtered list
   const filteredTotals = useMemo(() => {
@@ -303,7 +328,7 @@ export const FinishingPage: React.FC = () => {
   // UX Integrity: Reset pagination to page 1 whenever any filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, actionFilter, selectedProductFilter, dateRange]);
+  }, [searchQuery, actionFilter, selectedProductFilter, dateRange, viewMode]);
 
   // Modal Action Handlers
   const handleOpenAddIroned = () => {
@@ -510,9 +535,9 @@ export const FinishingPage: React.FC = () => {
       {/* ── Advanced Filter Section (Cutting & Wash Pattern) ── */}
       <div className="rounded-2xl border bg-white dark:bg-zinc-900/60 border-slate-200/80 dark:border-zinc-800 p-4 shadow-xs space-y-3.5">
         {/* Top Filter Bar: Search + Action Type Selector + Mobile Toggle */}
-        <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
+        <div className="flex flex-col lg:flex-row lg:flex-wrap items-stretch lg:items-center gap-2.5 w-full min-w-0">
           {/* Search Input */}
-          <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-xl border bg-slate-50 dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 focus-within:border-indigo-500 dark:focus-within:border-indigo-500 transition-colors">
+          <div className="flex-1 min-w-[180px] flex items-center gap-2 px-3 py-2 rounded-xl border bg-slate-50 dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 focus-within:border-indigo-500 dark:focus-within:border-indigo-500 transition-colors">
             <Search className="size-4 text-slate-400 shrink-0" />
             <input
               type="text"
@@ -533,7 +558,7 @@ export const FinishingPage: React.FC = () => {
           </div>
 
           {/* Action Type Dropdown (Essential for Evening Shift Reports) */}
-          <div className="w-full sm:w-64 shrink-0">
+          <div className="w-full sm:w-44 lg:w-44 min-w-0 shrink-0">
             <SearchableSelect
               options={ACTION_TYPE_OPTIONS}
               value={actionFilter}
@@ -544,7 +569,7 @@ export const FinishingPage: React.FC = () => {
           </div>
 
           {/* Product Filter */}
-          <div className="hidden lg:block w-64 shrink-0">
+          <div className="hidden lg:block w-44 min-w-0 shrink-0">
             <SearchableSelect
               options={productFilterOptions}
               value={selectedProductFilter}
@@ -555,11 +580,23 @@ export const FinishingPage: React.FC = () => {
           </div>
 
           {/* Date Range Picker (Desktop Inline) */}
-          <div className="hidden lg:block w-56 shrink-0">
+          <div className="hidden lg:block w-48 shrink-0">
             <DateRangePicker
               date={dateRange}
               onDateChange={handleCustomDateRangeChange}
               placeholder="Filter date range..."
+            />
+          </div>
+
+          {/* Dual-Mode View Toggle (Active Only vs All Incl. Completed) */}
+          <div className="hidden lg:flex shrink-0">
+            <StageViewToggle
+              value={viewMode}
+              onChange={(mode) => {
+                setViewMode(mode);
+                setCurrentPage(1);
+              }}
+              className="shrink-0 whitespace-nowrap"
             />
           </div>
 

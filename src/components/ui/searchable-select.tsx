@@ -376,7 +376,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   return (
     <div
       ref={containerRef}
-      className={`relative w-full ${open ? "z-50" : "z-auto"}`}
+      className={`relative w-full min-w-0 max-w-full ${open ? "z-50" : "z-auto"}`}
     >
       {/* Inline Search Input pattern */}
       {!open ? (
@@ -392,7 +392,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             }
           }}
           className={cn(
-            "w-full flex items-center justify-between px-3 py-2 rounded-xl border text-xs transition-all",
+            "w-full min-w-0 overflow-hidden flex items-center justify-between px-2.5 py-2 rounded-xl border text-xs transition-all",
             isDark
               ? "bg-zinc-950 border-zinc-800 text-zinc-100 hover:border-zinc-700 focus:border-emerald-500/60"
               : "bg-white border-slate-200 text-slate-900 hover:border-slate-300 focus:border-emerald-500 shadow-2xs",
@@ -400,10 +400,11 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             className
           )}
         >
-          <span className="flex items-center gap-2 truncate">
+          <span className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
             {selectedOption?.icon}
             <span
-              className={
+              className={cn(
+                "truncate",
                 selectedOption
                   ? isDark
                     ? "text-zinc-100"
@@ -411,7 +412,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                   : isDark
                   ? "text-zinc-500"
                   : "text-slate-400"
-              }
+              )}
             >
               {selectedOption ? selectedOption.label : placeholder}
             </span>
@@ -429,7 +430,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             inputRef.current?.focus({ preventScroll: true });
           }}
           className={cn(
-            "w-full flex items-center gap-2 px-3 py-2 rounded-xl border text-xs transition-all cursor-text ring-2 ring-emerald-500/30",
+            "w-full min-w-0 overflow-hidden flex items-center gap-2 px-2.5 py-2 rounded-xl border text-xs transition-all cursor-text ring-2 ring-emerald-500/30",
             isDark
               ? "bg-zinc-950 border-emerald-500/60 text-zinc-100"
               : "bg-white border-emerald-500 text-slate-900 shadow-2xs",
@@ -522,7 +523,9 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                       ? { bottom: `${coords.bottom}px` }
                       : { top: `${coords.top}px` }),
                     left: `${coords.left}px`,
-                    width: `${coords.width}px`,
+                    minWidth: `${Math.max(200, coords.width)}px`,
+                    width: `${Math.max(200, coords.width)}px`,
+                    maxWidth: "280px",
                     maxHeight: `${coords.maxHeight}px`,
                     zIndex: 99999,
                   }

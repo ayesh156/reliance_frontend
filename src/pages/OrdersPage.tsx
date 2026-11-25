@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useUrlFilterSync, getInitialDateFromUrl, formatDateForUrl } from '../hooks/useUrlFilterSync';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { DateRangePicker } from '../components/ui/date-range-picker';
@@ -100,17 +101,33 @@ export const OrdersPage: React.FC = () => {
   const [customers, setCustomers] = useState<{ id: number; name: string; phone: string }[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Filter States matching InvoicesPage Standard
-  const [search, setSearch] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<string>('ALL');
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('all');
-  const [startDate, setStartDate] = useState<Date | undefined>(undefined);
-  const [endDate, setEndDate] = useState<Date | undefined>(undefined);
-  const [sortBy, setSortBy] = useState<string>('newest');
+  const [searchParams] = useSearchParams();
+
+  // Filter States matching InvoicesPage Standard (hydrated from URL query params)
+  const [search, setSearch] = useState<string>(() => searchParams.get('search') || '');
+  const [statusFilter, setStatusFilter] = useState<string>(() => searchParams.get('status') || 'ALL');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>(() => searchParams.get('customerId') || 'all');
+  const [startDate, setStartDate] = useState<Date | undefined>(() => getInitialDateFromUrl(searchParams, 'startDate'));
+  const [endDate, setEndDate] = useState<Date | undefined>(() => getInitialDateFromUrl(searchParams, 'endDate'));
+  const [sortBy, setSortBy] = useState<string>(() => searchParams.get('sort') || 'newest');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState<boolean>(false);
 
   // Pagination State
-  const [page, setPage] = useState<number>(1);
+  const [page, setPage] = useState<number>(() => {
+    const p = Number(searchParams.get('page'));
+    return Number.isFinite(p) && p > 1 ? p : 1;
+  });
+
+  // Sync active Orders filters to URL query parameters for browser refresh persistence
+  useUrlFilterSync({
+    search: search.trim() || undefined,
+    status: statusFilter !== 'ALL' ? statusFilter : undefined,
+    customerId: selectedCustomerId !== 'all' ? selectedCustomerId : undefined,
+    startDate: formatDateForUrl(startDate),
+    endDate: formatDateForUrl(endDate),
+    sort: sortBy !== 'newest' ? sortBy : undefined,
+    page: page > 1 ? page : undefined,
+  });
   const [pagination, setPagination] = useState<{
     page: number;
     limit: number;
@@ -730,9 +747,10 @@ export const OrdersPage: React.FC = () => {
       </div>
 
       {/* ── 4. Desktop View (≥ 1024px): Inline Executive Filter Matrix ── */}
-      <div className="hidden lg:flex items-center gap-2.5 bg-white dark:bg-zinc-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800">
+      {/* flex-wrap + min-w-0 prevents horizontal overflow on 1024px–1440px viewports */}
+      <div className="hidden lg:flex flex-wrap items-center gap-2 bg-white dark:bg-zinc-900/60 p-3.5 rounded-2xl border border-slate-200 dark:border-zinc-800 min-w-0">
         {/* Search Bar */}
-        <div className="relative flex-1 min-w-[240px]">
+        <div className="relative flex-1 min-w-[180px]">
           <Search className="absolute left-3 top-2.5 size-4 text-slate-400" />
           <Input
             value={search}
@@ -746,7 +764,7 @@ export const OrdersPage: React.FC = () => {
         </div>
 
         {/* Status Selector */}
-        <div className="w-36 xl:w-40 shrink-0">
+        <div className="w-36 xl:w-40 shrink-0 min-w-0">
           <SearchableSelect
             value={statusFilter}
             onValueChange={(val) => {
@@ -761,7 +779,7 @@ export const OrdersPage: React.FC = () => {
         </div>
 
         {/* Customer Select */}
-        <div className="w-44 xl:w-48 shrink-0">
+        <div className="w-40 xl:w-44 shrink-0 min-w-0">
           <SearchableSelect
             value={selectedCustomerId}
             onValueChange={(val) => {
@@ -790,7 +808,7 @@ export const OrdersPage: React.FC = () => {
         </div>
 
         {/* Sort Selector & Clear All Shortcut */}
-        <div className="w-40 xl:w-44 shrink-0 flex items-center gap-1.5">
+        <div className="w-36 xl:w-40 shrink-0 flex items-center gap-1.5 min-w-0">
           <div className="flex-1 min-w-0">
             <SearchableSelect
               value={sortBy}

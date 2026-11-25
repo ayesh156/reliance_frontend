@@ -25,7 +25,8 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { TooltipSimple } from '../ui/tooltip';
 import { formatQty, formatCurrency, getProductImageUrl } from '../../lib/utils';
-import { generateGarmentProductionPdf, matchProductionStage } from '../../utils/reportPdf';
+import { generateGarmentProductionPdf, matchProductionStage, getProductionStageConfig } from '../../utils/reportPdf';
+import { StageViewToggle, type StageViewMode } from '../production/StageViewToggle';
 
 export const PRODUCTION_STAGES = [
   'ALL STAGES',
@@ -80,6 +81,7 @@ export const GarmentProductionReport: React.FC<GarmentProductionReportProps> = (
   onStageFilterChange,
 }) => {
   const [selectedStage, setSelectedStage] = useState<string>(stageFilter || 'ALL STAGES');
+  const [viewMode, setViewMode] = useState<StageViewMode>('all');
 
   useEffect(() => {
     if (stageFilter) setSelectedStage(stageFilter);
@@ -97,11 +99,8 @@ export const GarmentProductionReport: React.FC<GarmentProductionReportProps> = (
   }, [filteredRows, reportData]);
 
   const rows = useMemo(() => {
-    if (!selectedStage || selectedStage === 'ALL STAGES' || selectedStage === 'ALL') {
-      return initialRows;
-    }
-    return initialRows.filter((r) => matchProductionStage(r, selectedStage));
-  }, [initialRows, selectedStage]);
+    return initialRows.filter((r) => matchProductionStage(r, selectedStage, viewMode));
+  }, [initialRows, selectedStage, viewMode]);
 
   const summary = reportData?.summary || {};
 
@@ -180,12 +179,6 @@ export const GarmentProductionReport: React.FC<GarmentProductionReportProps> = (
       return (!row.isStockSynced && isCompleted) ? sum + finished : sum;
     }, 0);
 
-    const targetQuantity = rows.reduce((sum, row) => sum + Number(row.targetQuantity || 0), 0);
-    const overallYieldDivisor = totalCutPieces > 0 ? totalCutPieces : targetQuantity;
-    const overallYieldPercentage = overallYieldDivisor > 0
-      ? Math.round((ironedAndPacked / overallYieldDivisor) * 10000) / 100
-      : (summary.overallYieldPercentage || 0);
-
     return {
       totalBatches,
       totalCutPieces,
@@ -195,9 +188,10 @@ export const GarmentProductionReport: React.FC<GarmentProductionReportProps> = (
       ironedAndPacked,
       fullyFinishedSynced,
       pendingStockSync,
-      overallYieldPercentage,
     };
   }, [rows, summary]);
+
+  const stageConfig = useMemo(() => getProductionStageConfig(selectedStage), [selectedStage]);
 
   // Chart data mapping for 6-Stage Production Funnel Trends
   // Groups accurately filtered stage logs (Cut, Sewn, Wash, Finish) by their execution dates
@@ -306,6 +300,7 @@ export const GarmentProductionReport: React.FC<GarmentProductionReportProps> = (
         dateRangeLabel,
         generatedBy,
         stageFilter: selectedStage,
+        viewMode,
       }
     );
   };
@@ -314,14 +309,14 @@ export const GarmentProductionReport: React.FC<GarmentProductionReportProps> = (
     <div className="space-y-6">
       {/* 6-Stage Production Funnel Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        {/* Stage 1: Total Cut Pieces */}
+        {/* Stage 1: Total Cut Qty (Yard) */}
         <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
           <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Total Cut Pieces</p>
+            <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Total Cut Qty (Yard)</p>
             <Scissors className="w-3.5 h-3.5 text-amber-500" />
           </div>
           <p className="text-lg md:text-xl font-bold mt-1 text-amber-600 dark:text-amber-400 font-mono">
-            {formatQty(kpis.totalCutPieces)} <span className="text-xs font-medium text-slate-500">Units</span>
+            {formatQty(kpis.totalCutPieces)} <span className="text-xs font-medium text-slate-500">Yards</span>
           </p>
           <p className="text-[11px] text-slate-400 mt-1">{kpis.totalBatches} Batches Started</p>
         </div>
@@ -371,7 +366,7 @@ export const GarmentProductionReport: React.FC<GarmentProductionReportProps> = (
           <p className="text-lg md:text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400 font-mono">
             {formatQty(kpis.ironedAndPacked)} <span className="text-xs font-medium text-slate-500">Pcs</span>
           </p>
-          <p className="text-[11px] text-slate-400 mt-1">Yield: {formatQty(kpis.overallYieldPercentage)}%</p>
+          <p className="text-[11px] text-slate-400 mt-1">Quality checked &amp; packed</p>
         </div>
 
         {/* Stage 6: Fully Finished / Synced */}
@@ -405,7 +400,7 @@ export const GarmentProductionReport: React.FC<GarmentProductionReportProps> = (
                 <YAxis stroke={dark ? '#71717a' : '#94a3b8'} fontSize={11} />
                 <RechartsTooltip />
                 <Legend wrapperStyle={{ fontSize: 11, paddingTop: 6 }} />
-                <Bar dataKey="cutQty" name="1. Cut Pieces" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="cutQty" name="1. Cut Qty (Yard)" fill="#f59e0b" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="sewnQty" name="2. Sewn Output" fill="#6366f1" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="washedQty" name="3. In Wash / Washed" fill="#06b6d4" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="finishedQty" name="4. Finished / Packed" fill="#10b981" radius={[4, 4, 0, 0]} />
@@ -419,8 +414,8 @@ export const GarmentProductionReport: React.FC<GarmentProductionReportProps> = (
       <div className={`rounded-2xl border overflow-hidden ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
         <div className="p-4 border-b border-slate-100 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h3 className="text-sm font-bold tracking-tight">Production Batches &amp; Stage Yield Audit</h3>
-            <p className="text-xs text-slate-400">Order-level intake, stage throughput, yield efficiency, and inventory sync status</p>
+            <h3 className="text-sm font-bold tracking-tight">Production Batches &amp; Stage Pipeline Audit</h3>
+            <p className="text-xs text-slate-400">Order-level intake, stage throughput, and inventory sync status ({stageConfig.stageLabel})</p>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="font-mono text-xs">
@@ -430,163 +425,156 @@ export const GarmentProductionReport: React.FC<GarmentProductionReportProps> = (
         </div>
 
         {/* Section-Wise Stage Filter Toolbar */}
-        <div className="px-4 py-2.5 border-b border-slate-100 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 shrink-0 mr-1">
-            Stage Filter:
-          </span>
-          {PRODUCTION_STAGES.map((stg) => {
-            const isSelected = selectedStage === stg;
-            return (
-              <button
-                key={stg}
-                type="button"
-                onClick={() => handleStageSelect(stg)}
-                className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-                  isSelected
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'bg-white dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-700'
-                }`}
-              >
-                {stg}
-              </button>
-            );
-          })}
+        <div className="px-4 py-2.5 border-b border-slate-100 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 shrink-0 mr-1">
+              Stage Filter:
+            </span>
+            {PRODUCTION_STAGES.map((stg) => {
+              const isSelected = selectedStage === stg;
+              return (
+                <button
+                  key={stg}
+                  type="button"
+                  onClick={() => handleStageSelect(stg)}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                    isSelected
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-white dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-700'
+                  }`}
+                >
+                  {stg}
+                </button>
+              );
+            })}
+          </div>
+          <StageViewToggle value={viewMode} onChange={setViewMode} />
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-left border-collapse">
             <thead>
               <tr className={`border-b text-[11px] font-bold uppercase tracking-wider ${dark ? 'border-zinc-800 text-zinc-400 bg-zinc-900/90' : 'border-slate-200 text-slate-500 bg-slate-50'}`}>
-                <th className="py-2.5 px-3">Batch No</th>
-                <th className="py-2.5 px-3 min-w-[160px]">Garment Style</th>
-                <th className="py-2.5 px-3">Size / Color</th>
-                <th className="py-2.5 px-3 text-center">Cut Units</th>
-                <th className="py-2.5 px-3 text-center">Finished</th>
-                <th className="py-2.5 px-3 text-center">WIP Units</th>
-                <th className="py-2.5 px-3 text-center">Yield %</th>
-                <th className="py-2.5 px-3 text-right">Material Cost</th>
-                <th className="py-2.5 px-3 text-right">Scrap Returned</th>
-                <th className="py-2.5 px-3 text-center">Status</th>
+                {stageConfig.columns.map((col) => (
+                  <th
+                    key={col.key}
+                    className={`py-2.5 px-3 whitespace-nowrap ${
+                      col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left'
+                    }`}
+                  >
+                    {col.header}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60 font-medium">
-              {rows.map((row: any) => {
-                const cut = Number(
-                  row.cutQty > 0
-                    ? row.cutQty
-                    : (row.totalCutUnits ?? (Array.isArray(row.cutLogs) && row.cutLogs.length > 0
-                      ? row.cutLogs.reduce((acc: number, c: any) => acc + (Number(c.quantityCut) || 0), 0)
-                      : (row.targetQuantity || 0)))
-                );
-
-                const loggedFinish = Array.isArray(row.finishLogs) && row.finishLogs.length > 0
-                  ? row.finishLogs.reduce((acc: number, f: any) => acc + (Number(f.quantityFinished) || 0), 0)
-                  : 0;
-                const finished = loggedFinish > 0
-                  ? loggedFinish
-                  : (Number(row.completedQty || 0) > 0
-                    ? Number(row.completedQty)
-                    : Number(row.washedQty || 0));
-
-                const wip = row.wipUnits !== undefined && Number(row.wipUnits) >= 0
-                  ? Number(row.wipUnits)
-                  : (row.status !== 'CANCELLED' && row.status !== 'COMPLETED' ? Math.max(0, cut - finished) : 0);
-
-                const yieldDivisor = cut > 0 ? cut : Number(row.targetQuantity || 0);
-                const yieldVal = row.yieldPercentage !== undefined && Number(row.yieldPercentage) > 0
-                  ? Number(row.yieldPercentage)
-                  : (yieldDivisor > 0 ? Math.round((finished / yieldDivisor) * 10000) / 100 : 0);
-
-                const scrap = Number(
-                  row.scrapReturned !== undefined && Number(row.scrapReturned) > 0
-                    ? row.scrapReturned
-                    : (Array.isArray(row.materialUsages) && row.materialUsages.length > 0
-                      ? row.materialUsages.reduce((s: number, u: any) => s + Number(u.returnedScrap ?? u.returnedQty ?? 0), 0)
-                      : (Array.isArray(row.activityLogs)
-                        ? row.activityLogs
-                            .filter((a: any) => a.action === 'RETURNED_SCRAP' || a.action === 'RETURNED')
-                            .reduce((s: number, a: any) => s + Number(a.quantity || 0), 0)
-                        : 0))
-                );
-
-                return (
-                  <tr
-                    key={row.id || row.productionNo}
-                    onClick={() => onSelectBatch && onSelectBatch(row)}
-                    className={`hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors ${onSelectBatch ? 'cursor-pointer' : ''}`}
-                  >
-                    <td className="py-2.5 px-3 font-mono font-medium text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                      {row.productionNo}
-                    </td>
-                    <td className="py-2.5 px-3 font-medium text-slate-800 dark:text-zinc-200">
-                      <div className="flex items-center gap-2">
-                        {row.productImage ? (
-                          <img
-                            src={getProductImageUrl(row.productImage)}
-                            alt=""
-                            className="size-7 rounded-md object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
-                          />
-                        ) : (
-                          <div className="size-7 rounded-md bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 flex items-center justify-center text-slate-400 shrink-0">
-                            <Package className="size-3.5" />
+              {rows.map((row: any) => (
+                <tr
+                  key={row.id || row.productionNo}
+                  onClick={() => onSelectBatch && onSelectBatch(row)}
+                  className={`hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors ${onSelectBatch ? 'cursor-pointer' : ''}`}
+                >
+                  {stageConfig.columns.map((col) => {
+                    const val = col.getValue(row);
+                    if (col.key === 'cuttingNo') {
+                      return (
+                        <td key={col.key} className="py-2.5 px-3 font-mono font-medium text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                          {val}
+                        </td>
+                      );
+                    }
+                    if (col.key === 'productName') {
+                      return (
+                        <td key={col.key} className="py-2.5 px-3 font-medium text-slate-800 dark:text-zinc-200">
+                          <div className="flex items-center gap-2">
+                            {row.productImage ? (
+                              <img
+                                src={getProductImageUrl(row.productImage)}
+                                alt=""
+                                className="size-7 rounded-md object-cover border border-slate-200 dark:border-zinc-700 shrink-0"
+                              />
+                            ) : (
+                              <div className="size-7 rounded-md bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 flex items-center justify-center text-slate-400 shrink-0">
+                                <Package className="size-3.5" />
+                              </div>
+                            )}
+                            <span>{val}</span>
                           </div>
-                        )}
-                        <span>{row.productName || 'Garment'}</span>
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">
-                      {row.variant || 'Standard'}
-                    </td>
-                    <td className="py-2.5 px-3 text-center font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap">
-                      {formatQty(cut)}
-                      {row.cutLogsCount > 0 && (
-                        <span className="text-[10px] text-slate-400 block font-normal">({row.cutLogsCount} cuts)</span>
-                      )}
-                    </td>
-                    <td className="py-2.5 px-3 text-center font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                      {formatQty(finished)}
-                      {row.finishLogsCount > 0 && (
-                        <span className="text-[10px] text-slate-400 block font-normal">({row.finishLogsCount} logs)</span>
-                      )}
-                    </td>
-                    <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                      {wip > 0 ? (
-                        <Badge variant="outline" className="text-[10px] bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800 font-mono">
-                          {formatQty(wip)} WIP
-                        </Badge>
-                      ) : (
-                        <span className="text-slate-400 font-mono text-[11px]">-</span>
-                      )}
-                    </td>
-                    <td className="py-2.5 px-3 text-center font-semibold text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                      {formatQty(yieldVal)}%
-                    </td>
-                    <td className="py-2.5 px-3 text-right whitespace-nowrap font-mono">
-                      {formatCurrency(row.materialCost || 0)}
-                    </td>
-                    <td className="py-2.5 px-3 text-right text-slate-400 whitespace-nowrap font-mono">
-                      {formatQty(scrap)}
-                    </td>
-                    <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                      <Badge
-                        variant="outline"
-                        className={`text-[10px] font-semibold ${
-                          row.status === 'COMPLETED' && row.isStockSynced
-                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
-                            : row.status === 'FINISHED_PENDING_STOCK' || (!row.isStockSynced && finished > 0)
-                            ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border-purple-300 dark:border-purple-800'
-                            : row.status === 'CUTTING'
-                            ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-300 dark:border-amber-800'
-                            : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800'
+                        </td>
+                      );
+                    }
+                    if (col.key === 'status') {
+                      return (
+                        <td key={col.key} className="py-2.5 px-3 text-center whitespace-nowrap">
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] font-semibold ${
+                              row.status === 'COMPLETED' && row.isStockSynced
+                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                                : row.status === 'FINISHED_PENDING_STOCK' || (!row.isStockSynced && Number(row.completedQty || 0) > 0)
+                                ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border-purple-300 dark:border-purple-800'
+                                : row.status === 'CUTTING'
+                                ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                                : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800'
+                            }`}
+                          >
+                            {val}
+                          </Badge>
+                        </td>
+                      );
+                    }
+                    return (
+                      <td
+                        key={col.key}
+                        className={`py-2.5 px-3 whitespace-nowrap ${
+                          col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left'
+                        } ${col.isNumeric ? 'font-mono font-bold' : 'text-slate-600 dark:text-zinc-300'} ${
+                          col.key === 'cutQtyYards' ? 'text-amber-600 dark:text-amber-400' : ''
                         }`}
                       >
-                        {row.status === 'COMPLETED' && row.isStockSynced ? 'IN STOCK' : row.status === 'FINISHED_PENDING_STOCK' ? 'AWAITING SYNC' : row.status || 'CUTTING'}
-                      </Badge>
-                    </td>
-                  </tr>
-                );
-              })}
+                        {val}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
             </tbody>
+            {rows.length > 0 && (
+              <tfoot>
+                <tr className={`border-t-2 font-bold text-xs ${dark ? 'border-zinc-700 bg-zinc-900/90 text-zinc-100' : 'border-slate-300 bg-slate-50 text-slate-900'}`}>
+                  {stageConfig.columns.map((col, idx) => {
+                    if (idx === 0) {
+                      return (
+                        <td key={col.key} className="py-2.5 px-3 font-bold uppercase tracking-wider">
+                          Total
+                        </td>
+                      );
+                    }
+                    if (col.isNumeric && col.getNumericValue) {
+                      const colSum = rows.reduce((acc, r) => acc + col.getNumericValue!(r), 0);
+                      return (
+                        <td
+                          key={col.key}
+                          className={`py-2.5 px-3 font-mono font-bold whitespace-nowrap ${
+                            col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left'
+                          }`}
+                        >
+                          {formatQty(colSum)} {col.unit || ''}
+                        </td>
+                      );
+                    }
+                    if (col.key === 'status') {
+                      return (
+                        <td key={col.key} className="py-2.5 px-3 text-center font-mono">
+                          {rows.length} Batches
+                        </td>
+                      );
+                    }
+                    return <td key={col.key} className="py-2.5 px-3" />;
+                  })}
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </div>

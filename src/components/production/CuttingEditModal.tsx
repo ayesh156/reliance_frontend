@@ -619,11 +619,11 @@ export const CuttingEditModal: React.FC<CuttingEditModalProps> = ({
                           />
                         </div>
 
-                        {/* 2. Units Qty (Middle - 3 cols) */}
+                        {/* 2. Quantity (Yard) (Middle - 3 cols) */}
                         <div className="sm:col-span-3 space-y-1">
                           <div className="flex items-center justify-between">
                             <label className="text-[11px] font-semibold text-slate-600 dark:text-zinc-400">
-                              Units Qty <span className="text-rose-500">*</span>
+                              Quantity (Yard) <span className="text-rose-500">*</span>
                             </label>
                             {selectedMat && (
                               <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400">
