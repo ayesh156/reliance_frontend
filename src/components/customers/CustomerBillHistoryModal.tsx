@@ -43,6 +43,7 @@ import { PrintPaymentReceipt, type PaymentReceiptData } from '../pos/PrintPaymen
 import { ChequeBankTownSelect } from '../pos/ChequeBankTownSelect';
 import { get, put, post, del } from '../../lib/api';
 import { toast } from 'react-toastify';
+import { printConsolidatedChequeReceipt80mm, printCustomerPaymentStatement80mm } from '../../utils/print';
 import { DatePicker } from '../ui/date-picker';
 import { SearchableSelect, type SearchableSelectOption } from '../ui/searchable-select';
 import {
@@ -692,6 +693,26 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
   /**
    * Download the complete statement PDF for this customer.
    */
+
+  /**
+   * Dedicated 80mm Customer Invoice & Payment Statement Print Trigger
+   */
+  const handlePrint80mmStatement = async () => {
+    if (!customer?.id) return;
+    try {
+      const toastId = toast.loading(`Preparing 80mm Statement for ${customer.name}...`);
+      const res = await get<any>(`/customers/${customer.id}/statement`);
+      toast.dismiss(toastId);
+      if (res && res.customer) {
+        printCustomerPaymentStatement80mm(res);
+      } else {
+        toast.error('Failed to load statement data');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to print statement');
+    }
+  };
+
   const handleDownloadStatementPdf = async () => {
     if (!customer) return;
     try {
@@ -1290,6 +1311,16 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                   <Button
                     size="sm"
                     variant="outline"
+                    onClick={handlePrint80mmStatement}
+                    className="h-7 text-xs px-2.5 py-1 gap-1 text-slate-700 dark:text-zinc-300 hover:text-emerald-600 hover:border-emerald-500/30 cursor-pointer"
+                    title="Print 80mm Invoice & Payment Statement"
+                  >
+                    <Printer className="size-3 text-slate-500" />
+                    <span>80mm POS Statement</span>
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
                     onClick={handleDownloadStatementPdf}
                     className="h-7 text-xs px-2.5 py-1 gap-1 text-slate-700 dark:text-zinc-300 hover:text-emerald-600 cursor-pointer"
                     title="Download Customer Statement PDF"
@@ -1576,16 +1607,26 @@ export const CustomerBillHistoryModal: React.FC<CustomerBillHistoryModalProps> =
                             </div>
 
                             <div className="flex items-center gap-1.5 shrink-0">
-                              <Button
+                                                            <Button
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                onClick={() => handlePrintMasterReceipt(receipt, customer)}
+                                onClick={() => {
+                                  printConsolidatedChequeReceipt80mm({
+                                    ...receipt,
+                                    customer: {
+                                      name: customer?.name,
+                                      phone: customer?.phone,
+                                      address: customer?.address,
+                                      outstandingBalance: customer?.outstandingBalance,
+                                    },
+                                  });
+                                }}
                                 className="h-8 px-2.5 text-xs text-emerald-700 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300 inline-flex items-center gap-1 border-emerald-300 dark:border-emerald-700/60 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer transition-colors shadow-2xs"
                                 title="Print 80mm Thermal Receipt"
                               >
                                 <Printer className="size-3.5" />
-                                <span className="text-[11px] font-semibold hidden sm:inline">Print Receipt</span>
+                                <span className="text-[11px] font-semibold hidden sm:inline">Print 80mm Receipt</span>
                               </Button>
                               <Button
                                 type="button"

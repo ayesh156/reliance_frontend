@@ -12,6 +12,7 @@ import { Badge } from '../ui/badge';
 import { Input } from '../ui/input';
 import { DatePicker } from '../ui/date-picker';
 import { toast } from 'react-toastify';
+import { print80mmThermalReceipt, printConsolidatedChequeReceipt80mm } from '../../utils/print';
 import { put, post } from '../../lib/api';
 import { ErrorBoundary } from '../common/ErrorBoundary';
 import { CustomerPreviewModal } from '../customers/CustomerPreviewModal';
@@ -352,6 +353,16 @@ const InvoiceDetailModalContent: React.FC<InvoiceDetailModalProps & { invoice: I
 
                 {/* Quick Print & Share Icons */}
                 <div className="flex items-center gap-1.5 self-end sm:self-center">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => print80mmThermalReceipt(invoice)}
+                    className="h-8 text-xs gap-1.5 text-emerald-700 hover:text-emerald-800 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800 cursor-pointer"
+                    title="Print 80mm POS Thermal Receipt"
+                  >
+                    <Printer className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>80mm POS</span>
+                  </Button>
                   {onPrintPreview && (
                     <Button
                       variant="outline"

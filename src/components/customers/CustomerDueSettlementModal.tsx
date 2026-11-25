@@ -34,6 +34,7 @@ import {
   Printer,
 } from 'lucide-react';
 import { PrintPaymentReceipt } from '../pos/PrintPaymentReceipt';
+import { printConsolidatedChequeReceipt80mm } from '../../utils/print';
 import { openWhatsAppChat, generateCustomerDebtSummaryWhatsAppMessage, generateMasterReceiptWhatsAppMessage } from '../../utils/whatsapp';
 // Enterprise Shadcn SearchableSelect Component
 
@@ -236,6 +237,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
     }>;
   }
   const [postSettlementSummary, setPostSettlementSummary] = useState<PostSettlementSummaryData | null>(null);
+  const [lastSettledReceipt, setLastSettledReceipt] = useState<any | null>(null);
 
   // Tab Mode: 'DUES' | 'RECEIPTS'
   const [activeTab, setActiveTab] = useState<'DUES' | 'RECEIPTS'>('DUES');
@@ -564,7 +566,7 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
       const prevBal = totalOutstanding;
       const newBal = Math.max(0, Math.round((prevBal - numericAmount) * 100) / 100);
 
-      await post(`/orders/customers/${customerId}/settle-debt`, {
+      const settleRes: any = await post(`/orders/customers/${customerId}/settle-debt`, {
         amount: numericAmount,
         strategy: 'FIFO',
         paymentMethod: finalPayments.length === 1 ? finalPayments[0].method : 'SPLIT',
@@ -572,6 +574,11 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
         paymentDate: finalPayments[0].paymentDate,
         payments: finalPayments,
       });
+
+      const returnedReceipt = settleRes?.data?.receipt || settleRes?.receipt;
+      if (returnedReceipt) {
+        setLastSettledReceipt(returnedReceipt);
+      }
 
       toast.success(`Payment of Rs. ${numericAmount.toFixed(2)} settled successfully!`);
       setPostSettlementSummary({
@@ -1433,6 +1440,35 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                   <div className="flex items-center gap-2 pt-1">
                     <Button
                       type="button"
+                      onClick={() => {
+                        if (lastSettledReceipt) {
+                          printConsolidatedChequeReceipt80mm(lastSettledReceipt);
+                        } else {
+                          printConsolidatedChequeReceipt80mm({
+                            customer: {
+                              name: customerName,
+                              phone: customerPhoneState || customerPhone,
+                              outstandingBalance: postSettlementSummary.newBalance,
+                            },
+                            totalAmount: postSettlementSummary.paidAmount,
+                            remainingBalance: postSettlementSummary.newBalance,
+                            paymentMethod: 'CHEQUE',
+                            payments: postSettlementSummary.allocations.map(a => ({
+                              invoiceNumber: a.invoiceNumber,
+                              invoiceTotal: a.dueBefore,
+                              amount: a.allocated,
+                              orderId: a.orderId,
+                            })),
+                          });
+                        }
+                      }}
+                      className="flex-1 h-10 border border-emerald-500/40 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 text-xs font-bold rounded-xl inline-flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                    >
+                      <Printer className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                      <span>Print 80mm Receipt</span>
+                    </Button>
+                    <Button
+                      type="button"
                       onClick={handleDownloadStatement}
                       className="flex-1 h-10 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-200 text-xs font-semibold rounded-xl inline-flex items-center justify-center gap-1.5 cursor-pointer"
                     >
@@ -1608,6 +1644,26 @@ export const CustomerDueSettlementModal: React.FC<CustomerDueSettlementModalProp
                           </div>
 
                           <div className="flex items-center gap-1.5 shrink-0">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                printConsolidatedChequeReceipt80mm({
+                                  ...receipt,
+                                  customer: {
+                                    name: customerName,
+                                    phone: customerPhoneState || customerPhone,
+                                    outstandingBalance: totalOutstanding,
+                                  },
+                                });
+                              }}
+                              className="h-8 px-2.5 text-xs text-emerald-700 hover:text-emerald-800 dark:text-emerald-400 border-emerald-300 dark:border-emerald-700/60 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer shadow-2xs gap-1"
+                              title="Print 80mm Thermal Receipt"
+                            >
+                              <Printer className="size-3.5" />
+                              <span className="text-[11px] font-semibold hidden sm:inline">Print 80mm</span>
+                            </Button>
                             <Button
                               type="button"
                               size="sm"

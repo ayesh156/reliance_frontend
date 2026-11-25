@@ -828,3 +828,433 @@ export const generate80mmThermalReceiptHtml = (
 </body>
 </html>`;
 };
+
+/**
+ * ============================================================================
+ * CONSOLIDATED 80MM POS THERMAL CHEQUE RECEIPT
+ * Multi-Invoice Single-Cheque Settlements Breakdown
+ * ============================================================================
+ */
+export const generateConsolidatedChequeReceipt80mmHtml = (
+  receipt: any
+): string => {
+  if (!receipt) return '';
+
+  const receiptNumber = receipt.receiptNumber || (receipt.id ? `REC-${receipt.id}` : 'REC-DRAFT');
+  const dateStr = formatThermalReceiptDateTime(receipt.receiptDate || receipt.createdAt || new Date());
+
+  const customerName = receipt.customer?.name || receipt.customerName || 'Customer';
+  const customerPhone = receipt.customer?.phone || receipt.customerPhone || '';
+  const customerAddress = receipt.customer?.address || receipt.customerAddress || '';
+
+  const totalPaid = Number(receipt.totalAmount || 0);
+  const remainingBal = Number(receipt.customer?.outstandingBalance ?? receipt.remainingBalance ?? 0);
+
+  // Parse payment / cheque metadata
+  const parsedMeta = parseChequeMetadata(receipt);
+  const chqNum = parsedMeta.chequeNumber || receipt.chequeNumber || receipt.reference || '-';
+  const bName = parsedMeta.bankAndTown || receipt.bankName || '';
+  const chqDate = parsedMeta.maturityDate || (receipt.chequeDate ? String(receipt.chequeDate).split('T')[0] : '');
+
+  // Extract covered invoices
+  const paymentsList = Array.isArray(receipt.payments) ? receipt.payments : [];
+
+  const invoiceRowsHtml = paymentsList.map((p: any) => {
+    const invNo = p.invoiceNumber || p.order?.invoiceNumber || (p.orderId ? `INV#${p.orderId}` : 'INV');
+    const billTotal = Number(p.invoiceTotal || p.order?.totalAmount || 0);
+    const paidNow = Number(p.amount || 0);
+    const prevPaid = Number(p.invoicePaid || p.order?.paidAmount || 0);
+    const dueAfter = Math.max(0, billTotal - (prevPaid > 0 ? prevPaid : paidNow));
+
+    return `
+    <tr style="border-bottom: 1px dotted #000000;">
+      <td style="padding: 3px 0; text-align: left; font-weight: 800; word-break: break-all;">${invNo}</td>
+      <td style="padding: 3px 2px; text-align: right; font-weight: 700;">${formatReceiptPrice(billTotal)}</td>
+      <td style="padding: 3px 2px; text-align: right; font-weight: 900;">${formatReceiptPrice(paidNow)}</td>
+      <td style="padding: 3px 0; text-align: right; font-weight: 700;">${formatReceiptPrice(dueAfter)}</td>
+    </tr>`;
+  }).join('');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Receipt-${receiptNumber}</title>
+  <style>
+    @page { size: 72mm auto; margin: 0; }
+    @media print {
+      html, body {
+        width: 72mm !important; max-width: 72mm !important;
+        margin: 0 auto !important; padding: 0 !important;
+        font-family: 'Courier New', Courier, monospace !important;
+        font-size: 11.5px !important; font-weight: 700 !important;
+        color: #000000 !important; background: #ffffff !important;
+        -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
+      }
+      #receipt-root {
+        width: 72mm !important; max-width: 72mm !important;
+        margin: 0 auto !important; padding: 0 2mm !important;
+        box-sizing: border-box !important;
+      }
+    }
+    * { box-sizing: border-box; color: #000000 !important; font-family: 'Courier New', Courier, monospace !important; font-weight: 700 !important; }
+    body {
+      margin: 0 auto; padding: 0; width: 72mm !important; max-width: 72mm !important;
+      font-size: 11.5px; line-height: 1.3; color: #000000 !important; background-color: #ffffff;
+    }
+    .text-center { text-align: center; }
+    .dashed-sep { border-top: 1.5px dashed #000000; margin: 5px 0; width: 100%; }
+    .flex-between { width: 100% !important; display: flex !important; justify-content: space-between !important; align-items: baseline !important; }
+    .receipt-logo { width: 44px; height: 44px; object-fit: contain; filter: grayscale(100%) contrast(300%); }
+  </style>
+</head>
+<body>
+  <div id="receipt-root" style="width: 72mm !important; max-width: 72mm !important; padding: 0 2mm !important; margin: 0 auto;">
+    <!-- Corporate Header -->
+    <div style="width: 100%; text-align: center; margin-bottom: 4px;">
+      <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 3px;">
+        <img src="/images/logo.jpg" alt="RELIANCE" class="receipt-logo" onerror="this.style.display='none'" />
+        <div style="text-align: left;">
+          <div style="font-size: 18px; font-weight: 900; letter-spacing: 1.5px; line-height: 1.1;">RELIANCE</div>
+          <div style="font-size: 9.5px; font-weight: 700; letter-spacing: 0.8px;">CLOTHING STORE</div>
+        </div>
+      </div>
+      <div style="font-size: 9px; line-height: 1.25; font-weight: 700;">
+        Pothuhera, Kurunegala • 078 323 3760
+      </div>
+      <div style="font-size: 13px; font-weight: 900; margin-top: 4px; padding: 2px 0; border-top: 1.5px solid #000; border-bottom: 1.5px solid #000; letter-spacing: 0.5px;">
+        CONSOLIDATED PAYMENT RECEIPT
+      </div>
+    </div>
+
+    <!-- Receipt Meta -->
+    <div style="width: 100%; font-size: 11px; line-height: 1.35; margin: 4px 0;">
+      <div class="flex-between">
+        <span>Receipt #:</span>
+        <span style="font-weight: 800;">${receiptNumber}</span>
+      </div>
+      <div class="flex-between">
+        <span>Date &amp; Time:</span>
+        <span style="font-weight: 800;">${dateStr}</span>
+      </div>
+      <div class="flex-between">
+        <span>Customer:</span>
+        <span style="font-weight: 800; text-align: right; max-width: 65%; overflow: hidden; text-overflow: ellipsis;">${customerName}</span>
+      </div>
+      ${customerPhone ? `<div class="flex-between"><span>Phone:</span><span style="font-weight: 700;">${customerPhone}</span></div>` : ''}
+      ${customerAddress ? `<div class="flex-between"><span>Address:</span><span style="font-weight: 700; text-align: right; max-width: 65%; overflow: hidden; text-overflow: ellipsis;">${customerAddress}</span></div>` : ''}
+    </div>
+
+    <div class="dashed-sep"></div>
+
+    <!-- Payment & Cheque Details Block -->
+    <div style="width: 100%; font-size: 11px; line-height: 1.35; margin: 4px 0;">
+      <div class="flex-between">
+        <span>Payment Method:</span>
+        <span style="font-weight: 900; text-transform: uppercase;">${receipt.paymentMethod || 'CHEQUE'}</span>
+      </div>
+      <div style="font-size: 10px; padding-left: 5px; border-left: 1.5px solid #000; margin: 2px 0;">
+        <div class="flex-between"><span>&bull; Cheque #:</span><span style="font-weight: 800;">${chqNum}</span></div>
+        ${bName ? `<div class="flex-between"><span>&bull; Bank:</span><span style="font-weight: 800; text-align: right;">${bName}</span></div>` : ''}
+        ${chqDate ? `<div class="flex-between"><span>&bull; Maturity Date:</span><span style="font-weight: 800;">${chqDate}</span></div>` : ''}
+      </div>
+    </div>
+
+    <div class="dashed-sep"></div>
+
+    <!-- Settled Invoices Table -->
+    <div style="width: 100%; margin: 4px 0;">
+      <div style="font-size: 11px; font-weight: 800; margin-bottom: 3px; text-transform: uppercase;">
+        Settled Invoices Breakdown:
+      </div>
+      <table style="width: 100%; border-collapse: collapse; font-size: 10.5px;">
+        <thead>
+          <tr style="border-bottom: 1.5px dashed #000000; font-size: 10px; font-weight: 900;">
+            <th style="text-align: left; padding: 2px 0;">INV #</th>
+            <th style="text-align: right; padding: 2px 2px;">TOTAL</th>
+            <th style="text-align: right; padding: 2px 2px;">PAID NOW</th>
+            <th style="text-align: right; padding: 2px 0;">DUE</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${invoiceRowsHtml || '<tr><td colspan="4" style="text-align: center; padding: 4px 0;">Balance Settlement</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="dashed-sep"></div>
+
+    <!-- Summary Block -->
+    <div style="width: 100%; font-size: 12px; line-height: 1.45; font-weight: 700;">
+      <div class="flex-between">
+        <span>Invoices Covered:</span>
+        <span style="font-weight: 800;">${paymentsList.length || 1} Bill(s)</span>
+      </div>
+      <div class="flex-between" style="font-size: 13.5px; font-weight: 900; border-top: 1.5px solid #000; border-bottom: 1.5px solid #000; padding: 4px 0; margin: 4px 0;">
+        <span>TOTAL PAID (THIS RECEIPT):</span>
+        <span style="text-align: right; white-space: nowrap;">${formatReceiptPrice(totalPaid)}</span>
+      </div>
+      <div class="flex-between" style="font-size: 12.5px; font-weight: 900; padding-top: 2px;">
+        <span>CUSTOMER REMAINING DUE:</span>
+        <span style="text-align: right; white-space: nowrap;">${formatReceiptPrice(remainingBal)}</span>
+      </div>
+    </div>
+
+    <!-- 2-Column Signature Section -->
+    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 36px; padding: 0 4px; width: 100%;">
+      <div style="text-align: center; width: 45%;">
+        <div style="border-top: 1.5px dashed #000; width: 100%; margin-bottom: 3px;"></div>
+        <span style="font-size: 9px; font-weight: 800; text-transform: uppercase;">Customer Signature</span>
+      </div>
+      <div style="text-align: center; width: 45%;">
+        <div style="border-top: 1.5px dashed #000; width: 100%; margin-bottom: 3px;"></div>
+        <span style="font-size: 9px; font-weight: 800; text-transform: uppercase;">Authorized Sign</span>
+      </div>
+    </div>
+
+    <div class="dashed-sep" style="margin-top: 10px;"></div>
+
+    <!-- Footer -->
+    <div class="text-center" style="width: 100%; text-align: center; margin-top: 6px;">
+      <div style="font-size: 11.5px; font-weight: 800; margin-bottom: 2px;">
+        Payment received with thanks!
+      </div>
+      <div style="font-size: 9.5px; font-weight: 700; margin-top: 3px;">
+        System by nebulainfinite.com | 0783233760
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+};
+
+/**
+ * ============================================================================
+ * DEDICATED CUSTOMER 80MM INVOICE-WISE PAYMENT STATEMENT
+ * Full Customer Ledger Breakdown (All Invoices & Payments with Methods)
+ * ============================================================================
+ */
+export const generateCustomerPaymentStatement80mmHtml = (
+  statementData: {
+    customer: any;
+    orders: any[];
+  }
+): string => {
+  if (!statementData || !statementData.customer) return '';
+
+  const { customer, orders = [] } = statementData;
+  const printDateStr = formatThermalReceiptDateTime(new Date());
+
+  const customerName = customer.name || 'Valued Customer';
+  const customerPhone = customer.phone || '';
+  const customerAddress = customer.address || customer.city || '';
+  const customerType = customer.type || 'WHOLESALE';
+
+  let totalInvoicedSum = 0;
+  let totalPaidSum = 0;
+  let methodCash = 0;
+  let methodCheque = 0;
+  let methodReturn = 0;
+  let methodOther = 0;
+
+  const invoiceBlocksHtml = orders.map((ord: any) => {
+    const rawId = ord.invoiceNumber || ord.id;
+    const invNo = String(rawId).startsWith('#') ? rawId : `#${rawId}`;
+    const invTotal = Number(ord.totalAmount || 0);
+    const invPaid = Number(ord.paidAmount || 0);
+    const invDue = Math.max(0, invTotal - invPaid);
+    const invDate = ord.createdAt ? String(ord.createdAt).split('T')[0] : '';
+    const status = ord.status || (invDue <= 0 ? 'PAID' : 'PENDING');
+
+    totalInvoicedSum += invTotal;
+
+    const paymentsList = Array.isArray(ord.payments) ? ord.payments : [];
+
+    const paymentRowsHtml = paymentsList.length > 0
+      ? paymentsList.map((p: any) => {
+          const amt = Number(p.amount || 0);
+          totalPaidSum += amt;
+
+          const pMethod = String(p.method || 'CASH').toUpperCase();
+          if (pMethod === 'CASH') methodCash += amt;
+          else if (pMethod === 'CHEQUE') methodCheque += amt;
+          else if (pMethod.includes('RETURN') || pMethod.includes('CREDIT')) methodReturn += amt;
+          else methodOther += amt;
+
+          const pDate = p.createdAt ? String(p.createdAt).split('T')[0] : '';
+          const parsed = parseChequeMetadata(p);
+          const chqNum = parsed.chequeNumber || p.reference;
+
+          return `
+          <div style="font-size: 10px; line-height: 1.25; margin-left: 6px; padding: 1.5px 0;">
+            <div class="flex-between">
+              <span>${pDate} &bull; ${pMethod}:</span>
+              <span style="font-weight: 800;">Rs. ${formatReceiptPrice(amt)}</span>
+            </div>
+            ${chqNum ? `<div style="font-size: 9px; color: #333; margin-left: 8px;">Chq #${chqNum} ${parsed.maturityDate ? '• Due: ' + parsed.maturityDate : ''}</div>` : ''}
+          </div>`;
+        }).join('')
+      : '<div style="font-size: 9.5px; font-style: italic; color: #555; margin-left: 6px; padding: 1px 0;">(No payments recorded)</div>';
+
+    return `
+    <div style="margin-bottom: 6px; width: 100%; box-sizing: border-box;">
+      <!-- Invoice Header Row -->
+      <div style="display: flex; justify-content: space-between; align-items: baseline; font-size: 11px; font-weight: 900; border: 1.5px solid #000000; background: #ffffff; color: #000000 !important; padding: 2px 4px; border-radius: 2px;">
+        <span style="color: #000000 !important;">${invNo} • ${invDate}</span>
+        <span style="color: #000000 !important;">Rs. ${formatReceiptPrice(invTotal)}</span>
+      </div>
+      <div style="display: flex; justify-content: space-between; gap: 6px; font-size: 9.5px; font-weight: 800; padding: 2px 3px;">
+        <span style="white-space: nowrap;">[${status}]</span>
+        <span style="text-align: right; white-space: nowrap;">Paid: Rs. ${formatReceiptPrice(invPaid)} | Bal: Rs. ${formatReceiptPrice(invDue)}</span>
+      </div>
+
+      <!-- Payment details nested list -->
+      <div style="border-left: 1.5px solid #000; margin-left: 4px; padding-left: 4px; margin-top: 2px;">
+        ${paymentRowsHtml}
+      </div>
+
+      <div style="border-top: 1px dotted #000; margin: 4px 0;"></div>
+    </div>`;
+  }).join('');
+
+  const currentOutstanding = Number(customer.outstandingBalance || 0);
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Statement-${customerName.replace(/[^a-zA-Z0-9]/g, '_')}</title>
+  <style>
+    @page { size: 72mm auto; margin: 0; }
+    @media print {
+      html, body {
+        width: 72mm !important; max-width: 72mm !important;
+        margin: 0 auto !important; padding: 0 !important;
+        font-family: 'Courier New', Courier, monospace !important;
+        font-size: 11.5px !important; font-weight: 700 !important;
+        color: #000000 !important; background: #ffffff !important;
+        -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
+      }
+      #statement-root {
+        width: 72mm !important; max-width: 72mm !important;
+        margin: 0 auto !important; padding: 0 2mm !important;
+        box-sizing: border-box !important;
+      }
+    }
+    * { box-sizing: border-box; color: #000000 !important; font-family: 'Courier New', Courier, monospace !important; font-weight: 700 !important; }
+    body {
+      margin: 0 auto; padding: 0; width: 72mm !important; max-width: 72mm !important;
+      font-size: 11.5px; line-height: 1.3; color: #000000 !important; background-color: #ffffff;
+    }
+    .text-center { text-align: center; }
+    .dashed-sep { border-top: 1.5px dashed #000000; margin: 5px 0; width: 100%; }
+    .flex-between { width: 100% !important; display: flex !important; justify-content: space-between !important; align-items: baseline !important; }
+    .receipt-logo { width: 44px; height: 44px; object-fit: contain; filter: grayscale(100%) contrast(300%); }
+  </style>
+</head>
+<body>
+  <div id="statement-root" style="width: 72mm !important; max-width: 72mm !important; padding: 0 2mm !important; margin: 0 auto;">
+    <!-- Corporate Header -->
+    <div style="width: 100%; text-align: center; margin-bottom: 4px;">
+      <div style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 3px;">
+        <img src="/images/logo.jpg" alt="RELIANCE" class="receipt-logo" onerror="this.style.display='none'" />
+        <div style="text-align: left;">
+          <div style="font-size: 18px; font-weight: 900; letter-spacing: 1.5px; line-height: 1.1;">RELIANCE</div>
+          <div style="font-size: 9.5px; font-weight: 700; letter-spacing: 0.8px;">CLOTHING STORE</div>
+        </div>
+      </div>
+      <div style="font-size: 9px; line-height: 1.25; font-weight: 700;">
+        Pothuhera, Kurunegala • 078 323 3760
+      </div>
+      <div style="font-size: 13px; font-weight: 900; margin-top: 4px; padding: 2px 0; border-top: 1.5px solid #000; border-bottom: 1.5px solid #000; letter-spacing: 0.5px;">
+        CUSTOMER PAYMENT STATEMENT
+      </div>
+    </div>
+
+    <!-- Customer Profile Block -->
+    <div style="width: 100%; font-size: 11px; line-height: 1.35; margin: 4px 0;">
+      <div class="flex-between">
+        <span>Printed At:</span>
+        <span style="font-weight: 800;">${printDateStr}</span>
+      </div>
+      <div class="flex-between">
+        <span>Customer:</span>
+        <span style="font-weight: 900; text-align: right; max-width: 65%; overflow: hidden; text-overflow: ellipsis;">${customerName}</span>
+      </div>
+      ${customerPhone ? `<div class="flex-between"><span>Phone:</span><span style="font-weight: 700;">${customerPhone}</span></div>` : ''}
+      ${customerAddress ? `<div class="flex-between"><span>Address:</span><span style="font-weight: 700; text-align: right; max-width: 65%; overflow: hidden; text-overflow: ellipsis;">${customerAddress}</span></div>` : ''}
+      <div class="flex-between">
+        <span>Account Tier:</span>
+        <span style="font-weight: 800; text-transform: uppercase;">${customerType}</span>
+      </div>
+    </div>
+
+    <div class="dashed-sep"></div>
+
+    <!-- Invoice-by-Invoice Ledger -->
+    <div style="width: 100%; margin: 4px 0;">
+      <div style="font-size: 11px; font-weight: 900; margin-bottom: 4px; text-transform: uppercase;">
+        Invoice &amp; Payment History:
+      </div>
+      ${invoiceBlocksHtml || '<div style="text-align: center; font-size: 11px; padding: 8px 0;">No invoice records found.</div>'}
+    </div>
+
+    <div class="dashed-sep"></div>
+
+    <!-- Grand Summary Section -->
+    <div style="width: 100%; font-size: 12px; line-height: 1.45; font-weight: 700;">
+      <div class="flex-between">
+        <span>Total Invoices Count:</span>
+        <span style="font-weight: 800;">${orders.length} Invoice(s)</span>
+      </div>
+      <div class="flex-between">
+        <span>Total Invoiced Amount:</span>
+        <span style="font-weight: 800;">Rs. ${formatReceiptPrice(totalInvoicedSum)}</span>
+      </div>
+
+      <!-- Payment Methods Summary -->
+      <div style="font-size: 10.5px; padding: 2px 0 2px 6px; border-left: 1.5px solid #000; margin: 3px 0;">
+        <div class="flex-between"><span>&bull; Cash Paid:</span><span>Rs. ${formatReceiptPrice(methodCash)}</span></div>
+        <div class="flex-between"><span>&bull; Cheque Paid:</span><span>Rs. ${formatReceiptPrice(methodCheque)}</span></div>
+        ${methodReturn > 0 ? `<div class="flex-between"><span>&bull; Return Credit:</span><span>Rs. ${formatReceiptPrice(methodReturn)}</span></div>` : ''}
+        ${methodOther > 0 ? `<div class="flex-between"><span>&bull; Other / Card:</span><span>Rs. ${formatReceiptPrice(methodOther)}</span></div>` : ''}
+      </div>
+
+      <div class="flex-between" style="font-size: 13px; font-weight: 900; border-top: 1.5px solid #000; padding-top: 3px; margin-top: 3px;">
+        <span>TOTAL RECORDED PAYMENTS:</span>
+        <span style="text-align: right; white-space: nowrap;">Rs. ${formatReceiptPrice(totalPaidSum)}</span>
+      </div>
+
+      <div class="flex-between" style="font-size: 14px; font-weight: 900; border-top: 2px solid #000; border-bottom: 2.5px double #000; padding: 4px 0; margin-top: 4px;">
+        <span>CURRENT OUTSTANDING DUE:</span>
+        <span style="text-align: right; white-space: nowrap;">Rs. ${formatReceiptPrice(currentOutstanding)}</span>
+      </div>
+    </div>
+
+    <!-- 2-Column Signature Section -->
+    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 36px; padding: 0 4px; width: 100%;">
+      <div style="text-align: center; width: 45%;">
+        <div style="border-top: 1.5px dashed #000; width: 100%; margin-bottom: 3px;"></div>
+        <span style="font-size: 9px; font-weight: 800; text-transform: uppercase;">Customer Signature</span>
+      </div>
+      <div style="text-align: center; width: 45%;">
+        <div style="border-top: 1.5px dashed #000; width: 100%; margin-bottom: 3px;"></div>
+        <span style="font-size: 9px; font-weight: 800; text-transform: uppercase;">Authorized Sign</span>
+      </div>
+    </div>
+
+    <div class="dashed-sep" style="margin-top: 10px;"></div>
+
+    <!-- Footer -->
+    <div class="text-center" style="width: 100%; text-align: center; margin-top: 6px;">
+      <div style="font-size: 11px; font-weight: 800; margin-bottom: 2px;">
+        Official Reliance Account Ledger
+      </div>
+      <div style="font-size: 9.5px; font-weight: 700; margin-top: 3px;">
+        System by nebulainfinite.com | 0783233760
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+};

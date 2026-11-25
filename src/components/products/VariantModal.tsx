@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ImageIcon, Check, RefreshCw, UploadCloud } from 'lucide-react';
+import { X, ImageIcon, Check, RefreshCw, UploadCloud, AlertTriangle, Info } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { SizeCombobox } from './SizeCombobox';
@@ -311,72 +311,118 @@ export const VariantModal: React.FC<VariantModalProps> = ({
           </div>
 
           {/* Professional Pricing Matrix (Cost -> Wholesale -> Retail -> Compare) */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-slate-100 dark:border-zinc-800/80">
-            {/* 1. Cost Price */}
-            <div>
-              <label className="text-[10px] font-semibold text-slate-500 dark:text-zinc-400 block mb-1">
-                Cost (Rs)
-              </label>
-              <Input
-                type="number"
-                min="0"
-                step="any"
-                value={formData.costPrice === 0 ? '' : formData.costPrice}
-                onChange={e => updateField('costPrice', sanitizePrice(e.target.value))}
-                placeholder="0"
-                className="h-8 text-slate-600 dark:text-zinc-300 text-right text-xs"
-              />
-            </div>
+          {(() => {
+            const costVal = Number(formData.costPrice || 0);
+            const wsVal = Number(formData.wholesalePrice || 0);
+            const rtVal = Number(formData.retailPrice || 0);
+            const isCostExceedsWs = wsVal > 0 && costVal > wsVal;
+            const isCostExceedsRt = rtVal > 0 && costVal > rtVal;
+            const hasTypoWarning = isCostExceedsWs || isCostExceedsRt;
 
-            {/* 2. Wholesale Price */}
-            <div>
-              <label className="text-[10px] font-bold text-amber-600 block mb-1">
-                Wholesale (Rs)
-              </label>
-              <Input
-                type="number"
-                min="0"
-                step="any"
-                value={formData.wholesalePrice === 0 ? '' : formData.wholesalePrice}
-                onChange={e => updateField('wholesalePrice', sanitizePrice(e.target.value))}
-                placeholder="0"
-                className="h-8 text-amber-600 font-semibold text-right text-xs"
-              />
-            </div>
+            return (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-slate-100 dark:border-zinc-800/80">
+                  {/* 1. Cost Price */}
+                  <div>
+                    <label className={`text-[10px] font-semibold block mb-1 ${hasTypoWarning ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-zinc-400'}`}>
+                      Cost (Rs) {hasTypoWarning && '⚠️'}
+                    </label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={formData.costPrice === 0 ? '' : formData.costPrice}
+                      onChange={e => updateField('costPrice', sanitizePrice(e.target.value))}
+                      placeholder="0"
+                      className={`h-8 text-right text-xs transition-colors ${
+                        hasTypoWarning
+                          ? 'border-amber-500 dark:border-amber-400 bg-amber-50/50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 font-bold focus-visible:ring-amber-500'
+                          : 'text-slate-600 dark:text-zinc-300'
+                      }`}
+                    />
+                  </div>
 
-            {/* 3. Retail Price (POS) */}
-            <div>
-              <label className="text-[10px] font-bold text-emerald-600 block mb-1">
-                Retail (Rs) *
-              </label>
-              <Input
-                type="number"
-                min="0"
-                step="any"
-                value={formData.retailPrice === 0 ? '' : formData.retailPrice}
-                onChange={e => updateField('retailPrice', sanitizePrice(e.target.value))}
-                placeholder="0"
-                className="h-8 text-emerald-600 font-bold text-right text-xs"
-                required
-              />
-            </div>
+                  {/* 2. Wholesale Price */}
+                  <div>
+                    <label className="text-[10px] font-bold text-amber-600 block mb-1">
+                      Wholesale (Rs)
+                    </label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={formData.wholesalePrice === 0 ? '' : formData.wholesalePrice}
+                      onChange={e => updateField('wholesalePrice', sanitizePrice(e.target.value))}
+                      placeholder="0"
+                      className="h-8 text-amber-600 font-semibold text-right text-xs"
+                    />
+                  </div>
 
-            {/* 4. Compare Price */}
-            <div>
-              <label className="text-[10px] font-semibold text-slate-400 block mb-1">
-                Compare (Rs)
-              </label>
-              <Input
-                type="number"
-                min="0"
-                step="any"
-                value={!formData.comparePrice ? '' : formData.comparePrice}
-                onChange={e => updateField('comparePrice', sanitizePrice(e.target.value))}
-                placeholder="Old"
-                className="h-8 opacity-80 text-right text-xs"
-              />
-            </div>
-          </div>
+                  {/* 3. Retail Price (POS) */}
+                  <div>
+                    <label className="text-[10px] font-bold text-emerald-600 block mb-1">
+                      Retail (Rs) *
+                    </label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={formData.retailPrice === 0 ? '' : formData.retailPrice}
+                      onChange={e => updateField('retailPrice', sanitizePrice(e.target.value))}
+                      placeholder="0"
+                      className="h-8 text-emerald-600 font-bold text-right text-xs"
+                      required
+                    />
+                  </div>
+
+                  {/* 4. Compare Price */}
+                  <div>
+                    <label className="text-[10px] font-semibold text-slate-400 block mb-1">
+                      Compare (Rs)
+                    </label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={!formData.comparePrice ? '' : formData.comparePrice}
+                      onChange={e => updateField('comparePrice', sanitizePrice(e.target.value))}
+                      placeholder="Old"
+                      className="h-8 opacity-80 text-right text-xs"
+                    />
+                  </div>
+                </div>
+
+                {/* Inline Typo Prevention Warning Badge */}
+                {hasTypoWarning && (
+                  <div className="flex items-start gap-2 p-2 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/70 text-amber-800 dark:text-amber-200 text-xs animate-in fade-in duration-200">
+                    <AlertTriangle className="size-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                    <div className="leading-tight">
+                      <span className="font-bold">Warning: Cost Price (Rs. {costVal.toLocaleString()})</span> exceeds{' '}
+                      {isCostExceedsWs && (
+                        <span className="font-semibold text-amber-900 dark:text-amber-100">
+                          Wholesale Price (Rs. {wsVal.toLocaleString()})
+                        </span>
+                      )}
+                      {isCostExceedsWs && isCostExceedsRt && ' and '}
+                      {isCostExceedsRt && (
+                        <span className="font-semibold text-emerald-800 dark:text-emerald-300">
+                          Retail Price (Rs. {rtVal.toLocaleString()})
+                        </span>
+                      )}
+                      {' — check for extra zero / typo before saving.'}
+                    </div>
+                  </div>
+                )}
+
+                {costVal === 0 && (
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-50 dark:bg-zinc-800/40 text-[11px] text-slate-500 dark:text-zinc-400">
+                    <Info className="size-3 shrink-0 text-slate-400" />
+                    <span>Cost price is Rs. 0. Enter unit purchase cost for accurate COGS profit reporting.</span>
+                  </div>
+                )}
+              </>
+            );
+          })()}
 
           {/* Stock Display & Adjustment Matrix */}
           <div className="pt-2 border-t border-slate-100 dark:border-zinc-800/80">

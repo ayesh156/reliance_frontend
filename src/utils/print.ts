@@ -1,5 +1,9 @@
 import { generatePrintableInvoiceHtml } from '../components/pos/A4InvoiceModal';
-import { generate80mmThermalReceiptHtml } from './thermalReceipt';
+import {
+  generate80mmThermalReceiptHtml,
+  generateConsolidatedChequeReceipt80mmHtml,
+  generateCustomerPaymentStatement80mmHtml,
+} from './thermalReceipt';
 
 export type PrintFormat = 'a4' | 'thermal-80mm';
 
@@ -225,4 +229,38 @@ export const printOrderAccordingToPreference = (
     printInvoiceDirectly(order, onComplete, matchedCustomer, allCustomers);
   }
   return format;
+};
+
+/**
+ * Prints 80mm Consolidated Thermal Receipt for multi-invoice single-cheque settlements.
+ * Reuses the exact corporate letterhead, dashed rules, and 80mm thermal font styling.
+ */
+export const printConsolidatedChequeReceipt80mm = (
+  receipt: any,
+  onComplete?: () => void
+): void => {
+  if (!receipt) {
+    if (onComplete) onComplete();
+    return;
+  }
+  const html = generateConsolidatedChequeReceipt80mmHtml(receipt);
+  const recNo = receipt.receiptNumber || (receipt.id ? `REC-${receipt.id}` : 'REC-DRAFT');
+  printHtmlDirectly(html, `Consolidated-Receipt-${recNo}`, onComplete);
+};
+
+/**
+ * Prints dedicated 80mm Customer Invoice & Payment Statement.
+ * Reuses the exact corporate letterhead, dashed rules, and 80mm thermal font styling.
+ */
+export const printCustomerPaymentStatement80mm = (
+  statementData: any,
+  onComplete?: () => void
+): void => {
+  if (!statementData || !statementData.customer) {
+    if (onComplete) onComplete();
+    return;
+  }
+  const html = generateCustomerPaymentStatement80mmHtml(statementData);
+  const safeName = (statementData.customer.name || 'Customer').replace(/[^a-zA-Z0-9]/g, '_');
+  printHtmlDirectly(html, `Statement-80mm-${safeName}`, onComplete);
 };

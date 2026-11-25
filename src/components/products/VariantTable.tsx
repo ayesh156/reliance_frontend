@@ -359,7 +359,16 @@ export const VariantTable: React.FC<VariantTableProps> = ({
                 {/* Card Footer: Cost & Warehouse Stock info */}
                 <div className="flex items-center justify-between pt-1 text-[11px]">
                   <span className="text-slate-500 dark:text-zinc-400 font-mono">
-                    Cost: <strong className="text-slate-700 dark:text-zinc-300">Rs. {Number(v.costPrice || 0).toLocaleString()}</strong>
+                    Cost: <strong className={
+                      (Number(v.wholesalePrice || 0) > 0 && Number(v.costPrice || 0) > Number(v.wholesalePrice || 0)) ||
+                      (Number(v.retailPrice || 0) > 0 && Number(v.costPrice || 0) > Number(v.retailPrice || 0))
+                        ? "text-amber-600 dark:text-amber-400 font-bold"
+                        : "text-slate-700 dark:text-zinc-300"
+                    }>
+                      {((Number(v.wholesalePrice || 0) > 0 && Number(v.costPrice || 0) > Number(v.wholesalePrice || 0)) ||
+                        (Number(v.retailPrice || 0) > 0 && Number(v.costPrice || 0) > Number(v.retailPrice || 0))) && '⚠️ '}
+                      Rs. {Number(v.costPrice || 0).toLocaleString()}
+                    </strong>
                   </span>
                   <div className="flex items-center gap-1.5">
                     <span className="text-slate-500 dark:text-zinc-400">Stock:</span>
@@ -484,7 +493,16 @@ export const VariantTable: React.FC<VariantTableProps> = ({
                     </td>
 
                     {/* Cost Price */}
-                    <td className="p-2 text-right text-slate-500 dark:text-zinc-400 font-mono">
+                    <td className={`p-2 text-right font-mono ${
+                      (Number(v.wholesalePrice || 0) > 0 && Number(v.costPrice || 0) > Number(v.wholesalePrice || 0)) ||
+                      (Number(v.retailPrice || 0) > 0 && Number(v.costPrice || 0) > Number(v.retailPrice || 0))
+                        ? 'text-amber-600 dark:text-amber-400 font-bold bg-amber-50/50 dark:bg-amber-950/20'
+                        : 'text-slate-500 dark:text-zinc-400'
+                    }`}>
+                      {((Number(v.wholesalePrice || 0) > 0 && Number(v.costPrice || 0) > Number(v.wholesalePrice || 0)) ||
+                        (Number(v.retailPrice || 0) > 0 && Number(v.costPrice || 0) > Number(v.retailPrice || 0))) && (
+                        <span title="Warning: Cost exceeds selling price — check for typo" className="mr-1 inline-block">⚠️</span>
+                      )}
                       Rs. {Number(v.costPrice || 0).toLocaleString()}
                     </td>
 

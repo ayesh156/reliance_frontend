@@ -32,6 +32,7 @@ import {
 } from '../components/ui/alert-dialog';
 import { get, post, put, del } from '../lib/api';
 import { toast } from 'react-toastify';
+import { printCustomerPaymentStatement80mm } from '../utils/print';
 import { isValidSriLankanNIC, isValidSriLankanPhone } from '../utils/validators';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -61,6 +62,7 @@ import {
   CreditCard,
   Download,
   SlidersHorizontal,
+  Printer,
 } from 'lucide-react';
 
 import { openWhatsAppChat, generateCustomerDebtSummaryWhatsAppMessage } from '../utils/whatsapp';
@@ -201,6 +203,25 @@ export const CustomersPage: React.FC = () => {
   /**
    * Download customer statement PDF
    */
+
+  /**
+   * Print dedicated 80mm Customer Invoice & Payment Statement
+   */
+  const handlePrintCustomerStatement80mm = async (cust: CustomerItem) => {
+    try {
+      const toastId = toast.loading(`Preparing 80mm Statement for ${cust.name}...`);
+      const res = await get<any>(`/customers/${cust.id}/statement`);
+      toast.dismiss(toastId);
+      if (res && res.customer) {
+        printCustomerPaymentStatement80mm(res);
+      } else {
+        toast.error('Failed to load statement data');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to print statement');
+    }
+  };
+
   const handleDownloadCustomerStatement = async (cust: CustomerItem) => {
     try {
       toast.info(`Generating Statement PDF for ${cust.name}...`);
@@ -801,6 +822,18 @@ export const CustomersPage: React.FC = () => {
                           </button>
                         </TooltipSimple>
 
+                                                {/* Dedicated 80mm Statement Print Button */}
+                        <TooltipSimple content="Print 80mm Invoice & Payment Statement" side="top">
+                          <button
+                            type="button"
+                            onClick={() => handlePrintCustomerStatement80mm(cust)}
+                            className="size-9 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 flex items-center justify-center transition-colors cursor-pointer select-none active:scale-95 border border-slate-200/50 dark:border-zinc-700/50 shadow-2xs"
+                            title="Print 80mm Invoice & Payment Statement"
+                          >
+                            <Printer className="size-4 text-slate-600 dark:text-zinc-300 shrink-0" />
+                          </button>
+                        </TooltipSimple>
+
                         {/* Settle Due Balance Icon-Only Button (shown when debt exists) */}
                         {hasDebt && (
                           <TooltipSimple content="Settle Due Balance" side="top">
@@ -962,8 +995,21 @@ export const CustomersPage: React.FC = () => {
                       </span>
                     </TableCell>
                     <TableCell className="text-right">
-                      {/* Vertical 3-Dots Action Dropdown Menu */}
-                      <DropdownMenu modal={false}>
+                      <div className="inline-flex items-center justify-end gap-1">
+                        <TooltipSimple content="Print 80mm Invoice & Payment Statement" side="top">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handlePrintCustomerStatement80mm(cust)}
+                            className="size-8 text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 cursor-pointer"
+                            title="Print 80mm Invoice & Payment Statement"
+                          >
+                            <Printer className="size-4" />
+                          </Button>
+                        </TooltipSimple>
+                        {/* Vertical 3-Dots Action Dropdown Menu */}
+                        <DropdownMenu modal={false}>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="icon" className="size-8 text-slate-500 hover:text-slate-900 dark:hover:text-white">
                             <MoreVertical className="size-4" />
@@ -992,6 +1038,15 @@ export const CustomersPage: React.FC = () => {
                               Settle Due Bills
                             </DropdownMenuItem>
                           )}
+
+                                                    {/* Print 80mm Thermal Statement */}
+                          <DropdownMenuItem
+                            onClick={() => handlePrintCustomerStatement80mm(cust)}
+                            className="gap-2 cursor-pointer text-slate-900 dark:text-zinc-100 font-semibold py-1.5"
+                          >
+                            <Printer className="size-3.5 text-slate-700 dark:text-zinc-300" />
+                            Print 80mm Statement
+                          </DropdownMenuItem>
 
                           {/* Download Statement PDF Action */}
                           <DropdownMenuItem
@@ -1038,6 +1093,7 @@ export const CustomersPage: React.FC = () => {
                           )}
                         </DropdownMenuContent>
                       </DropdownMenu>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))

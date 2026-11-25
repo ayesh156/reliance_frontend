@@ -5,6 +5,7 @@ import { SidebarProvider, SidebarInset, SidebarTrigger } from "./ui/sidebar";
 import { AppSidebar } from "./app-sidebar";
 import { ThemeToggle } from "./ThemeToggle";
 import { NotificationMenu } from "./common/NotificationMenu";
+import { SupplierChequeAlert } from "./common/SupplierChequeAlert";
 import {
   Globe,
   User,
@@ -50,6 +51,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({
         "--sidebar-width": "11rem",
       } as React.CSSProperties}
     >
+      {/* Supplier Cheque 2-Day Advance Persistent Alert for Admin & Staff */}
+      <SupplierChequeAlert />
+
       {/* Official Shadcn Collapsible App Sidebar - Default closed for maximized POS workspace */}
       <AppSidebar />
 

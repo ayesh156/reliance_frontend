@@ -24,7 +24,8 @@ import {
   Tag,
   Check,
   Grid,
-  Eye
+  Eye,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -101,6 +102,17 @@ export const ProductFormPage: React.FC = () => {
   const [variants, setVariants] = useState<VariantItem[]>([]);
   // Controls the full-catalog gallery modal when images overflow
   const [isGalleryModalOpen, setIsGalleryModalOpen] = useState(false);
+
+  // Cost Price Typo Prevention Guard Modal States
+  const [costTypoFlaggedVariants, setCostTypoFlaggedVariants] = useState<Array<{
+    sku: string;
+    size: string;
+    color: string;
+    costPrice: number;
+    wholesalePrice: number;
+    retailPrice: number;
+  }>>([]);
+  const [isCostTypoModalOpen, setIsCostTypoModalOpen] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -345,29 +357,7 @@ export const ProductFormPage: React.FC = () => {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    const formValidation = validateProductForm(name, categoryId, variants.length);
-    if (!formValidation.isValid) {
-      toast.error(formValidation.error);
-      return;
-    }
-
-    const skus = variants.map(v => v.sku.trim().toLowerCase()).filter(Boolean);
-    const duplicateSku = skus.find((item, index) => skus.indexOf(item) !== index);
-    if (duplicateSku) {
-      toast.error(`Duplicate SKU "${duplicateSku.toUpperCase()}" found. Each variant must have a unique SKU.`);
-      return;
-    }
-
-    const barcodes = variants.map(v => v.barcode?.trim()).filter(Boolean);
-    const duplicateBarcode = barcodes.find((item, index) => barcodes.indexOf(item) !== index);
-    if (duplicateBarcode) {
-      toast.error(`Duplicate Barcode "${duplicateBarcode}" found. Each variant must have a unique Barcode.`);
-      return;
-    }
-
+  const executeSaveProduct = async () => {
     setSaving(true);
     try {
       const data = {
@@ -441,6 +431,57 @@ export const ProductFormPage: React.FC = () => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const formValidation = validateProductForm(name, categoryId, variants.length);
+    if (!formValidation.isValid) {
+      toast.error(formValidation.error);
+      return;
+    }
+
+    const skus = variants.map(v => v.sku.trim().toLowerCase()).filter(Boolean);
+    const duplicateSku = skus.find((item, index) => skus.indexOf(item) !== index);
+    if (duplicateSku) {
+      toast.error(`Duplicate SKU "${duplicateSku.toUpperCase()}" found. Each variant must have a unique SKU.`);
+      return;
+    }
+
+    const barcodes = variants.map(v => v.barcode?.trim()).filter(Boolean);
+    const duplicateBarcode = barcodes.find((item, index) => barcodes.indexOf(item) !== index);
+    if (duplicateBarcode) {
+      toast.error(`Duplicate Barcode "${duplicateBarcode}" found. Each variant must have a unique Barcode.`);
+      return;
+    }
+
+    // ⭐ Pre-Save Confirmation Guard:
+    // Check if ANY variant has costPrice > wholesalePrice (when wholesalePrice > 0)
+    // or costPrice > retailPrice (when retailPrice > 0)
+    const flagged = variants
+      .filter(v => {
+        const c = Number(v.costPrice || 0);
+        const w = Number(v.wholesalePrice || 0);
+        const r = Number(v.retailPrice || 0);
+        return (w > 0 && c > w) || (r > 0 && c > r);
+      })
+      .map(v => ({
+        sku: v.sku || 'N/A',
+        size: v.size || 'FREE',
+        color: v.color || 'Default',
+        costPrice: Number(v.costPrice || 0),
+        wholesalePrice: Number(v.wholesalePrice || 0),
+        retailPrice: Number(v.retailPrice || 0),
+      }));
+
+    if (flagged.length > 0) {
+      setCostTypoFlaggedVariants(flagged);
+      setIsCostTypoModalOpen(true);
+      return;
+    }
+
+    await executeSaveProduct();
   };
 
   /**
@@ -1145,6 +1186,84 @@ export const ProductFormPage: React.FC = () => {
               className="h-8 text-xs px-3 cursor-pointer"
             >
               Done / Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ⚠️ Cost Price Typo Confirmation Alert Modal */}
+      <Dialog open={isCostTypoModalOpen} onOpenChange={setIsCostTypoModalOpen}>
+        <DialogContent className="max-w-lg w-[94vw] p-5 sm:p-6 rounded-2xl bg-white dark:bg-zinc-950 border border-amber-300 dark:border-amber-700 shadow-2xl">
+          <DialogHeader className="space-y-2">
+            <div className="flex items-center gap-2.5 text-amber-600 dark:text-amber-400">
+              <div className="size-10 rounded-full bg-amber-100 dark:bg-amber-950/60 flex items-center justify-center shrink-0">
+                <AlertTriangle className="size-5 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div>
+                <DialogTitle className="text-base sm:text-lg font-bold text-slate-900 dark:text-zinc-100">
+                  Cost Price Exceeds Selling Price Alert
+                </DialogTitle>
+                <DialogDescription className="text-xs text-slate-500 dark:text-zinc-400">
+                  Potential typo detected. The entered unit cost price is higher than wholesale/retail prices.
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="my-3 space-y-2">
+            <p className="text-xs text-slate-600 dark:text-zinc-300 leading-relaxed">
+              The following variant(s) have a <strong className="text-rose-600 dark:text-rose-400">Cost Price exceeding their selling prices</strong>. Please verify if an extra zero was entered accidentally to protect COGS and Net Profit reports:
+            </p>
+
+            <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-200 dark:border-zinc-800 divide-y divide-slate-100 dark:divide-zinc-800/80">
+              {costTypoFlaggedVariants.map((item, idx) => (
+                <div key={idx} className="p-2.5 bg-slate-50/70 dark:bg-zinc-900/50 text-xs flex flex-col gap-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono font-bold text-slate-800 dark:text-zinc-200">{item.sku}</span>
+                    <span className="text-[11px] font-medium text-slate-500">
+                      Size: {item.size} • Color: {item.color}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 pt-1 font-mono text-[11px]">
+                    <div className="p-1 rounded bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/40">
+                      <span className="text-[9px] uppercase block font-sans font-semibold">Cost Price</span>
+                      Rs. {item.costPrice.toLocaleString()}
+                    </div>
+                    <div className="p-1 rounded bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border border-amber-200/60 dark:border-amber-900/40">
+                      <span className="text-[9px] uppercase block font-sans font-semibold">Wholesale</span>
+                      Rs. {item.wholesalePrice.toLocaleString()}
+                    </div>
+                    <div className="p-1 rounded bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-900/40">
+                      <span className="text-[9px] uppercase block font-sans font-semibold">Retail</span>
+                      Rs. {item.retailPrice.toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="pt-2 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 border-t border-slate-100 dark:border-zinc-800">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                setIsCostTypoModalOpen(false);
+                await executeSaveProduct();
+              }}
+              disabled={saving}
+              className="text-xs border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-zinc-400 hover:text-slate-900 cursor-pointer"
+            >
+              Save Anyway
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => setIsCostTypoModalOpen(false)}
+              className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold cursor-pointer shadow-sm"
+            >
+              Go Back & Fix
             </Button>
           </div>
         </DialogContent>
