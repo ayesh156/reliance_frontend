@@ -80,7 +80,7 @@ export function useUrlFilterSync(filters: Record<string, string | number | undef
   const [searchParams, setSearchParams] = useSearchParams();
   const serializedEntries = Object.entries(filters)
     .filter(([, value]) => value !== undefined && value !== null && value !== '')
-    .map(([key, value]) => [key, String(value)] as const);
+    .map(([key, value]) => [key, String(value)] as [string, string]);
   const nextQueryString = new URLSearchParams(serializedEntries).toString();
 
   useEffect(() => {
