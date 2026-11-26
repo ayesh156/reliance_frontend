@@ -1,4 +1,7 @@
 {
+  "redirects": [
+    { "source": "/", "destination": "/demo/apparel-erp", "permanent": false }
+  ],
   "rewrites": [
     { "source": "/demo/apparel-erp/assets/(.*)", "destination": "/assets/$1" },
     { "source": "/demo/apparel-erp/images/(.*)", "destination": "/images/$1" },

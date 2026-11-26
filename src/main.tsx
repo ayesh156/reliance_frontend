@@ -52,8 +52,9 @@ window.addEventListener('error', (event) => {
  */
 const PENDING_UPDATE_KEY = 'reliance_pending_build_update';
 const RELOAD_GUARD_KEY = 'reliance_deferred_reload_executed';
+const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true';
 
-if (typeof window !== 'undefined' && import.meta.env.PROD) {
+if (typeof window !== 'undefined' && import.meta.env.PROD && !isDemoMode) {
   const pendingUpdate = localStorage.getItem(PENDING_UPDATE_KEY);
   const alreadyReloaded = sessionStorage.getItem(RELOAD_GUARD_KEY);
 
@@ -90,11 +91,11 @@ if (typeof window !== 'undefined' && import.meta.env.PROD) {
 
 /**
  * Enterprise PWA Service Worker Background Update & App Shell Lifecycle
- * - Service Worker registration is strictly restricted to PRODUCTION environments.
+ * - Service Worker registration is strictly restricted to non-demo PRODUCTION environments.
  * - During active user sessions, updates are deferred to avoid discarding unsaved POS bills.
  * - New builds are activated seamlessly on the next natural user reload.
  */
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+if (import.meta.env.PROD && !isDemoMode && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
       .register('/sw.js', { updateViaCache: 'none' })
@@ -153,8 +154,9 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   });
 }
 
-// In local development, proactively unregister any previously registered service workers
-if (!import.meta.env.PROD && 'serviceWorker' in navigator) {
+// In local development or Demo Mode, proactively unregister any previously registered service workers
+// so Workbox does not throw non-precached-url errors under the /demo/apparel-erp subpath
+if ((!import.meta.env.PROD || isDemoMode) && 'serviceWorker' in navigator) {
   navigator.serviceWorker.getRegistrations().then((registrations) => {
     for (const registration of registrations) {
       registration.unregister().catch(() => {});
