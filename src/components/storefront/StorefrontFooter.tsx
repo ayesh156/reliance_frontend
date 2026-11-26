@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { BRAND } from '../../config/brand';
 import {
   MapPin,
   Phone,
@@ -89,10 +90,10 @@ export const StorefrontFooter: React.FC = () => {
               </div>
               <div>
                 <span className="font-serif text-base font-bold tracking-[0.25em] text-zinc-950 dark:text-white uppercase block">
-                  RELIANCE
+                  {BRAND.shortName}
                 </span>
                 <span className="text-[8px] tracking-[0.3em] text-zinc-500 dark:text-zinc-400 uppercase block font-light">
-                  Branded Mens Clothing
+                  {BRAND.tagline}
                 </span>
               </div>
             </Link>
@@ -189,7 +190,7 @@ export const StorefrontFooter: React.FC = () => {
               <div className="flex items-start gap-2.5">
                 <MapPin className="w-3.5 h-3.5 text-zinc-500 dark:text-zinc-400 shrink-0 mt-0.5" />
                 <span className="text-zinc-800 dark:text-zinc-200">
-                  Makandura, Matara, Sri Lanka, 81070
+                  {BRAND.shortAddress}
                 </span>
               </div>
 
@@ -197,16 +198,10 @@ export const StorefrontFooter: React.FC = () => {
                 <Phone className="w-3.5 h-3.5 text-zinc-500 dark:text-zinc-400 shrink-0" />
                 <div className="flex flex-col">
                   <a
-                    href="tel:0711350123"
+                    href={`tel:${BRAND.primaryPhone.replace(/\s+/g, '')}`}
                     className="text-zinc-800 hover:text-zinc-950 dark:text-zinc-200 dark:hover:text-white transition-colors"
                   >
-                    071 135 0123
-                  </a>
-                  <a
-                    href="tel:+94711350123"
-                    className="text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-white transition-colors text-[11px]"
-                  >
-                    +94 71 135 0123
+                    {BRAND.primaryPhone}
                   </a>
                 </div>
               </div>
@@ -214,22 +209,22 @@ export const StorefrontFooter: React.FC = () => {
               <div className="flex items-center gap-2.5">
                 <Mail className="w-3.5 h-3.5 text-zinc-500 dark:text-zinc-400 shrink-0" />
                 <a
-                  href="mailto:ravindrakumarash@gmail.com"
+                  href={`mailto:${BRAND.email}`}
                   className="text-zinc-800 hover:text-zinc-950 dark:text-zinc-200 dark:hover:text-white transition-colors break-all"
                 >
-                  ravindrakumarash@gmail.com
+                  {BRAND.email}
                 </a>
               </div>
 
               <div className="flex items-center gap-2.5">
                 <Globe className="w-3.5 h-3.5 text-zinc-500 dark:text-zinc-400 shrink-0" />
                 <a
-                  href="https://ravindrakumarash.lk"
+                  href={BRAND.websiteHref}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-zinc-800 hover:text-zinc-950 dark:text-zinc-200 dark:hover:text-white transition-colors"
                 >
-                  ravindrakumarash.lk
+                  {BRAND.websiteUrl}
                 </a>
               </div>
             </div>
@@ -241,7 +236,7 @@ export const StorefrontFooter: React.FC = () => {
       <div className="border-t border-zinc-200 dark:border-zinc-900/80 py-6 px-4 sm:px-6 lg:px-8 bg-zinc-200/60 dark:bg-black">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-[10px] uppercase tracking-widest text-zinc-600 dark:text-zinc-400">
           <div>
-            &copy; {new Date().getFullYear()} Reliance (Branded Mens Clothing). All Rights Reserved.
+            &copy; {new Date().getFullYear()} {BRAND.footerCopyright}. All Rights Reserved.
           </div>
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">

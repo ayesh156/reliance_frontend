@@ -11,6 +11,7 @@ import 'react-toastify/dist/ReactToastify.css';
 import { TooltipProvider } from './components/ui/tooltip';
 import { OfflineSentinel } from './components/common/OfflineSentinel';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { DemoBanner } from './components/DemoBanner';
 import { AttributesPage } from './pages/AttributesPage';
 import { useVersionCheck } from './hooks/useVersionCheck';
 import { getFirstAllowedRoute } from './utils/navigation';
@@ -131,6 +132,16 @@ function AdminPage({ children }: { children: React.ReactNode }) {
 export function App() {
   useVersionCheck();
 
+  const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true';
+  const rawDemoSubpath = import.meta.env.VITE_DEMO_SUBPATH || '/demo/apparel-erp';
+  const routerBasename = isDemoMode ? rawDemoSubpath.replace(/\/+$/, '') : undefined;
+
+  useEffect(() => {
+    if (isDemoMode) {
+      document.title = 'Apex Apparel ERP — Live Demo | Nebula Infinite';
+    }
+  }, [isDemoMode]);
+
   return (
     <ThemeProvider>
       <AuthProvider>
@@ -138,7 +149,11 @@ export function App() {
           <TooltipProvider delayDuration={150}>
           <OfflineSentinel />
           <ThemedToastContainer />
-          <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <BrowserRouter
+            basename={routerBasename}
+            future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+          >
+            <DemoBanner />
             <ScrollToTop />
             <RouteTracker />
             <ErrorBoundary>

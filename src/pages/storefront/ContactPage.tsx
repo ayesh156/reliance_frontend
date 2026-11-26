@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useTheme } from '../../contexts/ThemeContext';
 import { FALLBACK_IMAGE } from '../../lib/utils';
 import { openWhatsAppChat } from '../../utils/whatsapp';
+import { BRAND } from '../../config/brand';
 import {
   MapPin,
   Phone,
@@ -73,8 +74,8 @@ export const ContactPage: React.FC = () => {
   };
 
   const handleWhatsAppDirect = () => {
-    const rawMessage = `Hello Reliance Atelier,\n\nName: ${name || 'Prospective Client'}\nPhone: ${phone || 'Not provided'}\nSubject: ${subject}\nMessage: ${message || 'I would like to inquire about Reliance menswear collections.'}`;
-    openWhatsAppChat('94711350123', rawMessage);
+    const rawMessage = `Hello ${BRAND.shortName},\n\nName: ${name || 'Prospective Client'}\nPhone: ${phone || 'Not provided'}\nSubject: ${subject}\nMessage: ${message || `I would like to inquire about ${BRAND.shortName} menswear collections.`}`;
+    openWhatsAppChat(BRAND.whatsappNumber, rawMessage);
   };
 
   return (
@@ -116,13 +117,13 @@ export const ContactPage: React.FC = () => {
             <div className="p-3.5 sm:p-6 md:p-8 bg-white/80 dark:bg-zinc-900/60 backdrop-blur-md border border-[#e5e5e0]/80 dark:border-zinc-900 rounded-sm space-y-5 sm:space-y-6 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
               <div>
                 <span className="text-[10px] uppercase tracking-[0.3em] text-zinc-500 font-mono block mb-1">
-                  Reliance Brand Headquarters
+                  {BRAND.shortName} Brand Headquarters
                 </span>
                 <h3 className="font-serif text-xl sm:text-2xl font-bold uppercase tracking-wider text-[#09090b] dark:text-white">
-                  Reliance
+                  {BRAND.shortName}
                 </h3>
                 <p className="text-[10px] uppercase tracking-[0.25em] text-emerald-600 dark:text-emerald-400 font-mono mt-0.5">
-                  Branded Mens Clothing
+                  {BRAND.tagline}
                 </p>
               </div>
 
@@ -137,9 +138,8 @@ export const ContactPage: React.FC = () => {
                       Atelier &amp; Manufacturing Facility
                     </span>
                     <p className="text-zinc-950 dark:text-zinc-100 font-medium leading-relaxed">
-                      Makandura, Matara, Sri Lanka
+                      {BRAND.shortAddress}
                     </p>
-                    <p className="text-zinc-500 font-mono text-[11px]">Postal Code: 81070</p>
                   </div>
                 </div>
 
@@ -153,16 +153,10 @@ export const ContactPage: React.FC = () => {
                       Primary Concierge Line
                     </span>
                     <a
-                      href="tel:0711350123"
+                      href={`tel:${BRAND.primaryPhone.replace(/\s+/g, '')}`}
                       className="text-zinc-950 dark:text-zinc-100 hover:text-emerald-600 dark:hover:text-emerald-400 font-mono font-medium transition-colors"
                     >
-                      071 135 0123
-                    </a>
-                    <a
-                      href="tel:+94711350123"
-                      className="text-zinc-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-white font-mono text-[11px] transition-colors"
-                    >
-                      +94 71 135 0123 (International)
+                      {BRAND.primaryPhone}
                     </a>
                   </div>
                 </div>
@@ -177,10 +171,10 @@ export const ContactPage: React.FC = () => {
                       Executive / Inquiry Email
                     </span>
                     <a
-                      href="mailto:ravindrakumarash@gmail.com"
+                      href={`mailto:${BRAND.email}`}
                       className="text-zinc-950 dark:text-zinc-100 hover:text-emerald-600 dark:hover:text-emerald-400 break-all transition-colors font-mono"
                     >
-                      ravindrakumarash@gmail.com
+                      {BRAND.email}
                     </a>
                   </div>
                 </div>
@@ -195,12 +189,12 @@ export const ContactPage: React.FC = () => {
                       Official Online Portal
                     </span>
                     <a
-                      href="https://ravindrakumarash.lk"
+                      href={BRAND.websiteHref}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-zinc-950 dark:text-zinc-100 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors font-mono"
                     >
-                      ravindrakumarash.lk
+                      {BRAND.websiteUrl}
                     </a>
                   </div>
                 </div>

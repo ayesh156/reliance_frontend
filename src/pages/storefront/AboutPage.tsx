@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { FALLBACK_IMAGE } from '../../lib/utils';
+import { BRAND } from '../../config/brand';
 import {
   Sparkles,
   Scissors,
@@ -50,7 +51,7 @@ export const AboutPage: React.FC = () => {
           </div>
 
           <h1 className="font-serif text-3xl sm:text-5xl md:text-6xl font-bold tracking-[0.2em] uppercase text-[#09090b] dark:text-white leading-tight mb-6">
-            The Reliance Saga
+            The {BRAND.shortName} Saga
           </h1>
 
           <p className="text-xs sm:text-sm text-zinc-700 dark:text-zinc-300 uppercase tracking-[0.25em] font-light max-w-2xl mx-auto leading-relaxed">

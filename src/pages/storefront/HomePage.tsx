@@ -8,6 +8,7 @@ import { StorefrontProductCard } from '../../components/storefront/StorefrontPro
 import { openWhatsAppChat } from '../../utils/whatsapp';
 import { preloadCriticalImageAsset } from '../../utils/imagePreloader';
 import { usePriceTier } from '../../utils/priceTier';
+import { BRAND } from '../../config/brand';
 import {
   ArrowRight,
   Sparkles,
@@ -136,7 +137,7 @@ export const HomePage: React.FC = () => {
 
           {/* Main Cinematic Title */}
           <h1 className="font-serif text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-[0.2em] uppercase text-[#09090b] dark:text-white leading-tight sm:leading-tight mb-6">
-            RELIANCE
+            {BRAND.shortName}
             <span className="block text-xl sm:text-2xl md:text-3xl font-light tracking-[0.35em] text-zinc-700 dark:text-zinc-300 mt-3">
               DENIM & HEAVYWEIGHT TEES
             </span>

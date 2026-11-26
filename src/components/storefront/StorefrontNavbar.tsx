@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { ThemeToggle, ThemeSegmentedSwitch } from '../ThemeToggle';
 import { usePriceTier } from '../../utils/priceTier';
 import { ShareCatalogModal } from './ShareCatalogModal';
+import { BRAND } from '../../config/brand';
 import {
   Lock,
   Menu,
@@ -113,10 +114,10 @@ export const StorefrontNavbar: React.FC = () => {
               </div>
               <div className="shrink-0">
                 <span className="block font-serif text-base sm:text-xl font-bold tracking-[0.22em] sm:tracking-[0.26em] text-zinc-950 dark:text-white uppercase group-hover:text-zinc-700 dark:group-hover:text-zinc-200 transition-colors">
-                  RELIANCE
+                  {BRAND.shortName}
                 </span>
                 <span className="block text-[7.5px] sm:text-[9px] font-light tracking-[0.28em] sm:tracking-[0.32em] text-zinc-600 dark:text-zinc-400 uppercase">
-                  Branded Mens Clothing
+                  {BRAND.tagline}
                 </span>
               </div>
             </Link>

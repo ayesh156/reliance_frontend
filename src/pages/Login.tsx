@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Loader2, LogIn, Eye, EyeOff, ShieldCheck, ArrowLeft } from 'lucide-react';
+import { Loader2, LogIn, Eye, EyeOff, ShieldCheck, ArrowLeft, UserCheck } from 'lucide-react';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { getFirstAllowedRoute } from '../utils/navigation';
+import { BRAND, IS_DEMO_MODE } from '../config/brand';
 
 /**
  * Login — Secure System Authorization Portal for Staff & POS Management.
@@ -62,6 +63,21 @@ export const Login: React.FC = () => {
     }
   };
 
+  const handleDemoRoleLogin = async (demoEmail: string) => {
+    setLoading(true);
+    setError('');
+    try {
+      await login(demoEmail, 'demo1234');
+      const cached = localStorage.getItem('auth_user');
+      const parsedUser = cached ? JSON.parse(cached) : user;
+      navigate(getFirstAllowedRoute(parsedUser), { replace: true });
+    } catch (err: any) {
+      setError(err.message || 'Demo login failed.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="relative min-h-screen bg-slate-50 dark:bg-zinc-950 text-slate-900 dark:text-zinc-100 flex items-center justify-center p-4 transition-colors duration-300">
       {/* ── Top-Right Floating Quick-Access Theme Toggle (Fix Daylight Glare) ── */}
@@ -73,10 +89,10 @@ export const Login: React.FC = () => {
         {/* Brand */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white font-display">
-            RELIANCE<span className="text-emerald-500">.</span>
+            {BRAND.shortName}<span className="text-emerald-500">.</span>
           </h1>
           <p className="text-slate-500 dark:text-zinc-500 text-xs uppercase tracking-widest mt-1.5 font-medium">
-            Staff &amp; POS Management Portal
+            {BRAND.portalSubtitle}
           </p>
         </div>
 
@@ -108,7 +124,7 @@ export const Login: React.FC = () => {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="staff@reliance.lk"
+                placeholder={BRAND.defaultStaffEmail}
                 className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50/80 dark:bg-zinc-950/60 border border-slate-200 dark:border-zinc-800 text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-600 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500/60 transition-all shadow-sm"
                 autoComplete="email"
               />
@@ -152,6 +168,41 @@ export const Login: React.FC = () => {
               {loading ? 'Authenticating...' : 'Sign In'}
             </button>
           </form>
+
+          {IS_DEMO_MODE && (
+            <div className="mt-6 pt-5 border-t border-slate-200 dark:border-zinc-800 space-y-2.5">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                <UserCheck className="w-3.5 h-3.5" />
+                <span>One-Click Demo Access</span>
+              </div>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => handleDemoRoleLogin('admin@nebulainfinite.com')}
+                className="w-full px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold uppercase tracking-wider shadow-md shadow-emerald-600/20 transition-all cursor-pointer disabled:opacity-50"
+              >
+                Admin (Full ERP Access)
+              </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => handleDemoRoleLogin('cashier@nebulainfinite.com')}
+                  className="px-2.5 py-2 rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950/60 hover:border-emerald-500/50 hover:bg-emerald-500/10 text-xs font-semibold text-slate-800 dark:text-zinc-200 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  Cashier
+                </button>
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => handleDemoRoleLogin('rep@nebulainfinite.com')}
+                  className="px-2.5 py-2 rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950/60 hover:border-emerald-500/50 hover:bg-emerald-500/10 text-xs font-semibold text-slate-800 dark:text-zinc-200 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  Sales Rep
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="text-center mt-6 space-y-2">
@@ -163,7 +214,7 @@ export const Login: React.FC = () => {
             <span>Return to Luxury Storefront</span>
           </Link>
           <p className="text-slate-400 dark:text-zinc-600 text-[11px]">
-            Reliance Retail &amp; Wholesale POS &middot; Enterprise Security
+            {BRAND.appSuite} &middot; Enterprise Security
           </p>
         </div>
       </div>

@@ -41,7 +41,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from '../components/ui/dropdown-menu';
-import { get, post, del } from '../lib/api';
+import { get, post, del, downloadBlob } from '../lib/api';
 import { TablePagination } from '../components/common/TablePagination';
 import { toast } from 'react-toastify';
 import {
@@ -603,53 +603,7 @@ export const BuyRawMaterialsPage: React.FC = () => {
     try {
       setDownloadingId(purchase.id);
       
-      // LocalStorage හි ඇති සියලුම auth keys පරීක්ෂා කිරීම
-      const token =
-        localStorage.getItem('token') ||
-        localStorage.getItem('authToken') ||
-        localStorage.getItem('access_token') ||
-        localStorage.getItem('auth_token');
-
-      // Base URL එක නිවැරදිව ලබා ගැනීම (Vite env හෝ current origin)
-      const baseUrl = import.meta.env.VITE_API_URL || '/api';
-      const cleanBase = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-      const downloadUrl = `${cleanBase}/buy-raw-materials/${purchase.id}/pdf`;
-
-      const response = await fetch(downloadUrl, {
-        method: 'GET',
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-
-      const contentType = response.headers.get('content-type') || '';
-
-      // යම් හෙයකින් server එකෙන් Error එකක් ආවොත් එය PDF ලෙස save වීම වළක්වා alert එකක් පෙන්වීම
-      if (!response.ok || !contentType.includes('application/pdf')) {
-        let errorText = 'Failed to generate PDF';
-        try {
-          const errJson = await response.json();
-          errorText = errJson.message || errJson.error || errorText;
-        } catch {
-          errorText = await response.text();
-        }
-        throw new Error(`Server returned error: ${errorText.slice(0, 120)}`);
-      }
-
-      const blob = await response.blob();
-
-      if (blob.size < 2000) {
-        throw new Error('Downloaded file is too small, likely an error response');
-      }
-
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `GRN-${purchase.invoiceNumber || purchase.id}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
+      await downloadBlob(`/buy-raw-materials/${purchase.id}/pdf`, `GRN-${purchase.invoiceNumber || purchase.id}.pdf`);
       toast.success('GRN Note (A4 PDF) downloaded successfully');
     } catch (err: any) {
       toast.error(err.message || 'Error downloading GRN PDF');

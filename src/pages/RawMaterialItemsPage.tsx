@@ -687,12 +687,12 @@ export const RawMaterialItemsPage: React.FC = () => {
                       </div>
                       <div className="mt-1">
                         <span className={`font-mono text-sm sm:text-base font-extrabold ${isLow ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>
-                          {item.currentStock.toLocaleString()}
+                          {Number(item.currentStock || 0).toLocaleString()}
                         </span>
-                        <span className="text-[10px] ml-1 text-slate-500 font-medium">{item.unit.toLowerCase()}</span>
+                        <span className="text-[10px] ml-1 text-slate-500 font-medium">{(item.unit || 'UNITS').toLowerCase()}</span>
                       </div>
                       <span className="text-[10px] text-slate-400 dark:text-zinc-500 mt-0.5 block">
-                        Min threshold: {item.alertThreshold} {item.unit.toLowerCase()}
+                        Min threshold: {Number(item.alertThreshold || 0)} {(item.unit || 'UNITS').toLowerCase()}
                       </span>
                     </div>
 
@@ -703,11 +703,11 @@ export const RawMaterialItemsPage: React.FC = () => {
                       </span>
                       <div className="mt-1">
                         <span className="font-mono text-sm sm:text-base font-bold text-slate-900 dark:text-white">
-                          Rs. {item.unitCostAverage.toLocaleString()}
+                          Rs. {Number(item.unitCostAverage || 0).toLocaleString()}
                         </span>
                       </div>
-                      <span className="text-[10px] text-slate-500 dark:text-zinc-400 font-mono mt-0.5 block truncate" title={`Valuation: Rs. ${totalValuation.toLocaleString()}`}>
-                        Valuation: Rs. {totalValuation.toLocaleString()}
+                      <span className="text-[10px] text-slate-500 dark:text-zinc-400 font-mono mt-0.5 block truncate" title={`Valuation: Rs. ${Number(totalValuation || 0).toLocaleString()}`}>
+                        Valuation: Rs. {Number(totalValuation || 0).toLocaleString()}
                       </span>
                     </div>
                   </div>
@@ -839,14 +839,14 @@ export const RawMaterialItemsPage: React.FC = () => {
                       </TableCell>
                       <TableCell>
                         <span className={`text-xs font-bold ${isLow ? 'text-rose-600' : 'text-slate-900 dark:text-white'}`}>
-                          {item.currentStock.toLocaleString()} {item.unit.toLowerCase()}
+                          {Number(item.currentStock || 0).toLocaleString()} {(item.unit || 'UNITS').toLowerCase()}
                         </span>
                         <span className="text-[10px] text-slate-400 block">
-                          Min threshold: {item.alertThreshold}
+                          Min threshold: {Number(item.alertThreshold || 0)}
                         </span>
                       </TableCell>
                       <TableCell className="text-xs font-medium text-slate-700 dark:text-zinc-300">
-                        Rs. {item.unitCostAverage.toLocaleString()}
+                        Rs. {Number(item.unitCostAverage || 0).toLocaleString()}
                       </TableCell>
                       <TableCell className="text-center">
                         {isLow ? (

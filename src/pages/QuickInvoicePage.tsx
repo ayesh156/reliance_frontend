@@ -15,7 +15,7 @@ import {
   Drawer,
   DrawerContent,
 } from '../components/ui/drawer';
-import { get, post, put } from '../lib/api';
+import { get, post, put, downloadBlob } from '../lib/api';
 import { toast } from 'react-toastify';
 import {
   printInvoiceDirectly,
@@ -2095,36 +2095,12 @@ export const QuickInvoicePage: React.FC = () => {
   };
 
   /**
-   * Stream generated Invoice PDF directly from backend endpoint with auth token fallback
+   * Stream generated Invoice PDF via downloadBlob (routes to client-side jsPDF in Demo Mode)
    */
   const handleDownloadPdf = async (invoiceId: number) => {
     try {
       toast.info(`Generating Invoice #INV${invoiceId} PDF...`);
-      const apiHost = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-      const token = localStorage.getItem('token') || localStorage.getItem('auth_token') || sessionStorage.getItem('token');
-
-      const response = await fetch(`${apiHost}/orders/invoices/${invoiceId}/pdf`, {
-        method: 'GET',
-        credentials: 'include',
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => null);
-        throw new Error(errJson?.message || `HTTP error ${response.status}`);
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Invoice-INV${invoiceId}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
+      await downloadBlob(`/orders/invoices/${invoiceId}/pdf`, `Invoice-INV${invoiceId}.pdf`);
       toast.success(`Invoice #INV${invoiceId} PDF downloaded!`);
     } catch (err: any) {
       console.error('PDF download error:', err);

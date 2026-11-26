@@ -1117,7 +1117,7 @@ export const CuttingListPage: React.FC = () => {
       list = list.filter(
         (r) =>
           r.productionNo.toLowerCase().includes(q) ||
-          r.product.name.toLowerCase().includes(q) ||
+          (r.product?.name || '').toLowerCase().includes(q) ||
           (r.reason && r.reason.toLowerCase().includes(q)) ||
           (r.variant?.sku && r.variant.sku.toLowerCase().includes(q)) ||
           (r.variant?.size && r.variant.size.toLowerCase().includes(q)) ||
@@ -1187,10 +1187,10 @@ export const CuttingListPage: React.FC = () => {
     }>();
 
     filteredRecords.forEach((r) => {
-      const pId = r.product.id;
+      const pId = r.product?.id ?? r.productId ?? 0;
       const current = map.get(pId) || {
         productId: pId,
-        productName: r.product.name,
+        productName: r.product?.name ?? 'Unknown Product',
         image: null,
         totalUnits: 0,
         batchCount: 0,
@@ -1336,8 +1336,8 @@ export const CuttingListPage: React.FC = () => {
         return {
           usageId: u.id,
           rawMaterialId: u.rawMaterialId,
-          materialName: u.rawMaterial.name,
-          unit: u.rawMaterial.unit,
+          materialName: u.rawMaterial?.name ?? 'Unknown Material',
+          unit: u.rawMaterial?.unit ?? '',
           issuedQty: u.issuedQty,
           totalCutQty,
           currentReturnedQty: u.returnedQty,
@@ -2054,9 +2054,9 @@ export const CuttingListPage: React.FC = () => {
                             <div className="space-y-0.5">
                               {order.materialUsages.slice(0, 2).map((usage) => (
                                 <div key={usage.id} className="text-slate-700 dark:text-zinc-300 font-mono text-xs truncate max-w-[150px]">
-                                  <span className="font-semibold text-slate-900 dark:text-white">{usage.rawMaterial.name}</span>
+                                  <span className="font-semibold text-slate-900 dark:text-white">{usage.rawMaterial?.name ?? 'Material'}</span>
                                   {' · '}
-                                  <span className="font-bold text-amber-700 dark:text-amber-400">{formatQty(usage.netConsumedQty)} {usage.rawMaterial.unit}</span>
+                                  <span className="font-bold text-amber-700 dark:text-amber-400">{formatQty(usage.netConsumedQty)} {usage.rawMaterial?.unit ?? ''}</span>
                                 </div>
                               ))}
                               {order.materialUsages.length > 2 && (
@@ -2247,11 +2247,11 @@ export const CuttingListPage: React.FC = () => {
                         <div className="space-y-1">
                           {order.materialUsages.map((usage) => (
                             <div key={usage.id} className="text-xs font-mono text-slate-700 dark:text-zinc-300 bg-slate-50 dark:bg-zinc-800/50 p-2 rounded-lg border border-slate-100 dark:border-zinc-800">
-                              <span className="font-semibold text-slate-900 dark:text-white">{usage.rawMaterial.name}</span>
+                              <span className="font-semibold text-slate-900 dark:text-white">{usage.rawMaterial?.name ?? 'Material'}</span>
                               <span className="text-slate-400 mx-1.5">·</span>
                               <span>{usage.piecesCount || 0} Rolls</span>
                               <span className="text-slate-400 mx-1.5">·</span>
-                              <span className="font-bold text-slate-900 dark:text-white">{formatQty(usage.netConsumedQty)} {usage.rawMaterial.unit}</span>
+                              <span className="font-bold text-slate-900 dark:text-white">{formatQty(usage.netConsumedQty)} {usage.rawMaterial?.unit ?? ''}</span>
                             </div>
                           ))}
                         </div>

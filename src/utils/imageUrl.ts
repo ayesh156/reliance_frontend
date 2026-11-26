@@ -57,10 +57,23 @@ export function normalizeImageUrl(url?: string | null): string {
 }
 
 /**
- * Global Fallback Image for storefront and product displays.
- * Resolves to the branded high-res Reliance placeholder.
+ * Prepends Vite `BASE_URL` (e.g. `/demo/apparel-erp/` in Demo Mode) to root-relative
+ * static asset paths (`/images/...`, `/icons/...`) without double-prefixing.
  */
-export const FALLBACK_IMAGE = '/images/reliance-placeholder.jpg';
+export function withBaseUrl(assetPath: string): string {
+  const base = (typeof import.meta !== 'undefined' && import.meta.env?.BASE_URL) || '/';
+  const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+  if (normalizedBase === '/' || assetPath.startsWith(normalizedBase)) {
+    return assetPath;
+  }
+  return `${normalizedBase}${assetPath.replace(/^\/+/, '')}`;
+}
+
+/**
+ * Global Fallback Image for storefront and product displays.
+ * Resolves to the branded high-res placeholder.
+ */
+export const FALLBACK_IMAGE = withBaseUrl('/images/reliance-placeholder.jpg');
 
 /**
  * Global silent image error fallback handler for product components and storefront:
@@ -90,16 +103,18 @@ export function resolveImageUrl(path?: string | null): string {
   const normalized = normalizeImageUrl(path);
   if (!normalized) return '';
 
-  // Return direct URLs and frontend public static assets as-is
+  // Return direct URLs as-is, and prefix local static assets with Vite BASE_URL
   if (
     normalized.startsWith('http://') ||
     normalized.startsWith('https://') ||
     normalized.startsWith('data:') ||
-    normalized.startsWith('blob:') ||
-    normalized.startsWith('/images/') ||
-    normalized.startsWith('/icons/')
+    normalized.startsWith('blob:')
   ) {
     return normalized;
+  }
+
+  if (normalized.startsWith('/images/') || normalized.startsWith('/icons/')) {
+    return withBaseUrl(normalized);
   }
 
   const apiHost = import.meta.env.VITE_API_URL

@@ -23,6 +23,8 @@
  *    - Automatic reconnection on network transport interruptions with bounded backoff.
  */
 
+import { IS_DEMO_MODE } from '../config/brand';
+
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 export type SseEventHandler = (payload: any) => void;
@@ -248,7 +250,7 @@ export class SseSyncManager {
    * Connect to the backend SSE stream endpoint with token and channel
    */
   public connect(token?: string | null, channel = 'global'): void {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || IS_DEMO_MODE) return;
 
     const authToken = token || localStorage.getItem('auth_token');
     if (!authToken) {

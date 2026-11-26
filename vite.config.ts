@@ -20,8 +20,20 @@ import path from 'path'
  *   Configured with `navigateFallbackDenylist: [/^\/api/]`. This ensures that all backend API requests
  *   (`/api/*`) bypass the SPA app shell fallback and are routed directly to the backend server.
  */
+const isDemoMode = process.env.VITE_DEMO_MODE === 'true';
+const rawDemoSubpath = process.env.VITE_DEMO_SUBPATH || '/demo/apparel-erp/';
+const normalizedDemoBase = rawDemoSubpath.endsWith('/') ? rawDemoSubpath : `${rawDemoSubpath}/`;
+const base = isDemoMode ? normalizedDemoBase : '/';
+
+// Ensure %VITE_APP_TITLE% in index.html resolves cleanly in both demo and production builds
+if (!process.env.VITE_APP_TITLE) {
+  process.env.VITE_APP_TITLE = isDemoMode
+    ? 'Apex Apparel ERP — Live Demo | Nebula Infinite'
+    : 'Reliance - Retail & Wholesale Store';
+}
+
 export default defineConfig({
-  base: '/',
+  base,
   plugins: [
     react(),
     VitePWA({
@@ -36,34 +48,34 @@ export default defineConfig({
         clientsClaim: false,
         cleanupOutdatedCaches: true,
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-        navigateFallback: '/index.html',
+        navigateFallback: `${base}index.html`,
         navigateFallbackDenylist: [/^\/api/],
         globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,jpeg,woff2}'],
         globIgnores: ['**/version.json'],
       },
       manifest: {
-        short_name: 'Reliance POS',
-        name: 'Reliance Clothing ERP & POS Suite',
+        short_name: isDemoMode ? 'Apex Apparel ERP' : 'Reliance POS',
+        name: isDemoMode ? 'Apex Apparel ERP — Live Demo' : 'Reliance Clothing ERP & POS Suite',
         icons: [
           {
-            src: '/icons/icon-192x192.png',
+            src: `${base}icons/icon-192x192.png`,
             type: 'image/png',
             sizes: '192x192',
             purpose: 'any maskable',
           },
           {
-            src: '/icons/icon-512x512.png',
+            src: `${base}icons/icon-512x512.png`,
             type: 'image/png',
             sizes: '512x512',
             purpose: 'any maskable',
           },
         ],
-        start_url: '/',
+        start_url: base,
         background_color: '#09090b',
         theme_color: '#09090b',
         display: 'standalone',
         orientation: 'portrait-primary',
-        scope: '/',
+        scope: base,
       },
     }),
   ],

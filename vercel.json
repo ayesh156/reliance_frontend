@@ -1,5 +1,11 @@
 {
   "rewrites": [
+    { "source": "/demo/apparel-erp/assets/(.*)", "destination": "/assets/$1" },
+    { "source": "/demo/apparel-erp/images/(.*)", "destination": "/images/$1" },
+    { "source": "/demo/apparel-erp/icons/(.*)", "destination": "/icons/$1" },
+    { "source": "/demo/apparel-erp/(.*\\..*)", "destination": "/$1" },
+    { "source": "/demo/apparel-erp", "destination": "/index.html" },
+    { "source": "/demo/apparel-erp/(.*)", "destination": "/index.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

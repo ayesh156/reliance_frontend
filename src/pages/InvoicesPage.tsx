@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useUrlFilterSync, getInitialDateFromUrl, formatDateForUrl } from '../hooks/useUrlFilterSync';
-import { get, del, post, patch } from '../lib/api';
+import { get, del, post, patch, downloadBlob } from '../lib/api';
 import { DateTimePicker } from '../components/ui/date-time-picker';
 import { DatePicker } from '../components/ui/date-picker';
 import { toast } from 'react-toastify';
@@ -856,35 +856,11 @@ export const InvoicesPage: React.FC = () => {
     }
   };
 
-  // Handle backend PDF streaming download with cross-storage auth token fallback
+  // Handle backend PDF streaming download (or client-side jsPDF in Demo Mode)
   const handleDownloadPdf = async (invoiceId: number) => {
     try {
       toast.info(`Generating Invoice #INV${invoiceId} PDF...`);
-      const apiHost = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-      const token = localStorage.getItem('token') || localStorage.getItem('auth_token') || sessionStorage.getItem('token');
-
-      const response = await fetch(`${apiHost}/orders/invoices/${invoiceId}/pdf`, {
-        method: 'GET',
-        credentials: 'include', // Ensures HTTP-only auth cookies are passed automatically
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => null);
-        throw new Error(errJson?.message || `HTTP error ${response.status}`);
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Invoice-INV${invoiceId}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
+      await downloadBlob(`/orders/invoices/${invoiceId}/pdf`, `Invoice-INV${invoiceId}.pdf`);
       toast.success(`Invoice #INV${invoiceId} PDF downloaded!`);
     } catch (err: any) {
       toast.error(err.message || 'Failed to download PDF');

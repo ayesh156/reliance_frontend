@@ -21,6 +21,7 @@ import {
   ReceiptText,
 } from "lucide-react"
 import { useAuth } from "../contexts/AuthContext"
+import { BRAND } from "../config/brand"
 
 import {
   Sidebar,
@@ -121,6 +122,10 @@ export function AppSidebar() {
       return permissions.includes(item.permission)
     }
 
+    if (userRole !== "ADMIN" && item.permission) {
+      return permissions.includes(item.permission)
+    }
+
     return true
   }
 
@@ -138,7 +143,7 @@ export function AppSidebar() {
           <div className="flex size-6 shrink-0 items-center justify-center overflow-hidden shadow-sm">
             <img 
               src="/images/logo.jpg" 
-              alt="Reliance Logo" 
+              alt={`${BRAND.shortName} Logo`} 
               loading="lazy"
               referrerPolicy="no-referrer"
               className="w-full h-full object-contain pointer-events-none" 
@@ -146,10 +151,10 @@ export function AppSidebar() {
           </div>
           <div className="grid flex-1 text-left leading-tight group-data-[collapsible=icon]:hidden">
             <span className="truncate font-display font-bold tracking-[0.16em] uppercase text-xs text-slate-900 dark:text-zinc-100">
-              RELIANCE
+              {BRAND.shortName}
             </span>
             <span className="truncate text-[8px] font-semibold tracking-wider text-slate-400 dark:text-zinc-500 uppercase">
-              POS SYSTEM
+              {BRAND.tagline}
             </span>
           </div>
         </div>
@@ -229,6 +234,8 @@ export function AppSidebar() {
                       ? "Production • Cutting"
                       : sub.path === "/system/line"
                       ? "Production • Sewing Line"
+                      : sub.path === "/system/finishing"
+                      ? "Production • Finishing Stage"
                       : "Production • Wash Stage"
 
                   return (

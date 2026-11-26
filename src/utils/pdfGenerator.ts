@@ -1,17 +1,18 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { BRAND } from '../config/brand';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 1. BRAND CONSTANTS & LOGO PRELOADER
 // ══════════════════════════════════════════════════════════════════════════════
 
 export const BRAND_CONFIG = {
-  name: 'RELIANCE',
-  subtitle: 'BRANDED MENS CLOTHING',
-  address: 'Mawarala Road, Makandura, Matara.',
-  tel: '041-2268739, 071-1350123',
-  web: 'relianceapparel.lk',
-  appSuite: 'Reliance Clothing ERP Management Suite',
+  name: BRAND.invoiceHeaderTitle,
+  subtitle: BRAND.invoiceHeaderSubtitle,
+  address: BRAND.address,
+  tel: BRAND.phone,
+  web: BRAND.websiteUrl,
+  appSuite: BRAND.appSuite,
 };
 
 let cachedLogoDataUrl: string | null = null;
@@ -308,7 +309,7 @@ export function drawStandardReportFooter(
     doc.setFontSize(6.5);
     doc.setTextColor(68, 68, 68);
     doc.text(
-      `Reliance ${reportName}  •  Page ${i} of ${totalPages}`,
+      `${BRAND.pdfFooterBrand} ${reportName}  •  Page ${i} of ${totalPages}`,
       rightMargin,
       816,
       { align: 'right' }

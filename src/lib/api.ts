@@ -1,3 +1,6 @@
+import { IS_DEMO_MODE } from '../config/brand';
+import { handleMockRequest, handleMockDownloadBlob } from '../demo/mockApi';
+
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 /** Global timeout in milliseconds for extreme latency on weak 3G/4G networks (60s) */
@@ -103,6 +106,10 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * Resilient fetch wrapper with configurable per-request timeout and exponential backoff retry.
  */
 export async function fetchWithRetry(url: string, options: RequestOptions = {}): Promise<Response> {
+  // Strict Zero-Backend-Request Guarantee in Demo Mode
+  if (IS_DEMO_MODE) {
+    throw new Error('[Demo Sandbox] Direct network fetch is disabled in Demo Mode.');
+  }
   const method = (options.method || 'GET').toUpperCase();
   const maxRetries = options.retries ?? DEFAULT_MAX_RETRIES;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -206,6 +213,11 @@ export async function fetchWithRetry(url: string, options: RequestOptions = {}):
 }
 
 export async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
+  // Demo Sandbox Interception: zero HTTP requests hit the production backend API
+  if (IS_DEMO_MODE) {
+    return handleMockRequest<T>(endpoint, options);
+  }
+
   // Strip duplicate '/api' prefix if caller already included it
   const cleanEndpoint = endpoint.replace(/^\/?api\//, '/');
   const url = `${BASE_URL}${cleanEndpoint.startsWith('/') ? cleanEndpoint : `/${cleanEndpoint}`}`;
@@ -284,6 +296,11 @@ export const del = <T>(endpoint: string, options?: RequestOptions) =>
   request<T>(endpoint, { ...options, method: 'DELETE' });
 
 export const downloadBlob = async (endpoint: string, defaultFilename: string, options?: RequestOptions) => {
+  // Demo Sandbox Interception: generate client-side jsPDF download
+  if (IS_DEMO_MODE) {
+    return handleMockDownloadBlob(endpoint, defaultFilename);
+  }
+
   const cleanEndpoint = endpoint.replace(/^\/?api\//, '/');
   const url = `${BASE_URL}${cleanEndpoint.startsWith('/') ? cleanEndpoint : `/${cleanEndpoint}`}`;
   const token = localStorage.getItem('auth_token');

@@ -6,6 +6,7 @@ import { AppSidebar } from "./app-sidebar";
 import { ThemeToggle } from "./ThemeToggle";
 import { NotificationMenu } from "./common/NotificationMenu";
 import { SupplierChequeAlert } from "./common/SupplierChequeAlert";
+import { BRAND } from "../config/brand";
 import {
   Globe,
   User,
@@ -65,7 +66,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({
             <SidebarTrigger className="-ml-1 shrink-0" />
             <div className="h-4 w-[1px] bg-slate-200 dark:bg-zinc-800 mx-1 sm:mx-2 shrink-0" />
             <span className="text-[11px] sm:text-xs font-bold tracking-tight text-slate-700 dark:text-zinc-200 uppercase truncate">
-              Retail & Wholesale Suite
+              {BRAND.suiteName}
             </span>
           </div>
 
@@ -108,7 +109,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({
                   <div className="px-3 py-2.5 border-b border-slate-100 dark:border-zinc-800">
                     <p className="text-xs font-bold">{user?.name || "Admin"}</p>
                     <p className="text-[10px] font-mono text-zinc-400 truncate mt-0.5">
-                      {user?.email || "staff@reliance.lk"}
+                      {user?.email || BRAND.defaultStaffEmail}
                     </p>
                   </div>
                   <div className="py-1 text-xs">

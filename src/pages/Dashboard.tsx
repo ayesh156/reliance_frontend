@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
 import { formatCurrency } from '../lib/utils';
 import { get } from '../lib/api';
+import { BRAND } from '../config/brand';
 import {
   DollarSign, TrendingUp, ArrowUpRight, ArrowDownRight,
   Package, Users, AlertTriangle, Star, Clock, Loader2,
@@ -82,7 +83,7 @@ export const Dashboard: React.FC = () => {
       <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3">
         <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
         <p className={`text-xs font-medium ${dark ? 'text-zinc-400' : 'text-slate-500'}`}>
-          Initializing Reliance Command Center...
+          Initializing {BRAND.shortName} Command Center...
         </p>
       </div>
     );

@@ -30,7 +30,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../components/ui/alert-dialog';
-import { get, post, put, del } from '../lib/api';
+import { get, post, put, del, downloadBlob } from '../lib/api';
 import { toast } from 'react-toastify';
 import { printCustomerPaymentStatement80mm } from '../utils/print';
 import { isValidSriLankanNIC, isValidSriLankanPhone } from '../utils/validators';
@@ -225,28 +225,10 @@ export const CustomersPage: React.FC = () => {
   const handleDownloadCustomerStatement = async (cust: CustomerItem) => {
     try {
       toast.info(`Generating Statement PDF for ${cust.name}...`);
-      const apiHost = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-      const token = localStorage.getItem('token') || localStorage.getItem('auth_token') || sessionStorage.getItem('token');
-
-      const response = await fetch(`${apiHost}/credit/customers/${cust.id}/statement-pdf`, {
-        method: 'GET',
-        credentials: 'include',
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-
-      if (!response.ok) throw new Error('Failed to download PDF');
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Statement-${cust.name.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
+      await downloadBlob(
+        `/credit/customers/${cust.id}/statement-pdf`,
+        `Statement-${cust.name.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`
+      );
       toast.success(`Statement PDF for ${cust.name} downloaded!`);
     } catch (err: any) {
       toast.error(err.message || 'Download failed');

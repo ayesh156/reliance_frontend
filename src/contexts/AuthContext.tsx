@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { sseManager } from '../lib/sse';
 import { preloadCriticalImageAsset } from '../utils/imagePreloader';
+import { IS_DEMO_MODE } from '../config/brand';
+import { handleMockRequest } from '../demo/mockApi';
 
 export interface AuthUser {
   id: number;
@@ -150,7 +152,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   /**
    * Performs silent background session validation without blocking initial UI render.
-   * Only clears session if server explicitly returns 401 Unauthorized.
+   * In Demo Mode (`IS_DEMO_MODE`), validates against the localStorage mock API engine.
    */
   const fetchUser = useCallback(async () => {
     const storedToken = localStorage.getItem('auth_token');
@@ -161,6 +163,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
+      if (IS_DEMO_MODE) {
+        const data = await handleMockRequest<any>('/auth/me');
+        const role = data.role || 'ADMIN';
+        const permissions: string[] = Array.isArray(data.permissions) && data.permissions.length > 0
+          ? data.permissions
+          : getDefaultPermissionsForRole(role);
+        const verifiedUser: AuthUser = {
+          id: data.id,
+          name: data.name,
+          email: data.email || '',
+          role,
+          permissions,
+        };
+        setUser(verifiedUser);
+        localStorage.setItem('auth_user', JSON.stringify(verifiedUser));
+        return;
+      }
+
       const res = await fetch(`${API_BASE}/auth/me`, {
         headers: { Authorization: `Bearer ${storedToken}` },
       });
@@ -214,16 +234,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [dismissSplashScreen, fetchUser]);
 
   const login = useCallback(async (email: string, password: string) => {
-    const res = await fetch(`${API_BASE}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Login failed');
+    let data: any;
+    if (IS_DEMO_MODE) {
+      data = await handleMockRequest<any>('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+      });
+    } else {
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Login failed');
+      }
+      data = await res.json();
     }
-    const data = await res.json();
+
     const role = data.user.role || 'STAFF';
     const permissions: string[] = Array.isArray(data.user.permissions) && data.user.permissions.length > 0
       ? data.user.permissions

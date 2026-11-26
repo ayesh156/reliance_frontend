@@ -14,6 +14,7 @@ import { formatCustomerAddressCity, resolveMatchedCustomer } from '../../utils/c
 import { print80mmThermalReceiptDirectly, getEffectivePrintFormat, type PrintFormat } from '../../utils/print';
 import { generate80mmThermalReceiptHtml } from '../../utils/thermalReceipt';
 import { useAuth } from '../../contexts/AuthContext';
+import { BRAND } from '../../config/brand';
 
 export interface InvoiceModalProps {
   open: boolean;
@@ -721,12 +722,12 @@ export const generatePrintableInvoiceHtml = (
             <div class="brand-area">
               <img src="/images/logo.jpg" alt="Logo" class="logo" />
               <div class="brand-text-block">
-                <h1 class="brand-name">RELIANCE</h1>
-                <div class="brand-subtitle">BRANDED MENS CLOTHING</div>
+                <h1 class="brand-name">${BRAND.invoiceHeaderTitle}</h1>
+                <div class="brand-subtitle">${BRAND.invoiceHeaderSubtitle}</div>
                 <div class="contact-info">
-                  Mawarala Road, Makandura, Matara.<br/>
-                  <strong>Tel:</strong> 041-2268739, 071-1350123<br/>
-                  <strong>Web:</strong> relianceapparel.lk
+                  ${BRAND.address}<br/>
+                  <strong>Tel:</strong> ${BRAND.phone}<br/>
+                  <strong>Web:</strong> ${BRAND.websiteUrl}
                 </div>
               </div>
             </div>
