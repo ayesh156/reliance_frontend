@@ -101,6 +101,7 @@ interface AuthContextType {
   token: string | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  loginAsDemoRole: (role: 'ADMIN' | 'CASHIER' | 'REP') => Promise<AuthUser>;
   logout: () => void;
   isAuthenticated: boolean;
   isAdmin: boolean;
@@ -267,8 +268,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     localStorage.setItem('auth_token', data.token);
     localStorage.setItem('auth_user', JSON.stringify(loggedUser));
+    sessionStorage.removeItem('demo_explicit_logout');
     setToken(data.token);
     setUser(loggedUser);
+  }, []);
+
+  /**
+   * Immediately authenticates a demo role ('ADMIN' | 'CASHIER' | 'REP')
+   * without requiring manual credential entry or hitting any backend API.
+   */
+  const loginAsDemoRole = useCallback(async (role: 'ADMIN' | 'CASHIER' | 'REP'): Promise<AuthUser> => {
+    const emailMap: Record<'ADMIN' | 'CASHIER' | 'REP', string> = {
+      ADMIN: 'admin@nebulainfinite.com',
+      CASHIER: 'cashier@nebulainfinite.com',
+      REP: 'rep@nebulainfinite.com',
+    };
+    const data = await handleMockRequest<any>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: emailMap[role], password: 'demo' }),
+    });
+    const resolvedRole = data.user.role || role;
+    const permissions: string[] = Array.isArray(data.user.permissions) && data.user.permissions.length > 0
+      ? data.user.permissions
+      : getDefaultPermissionsForRole(resolvedRole);
+
+    const loggedUser: AuthUser = {
+      id: data.user.id,
+      name: data.user.name,
+      email: data.user.email || emailMap[role],
+      role: resolvedRole,
+      permissions,
+    };
+    localStorage.setItem('auth_token', data.token);
+    localStorage.setItem('auth_user', JSON.stringify(loggedUser));
+    sessionStorage.removeItem('demo_explicit_logout');
+    setToken(data.token);
+    setUser(loggedUser);
+    return loggedUser;
   }, []);
 
   const logout = useCallback(() => {
@@ -276,6 +312,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('auth_token');
     localStorage.removeItem('auth_user');
     localStorage.removeItem('reliance_last_active_route');
+    if (IS_DEMO_MODE) {
+      sessionStorage.setItem('demo_explicit_logout', 'true');
+    }
     setToken(null);
     setUser(null);
   }, []);
@@ -305,6 +344,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         token,
         loading,
         login,
+        loginAsDemoRole,
         logout,
         isAuthenticated: !!user && !!token,
         isAdmin: user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN',

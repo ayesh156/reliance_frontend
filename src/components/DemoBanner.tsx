@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RotateCcw, MessageCircle, Sparkles, Shield } from 'lucide-react';
 import { BRAND, IS_DEMO_MODE } from '../config/brand';
@@ -6,24 +6,51 @@ import { resetDemoDb } from '../demo/mockApi';
 import { useAuth } from '../contexts/AuthContext';
 
 const DEMO_ROLES = [
-  { label: 'Admin', email: 'admin@nebulainfinite.com', role: 'ADMIN', targetRoute: '/system/dashboard' },
-  { label: 'Cashier', email: 'cashier@nebulainfinite.com', role: 'CASHIER', targetRoute: '/system/quick-invoice' },
-  { label: 'Sales Rep', email: 'rep@nebulainfinite.com', role: 'REP', targetRoute: '/system/invoices' },
+  { label: 'Admin', role: 'ADMIN' as const, targetRoute: '/system/dashboard' },
+  { label: 'Cashier', role: 'CASHIER' as const, targetRoute: '/system/quick-invoice' },
+  { label: 'Sales Rep', role: 'REP' as const, targetRoute: '/system/invoices' },
 ] as const;
 
 /**
- * DemoBanner — Slim sticky top bar rendered exclusively when `VITE_DEMO_MODE === 'true'`.
+ * DemoBanner — Fixed top bar rendered exclusively when `VITE_DEMO_MODE === 'true'`.
  *
- * Displays:
- * - "Live Interactive Demo — Apex Apparel ERP by Nebula Infinite (Sample Data)"
- * - Instant Role Switcher (`Admin` | `Cashier` | `Sales Rep`) that switches session role
- *   without logging out and navigates to an allowed route for that role
- * - "Reset Demo Data" button that clears & re-seeds `localStorage` (`nebula_demo_erp_v1`) and reloads
- * - Direct WhatsApp inquiry button (`https://wa.me/94783233760`)
+ * Uses a `ResizeObserver` to measure its live rendered height (handling both desktop
+ * single-row and wrapped mobile layouts) and sets `--demo-banner-height` on
+ * `document.documentElement` so all sticky/fixed headers, drawers, and sidebars
+ * offset cleanly without overlap.
  */
 export const DemoBanner: React.FC = () => {
-  const { user, login } = useAuth();
+  const { user, loginAsDemoRole } = useAuth();
   const navigate = useNavigate();
+  const bannerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (!IS_DEMO_MODE) {
+      root.style.setProperty('--demo-banner-height', '0px');
+      return;
+    }
+
+    const updateHeight = () => {
+      const h = bannerRef.current ? Math.ceil(bannerRef.current.getBoundingClientRect().height) : 0;
+      root.style.setProperty('--demo-banner-height', `${h}px`);
+    };
+
+    updateHeight();
+
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && bannerRef.current) {
+      observer = new ResizeObserver(updateHeight);
+      observer.observe(bannerRef.current);
+    }
+    window.addEventListener('resize', updateHeight);
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', updateHeight);
+      root.style.setProperty('--demo-banner-height', '0px');
+    };
+  }, []);
 
   if (!IS_DEMO_MODE) return null;
 
@@ -32,14 +59,17 @@ export const DemoBanner: React.FC = () => {
     window.location.reload();
   };
 
-  const handleSwitchRole = async (email: string, targetRoute: string) => {
-    await login(email, 'demo1234');
+  const handleSwitchRole = async (role: 'ADMIN' | 'CASHIER' | 'REP', targetRoute: string) => {
+    await loginAsDemoRole(role);
     localStorage.setItem('reliance_last_active_route', targetRoute);
     navigate(targetRoute, { replace: true });
   };
 
   return (
-    <div className="sticky top-0 z-[60] w-full bg-zinc-950 text-zinc-100 border-b border-emerald-500/30 px-3 sm:px-6 py-1.5 text-[11px] sm:text-xs shadow-sm">
+    <div
+      ref={bannerRef}
+      className="fixed top-0 left-0 right-0 z-[90] w-full bg-zinc-950 text-zinc-100 border-b border-emerald-500/30 px-3 sm:px-6 py-1.5 text-[11px] sm:text-xs shadow-sm"
+    >
       <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-semibold text-[10px] uppercase tracking-wider shrink-0">
@@ -64,7 +94,7 @@ export const DemoBanner: React.FC = () => {
                 <button
                   key={item.role}
                   type="button"
-                  onClick={() => handleSwitchRole(item.email, item.targetRoute)}
+                  onClick={() => handleSwitchRole(item.role, item.targetRoute)}
                   className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors cursor-pointer ${
                     isActive
                       ? 'bg-emerald-600 text-white shadow-sm'

@@ -60,8 +60,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({
 
       {/* Main Fluid Inset */}
       <SidebarInset>
-        {/* Top Navbar */}
-        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between border-b border-slate-200/80 dark:border-zinc-800/80 bg-white/80 dark:bg-zinc-950/80 px-3 sm:px-4 lg:px-8 backdrop-blur-md transition-colors gap-2">
+        {/* Top Navbar (offset cleanly below DemoBanner when active) */}
+        <header className="sticky top-[var(--demo-banner-height,0px)] z-30 flex h-14 shrink-0 items-center justify-between border-b border-slate-200/80 dark:border-zinc-800/80 bg-white/80 dark:bg-zinc-950/80 px-3 sm:px-4 lg:px-8 backdrop-blur-md transition-colors gap-2">
           <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
             <SidebarTrigger className="-ml-1 shrink-0" />
             <div className="h-4 w-[1px] bg-slate-200 dark:bg-zinc-800 mx-1 sm:mx-2 shrink-0" />

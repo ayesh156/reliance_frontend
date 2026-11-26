@@ -4,7 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { ThemeToggle, ThemeSegmentedSwitch } from '../ThemeToggle';
 import { usePriceTier } from '../../utils/priceTier';
 import { ShareCatalogModal } from './ShareCatalogModal';
-import { BRAND } from '../../config/brand';
+import { BRAND, IS_DEMO_MODE } from '../../config/brand';
 import {
   Lock,
   Menu,
@@ -29,7 +29,7 @@ import {
  * - Full-featured luxury slide-out drawer with crisp high-contrast typography
  */
 export const StorefrontNavbar: React.FC = () => {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, loginAsDemoRole } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const { appendTier } = usePriceTier();
@@ -78,6 +78,23 @@ export const StorefrontNavbar: React.FC = () => {
     }, 150);
   };
 
+  /**
+   * Handles "System Portal" navigation across desktop, mobile icon, and mobile drawer.
+   * In Demo Mode, auto-authenticates as Admin if unauthenticated and routes straight to `/system/dashboard`.
+   */
+  const handleSystemPortalClick = async () => {
+    if (IS_DEMO_MODE) {
+      if (!isAuthenticated) {
+        await loginAsDemoRole('ADMIN');
+        navigate('/system/dashboard');
+        return;
+      }
+      navigate(user?.role === 'ADMIN' ? '/system/dashboard' : '/system/invoices');
+      return;
+    }
+    navigate(isAuthenticated ? '/system/invoices' : '/login');
+  };
+
   const navLinks = [
     { label: 'Home', path: '/' },
     { label: 'Shop', path: '/shop' },
@@ -87,9 +104,9 @@ export const StorefrontNavbar: React.FC = () => {
 
   return (
     <>
-      {/* ── Main Chanel-Inspired Luxury Navbar — Frosted Glass ── */}
+      {/* ── Main Chanel-Inspired Luxury Navbar — Frosted Glass (offset below DemoBanner) ── */}
       <header
-        className={`sticky top-0 z-50 w-full transition-all duration-500 ${
+        className={`sticky top-[var(--demo-banner-height,0px)] z-50 w-full transition-all duration-500 ${
           scrolled
             ? 'bg-[#f8f8f6]/90 dark:bg-zinc-950/90 backdrop-blur-md border-b border-[#e5e5e0]/80 dark:border-zinc-800/60 shadow-sm dark:shadow-2xl dark:shadow-black/40 py-2.5 sm:py-3'
             : 'bg-[#f8f8f6]/95 dark:bg-zinc-950/95 backdrop-blur-sm border-b border-[#e5e5e0]/60 dark:border-zinc-900/60 py-3.5 sm:py-4'
@@ -191,13 +208,7 @@ export const StorefrontNavbar: React.FC = () => {
               {/* ── Desktop Luxury Portal Button ("System Portal") (>= 640px) ── */}
               <button
                 id="storefront-system-portal-btn"
-                onClick={() => {
-                  if (isAuthenticated) {
-                    navigate('/system/invoices');
-                  } else {
-                    navigate('/login');
-                  }
-                }}
+                onClick={handleSystemPortalClick}
                 className="hidden sm:inline-flex group relative items-center gap-2 px-3.5 py-1.5 sm:px-4 sm:py-2 text-[10px] sm:text-xs font-semibold uppercase tracking-[0.2em] rounded-sm transition-all duration-300 bg-zinc-950 text-white hover:bg-zinc-800 border border-zinc-950 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 dark:border-white shadow-sm"
               >
                 {isAuthenticated ? (
@@ -220,9 +231,9 @@ export const StorefrontNavbar: React.FC = () => {
               {/* ── Mobile Compact Portal Quick Icon Button (< 640px) ── */}
               <button
                 type="button"
-                onClick={() => navigate(isAuthenticated ? '/system/invoices' : '/login')}
+                onClick={handleSystemPortalClick}
                 className="sm:hidden p-2 text-zinc-800 dark:text-zinc-200 hover:text-zinc-950 dark:hover:text-white hover:bg-zinc-200/50 dark:hover:bg-zinc-800/60 rounded-full transition-colors"
-                title={isAuthenticated ? 'System Portal' : 'Staff Portal Login'}
+                title={isAuthenticated || IS_DEMO_MODE ? 'System Portal' : 'Staff Portal Login'}
                 aria-label="Staff Portal"
               >
                 {isAuthenticated ? (
@@ -251,13 +262,12 @@ export const StorefrontNavbar: React.FC = () => {
         </div>
       </header>
 
-      {/* ── Luxury Mobile Navigation Drawer ── */}
+      {/* ── Luxury Mobile Navigation Drawer (offset below DemoBanner) ── */}
       {mobileMenuOpen && (
         <div
-          className={`fixed inset-0 z-40 md:hidden transition-all duration-200 ${
+          className={`fixed inset-x-0 bottom-0 top-[var(--demo-banner-height,0px)] z-40 md:hidden transition-all duration-200 ${
             isClosing ? 'opacity-0 pointer-events-none' : 'opacity-100 animate-in fade-in duration-200'
           }`}
-          style={{ top: 0 }}
         >
           {/* Backdrop with frosted blur */}
           <div
@@ -304,7 +314,12 @@ export const StorefrontNavbar: React.FC = () => {
               <div className="pt-3 border-t border-[#e5e5e0] dark:border-zinc-800 max-w-xs mx-auto">
                 <button
                   type="button"
-                  onClick={() => handleCloseAndNavigate(isAuthenticated ? '/system/invoices' : '/login')}
+                  onClick={async () => {
+                    setMobileMenuOpen(false);
+                    setIsClosing(false);
+                    document.body.style.overflow = '';
+                    await handleSystemPortalClick();
+                  }}
                   className="w-full flex items-center justify-center gap-2.5 py-3 px-4 bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 text-xs font-bold uppercase tracking-[0.24em] rounded-sm shadow-xl transition-colors cursor-pointer"
                 >
                   {isAuthenticated ? (

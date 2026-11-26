@@ -24,20 +24,67 @@ import {
 } from '../utils/pdfGenerator';
 
 /**
- * Normalizes a product record so it always includes `category`, `images`, and `variants`.
+ * Curated Unsplash garment images locked to an exact uniform 800x1000 (4:5 portrait) resolution.
+ */
+const DEMO_GARMENT_IMAGES = {
+  rawSelvedgeDenim: 'https://images.unsplash.com/photo-1542272604-787c3835535d?auto=format&fit=crop&crop=center&w=800&h=1000&q=85',
+  enzymeWashJean: 'https://images.unsplash.com/photo-1541099649105-f69ad21f3246?auto=format&fit=crop&crop=center&w=800&h=1000&q=85',
+  heavyweightBoxyTee: 'https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?auto=format&fit=crop&crop=top&w=800&h=1000&q=85',
+  crewneckTee: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&crop=top&w=800&h=1000&q=85',
+  denimShort: 'https://images.unsplash.com/photo-1591195853828-11db59a44f6b?auto=format&fit=crop&crop=center&w=800&h=1000&q=85',
+  cargoTrouser: 'https://images.unsplash.com/photo-1473966968600-fa801b869a1a?auto=format&fit=crop&crop=center&w=800&h=1000&q=85',
+};
+
+/**
+ * Resolves a uniform 800x1000 garment image URL matched to the demo product name/category.
+ */
+function resolveMatchedGarmentImage(name: string, categoryName: string): string {
+  const text = `${name} ${categoryName}`.toLowerCase();
+  if (text.includes('short')) return DEMO_GARMENT_IMAGES.denimShort;
+  if (text.includes('cargo') || text.includes('chino') || text.includes('twill')) return DEMO_GARMENT_IMAGES.cargoTrouser;
+  if (text.includes('enzyme') || text.includes('southern coast')) return DEMO_GARMENT_IMAGES.enzymeWashJean;
+  if (text.includes('boxy') || text.includes('240gsm')) return DEMO_GARMENT_IMAGES.heavyweightBoxyTee;
+  if (text.includes('crewneck') || text.includes('tee') || text.includes('shirt')) return DEMO_GARMENT_IMAGES.crewneckTee;
+  return DEMO_GARMENT_IMAGES.rawSelvedgeDenim;
+}
+
+/**
+ * Detects local editorial/placeholder paths or non-uniform demo URLs so all seeded items
+ * automatically upgrade to exact 800x1000 resolution images.
+ */
+function isGenericDemoImage(url?: string): boolean {
+  if (!url) return true;
+  if (!url.startsWith('http')) return true;
+  if (url.includes('images.unsplash.com') && !url.includes('h=1000')) return true;
+  return false;
+}
+
+/**
+ * Normalizes a product record so it always includes `category`, matched `images`, and `variants`.
  */
 function normalizeProduct(p: any) {
-  const fallbackImg = p.image || p.images?.[0]?.imageUrl || '/images/reliance-placeholder.jpg';
+  const category = p.category || { id: p.categoryId || 1, name: 'Apparel' };
+  const rawImg = p.image || p.images?.[0]?.imageUrl || '';
+  const matchedImg = isGenericDemoImage(rawImg)
+    ? resolveMatchedGarmentImage(p.name || '', category.name || '')
+    : rawImg;
+
   const images =
     Array.isArray(p.images) && p.images.length > 0
-      ? p.images
-      : [{ id: 1, imageUrl: fallbackImg, order: 0, isWebImage: true }];
+      ? p.images.map((img: any, idx: number) => ({
+          ...img,
+          imageUrl: isGenericDemoImage(img?.imageUrl) ? matchedImg : img.imageUrl,
+          order: img?.order ?? idx,
+          isWebImage: true,
+        }))
+      : [{ id: 1, imageUrl: matchedImg, order: 0, isWebImage: true }];
+
   return {
     ...p,
-    searchKey: p.searchKey || `${p.name || ''} ${p.category?.name || ''}`.trim(),
-    category: p.category || { id: p.categoryId || 1, name: 'Apparel' },
+    searchKey: p.searchKey || `${p.name || ''} ${category.name || ''}`.trim(),
+    category,
     images,
-    image: fallbackImg,
+    image: matchedImg,
     variants: Array.isArray(p.variants) ? p.variants : [],
   };
 }

@@ -152,7 +152,7 @@ export const Sidebar = React.forwardRef<
       openMobile ? (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm lg:hidden" onClick={() => setOpenMobile(false)}>
           <div
-            className="fixed inset-y-0 left-0 z-50 flex h-full w-[--sidebar-width-mobile] flex-col bg-white dark:bg-zinc-950 p-4 shadow-2xl border-r border-slate-200 dark:border-zinc-800"
+            className="fixed top-[var(--demo-banner-height,0px)] bottom-0 left-0 z-50 flex h-[calc(100svh-var(--demo-banner-height,0px))] w-[--sidebar-width-mobile] flex-col bg-white dark:bg-zinc-950 p-4 shadow-2xl border-r border-slate-200 dark:border-zinc-800"
             onClick={(e) => e.stopPropagation()}
           >
             {children}
@@ -181,7 +181,7 @@ export const Sidebar = React.forwardRef<
       />
       <div
         className={cn(
-          "duration-200 fixed inset-y-0 z-40 hidden h-svh w-[--sidebar-width] transition-[left,right,width] ease-in-out lg:flex",
+          "duration-200 fixed top-[var(--demo-banner-height,0px)] bottom-0 z-40 hidden h-[calc(100svh-var(--demo-banner-height,0px))] w-[--sidebar-width] transition-[left,right,width] ease-in-out lg:flex",
           side === "left"
             ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
             : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",

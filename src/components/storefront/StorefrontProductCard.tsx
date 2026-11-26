@@ -96,15 +96,15 @@ export const StorefrontProductCard: React.FC<StorefrontProductCardProps> = ({
       <div
         className="group relative bg-white/80 dark:bg-zinc-900/60 backdrop-blur-md border border-[#e5e5e0]/80 dark:border-zinc-800/80 hover:border-zinc-400 dark:hover:border-zinc-700 rounded-sm transition-all duration-300 flex flex-col justify-between overflow-hidden shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)] hover:shadow-[0_10px_25px_-5px_rgba(0,0,0,0.08)]"
       >
-        {/* Product Image Area — Clicking navigates to Single Product View */}
+        {/* Product Image Area — Uniform 4:5 edge-to-edge container to eliminate uneven margins */}
         <div
           onClick={handleCardNavigate}
-          className="relative aspect-[3/4] w-full overflow-hidden bg-zinc-50 dark:bg-zinc-900 flex items-center justify-center cursor-pointer p-2"
+          className="relative aspect-[4/5] w-full overflow-hidden bg-zinc-50 dark:bg-zinc-900 cursor-pointer"
         >
           <img
             src={resolvedImage}
             alt={product.name}
-            className="w-full h-full object-contain transition-transform duration-700 ease-out group-hover:scale-105"
+            className="w-full h-full object-cover object-center transition-transform duration-700 ease-out group-hover:scale-105"
             loading="lazy"
             onError={handleImageError}
           />

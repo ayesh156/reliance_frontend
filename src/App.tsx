@@ -156,6 +156,7 @@ export function App() {
             <DemoBanner />
             <ScrollToTop />
             <RouteTracker />
+            <div className="pt-[var(--demo-banner-height,0px)] min-h-screen">
             <ErrorBoundary>
               <React.Suspense fallback={<RouteLoadingFallback />}>
                 <Routes>
@@ -576,6 +577,7 @@ export function App() {
             </Routes>
             </React.Suspense>
             </ErrorBoundary>
+            </div>
           </BrowserRouter>
         </TooltipProvider>
       </NotificationProvider>
