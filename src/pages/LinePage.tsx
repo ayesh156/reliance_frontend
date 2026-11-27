@@ -329,6 +329,107 @@ export const getPeriodLogSum = (
     .reduce((sum: number, l: any) => sum + qtyGetter(l), 0);
 };
 
+/**
+ * Unified progress metrics for a Sewing Line batch, shared by both Desktop
+ * table rows and Mobile batch cards so numbers and percentages stay in sync.
+ */
+export interface BatchLineProgress {
+  lineIntakeQty: number;
+  sewnQty: number;
+  washSentQty: number;
+  remainingToSew: number;
+  remainingToWash: number;
+  sewnPct: number;
+  washPct: number;
+  isFilteredPeriod: boolean;
+  periodSewnQty: number;
+  periodWashQty: number;
+  periodIntakeQty: number;
+}
+
+/**
+ * Computes consistent Sewing Line progress indicators (Line Intake, Sewn,
+ * Sent to Wash, Remaining, percentages, and optional date-filter period totals)
+ * for a batch. Consumed by both Desktop rows and Mobile cards.
+ */
+export const computeBatchLineProgress = (
+  batch: LineBatchItem,
+  productsList: any[] = [],
+  localBoundaries: { startTime: number; endTime: number } | null = null,
+  selectedActivity = 'all',
+  getLogQtyFn?: (log: any) => number
+): BatchLineProgress => {
+  const baseLine = getBatchLineIntakeQty(batch, productsList);
+  const baseWash = getBatchWashQty(batch, productsList);
+  const baseSewn = getBatchSewnQty(batch, productsList);
+
+  let lineIntakeQty = baseLine;
+  let washSentQty = baseWash;
+  let sewnQty = baseSewn;
+  let isFilteredPeriod = false;
+  let periodSewnQty = 0;
+  let periodWashQty = 0;
+  let periodIntakeQty = 0;
+
+  if (localBoundaries) {
+    isFilteredPeriod = true;
+    const periodIntakeFromLogs = getPeriodLogSum(
+      batch,
+      'intake',
+      localBoundaries.startTime,
+      localBoundaries.endTime,
+      getLogQtyFn
+    );
+    periodWashQty = getPeriodLogSum(
+      batch,
+      'wash',
+      localBoundaries.startTime,
+      localBoundaries.endTime,
+      getLogQtyFn
+    );
+    periodSewnQty = getPeriodLogSum(
+      batch,
+      'sewn',
+      localBoundaries.startTime,
+      localBoundaries.endTime,
+      getLogQtyFn
+    );
+
+    const intakeTime = getLineIntakeTimestampMs(batch);
+    const hasIntakeLogs = (batch.activityLogs || []).some((l: any) =>
+      ['SEND_TO_LINE', 'LINE_INTAKE'].includes(String(l?.action || '').toUpperCase())
+    );
+    const pInRange =
+      !hasIntakeLogs &&
+      intakeTime >= localBoundaries.startTime &&
+      intakeTime <= localBoundaries.endTime;
+    periodIntakeQty = periodIntakeFromLogs > 0 ? periodIntakeFromLogs : (pInRange ? baseLine : 0);
+
+    lineIntakeQty = selectedActivity === 'intake' ? (periodIntakeQty > 0 ? periodIntakeQty : baseLine) : baseLine;
+    washSentQty = selectedActivity === 'wash' ? (periodWashQty > 0 ? periodWashQty : baseWash) : baseWash;
+    sewnQty = selectedActivity === 'sewn' ? (periodSewnQty > 0 ? periodSewnQty : baseSewn) : baseSewn;
+  }
+
+  const remainingToSew = Math.max(0, lineIntakeQty - sewnQty);
+  const remainingToWash = Math.max(0, lineIntakeQty - washSentQty);
+  const sewnPct = lineIntakeQty > 0 ? Math.min(100, Math.round((sewnQty / lineIntakeQty) * 100)) : 0;
+  const washPct = lineIntakeQty > 0 ? Math.min(100, Math.round((washSentQty / lineIntakeQty) * 100)) : 0;
+
+  return {
+    lineIntakeQty,
+    sewnQty,
+    washSentQty,
+    remainingToSew,
+    remainingToWash,
+    sewnPct,
+    washPct,
+    isFilteredPeriod,
+    periodSewnQty,
+    periodWashQty,
+    periodIntakeQty,
+  };
+};
+
 export const LinePage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -874,44 +975,9 @@ export const LinePage: React.FC = () => {
     };
   }, [filteredBatches, productsList, localBoundaries, selectedActivity, getLogQty, todayBoundaries, hasDateFilter, isTodayOnly]);
 
-  // Helper to resolve row display quantities dynamically
-  const getBatchRowDisplay = useCallback((batch: LineBatchItem) => {
-    const baseLine = getBatchLineIntakeQty(batch, productsList);
-    const baseWash = getBatchWashQty(batch, productsList);
-    const baseSewn = getBatchSewnQty(batch, productsList);
-
-    if (!localBoundaries) {
-      return {
-        lineQty: baseLine,
-        washQty: baseWash,
-        batchTotalSewn: baseSewn,
-        isFilteredPeriod: false,
-        periodSewn: 0,
-        periodWash: 0,
-        periodIntake: 0,
-      };
-    }
-
-    const periodIntakeFromLogs = getPeriodLogSum(batch, 'intake', localBoundaries.startTime, localBoundaries.endTime, getLogQty);
-    const periodWash = getPeriodLogSum(batch, 'wash', localBoundaries.startTime, localBoundaries.endTime, getLogQty);
-    const periodSewn = getPeriodLogSum(batch, 'sewn', localBoundaries.startTime, localBoundaries.endTime, getLogQty);
-
-    const intakeTime = getLineIntakeTimestampMs(batch);
-    const hasIntakeLogs = (batch.activityLogs || []).some((l: any) =>
-      ['SEND_TO_LINE', 'LINE_INTAKE'].includes(String(l?.action || '').toUpperCase())
-    );
-    const pInRange = !hasIntakeLogs && intakeTime >= localBoundaries.startTime && intakeTime <= localBoundaries.endTime;
-    const periodIntake = periodIntakeFromLogs > 0 ? periodIntakeFromLogs : (pInRange ? baseLine : 0);
-
-    return {
-      lineQty: selectedActivity === 'intake' ? (periodIntake > 0 ? periodIntake : baseLine) : baseLine,
-      washQty: selectedActivity === 'wash' ? (periodWash > 0 ? periodWash : baseWash) : baseWash,
-      batchTotalSewn: selectedActivity === 'sewn' ? (periodSewn > 0 ? periodSewn : baseSewn) : baseSewn,
-      isFilteredPeriod: true,
-      periodSewn,
-      periodWash,
-      periodIntake,
-    };
+  // Helper to resolve row display quantities dynamically via shared progress helper
+  const getBatchRowDisplay = useCallback((batch: LineBatchItem): BatchLineProgress => {
+    return computeBatchLineProgress(batch, productsList, localBoundaries, selectedActivity, getLogQty);
   }, [localBoundaries, productsList, selectedActivity, getLogQty]);
 
   // Pagination
@@ -954,12 +1020,12 @@ export const LinePage: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
           <Button
             variant="outline"
             size="sm"
             onClick={fetchLineBatches}
-            className="h-9 gap-1.5 rounded-xl text-xs font-semibold"
+            className="h-9 px-3 gap-1.5 rounded-xl text-xs font-semibold"
             title="Refresh Sewing Line"
           >
             <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -976,7 +1042,7 @@ export const LinePage: React.FC = () => {
                 toast.info('No active sewing line batch available to log sewn output.');
               }
             }}
-            className="h-9 gap-1.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-xs cursor-pointer"
+            className="h-9 px-3 gap-1.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-xs cursor-pointer"
           >
             <Shirt className="size-3.5" />
             <span>Log Daily Sewn</span>
@@ -984,7 +1050,7 @@ export const LinePage: React.FC = () => {
 
           <Button
             onClick={() => navigate('/system/cutting')}
-            className="h-9 gap-1.5 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-xs cursor-pointer"
+            className="h-9 px-3 gap-1.5 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-xs cursor-pointer"
           >
             <span>Cutting Ledger</span>
             <ArrowRight className="size-3.5" />
@@ -1412,13 +1478,17 @@ export const LinePage: React.FC = () => {
               <TableBody>
                 {paginatedBatches.map((batch) => {
                   const prods = getBatchProducts(batch, productsList);
-                  const rowData = getBatchRowDisplay(batch);
-                  const lineQty = rowData.lineQty;
-                  const washQty = rowData.washQty;
-                  const batchTotalSewn = rowData.batchTotalSewn;
-                  const remainingOnLine = Math.max(0, lineQty - washQty);
-                  const overallPercent = lineQty > 0 ? Math.min(100, Math.round((washQty / lineQty) * 100)) : 0;
-                  const sewnPercent = lineQty > 0 ? Math.min(100, Math.round((batchTotalSewn / lineQty) * 100)) : 0;
+                  const {
+                    lineIntakeQty: lineQty,
+                    washSentQty: washQty,
+                    sewnQty: batchTotalSewn,
+                    sewnPct: sewnPercent,
+                    washPct: overallPercent,
+                    isFilteredPeriod,
+                    periodSewnQty: periodSewn,
+                    periodWashQty: periodWash,
+                    periodIntakeQty: periodIntake,
+                  } = getBatchRowDisplay(batch);
 
                   // "Send to Wash" remains active and accessible as long as sentToLineQty > sentToWashQty for ANY product in the batch
                   const hasRemainingToWash = prods.length > 0
@@ -1547,9 +1617,9 @@ export const LinePage: React.FC = () => {
                         <span className="text-xs font-mono font-bold text-slate-800 dark:text-zinc-200">
                           {lineQty} Pcs
                         </span>
-                        {rowData.isFilteredPeriod && (rowData.periodIntake > 0 || selectedActivity === 'intake') && (
+                        {isFilteredPeriod && (periodIntake > 0 || selectedActivity === 'intake') && (
                           <span className="block text-[10px] font-mono font-semibold text-indigo-600 dark:text-indigo-400">
-                            Range: +{rowData.periodIntake}
+                            Range: +{periodIntake}
                           </span>
                         )}
                       </TableCell>
@@ -1559,9 +1629,9 @@ export const LinePage: React.FC = () => {
                         <span className="text-xs font-mono font-bold text-cyan-600 dark:text-cyan-400">
                           {washQty} Pcs
                         </span>
-                        {rowData.isFilteredPeriod && (rowData.periodWash > 0 || selectedActivity === 'wash') && (
+                        {isFilteredPeriod && (periodWash > 0 || selectedActivity === 'wash') && (
                           <span className="block text-[10px] font-mono font-semibold text-cyan-600 dark:text-cyan-400">
-                            Range: +{rowData.periodWash}
+                            Range: +{periodWash}
                           </span>
                         )}
                       </TableCell>
@@ -1570,23 +1640,23 @@ export const LinePage: React.FC = () => {
                       <TableCell className="align-middle w-48 min-w-[170px]">
                         <div className="space-y-1.5">
                           {/* In-Period Activity Breakdown Badge when date range is active */}
-                          {rowData.isFilteredPeriod && (rowData.periodSewn > 0 || rowData.periodWash > 0 || ['sewn', 'wash'].includes(selectedActivity)) && (
+                          {isFilteredPeriod && (periodSewn > 0 || periodWash > 0 || ['sewn', 'wash'].includes(selectedActivity)) && (
                             <div className="flex items-center gap-1.5 flex-wrap pb-1 border-b border-dashed border-slate-200 dark:border-zinc-800 text-[10px] font-mono">
                               <span className="font-bold uppercase tracking-wider text-slate-400">Range:</span>
-                              {(rowData.periodSewn > 0 || selectedActivity === 'sewn') && (
+                              {(periodSewn > 0 || selectedActivity === 'sewn') && (
                                 <Badge
                                   variant="outline"
                                   className="text-[10px] px-1.5 py-0 font-mono font-bold bg-purple-50 text-purple-700 border-purple-300 dark:bg-purple-950/60 dark:text-purple-300"
                                 >
-                                  Sewn: +{rowData.periodSewn}
+                                  Sewn: +{periodSewn}
                                 </Badge>
                               )}
-                              {(rowData.periodWash > 0 || selectedActivity === 'wash') && (
+                              {(periodWash > 0 || selectedActivity === 'wash') && (
                                 <Badge
                                   variant="outline"
                                   className="text-[10px] px-1.5 py-0 font-mono font-bold bg-cyan-50 text-cyan-700 border-cyan-300 dark:bg-cyan-950/60 dark:text-cyan-300"
                                 >
-                                  Wash: +{rowData.periodWash}
+                                  Wash: +{periodWash}
                                 </Badge>
                               )}
                             </div>
@@ -1697,16 +1767,23 @@ export const LinePage: React.FC = () => {
           <div className="block lg:hidden space-y-3.5">
             {paginatedBatches.map((batch) => {
               const prods = getBatchProducts(batch, productsList);
-              const rowData = getBatchRowDisplay(batch);
-              const lineQty = rowData.lineQty;
-              const washQty = rowData.washQty;
-              const remainingOnLine = Math.max(0, lineQty - washQty);
-              const overallPercent = lineQty > 0 ? Math.min(100, Math.round((washQty / lineQty) * 100)) : 0;
+              const {
+                lineIntakeQty,
+                sewnQty,
+                washSentQty,
+                remainingToWash,
+                sewnPct,
+                washPct,
+                isFilteredPeriod,
+                periodSewnQty,
+                periodWashQty,
+                periodIntakeQty,
+              } = getBatchRowDisplay(batch);
 
               // "Send to Wash" remains active and accessible as long as sentToLineQty > sentToWashQty for ANY product in the batch
               const hasRemainingToWash = prods.length > 0
                 ? prods.some((p) => p.sentToLineQty > p.sentToWashQty)
-                : (washQty < lineQty);
+                : (washSentQty < lineIntakeQty);
               const isLineDone = !hasRemainingToWash;
 
               return (
@@ -1749,95 +1826,161 @@ export const LinePage: React.FC = () => {
                             {p.productName}
                           </h4>
                           <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                            <span className="text-[10px] text-indigo-600 font-bold">Intake: {p.sentToLineQty}</span>
-                            <span className="text-slate-300">·</span>
-                            <span className="text-[10px] text-cyan-600 font-bold">Wash: {p.sentToWashQty}</span>
-                            <span className="text-slate-300">·</span>
-                            <span className="text-[10px] text-amber-600 font-bold">Rem: {Math.max(0, p.sentToLineQty - p.sentToWashQty)}</span>
+                            <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">Intake: {p.sentToLineQty}</span>
+                            <span className="text-slate-300 dark:text-zinc-700">·</span>
+                            <span className={`text-[10px] font-bold ${
+                              p.sentToLineQty > 0 && (p.sewnQty || 0) >= p.sentToLineQty
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : 'text-purple-600 dark:text-purple-400'
+                            }`}>
+                              Sewn: {p.sewnQty || 0}
+                            </span>
+                            <span className="text-slate-300 dark:text-zinc-700">·</span>
+                            <span className="text-[10px] text-cyan-600 dark:text-cyan-400 font-bold">Wash: {p.sentToWashQty}</span>
+                            <span className="text-slate-300 dark:text-zinc-700">·</span>
+                            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">Rem: {Math.max(0, p.sentToLineQty - p.sentToWashQty)}</span>
                           </div>
+                          {p.sku && (
+                            <span className="text-[10px] text-slate-400 truncate block font-mono">
+                              SKU: {p.sku}
+                            </span>
+                          )}
                         </div>
                       </div>
                     ))}
                   </div>
 
-                  {/* In-Period Activity Summary Badge when date range is active */}
-                  {rowData.isFilteredPeriod && (rowData.periodIntake > 0 || rowData.periodSewn > 0 || rowData.periodWash > 0) && (
+                  {/* Raw Material Cut Yardage Summary */}
+                  {batch.materialUsages && batch.materialUsages.length > 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap text-[10px] text-slate-600 dark:text-zinc-400">
+                      {batch.materialUsages.slice(0, 2).map((u: any) => (
+                        <Badge
+                          key={u.id}
+                          variant="outline"
+                          className="font-mono text-[10px] px-1.5 py-0 bg-amber-50/70 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border-amber-200/80 dark:border-amber-900/50"
+                        >
+                          {u.rawMaterial?.name || 'Material'}: {formatQty(u.netConsumedQty ?? u.issuedQty)} {u.rawMaterial?.unit || 'Units'}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* In-Period Activity Summary Badge when date range or Today filter is active */}
+                  {isFilteredPeriod && (periodIntakeQty > 0 || periodSewnQty > 0 || periodWashQty > 0 || ['sewn', 'wash'].includes(selectedActivity)) && (
                     <div className="flex items-center gap-1.5 flex-wrap p-2 rounded-xl bg-purple-50/50 dark:bg-purple-950/30 border border-purple-200/60 dark:border-purple-900/40 text-[10px] font-mono">
                       <span className="font-bold uppercase tracking-wider text-purple-700 dark:text-purple-300">
-                        Period Activity:
+                        Range:
                       </span>
-                      {rowData.periodIntake > 0 && (
-                        <span className="font-semibold text-slate-700 dark:text-zinc-300">
-                          Intake: +{rowData.periodIntake}
-                        </span>
+                      {periodIntakeQty > 0 && (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] px-1.5 py-0 font-mono font-bold bg-indigo-50 text-indigo-700 border-indigo-300 dark:bg-indigo-950/60 dark:text-indigo-300"
+                        >
+                          Intake: +{periodIntakeQty}
+                        </Badge>
                       )}
-                      {rowData.periodSewn > 0 && (
-                        <>
-                          {rowData.periodIntake > 0 && <span className="text-slate-400">·</span>}
-                          <span className="font-semibold text-purple-700 dark:text-purple-300">
-                            Sewn: +{rowData.periodSewn}
-                          </span>
-                        </>
+                      {(periodSewnQty > 0 || selectedActivity === 'sewn') && (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] px-1.5 py-0 font-mono font-bold bg-purple-50 text-purple-700 border-purple-300 dark:bg-purple-950/60 dark:text-purple-300"
+                        >
+                          Sewn: +{periodSewnQty}
+                        </Badge>
                       )}
-                      {rowData.periodWash > 0 && (
-                        <>
-                          {(rowData.periodIntake > 0 || rowData.periodSewn > 0) && <span className="text-slate-400">·</span>}
-                          <span className="font-semibold text-cyan-700 dark:text-cyan-300">
-                            Wash: +{rowData.periodWash}
-                          </span>
-                        </>
+                      {(periodWashQty > 0 || selectedActivity === 'wash') && (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] px-1.5 py-0 font-mono font-bold bg-cyan-50 text-cyan-700 border-cyan-300 dark:bg-cyan-950/60 dark:text-cyan-300"
+                        >
+                          Wash: +{periodWashQty}
+                        </Badge>
                       )}
                     </div>
                   )}
 
-                  {/* Metrics Row */}
-                  <div className="grid grid-cols-3 gap-2 text-center p-2 rounded-xl bg-slate-50 dark:bg-zinc-900 border border-slate-200/60 dark:border-zinc-800 text-xs">
+                  {/* 4-Metric Summary Grid (Desktop Parity) */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center p-2.5 rounded-xl bg-slate-50 dark:bg-zinc-900 border border-slate-200/60 dark:border-zinc-800 text-xs">
                     <div>
                       <span className="text-[9px] uppercase font-bold text-slate-400 block">Line Intake</span>
                       <span className="font-mono font-bold text-slate-800 dark:text-zinc-200">
-                        {lineQty} Pcs
+                        {lineIntakeQty} Pcs
                       </span>
-                      {rowData.isFilteredPeriod && (rowData.periodIntake > 0 || selectedActivity === 'intake') && (
+                      {isFilteredPeriod && (periodIntakeQty > 0 || selectedActivity === 'intake') && (
                         <span className="block text-[9px] font-mono font-semibold text-indigo-600 dark:text-indigo-400">
-                          Range: +{rowData.periodIntake}
+                          Range: +{periodIntakeQty}
                         </span>
                       )}
                     </div>
                     <div>
-                      <span className="text-[9px] uppercase font-bold text-cyan-600 block">Sent to Wash</span>
-                      <span className="font-mono font-bold text-cyan-600 dark:text-cyan-400">
-                        {washQty} Pcs
+                      <span className={`text-[9px] uppercase font-bold block ${
+                        sewnPct >= 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-purple-600 dark:text-purple-400'
+                      }`}>
+                        Sewn
                       </span>
-                      {rowData.isFilteredPeriod && (rowData.periodWash > 0 || selectedActivity === 'wash') && (
-                        <span className="block text-[9px] font-mono font-semibold text-cyan-600 dark:text-cyan-400">
-                          Range: +{rowData.periodWash}
-                        </span>
-                      )}
-                    </div>
-                    <div>
-                      <span className="text-[9px] uppercase font-bold text-amber-600 block">Remaining</span>
-                      <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
-                        {remainingOnLine} Pcs
+                      <span className={`font-mono font-bold ${
+                        sewnPct >= 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-purple-600 dark:text-purple-400'
+                      }`}>
+                        {sewnQty} Pcs
                       </span>
-                      {rowData.isFilteredPeriod && (rowData.periodSewn > 0 || selectedActivity === 'sewn') && (
+                      {isFilteredPeriod && (periodSewnQty > 0 || selectedActivity === 'sewn') && (
                         <span className="block text-[9px] font-mono font-semibold text-purple-600 dark:text-purple-400">
-                          Sewn: +{rowData.periodSewn}
+                          Range: +{periodSewnQty}
                         </span>
                       )}
+                    </div>
+                    <div>
+                      <span className="text-[9px] uppercase font-bold text-cyan-600 dark:text-cyan-400 block">Sent to Wash</span>
+                      <span className="font-mono font-bold text-cyan-600 dark:text-cyan-400">
+                        {washSentQty} Pcs
+                      </span>
+                      {isFilteredPeriod && (periodWashQty > 0 || selectedActivity === 'wash') && (
+                        <span className="block text-[9px] font-mono font-semibold text-cyan-600 dark:text-cyan-400">
+                          Range: +{periodWashQty}
+                        </span>
+                      )}
+                    </div>
+                    <div>
+                      <span className="text-[9px] uppercase font-bold text-amber-600 dark:text-amber-400 block">Remaining</span>
+                      <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
+                        {remainingToWash} Pcs
+                      </span>
                     </div>
                   </div>
 
-                  {/* Progress Bar */}
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
-                      <span>Forwarded to Wash Progress</span>
-                      <span className="font-bold text-slate-700 dark:text-zinc-300">{overallPercent}%</span>
+                  {/* Dual Stacked Progress Bars Identical to Desktop */}
+                  <div className="space-y-2">
+                    {/* 1. Daily Sewn Progress */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[10px] font-mono leading-tight">
+                        <span className="font-bold text-purple-700 dark:text-purple-300">
+                          Sewn: {sewnQty} / {lineIntakeQty} Pcs
+                        </span>
+                        <span className="text-purple-600 dark:text-purple-400 font-bold">{sewnPct}%</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-slate-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-300 ${
+                            sewnPct >= 100 ? 'bg-emerald-500' : 'bg-purple-600'
+                          }`}
+                          style={{ width: `${sewnPct}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="h-1.5 w-full bg-slate-100 dark:bg-zinc-800 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-emerald-500 rounded-full transition-all duration-300"
-                        style={{ width: `${overallPercent}%` }}
-                      />
+
+                    {/* 2. Wash Forwarding Progress */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-[10px] font-mono leading-tight">
+                        <span className="font-semibold text-cyan-700 dark:text-cyan-300">
+                          Wash: {washSentQty} / {lineIntakeQty} Pcs
+                        </span>
+                        <span className="text-cyan-600 dark:text-cyan-400 font-bold">{washPct}%</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-slate-100 dark:bg-zinc-800 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-cyan-500 rounded-full transition-all duration-300"
+                          style={{ width: `${washPct}%` }}
+                        />
+                      </div>
                     </div>
                   </div>
 
