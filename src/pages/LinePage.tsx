@@ -4,8 +4,6 @@ import {
   useUrlFilterSync,
   getInitialDateRangeFromUrl,
   formatDateForUrl,
-  getColomboTodayDateRange,
-  isColomboTodayRange,
 } from '../hooks/useUrlFilterSync';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -215,17 +213,13 @@ export const getLineIntakeTimestampMs = (batch: any): number => {
 
 /**
  * Resolves the real cumulative sewn quantity of a batch.
- * Sums sewnQty from targetProducts or batch.sewnQty, or falls back to
- * the sum of LOG_SEWN / SEWN activity logs, or full line intake for completed/washed batches.
+ * Takes the authoritative maximum across targetProducts sewnQty, batch.sewnQty,
+ * and LOG_SEWN / SEWN activity logs so Mobile and Desktop always stay in sync.
  */
 export const getBatchSewnQty = (batch: any, productsList: any[] = []): number => {
   const prods = getBatchProducts(batch, productsList);
   const prodsSewn = prods.reduce((sum, p) => sum + (Number(p.sewnQty) || 0), 0);
-  if (prodsSewn > 0) return prodsSewn;
-
-  if (batch.sewnQty !== undefined && Number(batch.sewnQty) > 0) {
-    return Number(batch.sewnQty);
-  }
+  const directBatchSewn = Number(batch.sewnQty || 0);
 
   const logs = batch.activityLogs || [];
   const sewnFromLogs = logs
@@ -234,9 +228,10 @@ export const getBatchSewnQty = (batch: any, productsList: any[] = []): number =>
       const stg = String(l?.stage || '').toUpperCase();
       return act === 'LOG_SEWN' || act === 'SEWN' || (stg === 'LINE' && act.includes('SEWN'));
     })
-    .reduce((sum: number, l: any) => sum + Number(l?.quantity || 0), 0);
+    .reduce((sum: number, l: any) => sum + Number(l?.quantity ?? l?.qty ?? 0), 0);
 
-  if (sewnFromLogs > 0) return sewnFromLogs;
+  const authoritativeSewn = Math.max(prodsSewn, directBatchSewn, sewnFromLogs);
+  if (authoritativeSewn > 0) return authoritativeSewn;
 
   const st = String(batch.status || '').toUpperCase();
   if (['WASHING', 'FINISHING', 'COMPLETED'].includes(st)) {
@@ -337,6 +332,7 @@ export interface BatchLineProgress {
   lineIntakeQty: number;
   sewnQty: number;
   washSentQty: number;
+  washReadyQty: number;
   remainingToSew: number;
   remainingToWash: number;
   sewnPct: number;
@@ -345,6 +341,7 @@ export interface BatchLineProgress {
   periodSewnQty: number;
   periodWashQty: number;
   periodIntakeQty: number;
+  periodWashReadyQty: number;
 }
 
 /**
@@ -410,6 +407,8 @@ export const computeBatchLineProgress = (
     sewnQty = selectedActivity === 'sewn' ? (periodSewnQty > 0 ? periodSewnQty : baseSewn) : baseSewn;
   }
 
+  const washReadyQty = Math.max(0, sewnQty - washSentQty);
+  const periodWashReadyQty = isFilteredPeriod ? Math.max(0, periodSewnQty - periodWashQty) : washReadyQty;
   const remainingToSew = Math.max(0, lineIntakeQty - sewnQty);
   const remainingToWash = Math.max(0, lineIntakeQty - washSentQty);
   const sewnPct = lineIntakeQty > 0 ? Math.min(100, Math.round((sewnQty / lineIntakeQty) * 100)) : 0;
@@ -419,6 +418,7 @@ export const computeBatchLineProgress = (
     lineIntakeQty,
     sewnQty,
     washSentQty,
+    washReadyQty,
     remainingToSew,
     remainingToWash,
     sewnPct,
@@ -427,6 +427,7 @@ export const computeBatchLineProgress = (
     periodSewnQty,
     periodWashQty,
     periodIntakeQty,
+    periodWashReadyQty,
   };
 };
 
@@ -491,9 +492,10 @@ export const LinePage: React.FC = () => {
   const activityOptions: SearchableSelectOption[] = useMemo(() => [
     { value: 'all', label: 'All Activities' },
     { value: 'intake', label: 'Line Intake' },
-    { value: 'sewn', label: 'Sewn (Daily Output)' },
-    { value: 'wash', label: 'Sent to Wash' },
-    { value: 'pending', label: 'Remaining / Pending' },
+    { value: 'sewn', label: 'Sewn' },
+    { value: 'wash_ready', label: 'Wash Ready (Ready for Wash)' },
+    { value: 'wash', label: 'Forwarded to Wash' },
+    { value: 'remaining', label: 'Pending Sewing' },
   ], []);
 
   const sortOptions: SearchableSelectOption[] = useMemo(() => [
@@ -796,6 +798,17 @@ export const LinePage: React.FC = () => {
         }
         return getBatchSewnQty(b, productsList) > 0;
       });
+    } else if (selectedActivity === 'wash_ready') {
+      list = list.filter((b: any) => {
+        if (localBoundaries) {
+          const pSewn = getPeriodLogSum(b, 'sewn', localBoundaries.startTime, localBoundaries.endTime, getLogQty);
+          const pWash = getPeriodLogSum(b, 'wash', localBoundaries.startTime, localBoundaries.endTime, getLogQty);
+          return Math.max(0, pSewn - pWash) > 0;
+        }
+        const sewnTotal = getBatchSewnQty(b, productsList);
+        const washTotal = getBatchWashQty(b, productsList);
+        return Math.max(0, sewnTotal - washTotal) > 0;
+      });
     } else if (selectedActivity === 'wash') {
       list = list.filter((b: any) => {
         if (localBoundaries) {
@@ -804,12 +817,11 @@ export const LinePage: React.FC = () => {
         }
         return getBatchWashQty(b, productsList) > 0;
       });
-    } else if (selectedActivity === 'pending') {
+    } else if (selectedActivity === 'remaining' || selectedActivity === 'pending') {
       list = list.filter((b: any) => {
         const sentTotal = getBatchLineIntakeQty(b, productsList);
-        const washTotal = getBatchWashQty(b, productsList);
         const sewnTotal = getBatchSewnQty(b, productsList);
-        const isPending = (sentTotal > washTotal) || (sentTotal > sewnTotal);
+        const isPending = sentTotal > sewnTotal;
         if (!isPending) return false;
         if (localBoundaries) {
           const hasLog = (b.activityLogs || []).some((l: any) => isLogWithinRange(l));
@@ -899,20 +911,27 @@ export const LinePage: React.FC = () => {
     let totalLineIntake = 0;
     let totalForwardedToWash = 0;
     let totalSewnQty = 0;
+    let totalWashReadyQty = 0;
+    let washReadyBatchCount = 0;
 
     let periodLineIntake = 0;
     let periodForwardedToWash = 0;
     let periodSewnQty = 0;
+    let periodWashReadyQty = 0;
+    let periodWashReadyBatchCount = 0;
     let todaySewnQty = 0;
 
     filteredBatches.forEach((b: any) => {
       const bIntake = getBatchLineIntakeQty(b, productsList);
       const bWash = getBatchWashQty(b, productsList);
       const bSewn = getBatchSewnQty(b, productsList);
+      const bWashReady = Math.max(0, bSewn - bWash);
 
       totalLineIntake += bIntake;
       totalForwardedToWash += bWash;
       totalSewnQty += bSewn;
+      totalWashReadyQty += bWashReady;
+      if (bWashReady > 0) washReadyBatchCount++;
 
       // Always calculate today's logged sewn output for Case A
       const bTodaySewn = getPeriodLogSum(b, 'sewn', todayBoundaries.startTime, todayBoundaries.endTime, getLogQty);
@@ -922,6 +941,7 @@ export const LinePage: React.FC = () => {
         let pIntake = getPeriodLogSum(b, 'intake', localBoundaries.startTime, localBoundaries.endTime, getLogQty);
         const pWash = getPeriodLogSum(b, 'wash', localBoundaries.startTime, localBoundaries.endTime, getLogQty);
         const pSewn = getPeriodLogSum(b, 'sewn', localBoundaries.startTime, localBoundaries.endTime, getLogQty);
+        const pWashReady = Math.max(0, pSewn - pWash);
 
         if (pIntake === 0) {
           const intakeTime = getLineIntakeTimestampMs(b);
@@ -936,6 +956,8 @@ export const LinePage: React.FC = () => {
         periodLineIntake += pIntake;
         periodForwardedToWash += pWash;
         periodSewnQty += pSewn;
+        periodWashReadyQty += pWashReady;
+        if (pWashReady > 0) periodWashReadyBatchCount++;
       }
     });
 
@@ -951,6 +973,17 @@ export const LinePage: React.FC = () => {
       : 'Completed sewn output logged today';
     const sewnCardValue = isPeriodRangeActive ? periodSewnQty : todaySewnQty;
 
+    // Determine Wash Ready Card State: Case A (Unfiltered) vs Case B (Date Range Filtered)
+    const displayWashReadyQty = localBoundaries ? periodWashReadyQty : totalWashReadyQty;
+    const displayWashReadyBatchCount = localBoundaries ? periodWashReadyBatchCount : washReadyBatchCount;
+    const washReadySubtitle = localBoundaries
+      ? displayWashReadyBatchCount > 0
+        ? `${displayWashReadyBatchCount} ${displayWashReadyBatchCount === 1 ? 'batch' : 'batches'} with wash-ready output in range`
+        : 'No wash-ready output in selected range'
+      : displayWashReadyBatchCount > 0
+      ? `${displayWashReadyBatchCount} ${displayWashReadyBatchCount === 1 ? 'batch' : 'batches'} ready for Wash Plant`
+      : 'No batches awaiting wash';
+
     const pendingSewing = Math.max(0, totalLineIntake - totalForwardedToWash);
 
     return {
@@ -963,6 +996,9 @@ export const LinePage: React.FC = () => {
       totalLineIntake,
       totalForwardedToWash,
       totalSewnQty,
+      washReadyQty: displayWashReadyQty,
+      washReadyBatchCount: displayWashReadyBatchCount,
+      washReadySubtitle,
       periodLineIntake,
       periodForwardedToWash,
       periodSewnQty,
@@ -1059,7 +1095,7 @@ export const LinePage: React.FC = () => {
       </div>
 
       {/* ── KPI Metric Cards ── */}
-      <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 w-full">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 w-full">
         {/* Metric 1: Batches on Floor */}
         <div className="rounded-2xl border p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex flex-col justify-between min-h-[110px]">
           <div className="flex justify-between items-start">
@@ -1139,7 +1175,28 @@ export const LinePage: React.FC = () => {
           </p>
         </div>
 
-        {/* Metric 4: Daily Sewn Qty / Sewing Qty */}
+        {/* Metric 4: Wash Ready (Sewn & Waiting for Wash Plant) */}
+        <div className="rounded-2xl border p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex flex-col justify-between min-h-[110px]">
+          <div className="flex justify-between items-start">
+            <div>
+              <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
+                Wash Ready
+              </span>
+              <h3 className="text-2xl font-bold text-teal-600 dark:text-teal-400 mt-1 font-mono">
+                {metrics.washReadyQty.toLocaleString()}{' '}
+                <span className="text-xs font-medium text-slate-500">Pcs</span>
+              </h3>
+            </div>
+            <div className="p-2.5 bg-teal-50 dark:bg-teal-950/40 text-teal-600 dark:text-teal-400 rounded-xl shrink-0">
+              <CheckCircle2 className="size-5" />
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-400 dark:text-zinc-500 mt-2">
+            {metrics.washReadySubtitle}
+          </p>
+        </div>
+
+        {/* Metric 5: Daily Sewn Qty / Sewing Qty */}
         <div className="rounded-2xl border p-4 bg-white dark:bg-zinc-900/60 border-slate-200 dark:border-zinc-800 shadow-xs flex flex-col justify-between min-h-[110px]">
           <div className="flex justify-between items-start">
             <div>
@@ -1208,6 +1265,18 @@ export const LinePage: React.FC = () => {
               </span>
             )}
           </button>
+        </div>
+
+        {/* Mobile Quick Controls Row: Current/All View Toggle */}
+        <div className="flex items-center justify-end gap-2 flex-wrap pt-1 border-t border-slate-100 dark:border-zinc-800/80">
+          <StageViewToggle
+            value={viewMode}
+            onChange={(mode) => {
+              setViewMode(mode);
+              setCurrentPage(1);
+            }}
+            className="shrink-0 whitespace-nowrap"
+          />
         </div>
 
         {mobileFiltersOpen && (
@@ -1334,32 +1403,15 @@ export const LinePage: React.FC = () => {
           />
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
-          <div className="w-44 shrink-0">
-            <DateRangePicker
-              date={dateRange}
-              onDateChange={(range) => {
-                setDateRange(range);
-                setCurrentPage(1);
-              }}
-              placeholder="Filter date..."
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setDateRange(isColomboTodayRange(dateRange) ? undefined : getColomboTodayDateRange());
+        <div className="w-44 shrink-0">
+          <DateRangePicker
+            date={dateRange}
+            onDateChange={(range) => {
+              setDateRange(range);
               setCurrentPage(1);
             }}
-            className={`h-9 px-3 rounded-xl text-xs font-semibold border transition-all shrink-0 whitespace-nowrap cursor-pointer ${
-              isColomboTodayRange(dateRange)
-                ? 'bg-indigo-600 border-indigo-600 text-white shadow-xs'
-                : 'bg-slate-50 dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800'
-            }`}
-            title="Filter strictly to today's Sewing Line activity (+05:30)"
-          >
-            Today
-          </button>
+            placeholder="Filter date..."
+          />
         </div>
 
         <div className="w-40 min-w-0 shrink-0">
@@ -1771,6 +1823,7 @@ export const LinePage: React.FC = () => {
                 lineIntakeQty,
                 sewnQty,
                 washSentQty,
+                washReadyQty,
                 remainingToWash,
                 sewnPct,
                 washPct,
@@ -1778,6 +1831,7 @@ export const LinePage: React.FC = () => {
                 periodSewnQty,
                 periodWashQty,
                 periodIntakeQty,
+                periodWashReadyQty,
               } = getBatchRowDisplay(batch);
 
               // "Send to Wash" remains active and accessible as long as sentToLineQty > sentToWashQty for ANY product in the batch
@@ -1825,23 +1879,8 @@ export const LinePage: React.FC = () => {
                           <h4 className="text-xs font-bold text-slate-900 dark:text-white truncate">
                             {p.productName}
                           </h4>
-                          <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                            <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">Intake: {p.sentToLineQty}</span>
-                            <span className="text-slate-300 dark:text-zinc-700">·</span>
-                            <span className={`text-[10px] font-bold ${
-                              p.sentToLineQty > 0 && (p.sewnQty || 0) >= p.sentToLineQty
-                                ? 'text-emerald-600 dark:text-emerald-400'
-                                : 'text-purple-600 dark:text-purple-400'
-                            }`}>
-                              Sewn: {p.sewnQty || 0}
-                            </span>
-                            <span className="text-slate-300 dark:text-zinc-700">·</span>
-                            <span className="text-[10px] text-cyan-600 dark:text-cyan-400 font-bold">Wash: {p.sentToWashQty}</span>
-                            <span className="text-slate-300 dark:text-zinc-700">·</span>
-                            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">Rem: {Math.max(0, p.sentToLineQty - p.sentToWashQty)}</span>
-                          </div>
                           {p.sku && (
-                            <span className="text-[10px] text-slate-400 truncate block font-mono">
+                            <span className="text-[10px] text-slate-400 truncate block font-mono mt-0.5">
                               SKU: {p.sku}
                             </span>
                           )}
@@ -1898,7 +1937,7 @@ export const LinePage: React.FC = () => {
                     </div>
                   )}
 
-                  {/* 4-Metric Summary Grid (Desktop Parity) */}
+                  {/* 4-Metric Summary Grid (De-duplicated, with Wash Ready) */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center p-2.5 rounded-xl bg-slate-50 dark:bg-zinc-900 border border-slate-200/60 dark:border-zinc-800 text-xs">
                     <div>
                       <span className="text-[9px] uppercase font-bold text-slate-400 block">Line Intake</span>
@@ -1929,6 +1968,27 @@ export const LinePage: React.FC = () => {
                       )}
                     </div>
                     <div>
+                      <span className={`text-[9px] uppercase font-bold block ${
+                        washReadyQty > 0
+                          ? 'text-teal-600 dark:text-teal-400'
+                          : 'text-slate-400 dark:text-zinc-500'
+                      }`}>
+                        Wash Ready
+                      </span>
+                      <span className={`font-mono font-bold ${
+                        washReadyQty > 0
+                          ? 'text-teal-600 dark:text-teal-400'
+                          : 'text-slate-500 dark:text-zinc-400'
+                      }`}>
+                        {washReadyQty.toLocaleString()} Pcs
+                      </span>
+                      {isFilteredPeriod && periodWashReadyQty > 0 && (
+                        <span className="block text-[9px] font-mono font-semibold text-teal-600 dark:text-teal-400">
+                          Range: +{periodWashReadyQty.toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                    <div>
                       <span className="text-[9px] uppercase font-bold text-cyan-600 dark:text-cyan-400 block">Sent to Wash</span>
                       <span className="font-mono font-bold text-cyan-600 dark:text-cyan-400">
                         {washSentQty} Pcs
@@ -1938,12 +1998,6 @@ export const LinePage: React.FC = () => {
                           Range: +{periodWashQty}
                         </span>
                       )}
-                    </div>
-                    <div>
-                      <span className="text-[9px] uppercase font-bold text-amber-600 dark:text-amber-400 block">Remaining</span>
-                      <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
-                        {remainingToWash} Pcs
-                      </span>
                     </div>
                   </div>
 

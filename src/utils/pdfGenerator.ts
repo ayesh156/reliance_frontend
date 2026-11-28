@@ -194,11 +194,14 @@ export function drawStandardReportHeader(
   doc.setFont('helvetica', 'normal');
   doc.text(BRAND_CONFIG.web, brandTextX + webPrefixW, headerTop + 58);
 
-  // 3. Right-Aligned Header Area: Report Section Title
+  // 3. Right-Aligned Header Area: Report Section Title (hard-bounded to x >= 250pt to never overlap RELIANCE)
+  const titleMaxWidth = Math.min(280, rightMargin - 250);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(0, 0, 0);
-  doc.text(options.reportTitle, rightMargin, headerTop + 12, { align: 'right' });
+  const titleLines = doc.splitTextToSize(options.reportTitle || '', titleMaxWidth) as string[];
+  doc.text(titleLines, rightMargin, headerTop + 12, { align: 'right' });
+  const titleBottomOffset = headerTop + 12 + Math.max(0, titleLines.length - 1) * 12;
 
   // 4. Right-Aligned Metadata Table Block
   const metaRows: ReportMetaRow[] = options.metaRows || [
@@ -214,7 +217,7 @@ export function drawStandardReportHeader(
     return Math.max(maxW, doc.getTextWidth(String(r.value || '')));
   }, 0);
   const metaLabelX = Math.min(rightMargin - 175, rightMargin - maxValWidth - 65);
-  let metaY = headerTop + 24;
+  let metaY = Math.max(headerTop + 24, titleBottomOffset + 12);
 
   metaRows.forEach((row) => {
     doc.setFont('helvetica', 'bold');

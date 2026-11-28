@@ -12,7 +12,7 @@ import { SearchableSelect, type SearchableSelectOption } from '../components/ui/
 import { TooltipSimple } from '../components/ui/tooltip';
 import { toast } from 'react-toastify';
 import { generateCustomerDuesPdf } from '../utils/customerDuesPdf';
-import { generateMaterialProductionPdf, generateGarmentProductionPdf, matchProductionStage, getProductionStageConfig } from '../utils/reportPdf';
+import { generateMaterialProductionPdf, generateGarmentProductionPdf, matchProductionStage, getProductionStageConfig, buildProductionExportFilename } from '../utils/reportPdf';
 import { StageViewToggle, type StageViewMode } from '../components/production/StageViewToggle';
 import { getRoleBadgeStyle } from './InvoicesPage';
 import { formatQty } from '../lib/utils';
@@ -737,6 +737,13 @@ export const ReportsPage: React.FC = () => {
       setDownloadingMaterialPdf(true);
       if (!reportData) return;
       if (activeModule === 'production') {
+        const dynamicFilename = buildProductionExportFilename(
+          productionStageFilter,
+          productionViewMode,
+          reportData.dateFilter?.startDate,
+          reportData.dateFilter?.endDate,
+          'pdf'
+        );
         await generateGarmentProductionPdf(
           {
             ...reportData,
@@ -747,6 +754,7 @@ export const ReportsPage: React.FC = () => {
             generatedBy: user?.name ? `${user.name} (${user.role || 'Staff'})` : undefined,
             stageFilter: productionStageFilter,
             viewMode: productionViewMode,
+            filename: dynamicFilename,
           }
         );
         toast.success('Garment Production PDF generated and downloaded successfully!');
@@ -911,9 +919,15 @@ export const ReportsPage: React.FC = () => {
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      const dateTag = new Date().toISOString().split('T')[0];
+      const dynamicCsvFilename = buildProductionExportFilename(
+        productionStageFilter,
+        productionViewMode,
+        reportData?.dateFilter?.startDate,
+        reportData?.dateFilter?.endDate,
+        'csv'
+      );
       link.href = url;
-      link.setAttribute('download', `reliance-production-${productionStageConfig.stageKey.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${dateTag}.csv`);
+      link.setAttribute('download', dynamicCsvFilename);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -1044,17 +1058,39 @@ export const ReportsPage: React.FC = () => {
     const inSewingWip = (!isSubsetFiltered && summary.inSewingWip !== undefined)
       ? Number(summary.inSewingWip)
       : rows.reduce((sum, row) => {
-          if (row.status !== 'CANCELLED' && row.status !== 'COMPLETED') {
-            const intake = Number(row.lineIntakeQty ?? row.lineSentQty ?? 0);
-            const sewn = Number(row.sewnQty || 0);
-            return sum + Math.max(0, intake - sewn);
-          }
-          return sum;
+          if (row.status === 'CANCELLED' || row.status === 'COMPLETED' || row.isStockSynced) return sum;
+          if (row.lineWipQty !== undefined) return sum + Number(row.lineWipQty || 0);
+          const intake = Number(row.lineIntakeQty ?? row.lineSentQty ?? 0);
+          const sewn = Number(row.sewnQty || 0);
+          const sentWash = Number(row.sentToWashQty || 0);
+          return sum + Math.max(0, Math.max(intake, sewn) - sentWash);
         }, 0);
+
+    const totalLineIntake = (!isSubsetFiltered && summary.totalLineIntake !== undefined)
+      ? Number(summary.totalLineIntake)
+      : rows.reduce((sum, row) => sum + Number(row.lineIntakeQty ?? row.lineSentQty ?? 0), 0);
 
     const totalSewnOutput = (!isSubsetFiltered && summary.totalSewnOutput !== undefined)
       ? Number(summary.totalSewnOutput)
       : rows.reduce((sum, row) => sum + Number(row.sewnQty || 0), 0);
+
+    const totalWashReadyOnLine = rows.reduce((sum, row) => {
+      const hasLineWip = row.lineWipQty !== undefined
+        ? Number(row.lineWipQty || 0) > 0
+        : (row.status !== 'CANCELLED' && row.status !== 'COMPLETED' && !row.isStockSynced && Math.max(0, Math.max(Number(row.lineIntakeQty ?? row.lineSentQty ?? 0), Number(row.sewnQty || 0)) - Number(row.sentToWashQty || 0)) > 0);
+      if (!hasLineWip) return sum;
+      const sewn = Number(row.sewnQty || 0);
+      const sentWash = Number(row.sentToWashQty || 0);
+      return sum + Number(row.cumulativeWashReadyQty ?? row.washReadyQty ?? Math.max(0, sewn - sentWash));
+    }, 0);
+
+    const unsewnOnLine = Math.max(0, inSewingWip - totalWashReadyOnLine);
+
+    const totalWashReady = rows.reduce((sum, row) => {
+      const sewn = Number(row.sewnQty || 0);
+      const sentWash = Number(row.sentToWashQty || 0);
+      return sum + Number(row.washReadyQty ?? Math.max(0, sewn - sentWash));
+    }, 0);
 
     const inWashTotal = (!isSubsetFiltered && summary.inWashTotal !== undefined)
       ? Number(summary.inWashTotal)
@@ -1064,7 +1100,7 @@ export const ReportsPage: React.FC = () => {
           return sum + sentWash + washed;
         }, 0);
 
-    const ironedAndPacked = summary.ironedAndPacked !== undefined
+    const ironedAndPacked = (!isSubsetFiltered && summary.ironedAndPacked !== undefined)
       ? Number(summary.ironedAndPacked)
       : rows.reduce((sum, row) => {
           const logged = Array.isArray(row.finishLogs) && row.finishLogs.length > 0
@@ -1076,7 +1112,7 @@ export const ReportsPage: React.FC = () => {
           return sum + finished;
         }, 0);
 
-    const fullyFinishedSynced = summary.fullyFinishedSynced !== undefined
+    const fullyFinishedSynced = (!isSubsetFiltered && summary.fullyFinishedSynced !== undefined)
       ? Number(summary.fullyFinishedSynced)
       : rows.reduce((sum, row) => {
           const isSynced = Boolean(row.isStockSynced) && row.status !== 'CANCELLED';
@@ -1106,8 +1142,12 @@ export const ReportsPage: React.FC = () => {
       totalBatches,
       // 6-Stage Funnel Metrics
       totalCutPieces: Math.round(totalCutPieces * 100) / 100,
+      totalLineIntake: Math.round(totalLineIntake * 100) / 100,
       inSewingWip: Math.round(inSewingWip * 100) / 100,
+      washReadyOnLine: Math.round(totalWashReadyOnLine * 100) / 100,
+      unsewnOnLine: Math.round(unsewnOnLine * 100) / 100,
       totalSewnOutput: Math.round(totalSewnOutput * 100) / 100,
+      totalWashReady: Math.round(totalWashReady * 100) / 100,
       inWashTotal: Math.round(inWashTotal * 100) / 100,
       ironedAndPacked: Math.round(ironedAndPacked * 100) / 100,
       fullyFinishedSynced: Math.round(fullyFinishedSynced * 100) / 100,
@@ -1118,7 +1158,7 @@ export const ReportsPage: React.FC = () => {
       syncedToInventory: Math.round(fullyFinishedSynced * 100) / 100,
       currentWip: Math.round(inSewingWip * 100) / 100,
     };
-  }, [activeModule, filteredRows, summary]);
+  }, [activeModule, filteredRows, summary, productionViewMode, productionStageFilter, searchQuery]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -1383,17 +1423,20 @@ export const ReportsPage: React.FC = () => {
 
           {/* Right: Section Actions & Exports (Matching exact height h-10; compact icon buttons on mobile) */}
           <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap md:justify-end shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-zinc-800/60 overflow-x-auto scrollbar-hide py-0.5">
-            {/* Active Module PDF */}
-            <TooltipSimple content={`Download ${activeTabItem.label} PDF`} side="top">
+            {/* Active Module PDF (Unified Single Production PDF Button for Garment Production) */}
+            <TooltipSimple
+              content={activeModule === 'production' ? 'Download Production PDF' : `Download ${activeTabItem.label} PDF`}
+              side="top"
+            >
               <Button
-                onClick={handleDownloadActivePdf}
-                disabled={downloadingActivePdf || loading || !reportData}
+                onClick={activeModule === 'production' ? handleDownloadMaterialPdf : handleDownloadActivePdf}
+                disabled={(activeModule === 'production' ? downloadingMaterialPdf : downloadingActivePdf) || loading || !reportData}
                 variant="outline"
                 className="h-9 sm:h-10 px-2.5 sm:px-3.5 rounded-xl text-xs font-semibold border-blue-200 dark:border-blue-900/60 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/40 shadow-xs shrink-0 flex items-center justify-center gap-1.5 cursor-pointer"
-                title={`Download ${activeTabItem.label} PDF`}
-                aria-label={`Download ${activeTabItem.label} PDF`}
+                title={activeModule === 'production' ? 'Download Production PDF' : `Download ${activeTabItem.label} PDF`}
+                aria-label={activeModule === 'production' ? 'Download Production PDF' : `Download ${activeTabItem.label} PDF`}
               >
-                {downloadingActivePdf ? (
+                {(activeModule === 'production' ? downloadingMaterialPdf : downloadingActivePdf) ? (
                   <>
                     <Loader2 className="size-3.5 sm:size-4 animate-spin text-blue-600 shrink-0" />
                     <span className="hidden sm:inline">Exporting...</span>
@@ -1402,8 +1445,12 @@ export const ReportsPage: React.FC = () => {
                 ) : (
                   <>
                     <Printer className="size-3.5 sm:size-4 text-blue-600 shrink-0" />
-                    <span className="hidden sm:inline">Download {activeTabItem.label.split('&')[0].trim()} PDF</span>
-                    <span className="sm:hidden">{activeModule === 'sales' ? 'Sales' : activeModule === 'expenses' ? 'Expenses' : activeModule === 'returns' ? 'Returns' : activeModule === 'inventory' ? 'Stock' : activeModule === 'products' ? 'Products' : activeModule === 'materials' ? 'Materials' : activeModule === 'production' ? 'Production' : activeModule === 'suppliers' ? 'Suppliers' : activeModule === 'audit' ? 'Audit' : activeModule === 'cheques' ? 'Cheques' : 'PDF'}</span>
+                    <span className="hidden sm:inline">
+                      {activeModule === 'production'
+                        ? 'Download Production PDF'
+                        : `Download ${activeTabItem.label.split('&')[0].trim()} PDF`}
+                    </span>
+                    <span className="sm:hidden">{activeModule === 'sales' ? 'Sales' : activeModule === 'expenses' ? 'Expenses' : activeModule === 'returns' ? 'Returns' : activeModule === 'inventory' ? 'Stock' : activeModule === 'products' ? 'Products' : activeModule === 'materials' ? 'Materials' : activeModule === 'production' ? 'Production PDF' : activeModule === 'suppliers' ? 'Suppliers' : activeModule === 'audit' ? 'Audit' : activeModule === 'cheques' ? 'Cheques' : 'PDF'}</span>
                   </>
                 )}
               </Button>
@@ -1491,35 +1538,35 @@ export const ReportsPage: React.FC = () => {
               </TooltipSimple>
             )}
 
-            {/* Raw Materials & Production: PDF and Excel Buttons */}
+            {/* Raw Materials & Production: Material PDF (Materials only) and CSV/Excel Buttons */}
             {(activeModule === 'materials' || activeModule === 'production') && (
               <>
-                <TooltipSimple content={activeModule === 'production' ? "Download Garment Production Audit PDF" : "Download Material & Production Audit PDF"} side="top">
-                  <Button
-                    onClick={handleDownloadMaterialPdf}
-                    disabled={downloadingMaterialPdf || loading || !reportData}
-                    variant="outline"
-                    className="h-9 sm:h-10 px-2.5 sm:px-3.5 rounded-xl text-xs font-semibold border-amber-300 dark:border-amber-800/80 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 shadow-xs shrink-0 cursor-pointer flex items-center justify-center gap-1.5"
-                    title={activeModule === 'production' ? "Download Garment Production Audit PDF" : "Download Material & Production Audit PDF"}
-                    aria-label={activeModule === 'production' ? "Download Garment Production Audit PDF" : "Download Material & Production Audit PDF"}
-                  >
-                    {downloadingMaterialPdf ? (
-                      <>
-                        <Loader2 className="size-3.5 sm:size-4 animate-spin text-amber-600 shrink-0" />
-                        <span className="hidden sm:inline">Generating...</span>
-                        <span className="sm:hidden">Gen...</span>
-                      </>
-                    ) : (
-                      <>
-                        <FileText className="size-3.5 sm:size-4 text-amber-600 shrink-0" />
-                        <span className="hidden sm:inline">
-                          {activeModule === 'production' ? 'Production PDF' : 'Material & Production PDF'}
-                        </span>
-                        <span className="sm:hidden">{activeModule === 'production' ? 'Prod PDF' : 'Mat PDF'}</span>
-                      </>
-                    )}
-                  </Button>
-                </TooltipSimple>
+                {activeModule === 'materials' && (
+                  <TooltipSimple content="Download Material & Production Audit PDF" side="top">
+                    <Button
+                      onClick={handleDownloadMaterialPdf}
+                      disabled={downloadingMaterialPdf || loading || !reportData}
+                      variant="outline"
+                      className="h-9 sm:h-10 px-2.5 sm:px-3.5 rounded-xl text-xs font-semibold border-amber-300 dark:border-amber-800/80 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 shadow-xs shrink-0 cursor-pointer flex items-center justify-center gap-1.5"
+                      title="Download Material & Production Audit PDF"
+                      aria-label="Download Material & Production Audit PDF"
+                    >
+                      {downloadingMaterialPdf ? (
+                        <>
+                          <Loader2 className="size-3.5 sm:size-4 animate-spin text-amber-600 shrink-0" />
+                          <span className="hidden sm:inline">Generating...</span>
+                          <span className="sm:hidden">Gen...</span>
+                        </>
+                      ) : (
+                        <>
+                          <FileText className="size-3.5 sm:size-4 text-amber-600 shrink-0" />
+                          <span className="hidden sm:inline">Material & Production PDF</span>
+                          <span className="sm:hidden">Mat PDF</span>
+                        </>
+                      )}
+                    </Button>
+                  </TooltipSimple>
+                )}
 
                 <TooltipSimple content={activeModule === 'production' ? 'Export Garment Production Report to CSV' : 'Export Raw Material & Cutting ledger to Excel'} side="top">
                   <Button
@@ -1563,11 +1610,11 @@ export const ReportsPage: React.FC = () => {
       <div className={`w-full min-w-0 overflow-visible p-3 sm:p-4 rounded-2xl border transition-all ${
         dark ? 'bg-zinc-900/60 border-zinc-800/80' : 'bg-white border-slate-200 shadow-xs'
       }`}>
-        <div className="flex flex-wrap items-center justify-between gap-2.5 w-full min-w-0">
+        <div className="flex flex-col lg:flex-row lg:flex-wrap lg:items-center lg:justify-between gap-2.5 w-full min-w-0">
           {/* Left: Presets Segmented Control & Date Selector */}
-          <div className="flex flex-wrap items-center gap-2 min-w-0 flex-1">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 w-full lg:w-auto lg:flex-1 min-w-0">
             {/* Segmented Preset Control Bar */}
-            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide py-0.5 shrink-0 max-w-full">
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide py-0.5 w-full sm:w-auto shrink-0 max-w-full">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500 mr-0.5 flex items-center gap-1 shrink-0">
                 <Calendar className="size-3.5" />
                 <span className="hidden sm:inline">Period:</span>
@@ -1727,14 +1774,16 @@ export const ReportsPage: React.FC = () => {
 
             {/* Production Stage / Section Filter Dropdown */}
             {activeModule === 'production' && (
-              <div className="w-full sm:w-36 lg:w-40 min-w-0 shrink-0">
+              <div className="w-full sm:w-48 lg:w-56 min-w-0 shrink-0">
                 <SearchableSelect
                   value={productionStageFilter}
                   onValueChange={handleProductionStageChange}
                   options={[
                     { value: 'ALL STAGES', label: 'All Stages' },
                     { value: 'CUTTING', label: 'Cutting' },
-                    { value: 'SEWING LINE', label: 'Sewing Line' },
+                    { value: 'SEWING LINE', label: 'Sewing Line (All)' },
+                    { value: 'SEWING_SEWN', label: 'Sewing Line — Sewn Output' },
+                    { value: 'SEWING_WASH_READY', label: 'Sewing Line — Ready for Wash' },
                     { value: 'WASHING', label: 'Washing' },
                     { value: 'FINISHING / PACKING', label: 'Finishing / Packing' },
                     { value: 'IN STOCK / COMPLETED', label: 'In Stock / Completed' },
@@ -1749,7 +1798,7 @@ export const ReportsPage: React.FC = () => {
           </div>
 
           {/* Right Corner: Stage View Toggle, Selected Badge & Chart Toggle Button */}
-          <div className="flex items-center gap-2 flex-wrap justify-between lg:justify-end shrink-0 max-w-full pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-100 dark:border-zinc-800/60">
+          <div className="flex items-center gap-2 flex-wrap justify-between sm:justify-end w-full lg:w-auto shrink-0 max-w-full pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-100 dark:border-zinc-800/60">
             {activeModule === 'production' && (
               <StageViewToggle
                 value={productionViewMode}
@@ -2059,28 +2108,54 @@ export const ReportsPage: React.FC = () => {
                   <p className="text-[11px] text-slate-400 mt-1">{productionKPIs?.totalBatches ?? summary.totalBatches ?? 0} Batches Started</p>
                 </div>
 
-                {/* Stage 2: Line Intake - In Sewing Line (WIP) */}
+                {/* Stage 2: Current = In Sewing Line (WIP) | All = Total Line Intake */}
                 <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">In Sewing Line (WIP)</p>
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">
+                      {productionViewMode === 'active' ? 'In Sewing Line (WIP)' : 'Total Line Intake'}
+                    </p>
                     <Clock className="w-3.5 h-3.5 text-indigo-500" />
                   </div>
                   <p className="text-lg md:text-xl font-bold mt-1 text-indigo-600 dark:text-indigo-400 font-mono">
-                    {formatQty(productionKPIs?.inSewingWip ?? summary.inSewingWip ?? summary.currentWip ?? 0)} <span className="text-xs font-medium text-slate-500">Pcs</span>
+                    {formatQty(
+                      productionViewMode === 'active'
+                        ? (productionKPIs?.inSewingWip ?? summary.inSewingWip ?? 0)
+                        : (productionKPIs?.totalLineIntake ?? summary.totalLineIntake ?? 0)
+                    )}{' '}
+                    <span className="text-xs font-medium text-slate-500">Pcs</span>
                   </p>
-                  <p className="text-[11px] text-slate-400 mt-1">Ongoing in Sewing Floor</p>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    {productionViewMode === 'active'
+                      ? `Unsewn: ${formatQty(productionKPIs?.unsewnOnLine ?? 0)} • Wash Ready: ${formatQty(productionKPIs?.washReadyOnLine ?? 0)}`
+                      : `Live Line WIP: ${formatQty(productionKPIs?.inSewingWip ?? summary.inSewingWip ?? 0)} Pcs`}
+                  </p>
                 </div>
 
-                {/* Stage 3: Sewing - Total Sewn Output */}
+                {/* Stage 3: Current = Sewn / Wash Ready (On Line) | All = Sewn Output / Wash Ready */}
                 <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Total Sewn Output</p>
+                    <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">
+                      {productionViewMode === 'active' ? 'Sewn / Wash Ready (On Line)' : 'Sewn Output / Wash Ready'}
+                    </p>
                     <Sparkles className="w-3.5 h-3.5 text-purple-500" />
                   </div>
                   <p className="text-lg md:text-xl font-bold mt-1 text-purple-600 dark:text-purple-400 font-mono">
-                    {formatQty(productionKPIs?.totalSewnOutput ?? summary.totalSewnOutput ?? 0)} <span className="text-xs font-medium text-slate-500">Pcs</span>
+                    {formatQty(
+                      productionViewMode === 'active'
+                        ? (productionKPIs?.washReadyOnLine ?? 0)
+                        : productionStageFilter === 'SEWING_WASH_READY'
+                        ? (productionKPIs?.totalWashReady ?? 0)
+                        : (productionKPIs?.totalSewnOutput ?? summary.totalSewnOutput ?? 0)
+                    )}{' '}
+                    <span className="text-xs font-medium text-slate-500">Pcs</span>
                   </p>
-                  <p className="text-[11px] text-slate-400 mt-1">Exited Sewing Floor</p>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    {productionViewMode === 'active'
+                      ? 'Ready for Wash Plant on active line'
+                      : productionStageFilter === 'SEWING_WASH_READY'
+                      ? 'Sewn & awaiting Wash Plant'
+                      : `Sent to Wash: ${formatQty(Math.max(0, (productionKPIs?.totalSewnOutput ?? 0) - (productionKPIs?.totalWashReady ?? 0)))} • Wash Ready: ${formatQty(productionKPIs?.totalWashReady ?? 0)}`}
+                  </p>
                 </div>
 
                 {/* Stage 4: Washing - In Wash / Washed */}
@@ -3058,6 +3133,15 @@ export const ReportsPage: React.FC = () => {
                                     </td>
                                   );
                                 }
+                                const showPriorCut =
+                                  col.key === 'cutQtyYards' &&
+                                  Number(row.cutQtyYards ?? 0) === 0 &&
+                                  Number(row.totalCutQtyYards ?? 0) > 0;
+                                const showPriorIntake =
+                                  col.key === 'lineIntakeQty' &&
+                                  Number(row.lineIntakeQty ?? row.lineSentQty ?? 0) === 0 &&
+                                  Number(row.sewnQty ?? 0) > 0 &&
+                                  Number(row.totalLineIntakeQty ?? 0) > 0;
                                 return (
                                   <td
                                     key={col.key}
@@ -3067,7 +3151,17 @@ export const ReportsPage: React.FC = () => {
                                       col.key === 'cutQtyYards' ? 'text-amber-600 dark:text-amber-400' : ''
                                     }`}
                                   >
-                                    {val}
+                                    <div>{val}</div>
+                                    {showPriorCut && (
+                                      <div className="text-[10px] font-normal text-slate-400 dark:text-zinc-500">
+                                        Prior: {formatQty(Number(row.totalCutQtyYards))} Yd
+                                      </div>
+                                    )}
+                                    {showPriorIntake && (
+                                      <div className="text-[10px] font-normal text-slate-400 dark:text-zinc-500">
+                                        Prior: {formatQty(Number(row.totalLineIntakeQty))}
+                                      </div>
+                                    )}
                                   </td>
                                 );
                               })}

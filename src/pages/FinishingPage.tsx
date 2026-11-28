@@ -620,6 +620,18 @@ export const FinishingPage: React.FC = () => {
           </button>
         </div>
 
+        {/* Mobile View-Mode Toggle (<1024px) */}
+        <div className="lg:hidden flex items-center justify-end pt-1 border-t border-slate-100 dark:border-zinc-800/80">
+          <StageViewToggle
+            value={viewMode}
+            onChange={(mode) => {
+              setViewMode(mode);
+              setCurrentPage(1);
+            }}
+            className="shrink-0 whitespace-nowrap"
+          />
+        </div>
+
         {/* Quick Date Range Preset Pills */}
         <div className="flex items-center justify-between flex-wrap gap-2 pt-1 border-t border-slate-100 dark:border-zinc-800/80">
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -636,17 +648,6 @@ export const FinishingPage: React.FC = () => {
               }`}
             >
               All Time
-            </button>
-            <button
-              type="button"
-              onClick={() => applyDatePreset('today')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
-                activeDatePreset === 'today'
-                  ? 'bg-indigo-600 text-white font-semibold'
-                  : 'bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 hover:bg-slate-200 dark:hover:bg-zinc-700'
-              }`}
-            >
-              Today
             </button>
             <button
               type="button"

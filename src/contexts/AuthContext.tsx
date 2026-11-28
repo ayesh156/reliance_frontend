@@ -213,6 +213,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     preloadCriticalImageAsset('/images/editorial/hero-denim.jpg', 2500).catch(() => {});
   }, [dismissSplashScreen, fetchUser]);
 
+  /**
+   * Clears per-device daily supplier cheque alert dismissal keys so every
+   * explicit login or logout session reliably re-displays due cheque alerts.
+   */
+  const clearSupplierChequeDismissals = useCallback(() => {
+    try {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('supplier_cheque_alert_closed_')) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach((key) => localStorage.removeItem(key));
+    } catch {
+      // Ignore localStorage access errors
+    }
+  }, []);
+
   const login = useCallback(async (email: string, password: string) => {
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
@@ -236,20 +255,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       role,
       permissions,
     };
+    clearSupplierChequeDismissals();
     localStorage.setItem('auth_token', data.token);
     localStorage.setItem('auth_user', JSON.stringify(loggedUser));
     setToken(data.token);
     setUser(loggedUser);
-  }, []);
+  }, [clearSupplierChequeDismissals]);
 
   const logout = useCallback(() => {
     sseManager.disconnect();
+    clearSupplierChequeDismissals();
     localStorage.removeItem('auth_token');
     localStorage.removeItem('auth_user');
     localStorage.removeItem('reliance_last_active_route');
     setToken(null);
     setUser(null);
-  }, []);
+  }, [clearSupplierChequeDismissals]);
 
   /**
    * Dynamic Permission checker.

@@ -60,6 +60,8 @@ function ThemedToastContainer() {
       draggable
       pauseOnHover
       theme={resolvedTheme === 'dark' ? 'dark' : 'light'}
+      className="!z-[9999] !top-16 sm:!top-4 !right-3 sm:!right-4 !left-3 sm:!left-auto !w-auto max-w-[calc(100vw-24px)]"
+      toastClassName="!w-full sm:!w-auto max-w-[calc(100vw-24px)] sm:max-w-md !rounded-xl"
       style={{ zIndex: 999999 }}
     />
   );

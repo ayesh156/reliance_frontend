@@ -4,8 +4,6 @@ import {
   useUrlFilterSync,
   getInitialDateRangeFromUrl,
   formatDateForUrl,
-  getColomboTodayDateRange,
-  isColomboTodayRange,
 } from '../hooks/useUrlFilterSync';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -715,6 +713,18 @@ export const WashPage: React.FC = () => {
           </button>
         </div>
 
+        {/* Mobile Quick Controls Row: Current/All View Toggle */}
+        <div className="flex items-center justify-end gap-2 flex-wrap pt-1 border-t border-slate-100 dark:border-zinc-800/80">
+          <StageViewToggle
+            value={viewMode}
+            onChange={(mode) => {
+              setViewMode(mode);
+              setCurrentPage(1);
+            }}
+            className="shrink-0 whitespace-nowrap"
+          />
+        </div>
+
         {mobileFiltersOpen && (
           <div className="pt-2.5 border-t border-slate-100 dark:border-zinc-800 space-y-2 animate-in fade-in-50 duration-150">
             <div className="w-full">
@@ -808,32 +818,15 @@ export const WashPage: React.FC = () => {
           )}
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
-          <div className="w-44 shrink-0">
-            <DateRangePicker
-              date={dateRange}
-              onDateChange={(range) => {
-                setDateRange(range);
-                setCurrentPage(1);
-              }}
-              placeholder="Filter date..."
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setDateRange(isColomboTodayRange(dateRange) ? undefined : getColomboTodayDateRange());
+        <div className="w-44 shrink-0">
+          <DateRangePicker
+            date={dateRange}
+            onDateChange={(range) => {
+              setDateRange(range);
               setCurrentPage(1);
             }}
-            className={`h-9 px-3 rounded-xl text-xs font-semibold border transition-all shrink-0 whitespace-nowrap cursor-pointer ${
-              isColomboTodayRange(dateRange)
-                ? 'bg-cyan-600 border-cyan-600 text-white shadow-xs'
-                : 'bg-slate-50 dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800'
-            }`}
-            title="Filter strictly to today's Washing activity (+05:30)"
-          >
-            Today
-          </button>
+            placeholder="Filter date..."
+          />
         </div>
 
         <div className="w-40 min-w-0 shrink-0">

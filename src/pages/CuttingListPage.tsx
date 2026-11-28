@@ -4,8 +4,6 @@ import {
   useUrlFilterSync,
   getInitialDateRangeFromUrl,
   formatDateForUrl,
-  getColomboTodayDateRange,
-  isColomboTodayRange,
 } from '../hooks/useUrlFilterSync';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -1679,6 +1677,18 @@ export const CuttingListPage: React.FC = () => {
           </button>
         </div>
 
+        {/* Mobile Quick Controls Row: Current/All View Toggle */}
+        <div className="flex items-center justify-end gap-2 flex-wrap pt-1 border-t border-slate-100 dark:border-zinc-800/80">
+          <StageViewToggle
+            value={viewMode}
+            onChange={(mode) => {
+              setViewMode(mode);
+              setCurrentPage(1);
+            }}
+            className="shrink-0 whitespace-nowrap"
+          />
+        </div>
+
         {/* Collapsible Filters Drawer */}
         {mobileFiltersOpen && (
           <div className="pt-3 border-t border-slate-100 dark:border-zinc-800 space-y-2.5 animate-in fade-in-50 duration-150">
@@ -1794,29 +1804,13 @@ export const CuttingListPage: React.FC = () => {
           )}
         </div>
 
-        {/* Date Range Picker + Dedicated Today Quick-Filter */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <div className="w-44 shrink-0">
-            <DateRangePicker
-              date={dateRange}
-              onDateChange={handleDateRangeChange}
-              placeholder="Production date..."
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              handleDateRangeChange(isColomboTodayRange(dateRange) ? undefined : getColomboTodayDateRange());
-            }}
-            className={`h-9 px-3 rounded-xl text-xs font-semibold border transition-all shrink-0 whitespace-nowrap cursor-pointer ${
-              isColomboTodayRange(dateRange)
-                ? 'bg-amber-600 border-amber-600 text-white shadow-xs'
-                : 'bg-slate-50 dark:bg-zinc-950 border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800'
-            }`}
-            title="Filter strictly to today's Cutting activity (+05:30)"
-          >
-            Today
-          </button>
+        {/* Date Range Picker */}
+        <div className="w-44 shrink-0">
+          <DateRangePicker
+            date={dateRange}
+            onDateChange={handleDateRangeChange}
+            placeholder="Production date..."
+          />
         </div>
 
         {/* Product Combobox */}

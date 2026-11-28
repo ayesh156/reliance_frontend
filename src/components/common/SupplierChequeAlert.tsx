@@ -29,7 +29,11 @@ export const SupplierChequeAlert: React.FC = () => {
   const lastCheckedUserIdRef = useRef<number | string | null>(null);
 
   useEffect(() => {
-    if (!user || !user.id) return;
+    if (!user || !user.id) {
+      lastCheckedUserIdRef.current = null;
+      toast.dismiss('supplier-cheque-due-alert');
+      return;
+    }
 
     // RBAC Guard: Strictly restricted to SUPER_ADMIN, ADMIN, and STAFF
     const role = String(user.role || '').toUpperCase();
@@ -58,6 +62,20 @@ export const SupplierChequeAlert: React.FC = () => {
 
     if (lastCheckedUserIdRef.current === user.id) return;
     lastCheckedUserIdRef.current = user.id;
+
+    /**
+     * Persists today's per-device dismissal key ONLY when the user explicitly
+     * clicks "Dismiss for Today" or the explicit × close button.
+     * Never called from Toastify's generic onClose (which fires on StrictMode/unmount).
+     */
+    const handleExplicitDismiss = (closeToast?: () => void) => {
+      try {
+        localStorage.setItem(dismissalKey, 'true');
+      } catch (e) {
+        console.warn('Failed to save dismissal key:', e);
+      }
+      closeToast?.();
+    };
 
     const fetchAndAlert = async () => {
       try {
@@ -166,7 +184,7 @@ export const SupplierChequeAlert: React.FC = () => {
 
                 <button
                   type="button"
-                  onClick={() => closeToast?.()}
+                  onClick={() => handleExplicitDismiss(closeToast)}
                   className="px-2.5 py-1 text-[11px] font-medium bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300 rounded cursor-pointer transition-colors"
                 >
                   Dismiss for Today
@@ -179,16 +197,20 @@ export const SupplierChequeAlert: React.FC = () => {
             autoClose: false,
             closeOnClick: false,
             draggable: false,
-            closeButton: true,
-            className: 'border-l-4 border-l-amber-500 shadow-xl',
-            onClose: () => {
-              // Persist dismissal for today only when user actively closes it
-              try {
-                localStorage.setItem(dismissalKey, 'true');
-              } catch (e) {
-                console.warn('Failed to save dismissal key:', e);
-              }
-            },
+            closeButton: ({ closeToast }) => (
+              <button
+                type="button"
+                aria-label="Close supplier cheque alert"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleExplicitDismiss(closeToast);
+                }}
+                className="p-1 rounded-md text-slate-400 hover:text-slate-700 dark:text-zinc-400 dark:hover:text-zinc-100 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors self-start cursor-pointer"
+              >
+                <X className="size-4" />
+              </button>
+            ),
+            className: 'border-l-4 border-l-amber-500 shadow-xl w-full max-w-[calc(100vw-24px)] sm:max-w-md',
           }
         );
       } catch (err) {

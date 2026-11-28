@@ -32,6 +32,8 @@ export const PRODUCTION_STAGES = [
   'ALL STAGES',
   'CUTTING',
   'SEWING LINE',
+  'SEWING_SEWN',
+  'SEWING_WASH_READY',
   'WASHING',
   'FINISHING / PACKING',
   'IN STOCK / COMPLETED',
@@ -106,66 +108,80 @@ export const GarmentProductionReport: React.FC<GarmentProductionReportProps> = (
 
   // Dynamically compute real-time KPIs across filtered batches for the 6-stage funnel
   const kpis = useMemo(() => {
-    const totalBatches = summary.totalBatches ?? rows.length;
+    const isSubsetFiltered =
+      viewMode === 'active' ||
+      (Boolean(selectedStage) && selectedStage !== 'ALL STAGES' && selectedStage !== 'ALL');
 
-    // Strictly prioritize backend summary's stage-specific event-logging sums over batch row aggregations
-    const totalCutPieces = summary.totalCutPieces !== undefined
+    const totalBatches = isSubsetFiltered ? rows.length : (summary.totalBatches ?? rows.length);
+
+    const totalCutPieces = !isSubsetFiltered && summary.totalCutPieces !== undefined
       ? Number(summary.totalCutPieces)
       : rows.reduce((sum, row) => {
-          const cut = Number(row.cutQty > 0 ? row.cutQty : (row.totalCutUnits ?? (Array.isArray(row.cutLogs) && row.cutLogs.length > 0
+          const cut = Number(row.cutQtyYards ?? (row.cutQty > 0 ? row.cutQty : (row.totalCutUnits ?? (Array.isArray(row.cutLogs) && row.cutLogs.length > 0
             ? row.cutLogs.reduce((acc: number, c: any) => acc + (c.quantityCut || 0), 0)
-            : (row.completedQty || row.targetQuantity || 0))));
+            : 0))));
           return sum + cut;
         }, 0);
 
-    // 2. Stage 2 (Line WIP): In Sewing Line (WIP)
-    const inSewingWip = summary.inSewingWip !== undefined
+    // 2. Stage 2 (Line WIP): Per-batch physical WIP on Sewing Line floor (not yet sent to Wash Plant)
+    const inSewingWip = !isSubsetFiltered && summary.inSewingWip !== undefined
       ? Number(summary.inSewingWip)
       : rows.reduce((sum, row) => {
-          if (row.status !== 'CANCELLED' && row.status !== 'COMPLETED') {
-            const cut = Number(row.cutQty > 0 ? row.cutQty : (row.lineSentQty > 0 ? row.lineSentQty : (row.totalCutUnits ?? row.targetQuantity ?? 0)));
-            const sewn = Number(row.sewnQty || 0);
-            return sum + Math.max(0, cut - sewn);
-          }
-          return sum;
+          if (row.status === 'CANCELLED' || row.status === 'COMPLETED' || row.isStockSynced) return sum;
+          if (row.lineWipQty !== undefined) return sum + Number(row.lineWipQty || 0);
+          const intake = Number(row.lineIntakeQty ?? row.lineSentQty ?? 0);
+          const sewn = Number(row.sewnQty || 0);
+          const sentWash = Number(row.sentToWashQty || 0);
+          return sum + Math.max(0, Math.max(intake, sewn) - sentWash);
         }, 0);
 
-    // 3. Stage 3 (Sewn Output): Total Sewn Output strictly prioritized from isolated backend summary
-    const totalSewnOutput = summary.totalSewnOutput !== undefined
+    const totalLineIntake = !isSubsetFiltered && summary.totalLineIntake !== undefined
+      ? Number(summary.totalLineIntake)
+      : rows.reduce((sum, row) => sum + Number(row.lineIntakeQty ?? row.lineSentQty ?? 0), 0);
+
+    // 3. Stage 3 (Sewn Output / Wash Ready)
+    const totalSewnOutput = !isSubsetFiltered && summary.totalSewnOutput !== undefined
       ? Number(summary.totalSewnOutput)
-      : rows.reduce((sum, row) => {
-          const loggedSewn = Array.isArray(row.activityLogs)
-            ? row.activityLogs
-                .filter((a: any) => a.action === 'LOG_SEWN' || a.action === 'SEWN' || (a.stage === 'LINE' && String(a.action || '').includes('SEWN')))
-                .reduce((acc: number, l: any) => acc + (Number(l.quantity) || 0), 0)
-            : 0;
-          return sum + (loggedSewn > 0 ? loggedSewn : Number(row.sewnQty || 0));
-        }, 0);
+      : rows.reduce((sum, row) => sum + Number(row.sewnQty || 0), 0);
 
-    // 4. Stage 4 (Wash): In Wash / Washed strictly prioritized from isolated backend summary
-    const inWashTotal = summary.inWashTotal !== undefined
+    const totalWashReadyOnLine = rows.reduce((sum, row) => {
+      const hasLineWip = row.lineWipQty !== undefined
+        ? Number(row.lineWipQty || 0) > 0
+        : (row.status !== 'CANCELLED' && row.status !== 'COMPLETED' && !row.isStockSynced && Math.max(0, Math.max(Number(row.lineIntakeQty ?? row.lineSentQty ?? 0), Number(row.sewnQty || 0)) - Number(row.sentToWashQty || 0)) > 0);
+      if (!hasLineWip) return sum;
+      const sewn = Number(row.sewnQty || 0);
+      const sentWash = Number(row.sentToWashQty || 0);
+      return sum + Number(row.cumulativeWashReadyQty ?? row.washReadyQty ?? Math.max(0, sewn - sentWash));
+    }, 0);
+
+    const unsewnOnLine = Math.max(0, inSewingWip - totalWashReadyOnLine);
+
+    const totalWashReady = rows.reduce((sum, row) => {
+      const sewn = Number(row.sewnQty || 0);
+      const sentWash = Number(row.sentToWashQty || 0);
+      return sum + Number(row.washReadyQty ?? Math.max(0, sewn - sentWash));
+    }, 0);
+
+    // 4. Stage 4 (Wash): In Wash / Washed
+    const inWashTotal = !isSubsetFiltered && summary.inWashTotal !== undefined
       ? Number(summary.inWashTotal)
-      : rows.reduce((sum, row) => {
-          const loggedWash = Array.isArray(row.activityLogs)
-            ? row.activityLogs
-                .filter((a: any) => a.stage === 'WASHING' || String(a.action || '').includes('WASH'))
-                .reduce((acc: number, l: any) => acc + (Number(l.quantity) || 0), 0)
-            : 0;
-          return sum + (loggedWash > 0 ? loggedWash : (Number(row.sentToWashQty || 0) + Number(row.washedQty || 0)));
-        }, 0);
+      : rows.reduce((sum, row) => sum + Number(row.sentToWashQty || 0) + Number(row.washedQty || 0), 0);
 
-    // 5. Stage 5 (Iron & Pack): Ironed & Packed strictly prioritized from isolated backend summary
-    const ironedAndPacked = summary.ironedAndPacked !== undefined
+    // 5. Stage 5 (Iron & Pack): Ironed & Packed
+    const ironedAndPacked = !isSubsetFiltered && summary.ironedAndPacked !== undefined
       ? Number(summary.ironedAndPacked)
       : rows.reduce((sum, row) => {
           const logged = Array.isArray(row.finishLogs) && row.finishLogs.length > 0
             ? row.finishLogs.reduce((acc: number, f: any) => acc + (Number(f.quantityFinished) || 0), 0)
             : 0;
-          return sum + logged;
+          const finished = logged > 0
+            ? logged
+            : (Number(row.completedQty || 0) > 0 ? Number(row.completedQty) : Number(row.washedQty || 0));
+          return sum + finished;
         }, 0);
 
     // 6. Stage 6 (Finished Stock): Fully Finished / Synced to Inventory
-    const fullyFinishedSynced = summary.fullyFinishedSynced !== undefined
+    const fullyFinishedSynced = !isSubsetFiltered && summary.fullyFinishedSynced !== undefined
       ? Number(summary.fullyFinishedSynced)
       : rows.reduce((sum, row) => {
           const isSynced = Boolean(row.isStockSynced) && row.status !== 'CANCELLED';
@@ -182,14 +198,18 @@ export const GarmentProductionReport: React.FC<GarmentProductionReportProps> = (
     return {
       totalBatches,
       totalCutPieces,
+      totalLineIntake,
       inSewingWip,
+      washReadyOnLine: totalWashReadyOnLine,
+      unsewnOnLine,
       totalSewnOutput,
+      totalWashReady,
       inWashTotal,
       ironedAndPacked,
       fullyFinishedSynced,
       pendingStockSync,
     };
-  }, [rows, summary]);
+  }, [rows, summary, viewMode, selectedStage]);
 
   const stageConfig = useMemo(() => getProductionStageConfig(selectedStage), [selectedStage]);
 
@@ -321,28 +341,50 @@ export const GarmentProductionReport: React.FC<GarmentProductionReportProps> = (
           <p className="text-[11px] text-slate-400 mt-1">{kpis.totalBatches} Batches Started</p>
         </div>
 
-        {/* Stage 2: In Sewing Line (WIP) */}
+        {/* Stage 2: Current = In Sewing Line (WIP) | All = Total Line Intake */}
         <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
           <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">In Sewing Line (WIP)</p>
+            <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">
+              {viewMode === 'active' ? 'In Sewing Line (WIP)' : 'Total Line Intake'}
+            </p>
             <Clock className="w-3.5 h-3.5 text-indigo-500" />
           </div>
           <p className="text-lg md:text-xl font-bold mt-1 text-indigo-600 dark:text-indigo-400 font-mono">
-            {formatQty(kpis.inSewingWip)} <span className="text-xs font-medium text-slate-500">Pcs</span>
+            {formatQty(viewMode === 'active' ? kpis.inSewingWip : kpis.totalLineIntake)}{' '}
+            <span className="text-xs font-medium text-slate-500">Pcs</span>
           </p>
-          <p className="text-[11px] text-slate-400 mt-1">Ongoing in Sewing floor</p>
+          <p className="text-[11px] text-slate-400 mt-1">
+            {viewMode === 'active'
+              ? `Unsewn: ${formatQty(kpis.unsewnOnLine)} • Wash Ready: ${formatQty(kpis.washReadyOnLine)}`
+              : `Live Line WIP: ${formatQty(kpis.inSewingWip)} Pcs`}
+          </p>
         </div>
 
-        {/* Stage 3: Total Sewn Output */}
+        {/* Stage 3: Current = Sewn / Wash Ready (On Line) | All = Sewn Output / Wash Ready */}
         <div className={`p-3 sm:p-4 rounded-2xl border ${dark ? 'bg-zinc-900/70 border-zinc-800/80' : 'bg-white border-slate-200 shadow-sm'}`}>
           <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">Total Sewn Output</p>
+            <p className="text-xs font-semibold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">
+              {viewMode === 'active' ? 'Sewn / Wash Ready (On Line)' : 'Sewn Output / Wash Ready'}
+            </p>
             <Sparkles className="w-3.5 h-3.5 text-purple-500" />
           </div>
           <p className="text-lg md:text-xl font-bold mt-1 text-purple-600 dark:text-purple-400 font-mono">
-            {formatQty(kpis.totalSewnOutput)} <span className="text-xs font-medium text-slate-500">Pcs</span>
+            {formatQty(
+              viewMode === 'active'
+                ? kpis.washReadyOnLine
+                : selectedStage === 'SEWING_WASH_READY'
+                ? kpis.totalWashReady
+                : kpis.totalSewnOutput
+            )}{' '}
+            <span className="text-xs font-medium text-slate-500">Pcs</span>
           </p>
-          <p className="text-[11px] text-slate-400 mt-1">Exited Sewing floor</p>
+          <p className="text-[11px] text-slate-400 mt-1">
+            {viewMode === 'active'
+              ? 'Ready for Wash Plant on active line'
+              : selectedStage === 'SEWING_WASH_READY'
+              ? 'Sewn & awaiting Wash Plant'
+              : `Sent to Wash: ${formatQty(Math.max(0, kpis.totalSewnOutput - kpis.totalWashReady))} • Wash Ready: ${formatQty(kpis.totalWashReady)}`}
+          </p>
         </div>
 
         {/* Stage 4: In Wash / Washed */}
